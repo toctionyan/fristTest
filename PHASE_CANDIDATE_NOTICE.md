@@ -1,9 +1,9 @@
-# B17i Production Execution Handoff Phase Candidate
+# B17j CI Profile Boundary Repair Phase Candidate
 
 Status: `PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING`
 
-B17i does not add another customer-agent runtime abstraction. It makes failed release admission independently auditable by atomically writing `release-admission-result.json` for PASS, FAIL and environment-blocked outcomes and uploading it from the secret-free admission Job with the current Run ID and Run Attempt.
+B17j repairs a real GitHub CI orchestration defect found by a zero-file-difference PR. The four Skill self-validation profiles passed, but the project-wide `quality` Workflow also executed `project-compatibility-smoke`, whose only valid purpose is proving that a Skill-only change did not alter product source.
 
-It also adds the single final production execution Runbook covering repository-root layout, protected `main`, the `production-certification` Environment, required secrets, dispatch inputs, all three Artifact families and the exact `production_closed` acceptance boundary.
+Project CI now runs Skill static, unit, host-integration and security profiles directly. The Skill-only compatibility guard remains unchanged inside `skill-control-plane` and `skill-release`. No customer-agent runtime behavior changed.
 
-The current GitHub connector exposes no installed account or repository, and the local runtime still lacks Docker, the exact locked environments and production secrets. Therefore the real protected release has not run, the complete Quick Claim remains open and no `production_closed` artifact exists.
+The candidate is not production closed. Protected `main`, the `production-certification` Environment, production secrets and one successful same-run release execution are still required.
