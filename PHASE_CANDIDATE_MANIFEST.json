@@ -218,8 +218,8 @@
     },
     {
       "path": "B17J_STAGE_SUMMARY.json",
-      "size": 1662,
-      "sha256": "2361d4836d748f7f7e8e1882d6f0b580fa5f44591d8b78e6436bb904fed920aa"
+      "size": 2816,
+      "sha256": "d8e6168d46980f34a5fd53171fad5b50ce3067b0935ee1872beb40b39b30a5d5"
     },
     {
       "path": "CHANGELOG.md",
@@ -238,8 +238,8 @@
     },
     {
       "path": "PHASE_CANDIDATE_NOTICE.md",
-      "size": 844,
-      "sha256": "4716c7faf4e3a48d237de668a1b994e608e388c85191f0ece3690860a6315e48"
+      "size": 994,
+      "sha256": "d9df7ff4f1effe772221788f29cfa2fa1706b6461030714d3a2a356a347dd634"
     },
     {
       "path": "README.md",
@@ -668,8 +668,8 @@
     },
     {
       "path": "docs/architecture/V20_17_B17J_CI_PROFILE_BOUNDARY_REPAIR.md",
-      "size": 1477,
-      "sha256": "d45bd7bac1f251f07b006cfe0febdf09080bd70273aae795e4b92285fa1dbd91"
+      "size": 2182,
+      "sha256": "d98a327217f8d15a03e87929c757a1c832f6d1922f2210c6e2d72eef7b276f5d"
     },
     {
       "path": "docs/architecture/V20_17_B1_UTILS_SCC_EXTRACTION.md",
@@ -1108,8 +1108,8 @@
     },
     {
       "path": "governance/claims/repair-v20.17-b17j-ci-profile-boundary.json",
-      "size": 982,
-      "sha256": "f84fcbc6287547c4f1c97e10969e7172e1c54a9497538a49e256b5dc9cebc702"
+      "size": 2011,
+      "sha256": "f66764e7761012e2696aac069cb429545de1d6b6ce98933e690b0f571ff84cde"
     },
     {
       "path": "governance/claims/v20.10-semantic-goal-taxonomy-closure.json",
@@ -1913,8 +1913,8 @@
     },
     {
       "path": "governance/targets/repair-v20.17-b17j-ci-profile-boundary.md",
-      "size": 1918,
-      "sha256": "ef460ed5ef2720a568cf329317ae2be75cca22656796e8416de59f27b13f985b"
+      "size": 2641,
+      "sha256": "b0d4575261f3165ee0ec25a89503eb8c59064b0f47dea9699a92476eaed149ef"
     },
     {
       "path": "governance/targets/v20.10-semantic-goal-taxonomy-closure.md",
@@ -2033,8 +2033,8 @@
     },
     {
       "path": "release/VALIDATION_REPORT.md",
-      "size": 1347,
-      "sha256": "b3dd8a10acd55b09c756a2560ccd12a48c07b380312ce28fee38bbeb9f36c095"
+      "size": 2333,
+      "sha256": "b6a53244db257c9d9dd25d34c8c55ea5138350a03f0afff7353f804aa45a743f"
     },
     {
       "path": "scripts/analyze_context_campaign.py",
@@ -4093,8 +4093,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_quality_loop_governance.py",
-      "size": 38739,
-      "sha256": "e5396efb6139a1f5cb24f7304707c8361a27f19cef19f01dc36b3b144966a264"
+      "size": 39264,
+      "sha256": "9217f191149ad0577f7604a6a352867a366673f88cb7ca42aa8758222d1a12e7"
     },
     {
       "path": "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py",
@@ -4433,8 +4433,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py",
-      "size": 44028,
-      "sha256": "425a4f73f9b25f57f1089a23bf13edf7303077577782f6184669e42c02161859"
+      "size": 43992,
+      "sha256": "778724ea1dabaeaadd50e4f4b95475133aac2d1b504e2a07115c5b4a8b288df5"
     },
     {
       "path": "services/agent-service/tests/runtime/test_goal_change_evidence_contract.py",

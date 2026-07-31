@@ -17,3 +17,9 @@ The project `quality` Workflow now runs the four Skill self-validation profiles 
 ## Current boundary
 
 Local deterministic validation passes: 2 CI-boundary tests, 48 Skill unit tests, 7 security tests, Skill static/host checks, version consistency, architecture and Evidence contract. The GitHub retry is still required before the CI boundary can close. Protected production certification has not executed and no `production_closed` artifact exists.
+
+## GitHub Quick red baseline and round 2
+
+Run `30608910835` proved the Profile-boundary repair: `skill-self-validation` and `quality-static` passed. Quick Job `91087188820` then failed only three stale adversarial Harness tests while 134 tests in that gate passed. Two bridges called an undefined `_load_test_module`; the third expected Workflow-owned service startup that B17d had deliberately retired in favor of the production certification bundle.
+
+Round 2 replaces the missing-loader calls with direct imports of the authoritative B17e counterexamples. The stale architecture assertion now proves that `release.yml` delegates to `run_production_release.py` / `verify_production_certification_bundle.py`, while `verify_full_lifecycle_canary.py` owns the protected preprod service contract. Three targeted deterministic contracts and Python compilation pass locally. A locked Agent pytest runtime is absent locally, so the GitHub Quick retry remains the authoritative closure test.

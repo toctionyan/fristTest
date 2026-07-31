@@ -236,32 +236,39 @@ def test_release_workflow_reexecutes_full_release_without_prior_pass_reuse() -> 
     assert "${{ runner.temp }}/quality-target-release.md" not in workflow
 
 
-def test_protected_release_starts_the_services_with_the_protected_contract() -> None:
+def test_protected_release_delegates_service_startup_to_the_certification_bundle() -> None:
     root = workspace_root(__file__)
     workflow = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     protected = workflow.split("  protected-release:", 1)[1]
-    start_step = protected.split("- name: Start actual protected-profile services", 1)[1].split(
-        "- name: Run every release gate", 1
-    )[0]
+    runtime_owner = (root / "scripts" / "verify_full_lifecycle_canary.py").read_text(encoding="utf-8")
+    certification_bundle = (
+        root / "scripts" / "verify_production_certification_bundle.py"
+    ).read_text(encoding="utf-8")
 
     assert "APP_PROFILE: local" not in protected
+    assert "Start actual protected-profile services" not in protected
+    assert "Validate protected runtime prerequisites" in protected
+    assert "scripts/run_production_release.py" in protected
+    assert "scripts/verify_production_certification_bundle.py" in protected
+    assert '"browser": SCRIPTS / "verify_production_browser_bundle.py"' in certification_bundle
+
     for required in (
-        "APP_PROFILE: preprod",
-        "BUSINESS_DB_BACKEND: postgres",
-        "BUSINESS_DATABASE_URL: postgresql://",
-        "BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'true'",
-        "AGENT_AUTH_PROVIDER: jwt_hs256",
-        "AGENT_DB_BACKEND: postgres",
-        "CHECKPOINT_BACKEND: postgres",
-        "RAG_BACKEND: pgvector",
-        "DOCUMENT_JOB_BACKEND: sqlalchemy",
-        "DOCUMENT_OBJECT_STORE_BACKEND: shared_filesystem",
-        "STATE_CONTRACT_MODE: strict",
-        "CAPABILITY_SEMANTIC_VERIFIER_MODE: model",
-        "GOAL_ALIGNMENT_VERIFIER_MODE: model",
-        "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE: model",
+        '"APP_PROFILE": "preprod"',
+        '"BUSINESS_DB_BACKEND": "postgres"',
+        '"BUSINESS_DATABASE_URL": self.persistence_url',
+        '"BUSINESS_REQUIRE_ACTOR_SIGNATURE": "true"',
+        '"AGENT_AUTH_PROVIDER": "jwt_hs256"',
+        '"AGENT_DB_BACKEND": "postgres"',
+        '"CHECKPOINT_BACKEND": "postgres"',
+        '"RAG_BACKEND": "pgvector"',
+        '"DOCUMENT_JOB_BACKEND": "sqlalchemy"',
+        '"DOCUMENT_OBJECT_STORE_BACKEND": "shared_filesystem"',
+        '"STATE_CONTRACT_MODE": "strict"',
+        '"CAPABILITY_SEMANTIC_VERIFIER_MODE": "model"',
+        '"GOAL_ALIGNMENT_VERIFIER_MODE": "model"',
+        '"ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model"',
     ):
-        assert required in start_step
+        assert required in runtime_owner
 
 
 def test_architecture_policy_requires_business_postgres_configuration() -> None:
