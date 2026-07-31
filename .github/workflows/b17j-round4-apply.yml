@@ -1,0 +1,65 @@
+name: B17j Round 4 Atomic Repair
+
+on:
+  push:
+    branches:
+      - agent/b17i-quality-validation
+    paths:
+      - scripts/b17j_round4_apply.py
+      - .github/workflows/b17j-round4-apply.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: b17j-round4-atomic-repair
+  cancel-in-progress: false
+
+jobs:
+  apply-bounded-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b17i-quality-validation
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Apply round-4 virtualenv interpreter repair
+        run: python3 -B scripts/b17j_round4_apply.py
+      - name: Validate exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast, hashlib, json
+          from pathlib import Path
+          root = Path('.')
+          for rel in (
+              'scripts/verify_full_lifecycle_canary.py',
+              'services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py',
+          ):
+              ast.parse((root / rel).read_text(encoding='utf-8'), filename=rel)
+          source = (root / 'scripts/verify_full_lifecycle_canary.py').read_text(encoding='utf-8')
+          assert 'return candidate.absolute()' in source
+          assert 'return candidate.resolve()' not in source
+          manifest = json.loads((root / 'PHASE_CANDIDATE_MANIFEST.json').read_text(encoding='utf-8'))
+          assert manifest['phase'] == 'B17j'
+          assert manifest['file_count'] == len(manifest['files']) == 1052
+          assert manifest['production_closed'] is False
+          for entry in manifest['files']:
+              payload = (root / entry['path']).read_bytes()
+              assert len(payload) == entry['size'], entry['path']
+              assert hashlib.sha256(payload).hexdigest() == entry['sha256'], entry['path']
+          print('B17j round-4 candidate validation PASS')
+          PY
+      - name: Commit exact B17j round-4 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'No repair changes'; exit 1; }
+          git commit -m 'Preserve B17j virtualenv interpreter identity'
+          git push origin HEAD:agent/b17i-quality-validation
