@@ -1,0 +1,212 @@
+name: production-certification-release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Official model provider
+        required: true
+        type: choice
+        options:
+          - openai
+          - deepseek
+      model:
+        description: Current official provider model ID
+        required: true
+        type: string
+      embedding_model:
+        description: OpenAI-compatible embedding model used by protected pgvector journeys
+        required: true
+        default: text-embedding-3-small
+        type: string
+      embedding_dimension:
+        description: Vector dimension emitted by the selected embedding model
+        required: true
+        default: '1536'
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  PRODUCTION_RELEASE_EXPECTED_EVENT: workflow_dispatch
+  PRODUCTION_RELEASE_EXPECTED_WORKFLOW: production-certification-release
+  PRODUCTION_RELEASE_EXPECTED_JOB: protected-release
+  PRODUCTION_RELEASE_EXPECTED_REF: refs/heads/main
+
+concurrency:
+  group: production-certification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Fail closed on invalid release admission
+        env:
+          RELEASE_INPUT_PROVIDER: ${{ inputs.provider }}
+          RELEASE_INPUT_MODEL: ${{ inputs.model }}
+          RELEASE_INPUT_EMBEDDING_MODEL: ${{ inputs.embedding_model }}
+          RELEASE_INPUT_EMBEDDING_DIMENSION: ${{ inputs.embedding_dimension }}
+          RELEASE_ADMISSION_RESULT: ${{ runner.temp }}/release-admission-result.json
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/release_admission_contract.py
+          --output "$RELEASE_ADMISSION_RESULT"
+      - name: Upload sanitized release admission evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-release-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-admission-result.json
+          retention-days: 30
+          if-no-files-found: error
+
+  protected-release:
+    needs: release-admission
+    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_protected == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    environment: production-certification
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Validate protected Environment configuration
+        env:
+          OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+          OPENAI_MODEL: ${{ inputs.model }}
+          OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
+          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
+          EMBEDDING_PROVIDER: openai
+          EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
+          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
+          EMBEDDING_MODEL: ${{ inputs.embedding_model }}
+          EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
+          QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
+          PROTECTED_ENVIRONMENT_PREFLIGHT_RESULT: ${{ runner.temp }}/protected-environment-preflight.json
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/protected_environment_preflight.py
+          --workspace-root . --output "$PROTECTED_ENVIRONMENT_PREFLIGHT_RESULT"
+      - name: Validate release supply-chain lock
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/release_toolchain_contract.py
+          --workspace-root . --static-only
+      - name: Install locked Python and frontend environments
+        run: |
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Capture locked release toolchain provenance
+        env:
+          TOOLCHAIN_EVIDENCE: ${{ runner.temp }}/release-toolchain-provenance.json
+        run: |
+          services/agent-service/.venv/bin/python -B scripts/release_toolchain_contract.py \
+            --workspace-root . --output "$TOOLCHAIN_EVIDENCE"
+          TOOLCHAIN_FINGERPRINT=$(services/agent-service/.venv/bin/python -c \
+            'import json,os; print(json.load(open(os.environ["TOOLCHAIN_EVIDENCE"], encoding="utf-8"))["toolchain_fingerprint_sha256"])')
+          echo "PRODUCTION_CERTIFICATION_TOOLCHAIN_EVIDENCE=$TOOLCHAIN_EVIDENCE" >> "$GITHUB_ENV"
+          RUN_IDENTITY_FINGERPRINT=$(services/agent-service/.venv/bin/python -c \
+            'import json,os; print(json.load(open(os.environ["TOOLCHAIN_EVIDENCE"], encoding="utf-8"))["ci_run_identity"]["run_identity_fingerprint_sha256"])')
+          echo "PRODUCTION_CERTIFICATION_TOOLCHAIN_FINGERPRINT=$TOOLCHAIN_FINGERPRINT" >> "$GITHUB_ENV"
+          echo "PRODUCTION_CERTIFICATION_RUN_IDENTITY_FINGERPRINT=$RUN_IDENTITY_FINGERPRINT" >> "$GITHUB_ENV"
+      - name: Create immutable release target
+        env:
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-release.md
+        run: >-
+          services/agent-service/.venv/bin/python -B scripts/create_ci_quality_target.py
+          --output "$QUALITY_TARGET"
+          --ref "${{ github.sha }}"
+          --workflow release-quality
+          --claims-source governance/claims/v20.6.2-project-release-certification.json
+      # The single runner below executes quality_loop.py --mode release and,
+      # only after the live production-certification-bundle passes, delegates
+      # protected packaging to scripts/build_clean_release.py.
+      - name: Validate protected runtime prerequisites
+        run: |
+          # Protected browser runtime contract (owned dynamically by B17d):
+          # APP_PROFILE: preprod
+          # BUSINESS_DB_BACKEND: postgres
+          # BUSINESS_DATABASE_URL: postgresql://<owned-runtime>
+          # BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'true'
+          # AGENT_AUTH_PROVIDER: jwt_hs256
+          # AGENT_DB_BACKEND: postgres
+          # CHECKPOINT_BACKEND: postgres
+          # RAG_BACKEND: pgvector
+          # DOCUMENT_JOB_BACKEND: sqlalchemy
+          # DOCUMENT_OBJECT_STORE_BACKEND: shared_filesystem
+          # STATE_CONTRACT_MODE: strict
+          # CAPABILITY_SEMANTIC_VERIFIER_MODE: model
+          # GOAL_ALIGNMENT_VERIFIER_MODE: model
+          # ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE: model
+          test -x services/agent-service/.venv/bin/python
+          test -f scripts/verify_production_certification_bundle.py
+      - name: Run every release gate
+        env:
+          OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+          OPENAI_MODEL: ${{ inputs.model }}
+          OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
+          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
+          EMBEDDING_PROVIDER: openai
+          EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
+          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
+          EMBEDDING_MODEL: ${{ inputs.embedding_model }}
+          EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
+          QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-release.md
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/production-release-evidence
+          PRODUCTION_OUTPUT_DIR: ${{ runner.temp }}/production-release-artifacts
+          RELEASE_CONTROL_DIR: ${{ runner.temp }}/production-release-control
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: >-
+          services/agent-service/.venv/bin/python -B scripts/run_production_release.py
+          --workspace-root .
+          --target "$QUALITY_TARGET"
+          --evidence-dir "$QUALITY_EVIDENCE_DIR"
+          --output-dir "$PRODUCTION_OUTPUT_DIR"
+          --result-path "$RELEASE_CONTROL_DIR/production-release-result.json"
+          --artifact-name customer_agent_workspace_v20_17_production_closed
+      - name: Upload signed production evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-certification-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/production-release-evidence
+            ${{ runner.temp }}/production-release-control/production-release-result.json
+            ${{ github.workspace }}/.quality/targets/quality-target-release.md
+            ${{ github.workspace }}/.quality/targets/quality-target-release.claims.json
+            ${{ runner.temp }}/release-toolchain-provenance.json
+            ${{ runner.temp }}/protected-environment-preflight.json
+          retention-days: 30
+          if-no-files-found: warn
+          include-hidden-files: true
+      - name: Upload production closed artifacts
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-closed-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/production-release-artifacts/*
+          retention-days: 30
+          if-no-files-found: error
