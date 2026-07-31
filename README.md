@@ -1,10 +1,17 @@
-# Customer Agent Workspace · V20.6 / Skill V6.3 · Governance V20.17 B17i
+# Customer Agent Workspace · V20.6 / Skill V6.3 · Governance V20.17 B17j
 
-这是客服 Agent 开发工作区。产品应用版本仍为 **20.6.1**，架构与发布治理阶段为 **V20.17 B17i**，Architecture Skill 版本为 **6.3.0**。
+这是客服 Agent 开发工作区。产品应用版本仍为 **20.6.1**，架构与发布治理阶段为 **V20.17 B17j**，Architecture Skill 版本为 **6.3.0**。
 
 B17a–B17i 修改了生产认证 Harness、发布控制器、供应链、CI 运行身份与受保护环境预检合同；没有改动客服语义理解、Prompt、Capability、事务协议、业务规则、模型路由或 RAG 业务行为。
 
-## 当前 B17i 状态
+
+## 当前 B17j 状态
+
+- 真实 GitHub 零差异 PR 证明四个 Skill 自检通过，唯一失败是把 Skill-only 产品树兼容性 Gate 错用于通用项目 CI。
+- 项目 `quality` Workflow 现在直接运行 Skill static、unit、host integration、security；Skill-only release 仍保留 `project-compatibility-smoke`。
+- 产品 Quality Loop、客服运行时和生产关单边界均未降低。
+
+## B17i 生产执行交接状态
 
 - B17i 为无密钥 `release-admission` 增加原子 JSON 和 `always()` Artifact，因此非法分支或输入也有独立可下载证据。
 - 最终 GitHub 执行步骤见 `docs/operations/B17I_FINAL_PRODUCTION_EXECUTION_RUNBOOK.md`。
