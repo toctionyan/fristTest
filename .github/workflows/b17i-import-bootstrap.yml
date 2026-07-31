@@ -7,6 +7,15 @@ on:
     paths:
       - b17i_source.tar.xz
       - .github/workflows/b17i-import-bootstrap.yml
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+    paths:
+      - B17I_IMPORT_TRIGGER.md
+      - .github/workflows/b17i-import-bootstrap.yml
   workflow_dispatch:
 
 permissions:
@@ -18,7 +27,7 @@ concurrency:
 
 jobs:
   import-verified-source:
-    if: github.repository == 'toctionyan/fristTest' && github.ref == 'refs/heads/main'
+    if: github.repository == 'toctionyan/fristTest' && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
