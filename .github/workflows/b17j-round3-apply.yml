@@ -1,0 +1,63 @@
+name: B17j Round 3 Atomic Repair
+
+on:
+  push:
+    branches:
+      - agent/b17i-quality-validation
+    paths:
+      - scripts/b17j_round3_apply.py
+      - .github/workflows/b17j-round3-apply.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: b17j-round3-atomic-repair
+  cancel-in-progress: false
+
+jobs:
+  apply-bounded-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b17i-quality-validation
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Apply round-3 metadata and subprocess isolation repair
+        run: python3 -B scripts/b17j_round3_apply.py
+      - name: Validate exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast, hashlib, json
+          from pathlib import Path
+          root = Path('.')
+          for rel in (
+              'services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py',
+              'services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py',
+          ):
+              ast.parse((root / rel).read_text(encoding='utf-8'), filename=rel)
+          assert (root / 'CHANGELOG.md').read_text(encoding='utf-8').startswith('# V20.17 B17j')
+          manifest = json.loads((root / 'PHASE_CANDIDATE_MANIFEST.json').read_text(encoding='utf-8'))
+          assert manifest['phase'] == 'B17j'
+          assert manifest['file_count'] == len(manifest['files']) == 1052
+          assert manifest['production_closed'] is False
+          for entry in manifest['files']:
+              payload = (root / entry['path']).read_bytes()
+              assert len(payload) == entry['size'], entry['path']
+              assert hashlib.sha256(payload).hexdigest() == entry['sha256'], entry['path']
+          print('B17j round-3 candidate validation PASS')
+          PY
+      - name: Commit exact B17j round-3 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'No repair changes'; exit 1; }
+          git commit -m 'Isolate B17j CI subprocess test environments'
+          git push origin HEAD:agent/b17i-quality-validation
