@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b0-unsupported-capability-surface-binding",
+  "claims": [
+    {
+      "id": "UNSUPPORTED-CAPABILITY-SURFACE-BINDING-001",
+      "statement": "当 Capability Surface 明确证明目标能力不存在时，规划节点与执行 Gate 必须使用同一不可变能力面证据，report_unsupported_request 必须成功完成目标且不能被判为 CAPABILITY_GOAL_EFFECT_MISMATCH。",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py::test_proven_unsupported_goal_completes_without_similar_capability"
+      ],
+      "owner": "agent-runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17a-production-certification-authority",
+  "claims": [
+    {
+      "id": "V20-17-B17A-PRODUCTION-AUTHORITY-001",
+      "statement": "Release accepts production certification only when one live controller binds official-provider real-model evidence, owned PostgreSQL/pgvector restart-concurrency evidence, and configured-model Playwright browser evidence to one session and one unchanged source fingerprint.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17a_production_certification_authority_adversarial_bridge"
+      ],
+      "owner": "production certification control plane",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

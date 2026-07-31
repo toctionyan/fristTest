@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b12c-final-tree",
+  "claims": [
+    {
+      "id": "V20-17-B12C-FINAL-TREE-001",
+      "statement": "The closed B12/B12c final delivery tree preserves the explicit transaction execution boundary, keeps transaction outside the main SCC, honestly discloses the deleted historical review evidence without hash substitution, and passes all current product gates.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "frontend-vitest",
+        "frontend-build",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py::test_transaction_consumes_explicit_execution_dependencies_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_b12_review_evidence_recovery.py::test_b12_closed_review_evidence_is_honestly_recovered"
+      ],
+      "owner": "closed B12 and B12c delivery tree",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

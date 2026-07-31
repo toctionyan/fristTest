@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-v20.17-b12c-review-evidence-recovery",
+  "problem": "B12b product code, Quick evidence and control-plane verification converged, but its two human review evidence files were later deleted while the closed contract retained their historical SHA-256 values.",
+  "options": [
+    {
+      "id": "pretend-original-files-exist",
+      "strategy": "unsafe",
+      "name": "Recreate files and claim the old hashes",
+      "correctness": "Impossible without the original bytes and would falsify evidence.",
+      "complexity": "Low but dishonest.",
+      "migration": "None.",
+      "rollback": "N/A",
+      "verification": "Rejected."
+    },
+    {
+      "id": "honest-evidence-recovery",
+      "strategy": "evolutionary",
+      "name": "Preserve old contract and add replacement reviews",
+      "correctness": "Retains the historical record and explicitly distinguishes missing old evidence from newly generated replacement evidence.",
+      "complexity": "Small governance-only repair plus full re-certification.",
+      "migration": "Save the exact closed contract, add a recovery manifest and two replacement reviews, run complete Quick, then close a new repair contract.",
+      "rollback": "Remove only the recovery artifacts and repair contract.",
+      "verification": "Evidence-recovery counterexample plus complete Quick."
+    }
+  ],
+  "selected_option": "honest-evidence-recovery",
+  "rejected_reasons": {
+    "pretend-original-files-exist": "Would misrepresent evidence provenance."
+  },
+  "deletions": [],
+  "unknowns": [
+    "The original review bytes cannot be reconstructed from hashes alone."
+  ],
+  "selected_responsibilities": [
+    "The historical B12b contract remains immutable evidence of what was signed.",
+    "The B12c recovery manifest owns the disclosure and replacement evidence mapping.",
+    "The product quality loop re-certifies the unchanged product implementation."
+  ],
+  "preserved_hard_invariants": [
+    "No product implementation changes.",
+    "No historical SHA-256 value is rewritten or claimed for new content.",
+    "B12 Transaction/Runtime boundary and all previous architecture removals remain permanent."
+  ],
+  "cutover_strategy": "Record expected-red with missing recovery artifacts, add exact prior contract and new hash-bound reviews, then run complete Quick and close independently.",
+  "acceptance_claims": [
+    "Recovery artifacts are internally hash-consistent and explicitly disclose the original loss.",
+    "The B12 transaction boundary remains at a two-package lifecycle/runtime SCC.",
+    "All backend, frontend, lifecycle and Chromium gates pass."
+  ],
+  "baseline_changes": []
+}

@@ -1,0 +1,14 @@
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime state is machine-local and never belongs to source or a release archive.
+runtime/**
+!runtime/**/.gitkeep
+
+# Generated artifacts
+*.log
+.env

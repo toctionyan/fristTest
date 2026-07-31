@@ -1,0 +1,214 @@
+{
+  "evidence": [
+    {
+      "case_id": "v183-order-list-runtime-to-sse-to-dom",
+      "producer_id": "commerce_orders_list",
+      "contract_id": "commerce.order_list@1",
+      "provenance": {
+        "kind": "runtime_instrumentation",
+        "test": "tests/presentation/test_presentation_contracts.py::test_conversation_sse_result_keeps_the_canonical_block_without_a_mapper_rewrite"
+      },
+      "pipeline": [
+        "formal_entrypoint",
+        "producer",
+        "projection_boundary",
+        "structured_result_release_gate",
+        "api_or_sse_payload",
+        "channel_renderer"
+      ],
+      "assertions": {
+        "formal_release_gate_passed": true,
+        "contract_preserved": true,
+        "renderer_registered": true,
+        "renderer_contract_preserved": true,
+        "legacy_path_reachable": false,
+        "semantic_fallback_used": false,
+        "coverage": {
+          "mode": "full",
+          "source_population": "resolved_order_collection",
+          "status": "complete",
+          "resolved_member_count": 2,
+          "presented_member_count": 2
+        }
+      },
+      "rendering_evidence": {
+        "kind": "dom",
+        "location": "frontend/src/components/ChatPanel.test.jsx::renders the canonical commerce order-list contract without field fallbacks"
+      }
+    },
+    {
+      "case_id": "v184-parameterized-logistics-runtime-to-sse-to-dom",
+      "producer_id": "commerce_orders_logistics",
+      "contract_id": "commerce.logistics_overview@1",
+      "provenance": {
+        "kind": "runtime_instrumentation",
+        "test": "tests/context/test_parameterized_capability_alignment.py::test_filtered_logistics_uses_backend_parameter_and_presents_only_matches"
+      },
+      "pipeline": [
+        "formal_entrypoint",
+        "producer",
+        "projection_boundary",
+        "structured_result_release_gate",
+        "api_or_sse_payload",
+        "channel_renderer"
+      ],
+      "assertions": {
+        "formal_release_gate_passed": true,
+        "contract_preserved": true,
+        "renderer_registered": true,
+        "renderer_contract_preserved": true,
+        "legacy_path_reachable": false,
+        "semantic_fallback_used": false,
+        "coverage": {
+          "mode": "full",
+          "source_population": "requested_result_population",
+          "status": "complete",
+          "resolved_member_count": 1,
+          "presented_member_count": 1
+        }
+      },
+      "rendering_evidence": {
+        "kind": "dom",
+        "location": "frontend/src/components/ChatPanel.test.jsx::renders all canonical logistics fields instead of an empty unknown block"
+      }
+    },
+    {
+      "case_id": "v183-status-runtime-to-sse-to-dom",
+      "producer_id": "commerce_related_resource_status",
+      "contract_id": "commerce.business_status_list@1",
+      "provenance": {
+        "kind": "runtime_instrumentation",
+        "test": "tests/presentation/test_result_release.py::test_related_status_and_next_action_traces_are_projected_by_registered_contracts (ResponseProjector → SSE assertions)"
+      },
+      "pipeline": [
+        "formal_entrypoint",
+        "producer",
+        "projection_boundary",
+        "structured_result_release_gate",
+        "api_or_sse_payload",
+        "channel_renderer"
+      ],
+      "assertions": {
+        "formal_release_gate_passed": true,
+        "contract_preserved": true,
+        "renderer_registered": true,
+        "renderer_contract_preserved": true,
+        "legacy_path_reachable": false,
+        "semantic_fallback_used": false,
+        "coverage": {
+          "mode": "full",
+          "source_population": "resolved_related_resource_collection",
+          "status": "complete",
+          "resolved_member_count": 1,
+          "presented_member_count": 1
+        }
+      },
+      "rendering_evidence": {
+        "kind": "dom",
+        "location": "frontend/src/components/ChatPanel.test.jsx::renders a canonical business status list"
+      }
+    },
+    {
+      "case_id": "v183-next-actions-runtime-to-sse-to-dom",
+      "producer_id": "commerce_verified_next_actions",
+      "contract_id": "commerce.next_actions@1",
+      "provenance": {
+        "kind": "runtime_instrumentation",
+        "test": "tests/presentation/test_result_release.py::test_related_status_and_next_action_traces_are_projected_by_registered_contracts (ResponseProjector → SSE assertions)"
+      },
+      "pipeline": [
+        "formal_entrypoint",
+        "producer",
+        "projection_boundary",
+        "structured_result_release_gate",
+        "api_or_sse_payload",
+        "channel_renderer"
+      ],
+      "assertions": {
+        "formal_release_gate_passed": true,
+        "contract_preserved": true,
+        "renderer_registered": true,
+        "renderer_contract_preserved": true,
+        "legacy_path_reachable": false,
+        "semantic_fallback_used": false,
+        "coverage": {
+          "mode": "not_collection",
+          "source_population": "verified_single_target",
+          "status": "not_applicable"
+        }
+      },
+      "rendering_evidence": {
+        "kind": "dom",
+        "location": "frontend/src/components/ChatPanel.test.jsx::dispatches a canonical next-action without guessing target fields"
+      }
+    },
+    {
+      "case_id": "v183-transaction-status-runtime-to-sse-to-dom",
+      "producer_id": "runtime_transaction_status",
+      "contract_id": "runtime.transaction_status@1",
+      "provenance": {
+        "kind": "runtime_instrumentation",
+        "test": "tests/presentation/test_result_release.py::test_transaction_status_is_a_core_contract_not_a_legacy_raw_block (ResponseProjector → SSE assertions)"
+      },
+      "pipeline": [
+        "formal_entrypoint",
+        "producer",
+        "projection_boundary",
+        "structured_result_release_gate",
+        "api_or_sse_payload",
+        "channel_renderer"
+      ],
+      "assertions": {
+        "formal_release_gate_passed": true,
+        "contract_preserved": true,
+        "renderer_registered": true,
+        "renderer_contract_preserved": true,
+        "legacy_path_reachable": false,
+        "semantic_fallback_used": false,
+        "coverage": {
+          "mode": "not_collection",
+          "source_population": "runtime_transaction_outcome",
+          "status": "not_applicable"
+        }
+      },
+      "rendering_evidence": {
+        "kind": "dom",
+        "location": "frontend/src/components/ChatPanel.test.jsx::renders a canonical runtime transaction status through its registered contract"
+      }
+    },
+    {
+      "case_id": "v184-interaction-timeline-runtime-to-history-to-dom",
+      "producer_id": "runtime_interaction_timeline",
+      "contract_id": "runtime.interaction_timeline@1",
+      "provenance": {
+        "kind": "runtime_instrumentation",
+        "test": "tests/context/test_parameterized_capability_alignment.py::test_thread_history_exposes_released_timeline_blocks_but_not_live_interaction_controls"
+      },
+      "pipeline": [
+        "formal_entrypoint",
+        "producer",
+        "projection_boundary",
+        "structured_result_release_gate",
+        "api_or_sse_payload",
+        "channel_renderer"
+      ],
+      "assertions": {
+        "formal_release_gate_passed": true,
+        "contract_preserved": true,
+        "renderer_registered": true,
+        "renderer_contract_preserved": true,
+        "legacy_path_reachable": false,
+        "semantic_fallback_used": false,
+        "coverage": {
+          "mode": "not_collection",
+          "source_population": "runtime_transaction_interaction",
+          "status": "not_applicable"
+        }
+      },
+      "rendering_evidence": {
+        "kind": "dom",
+        "location": "frontend/src/components/ChatPanel.test.jsx::renders a read-only interaction timeline event in the chat transcript"
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14f1-sqlite-resource-lifecycle",
+  "claims": [
+    {
+      "id": "V20-17-B14F1-SQLITE-RESOURCE-001",
+      "statement": "SQLite resources owned by cached providers, Agent/Document services and local RAG operations are explicitly closed; the standard Agent suite emits no unclosed-database ResourceWarning.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14f1_sqlite_resource_lifecycle_adversarial_bridge"
+      ],
+      "owner": "agent_core.persistence resource lifecycle and application shutdown boundary",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B14F1B-CANARY-PYTHON-001",
+      "statement": "The full lifecycle canary resolves declared or current Python interpreters and no longer requires in-tree service virtualenv paths.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "full-lifecycle-canary"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14f1_sqlite_resource_lifecycle_adversarial_bridge"
+      ],
+      "owner": "product lifecycle certification harness",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B14F1C-BROWSER-RUNTIME-001",
+      "statement": "The real product browser journey resolves an explicit path, then Playwright's lock-matched browser, then a system Chromium fallback; managed browser policy is reported as an environment block rather than a product failure.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14f1c_browser_certification_boundary_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14f1c_system_chromium_fallback_adversarial_bridge"
+      ],
+      "owner": "real-browser runtime resolution and environment-classification boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

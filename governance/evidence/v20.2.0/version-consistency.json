@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "workspace_version": "20.2.0",
+  "skill_version": "5.2.0",
+  "checked_versions": {
+    "VERSION": "20.2.0",
+    "governance/architecture-policy.json": "20.2.0",
+    "release/MANIFEST.json": "20.2.0",
+    "services/agent-service/pyproject.toml": "20.2.0",
+    "services/business-service/pyproject.toml": "20.2.0"
+  }
+}

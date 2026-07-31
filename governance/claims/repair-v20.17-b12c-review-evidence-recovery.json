@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b12c-review-evidence-recovery",
+  "claims": [
+    {
+      "id": "B12C-REVIEW-EVIDENCE-RECOVERY-001",
+      "statement": "The exact closed B12b contract is preserved, the loss of its two review files is recorded without falsifying their historical hashes, replacement reviews are hash-bound, no product implementation changes, and the complete B12 product certification remains green.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_b12_review_evidence_recovery.py::test_b12_closed_review_evidence_is_honestly_recovered",
+        "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py::test_transaction_consumes_explicit_execution_dependencies_and_exits_main_scc"
+      ],
+      "owner": "product governance evidence recovery",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

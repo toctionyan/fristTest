@@ -1,0 +1,10 @@
+# Optional production database/RAG dependencies.
+# Keep requirements.txt small for local demo tests; install this file when enabling
+# AGENT_DB_BACKEND=postgres/sqlalchemy/mysql or RAG_BACKEND=pgvector/qdrant.
+SQLAlchemy>=2.0.30
+alembic>=1.13.0
+psycopg[binary,pool]>=3.2.0
+langgraph-checkpoint-postgres>=2.0.0
+PyMySQL>=1.1.0
+qdrant-client>=1.9.0
+openai>=1.30.0

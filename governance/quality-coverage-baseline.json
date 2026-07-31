@@ -1,0 +1,6 @@
+{
+  "schema_version": 2,
+  "python_minimum_line_rate": 0.5614,
+  "frontend_minimum_line_rate": 0.2627,
+  "policy": "Measured from the first green standard suite (Python XML and frontend Vitest V8 JSON); future reviewed changes may only raise either floor."
+}

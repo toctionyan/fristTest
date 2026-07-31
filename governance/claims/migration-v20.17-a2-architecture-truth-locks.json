@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-a2-architecture-truth-locks",
+  "claims": [
+    {
+      "id": "ARCHITECTURE-CURRENT-OWNER-001",
+      "statement": "Current architecture documentation names the State Schema v2 authority chain as the sole current owner and marks TurnGoalPlan and WorkflowPlan records superseded.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_current_architecture_truth.py::test_current_architecture_document_is_the_only_current_owner"
+      ],
+      "owner": "docs/architecture/CURRENT_ARCHITECTURE.md",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "PYTHON-LOCK-REPRODUCIBILITY-001",
+      "statement": "Agent and Business Python projects have current uv.lock files, uv lock --check succeeds for each project, and clean-release source selection includes both locks.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible"
+      ],
+      "owner": "services/*/uv.lock + scripts/release_artifact.py source selection",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

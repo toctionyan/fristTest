@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "active": [],
+  "note": "运行时 active Change Contract 使用 governance/active-change.json；历史 Target 默认不加载。"
+}

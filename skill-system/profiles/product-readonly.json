@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "product-readonly",
+  "description": "诊断、设计和 Oracle Review 的只读产品验证。",
+  "commands": [
+    ["{python}", "-B", "skill-system/controller/product_contract_gate.py"]
+  ]
+}

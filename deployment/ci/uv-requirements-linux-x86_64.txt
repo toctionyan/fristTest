@@ -1,0 +1,3 @@
+# B17e protected release bootstrap. Ubuntu x86_64 only; hash is the PyPI wheel digest.
+uv==0.11.29 \
+    --hash=sha256:eec03a8b63d55915694db3af4e91324b39ced49e2aeac7af37851c7eb3f470ea

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "policies": [
+    "skill-system/core/constitution.md",
+    "skill-system/core/rule-model.md",
+    "skill-system/core/change-contract.md",
+    "skill-system/core/architecture-decision.md",
+    "skill-system/core/architecture-variance.md",
+    "skill-system/core/evidence-contract.md",
+    "skill-system/core/security-contract.md",
+    "skill-system/core/stop-contract.md",
+    "governance/architecture-policy.json",
+    "governance/quality-loop-policy.json"
+  ]
+}

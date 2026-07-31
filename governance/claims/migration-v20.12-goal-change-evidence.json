@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.12-goal-change-evidence",
+  "claims": [
+    {
+      "id": "GOAL-CHANGE-EVIDENCE-001",
+      "statement": "历史 Goal 生命周期、Patch 与替换必须绑定当前用户原文证据、expected revision 和允许字段，模型不能以形式合法操作无证据地改变历史 Goal。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_12_goal_change_evidence_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.semantic_state_changes + goal_lifecycle",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "FOCUS-CHANGE-EVIDENCE-001",
+      "statement": "Focus 变更必须使用有限操作、当前原文证据、focus revision 和有效的 Goal 或 Interaction 引用，不能合并任意模型字典。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_12_focus_change_evidence_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.semantic_state_changes + tool_execution_runtime",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "FROZEN-SEMANTIC-INTEGRITY-001",
+      "statement": "冻结语义合同的内容在每次进入 Goal、Plan 或 dispatch 前必须重新计算摘要；修改内容但保留旧 digest 不能继续执行。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_12_frozen_semantic_integrity_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.semantic_contract + workflow_runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

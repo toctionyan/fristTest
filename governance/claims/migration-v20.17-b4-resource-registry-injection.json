@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b4-resource-registry-injection",
+  "claims": [
+    {
+      "id": "RESOURCE-REGISTRY-INJECTION-SCC-001",
+      "statement": "TargetResolver receives ResourcePluginRegistry explicitly, resources no longer imports modules or a runtime service locator, resources exits the main SCC, and prior ledger/rag/utils removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py::test_resources_exit_main_scc_through_explicit_registry_injection",
+        "services/agent-service/tests/architecture/test_ledger_scc_extraction.py::test_ledger_exits_main_scc_through_neutral_draft_contract"
+      ],
+      "owner": "agent_core.resources.TargetResolver + explicit application/module call sites + cumulative dependency-debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

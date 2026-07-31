@@ -1,0 +1,2873 @@
+{
+  "suite": "semantic_goal_coverage_suite_v20_4",
+  "schema_version": 4,
+  "case_count": 14,
+  "contract_scope": "independent_goal_oracle_plus_runtime_execution_with_explicit_goal_binding",
+  "fixtures": {
+    "customer_orders_v1": "tests/support/conversation_case_fixtures.py"
+  },
+  "runtime_test_modules": [
+    "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py",
+    "services/agent-service/tests/support/conversation_case_runner.py",
+    "services/agent-service/tests/support/conversation_case_fixtures.py"
+  ],
+  "cases": [
+    {
+      "id": "semantic_multi_orders_logistics",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "查一下我的订单，再查下物流到哪了"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_multi_orders_logistics",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_goal",
+        "summarize_without_all_branches"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "查一下我的订单，再查下物流到哪了",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "查一下我的订单",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_orders"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "list",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "query",
+                "evidence_span": "查下物流到哪了",
+                "required": true,
+                "depends_on": [
+                  "g1"
+                ],
+                "required_tools": [
+                  "get_order_logistics"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "query_logistics",
+                  "object_type": "order"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "查一下我的订单，再查下物流到哪了",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：查一下我的订单",
+                          "evidence_span": "查一下我的订单",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：查一下我的订单"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：查下物流到哪了",
+                          "evidence_span": "查下物流到哪了",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [
+                            "g1"
+                          ],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "query_logistics",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：查下物流到哪了"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_multi_orders_logistics:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "all_orders"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "查一下我的订单",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s1:orders"
+                  },
+                  {
+                    "name": "get_order_logistics",
+                    "args": {
+                      "target": {
+                        "mode": "collection",
+                        "left_handle": "view:fixture:orders"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "查下物流到哪了",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s1:logistics"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "已分别核验订单和物流。",
+                      "evidence_handles": [
+                        "view:fixture:orders"
+                      ],
+                      "goal_ids": [
+                        "g1",
+                        "g2"
+                      ]
+                    },
+                    "id": "s1:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "list_orders",
+              "get_order_logistics",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "list_orders",
+              "get_order_logistics",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L1_LIGHTWEIGHT_PLAN"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "list_orders",
+                  "get_order_logistics"
+                ],
+                "must_not_include": []
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "query_resources": {
+                  "min": 1
+                },
+                "read_resource": {
+                  "min": 3
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 2
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_goal",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "list_orders",
+              "get_order_logistics"
+            ]
+          },
+          {
+            "behavior": "summarize_without_all_branches",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "list_orders",
+              "get_order_logistics"
+            ]
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "list_orders",
+          "get_order_logistics"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_multi_refunds_invoices",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "查下鼠标订单的退款记录，再看看键盘订单有没有发票"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_multi_refunds_invoices",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_goal",
+        "use_logistics_as_substitute"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "查下鼠标订单的退款记录，再看看键盘订单有没有发票",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "鼠标订单的退款记录",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_refunds"
+                ],
+                "requested_effect": {
+                  "domain": "refund",
+                  "operation": "query_status",
+                  "object_type": "refund"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "query",
+                "evidence_span": "键盘订单有没有发票",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_invoices"
+                ],
+                "requested_effect": {
+                  "domain": "invoice",
+                  "operation": "query_status",
+                  "object_type": "invoice"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "查下鼠标订单的退款记录，再看看键盘订单有没有发票",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：鼠标订单的退款记录",
+                          "evidence_span": "鼠标订单的退款记录",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "refund",
+                            "operation": "query_status",
+                            "object_type": "refund",
+                            "raw_description": "处理用户目标：鼠标订单的退款记录"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：键盘订单有没有发票",
+                          "evidence_span": "键盘订单有没有发票",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "invoice",
+                            "operation": "query_status",
+                            "object_type": "invoice",
+                            "raw_description": "处理用户目标：键盘订单有没有发票"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_multi_refunds_invoices:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_refunds",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10003"
+                      },
+                      "expected_shape": "one",
+                      "reference_span": "鼠标订单的退款记录",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s2:refunds"
+                  },
+                  {
+                    "name": "list_invoices",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10002"
+                      },
+                      "expected_shape": "one",
+                      "reference_span": "键盘订单有没有发票",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s2:invoices"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "已分别核验退款记录和发票记录。",
+                      "evidence_handles": [
+                        "artifact:fixture:order:10003",
+                        "artifact:fixture:order:10002"
+                      ],
+                      "goal_ids": [
+                        "g1",
+                        "g2"
+                      ]
+                    },
+                    "id": "s2:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "list_refunds",
+              "list_invoices",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "list_refunds",
+              "list_invoices",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L1_LIGHTWEIGHT_PLAN"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "list_refunds",
+                  "list_invoices"
+                ],
+                "must_not_include": []
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "query_related_resources": {
+                  "min": 2
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 2
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_goal",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "list_refunds",
+              "list_invoices"
+            ]
+          },
+          {
+            "behavior": "use_logistics_as_substitute",
+            "kind": "trace_absent",
+            "tool_names": [
+              "get_order_logistics"
+            ]
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "list_refunds",
+          "list_invoices"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_query_then_refund_consult",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "查一下键盘订单，再看看它能不能退款"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_query_then_refund_consult",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_consult_goal",
+        "turn_consult_into_commit"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "查一下键盘订单，再看看它能不能退款",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "查一下键盘订单",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_orders"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "list",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "consult",
+                "evidence_span": "它能不能退款",
+                "required": true,
+                "depends_on": [
+                  "g1"
+                ],
+                "required_tools": [
+                  "evaluate_refund_eligibility"
+                ],
+                "requested_effect": {
+                  "domain": "refund",
+                  "operation": "assess_eligibility",
+                  "object_type": "order"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "查一下键盘订单，再看看它能不能退款",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：查一下键盘订单",
+                          "evidence_span": "查一下键盘订单",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：查一下键盘订单"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：它能不能退款",
+                          "evidence_span": "它能不能退款",
+                          "goal_type": "consult",
+                          "required": true,
+                          "depends_on": [
+                            "g1"
+                          ],
+                          "requested_effect": {
+                            "domain": "refund",
+                            "operation": "assess_eligibility",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：它能不能退款"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_query_then_refund_consult:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "entity_match",
+                        "attribute_span": "键盘"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "查一下键盘订单",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s3:orders"
+                  },
+                  {
+                    "name": "evaluate_refund_eligibility",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10002"
+                      },
+                      "reference_span": "它能不能退款",
+                      "reason_span": "它能不能退款",
+                      "question_span": "它能不能退款",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s3:eligibility"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "已核验键盘订单与退款资格，尚未创建申请。",
+                      "evidence_handles": [
+                        "artifact:fixture:order:10002"
+                      ],
+                      "goal_ids": [
+                        "g1",
+                        "g2"
+                      ]
+                    },
+                    "id": "s3:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "list_orders",
+              "evaluate_refund_eligibility",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "list_orders",
+              "evaluate_refund_eligibility",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L1_LIGHTWEIGHT_PLAN"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "list_orders",
+                  "evaluate_refund_eligibility"
+                ],
+                "must_not_include": [
+                  "prepare_refund"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "query_resources": {
+                  "min": 1
+                },
+                "preview_operation": {
+                  "min": 1
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 2
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_consult_goal",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "list_orders",
+              "evaluate_refund_eligibility"
+            ]
+          },
+          {
+            "behavior": "turn_consult_into_commit",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_refund",
+              "commit_action"
+            ]
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "list_orders",
+          "evaluate_refund_eligibility"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_query_then_refund_draft",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "查一下鼠标订单，然后帮我申请退款"
+        },
+        {
+          "role": "assistant",
+          "expected": "transaction_interaction"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_query_then_refund_draft",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_query_goal",
+        "commit_without_authority"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "查一下鼠标订单，然后帮我申请退款",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "查一下鼠标订单",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_orders"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "list",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "action",
+                "evidence_span": "帮我申请退款",
+                "required": true,
+                "depends_on": [
+                  "g1"
+                ],
+                "required_tools": [
+                  "prepare_refund"
+                ],
+                "requested_effect": {
+                  "domain": "refund",
+                  "operation": "create",
+                  "object_type": "order"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "查一下鼠标订单，然后帮我申请退款",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：查一下鼠标订单",
+                          "evidence_span": "查一下鼠标订单",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：查一下鼠标订单"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：帮我申请退款",
+                          "evidence_span": "帮我申请退款",
+                          "goal_type": "action",
+                          "required": true,
+                          "depends_on": [
+                            "g1"
+                          ],
+                          "requested_effect": {
+                            "domain": "refund",
+                            "operation": "create",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：帮我申请退款"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_query_then_refund_draft:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "entity_match",
+                        "attribute_span": "鼠标"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "查一下鼠标订单",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s4:orders"
+                  },
+                  {
+                    "name": "prepare_refund",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10003"
+                      },
+                      "reference_span": "鼠标订单",
+                      "action_span": "申请退款",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s4:refund"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "list_orders",
+              "prepare_refund"
+            ],
+            "required_tools": [
+              "list_orders",
+              "prepare_refund"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "ExecutionDisposition:structured_interaction"
+              ],
+              "workflow_levels": [
+                "L1_LIGHTWEIGHT_PLAN"
+              ],
+              "workflow_statuses": [
+                "AWAITING_AUTHORIZATION"
+              ],
+              "public_interaction": "transaction_interaction",
+              "trace": {
+                "must_include": [
+                  "list_orders",
+                  "prepare_refund",
+                  "action_gateway"
+                ],
+                "must_not_include": [
+                  "commit_action"
+                ]
+              },
+              "draft": {
+                "count": 1,
+                "states": [
+                  "AWAITING_AUTHORIZATION"
+                ],
+                "target_order_id": "10003"
+              },
+              "port_calls": {
+                "query_resources": {
+                  "min": 1
+                },
+                "preview_operation": {
+                  "min": 1
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 2
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_query_goal",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "list_orders",
+              "prepare_refund"
+            ]
+          },
+          {
+            "behavior": "commit_without_authority",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "list_orders",
+          "prepare_refund"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_cancel_and_refund_branch",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "把待发货的订单取消，已签收的看看能不能退款"
+        },
+        {
+          "role": "assistant",
+          "expected": "transaction_interaction"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_cancel_and_refund_branch",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_refund_branch",
+        "drop_cancel_branch",
+        "commit_without_authority"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "把待发货的订单取消，已签收的看看能不能退款",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "待发货的订单",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_orders"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "list",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "action",
+                "evidence_span": "取消",
+                "required": true,
+                "depends_on": [
+                  "g1"
+                ],
+                "required_tools": [
+                  "prepare_cancel_order"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "cancel",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g3",
+                "goal_type": "consult",
+                "evidence_span": "已签收的看看能不能退款",
+                "required": true,
+                "depends_on": [
+                  "g1"
+                ],
+                "required_tools": [
+                  "evaluate_refund_eligibility"
+                ],
+                "requested_effect": {
+                  "domain": "refund",
+                  "operation": "assess_eligibility",
+                  "object_type": "order"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "把待发货的订单取消，已签收的看看能不能退款",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：待发货的订单",
+                          "evidence_span": "待发货的订单",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：待发货的订单"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：取消",
+                          "evidence_span": "取消",
+                          "goal_type": "action",
+                          "required": true,
+                          "depends_on": [
+                            "g1"
+                          ],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "cancel",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：取消"
+                          }
+                        },
+                        {
+                          "goal_id": "g3",
+                          "description": "处理用户目标：已签收的看看能不能退款",
+                          "evidence_span": "已签收的看看能不能退款",
+                          "goal_type": "consult",
+                          "required": true,
+                          "depends_on": [
+                            "g1"
+                          ],
+                          "requested_effect": {
+                            "domain": "refund",
+                            "operation": "assess_eligibility",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：已签收的看看能不能退款"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_cancel_and_refund_branch:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "all_orders"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "待发货的订单",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s5:orders"
+                  },
+                  {
+                    "name": "prepare_cancel_order",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10002"
+                      },
+                      "reference_span": "待发货的订单",
+                      "action_span": "取消",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s5:cancel"
+                  },
+                  {
+                    "name": "evaluate_refund_eligibility",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10001"
+                      },
+                      "reference_span": "已签收的",
+                      "reason_span": "能不能退款",
+                      "question_span": "已签收的看看能不能退款",
+                      "goal_ids": [
+                        "g3"
+                      ]
+                    },
+                    "id": "s5:eligibility"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "list_orders",
+              "prepare_cancel_order",
+              "evaluate_refund_eligibility"
+            ],
+            "required_tools": [
+              "list_orders",
+              "prepare_cancel_order",
+              "evaluate_refund_eligibility"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "ExecutionDisposition:structured_interaction"
+              ],
+              "workflow_levels": [
+                "L2_WORKFLOW"
+              ],
+              "workflow_statuses": [
+                "AWAITING_AUTHORIZATION"
+              ],
+              "public_interaction": "transaction_interaction",
+              "trace": {
+                "must_include": [
+                  "list_orders",
+                  "prepare_cancel_order",
+                  "evaluate_refund_eligibility",
+                  "action_gateway"
+                ],
+                "must_not_include": [
+                  "commit_action"
+                ]
+              },
+              "draft": {
+                "count": 1,
+                "states": [
+                  "AWAITING_AUTHORIZATION"
+                ],
+                "target_order_id": "10002"
+              },
+              "port_calls": {
+                "query_resources": {
+                  "min": 1
+                },
+                "preview_operation": {
+                  "min": 2
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 3
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_refund_branch",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "evaluate_refund_eligibility"
+            ]
+          },
+          {
+            "behavior": "drop_cancel_branch",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "prepare_cancel_order"
+            ]
+          },
+          {
+            "behavior": "commit_without_authority",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "list_orders",
+          "prepare_cancel_order",
+          "evaluate_refund_eligibility"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_supported_plus_unsupported",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "查一下鼠标物流，再告诉我快递员手机号"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_supported_plus_unsupported",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_supported_branch",
+        "substitute_near_capability"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "查一下鼠标物流，再告诉我快递员手机号",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "查一下鼠标物流",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "get_order_logistics"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "query_logistics",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "unsupported",
+                "evidence_span": "快递员手机号",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "report_unsupported_request"
+                ],
+                "requested_effect": {
+                  "domain": "open",
+                  "operation": "unsupported_request",
+                  "object_type": "request"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "查一下鼠标物流，再告诉我快递员手机号",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：查一下鼠标物流",
+                          "evidence_span": "查一下鼠标物流",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "query_logistics",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：查一下鼠标物流"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：快递员手机号",
+                          "evidence_span": "快递员手机号",
+                          "goal_type": "unsupported",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "open",
+                            "operation": "unsupported_request",
+                            "object_type": "request",
+                            "raw_description": "处理用户目标：快递员手机号"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_supported_plus_unsupported:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "get_order_logistics",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10003"
+                      },
+                      "expected_shape": "one",
+                      "reference_span": "查一下鼠标物流",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s6:logistics"
+                  },
+                  {
+                    "name": "report_unsupported_request",
+                    "args": {
+                      "request_span": "快递员手机号",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s6:unsupported"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "鼠标物流已核验；当前没有查询快递员手机号的精确能力。",
+                      "evidence_handles": [
+                        "artifact:fixture:order:10003"
+                      ],
+                      "goal_ids": [
+                        "g1",
+                        "g2"
+                      ]
+                    },
+                    "id": "s6:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "get_order_logistics",
+              "report_unsupported_request",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "get_order_logistics",
+              "report_unsupported_request",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L1_LIGHTWEIGHT_PLAN"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "get_order_logistics",
+                  "report_unsupported_request"
+                ],
+                "must_not_include": [
+                  "prepare_cancel_order",
+                  "prepare_refund"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "read_resource": {
+                  "min": 1
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 2
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_supported_branch",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "get_order_logistics",
+              "report_unsupported_request"
+            ]
+          },
+          {
+            "behavior": "substitute_near_capability",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_cancel_order",
+              "prepare_refund"
+            ]
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "get_order_logistics",
+          "report_unsupported_request"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_unsupported_courier_phone",
+      "category": "unsupported_capability",
+      "turns": [
+        {
+          "role": "user",
+          "text": "快递员电话是多少？"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_unsupported_courier_phone",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "use_logistics_as_phone",
+        "invent_phone"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "快递员电话是多少？",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "unsupported",
+                "evidence_span": "快递员电话",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "report_unsupported_request"
+                ],
+                "requested_effect": {
+                  "domain": "open",
+                  "operation": "unsupported_request",
+                  "object_type": "request"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "快递员电话是多少？",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：快递员电话",
+                          "evidence_span": "快递员电话",
+                          "goal_type": "unsupported",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "open",
+                            "operation": "unsupported_request",
+                            "object_type": "request",
+                            "raw_description": "处理用户目标：快递员电话"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_unsupported_courier_phone:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "report_unsupported_request",
+                    "args": {
+                      "request_span": "快递员电话",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s7:unsupported"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "当前没有查询快递员电话的精确能力。",
+                      "evidence_handles": [],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s7:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "report_unsupported_request",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "report_unsupported_request",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GeneralFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L0_DIRECT"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "report_unsupported_request"
+                ],
+                "must_not_include": [
+                  "get_order_logistics",
+                  "list_orders"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {},
+              "result_assertions": [],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "use_logistics_as_phone",
+            "kind": "trace_absent",
+            "tool_names": [
+              "get_order_logistics",
+              "list_orders"
+            ]
+          },
+          {
+            "behavior": "invent_phone",
+            "kind": "unsupported_result"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "report_unsupported_request"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_refund_arrival_query",
+      "category": "similar_capability_rejection",
+      "turns": [
+        {
+          "role": "user",
+          "text": "鼠标订单的退款什么时候到账？"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_refund_arrival_query",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "create_refund_instead_of_query",
+        "commit_without_authority"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "鼠标订单的退款什么时候到账？",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "退款什么时候到账",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_refunds"
+                ],
+                "requested_effect": {
+                  "domain": "refund",
+                  "operation": "query_status",
+                  "object_type": "refund"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "鼠标订单的退款什么时候到账？",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：退款什么时候到账",
+                          "evidence_span": "退款什么时候到账",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "refund",
+                            "operation": "query_status",
+                            "object_type": "refund",
+                            "raw_description": "处理用户目标：退款什么时候到账"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_refund_arrival_query:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_refunds",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10003"
+                      },
+                      "expected_shape": "one",
+                      "reference_span": "退款什么时候到账",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s8:refunds"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "已查询鼠标订单的退款记录，未创建新的退款申请。",
+                      "evidence_handles": [
+                        "artifact:fixture:order:10003"
+                      ],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s8:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "list_refunds",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "list_refunds",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L0_DIRECT"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "list_refunds"
+                ],
+                "must_not_include": [
+                  "prepare_refund"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "query_related_resources": {
+                  "min": 1
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "create_refund_instead_of_query",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_refund"
+            ]
+          },
+          {
+            "behavior": "commit_without_authority",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "list_refunds"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_delete_record_not_cancel",
+      "category": "similar_capability_rejection",
+      "turns": [
+        {
+          "role": "user",
+          "text": "把这个订单记录删掉，不是取消订单"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_delete_record_not_cancel",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "substitute_cancel_for_delete",
+        "business_write"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "把这个订单记录删掉，不是取消订单",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "unsupported",
+                "evidence_span": "订单记录删掉",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "report_unsupported_request"
+                ],
+                "requested_effect": {
+                  "domain": "open",
+                  "operation": "unsupported_request",
+                  "object_type": "request"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "把这个订单记录删掉，不是取消订单",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：订单记录删掉",
+                          "evidence_span": "订单记录删掉",
+                          "goal_type": "unsupported",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "open",
+                            "operation": "unsupported_request",
+                            "object_type": "request",
+                            "raw_description": "处理用户目标：订单记录删掉"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_delete_record_not_cancel:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "report_unsupported_request",
+                    "args": {
+                      "request_span": "订单记录删掉",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s9:unsupported"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "当前没有删除订单记录的能力，也不会改用取消订单代替。",
+                      "evidence_handles": [],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s9:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "report_unsupported_request",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "report_unsupported_request",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GeneralFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L0_DIRECT"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "report_unsupported_request"
+                ],
+                "must_not_include": [
+                  "prepare_cancel_order"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {},
+              "result_assertions": [],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "substitute_cancel_for_delete",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_cancel_order"
+            ]
+          },
+          {
+            "behavior": "business_write",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "report_unsupported_request"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_refund_consult_no_draft",
+      "category": "consult_vs_commit",
+      "turns": [
+        {
+          "role": "user",
+          "text": "鼠标订单能退款吗？"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_refund_consult_no_draft",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "consult_becomes_draft",
+        "business_write"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "鼠标订单能退款吗？",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "consult",
+                "evidence_span": "能退款吗",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "evaluate_refund_eligibility"
+                ],
+                "requested_effect": {
+                  "domain": "refund",
+                  "operation": "assess_eligibility",
+                  "object_type": "order"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "鼠标订单能退款吗？",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：能退款吗",
+                          "evidence_span": "能退款吗",
+                          "goal_type": "consult",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "refund",
+                            "operation": "assess_eligibility",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：能退款吗"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_refund_consult_no_draft:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "evaluate_refund_eligibility",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10003"
+                      },
+                      "reference_span": "鼠标订单",
+                      "reason_span": "能退款吗",
+                      "question_span": "能退款吗",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s10:eligibility"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "已完成退款资格核验，尚未创建退款申请。",
+                      "evidence_handles": [
+                        "artifact:fixture:order:10003"
+                      ],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s10:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "evaluate_refund_eligibility",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "evaluate_refund_eligibility",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L0_DIRECT"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "evaluate_refund_eligibility"
+                ],
+                "must_not_include": [
+                  "prepare_refund"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "preview_operation": {
+                  "min": 1
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "consult_becomes_draft",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_refund"
+            ]
+          },
+          {
+            "behavior": "business_write",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "evaluate_refund_eligibility"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_multi_target_cancel_boundary",
+      "category": "multi_target_write_clarify",
+      "turns": [
+        {
+          "role": "user",
+          "text": "把这些订单都取消"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_multi_target_cancel_boundary",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "chat_confirm_batch_write",
+        "commit_multiple_targets"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "把这些订单都取消",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "action",
+                "evidence_span": "这些订单都取消",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "prepare_cancel_order"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "cancel",
+                  "object_type": "order"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "把这些订单都取消",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：这些订单都取消",
+                          "evidence_span": "这些订单都取消",
+                          "goal_type": "action",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "cancel",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：这些订单都取消"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_multi_target_cancel_boundary:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "prepare_cancel_order",
+                    "args": {
+                      "target": {
+                        "mode": "collection",
+                        "left_handle": "view:fixture:orders"
+                      },
+                      "reference_span": "这些订单",
+                      "action_span": "取消",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s11:cancel"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "当前写动作一次只能处理一个已验证目标，未创建批量取消申请。",
+                      "evidence_handles": [],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s11:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "prepare_cancel_order",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "prepare_cancel_order",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GeneralFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L2_WORKFLOW"
+              ],
+              "workflow_statuses": [
+                "FAILED_FINAL"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "prepare_cancel_order"
+                ],
+                "must_not_include": [
+                  "commit_action"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {},
+              "result_assertions": [
+                {
+                  "tool": "prepare_cancel_order",
+                  "path": "result.code",
+                  "equals": "UNSUPPORTED_TARGET_CARDINALITY"
+                }
+              ],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "chat_confirm_batch_write",
+            "kind": "trace_result_path_equals",
+            "tool": "prepare_cancel_order",
+            "path": "result.code",
+            "value": "UNSUPPORTED_TARGET_CARDINALITY"
+          },
+          {
+            "behavior": "commit_multiple_targets",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "prepare_cancel_order"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_conflicting_actions_clarify",
+      "category": "conflict_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "把订单取消掉，然后继续发货"
+        },
+        {
+          "role": "assistant",
+          "expected": "clarification"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_conflicting_actions_clarify",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "execute_mutually_exclusive_actions",
+        "pretend_both_done"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "把订单取消掉，然后继续发货",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "clarification",
+                "evidence_span": "把订单取消掉，然后继续发货",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "ask_user_clarification"
+                ],
+                "requested_effect": {
+                  "domain": "dialogue",
+                  "operation": "clarify_request",
+                  "object_type": "goal"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "把订单取消掉，然后继续发货",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：把订单取消掉，然后继续发货",
+                          "evidence_span": "把订单取消掉，然后继续发货",
+                          "goal_type": "clarification",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "dialogue",
+                            "operation": "clarify_request",
+                            "object_type": "goal",
+                            "raw_description": "处理用户目标：把订单取消掉，然后继续发货"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_conflicting_actions_clarify:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "ask_user_clarification",
+                    "args": {
+                      "question": "取消订单与继续发货相互冲突，请确认最终要执行哪一个。",
+                      "reason": "目标互斥",
+                      "evidence_handles": [],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s12:clarify"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "ask_user_clarification"
+            ],
+            "required_tools": [
+              "ask_user_clarification"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GeneralFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L0_DIRECT"
+              ],
+              "workflow_statuses": [
+                "NOT_REQUIRED"
+              ],
+              "public_interaction": "clarification",
+              "trace": {
+                "must_include": [],
+                "must_not_include": [
+                  "prepare_cancel_order"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {},
+              "result_assertions": [],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "execute_mutually_exclusive_actions",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_cancel_order"
+            ]
+          },
+          {
+            "behavior": "pretend_both_done",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": true,
+        "preproduction_allowed_tools": [
+          "ask_user_clarification"
+        ],
+        "preproduction_forbidden_tools": [
+          "commit_action",
+          "action_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "semantic_vague_refund_target",
+      "category": "vague_target",
+      "turns": [
+        {
+          "role": "user",
+          "text": "退了吧"
+        },
+        {
+          "role": "assistant",
+          "expected": "clarification"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_vague_refund_target",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "guess_target",
+        "create_draft_without_unique_target"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "退了吧",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "clarification",
+                "evidence_span": "退了吧",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "ask_user_clarification"
+                ],
+                "requested_effect": {
+                  "domain": "dialogue",
+                  "operation": "clarify_request",
+                  "object_type": "goal"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "退了吧",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：退了吧",
+                          "evidence_span": "退了吧",
+                          "goal_type": "clarification",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "dialogue",
+                            "operation": "clarify_request",
+                            "object_type": "goal",
+                            "raw_description": "处理用户目标：退了吧"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_vague_refund_target:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "ask_user_clarification",
+                    "args": {
+                      "question": "请说明要处理哪一个订单，以及是咨询退款资格还是申请退款。",
+                      "reason": "目标和动作不明确",
+                      "evidence_handles": [],
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s13:clarify"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "ask_user_clarification"
+            ],
+            "required_tools": [
+              "ask_user_clarification"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GeneralFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L0_DIRECT"
+              ],
+              "workflow_statuses": [
+                "NOT_REQUIRED"
+              ],
+              "public_interaction": "clarification",
+              "trace": {
+                "must_include": [],
+                "must_not_include": [
+                  "prepare_refund"
+                ]
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {},
+              "result_assertions": [],
+              "goal_count": 1
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "guess_target",
+            "kind": "trace_absent",
+            "tool_names": [
+              "prepare_refund"
+            ]
+          },
+          {
+            "behavior": "create_draft_without_unique_target",
+            "kind": "no_business_write"
+          }
+        ],
+        "preproduction_risk_prototype": false,
+        "preproduction_allowed_tools": [],
+        "preproduction_forbidden_tools": []
+      }
+    },
+    {
+      "id": "semantic_order_detail_and_invoice",
+      "category": "multi_intent",
+      "turns": [
+        {
+          "role": "user",
+          "text": "查一下 10002 订单详情，并看看有没有发票"
+        },
+        {
+          "role": "assistant",
+          "expected": "answer"
+        }
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "semantic_order_detail_and_invoice",
+        "executable_schema": "semantic-goal-coverage@1"
+      },
+      "forbidden_behavior": [
+        "drop_invoice_goal",
+        "replace_invoice_with_logistics"
+      ],
+      "execution_contract": {
+        "schema_version": 4,
+        "fixture": {
+          "id": "customer_orders_v1",
+          "state": {
+            "tenant_id": "tenant-a",
+            "user_id": "u001",
+            "role": "customer",
+            "initial_ledger": "fixture_ledger"
+          }
+        },
+        "turn_contracts": [
+          {
+            "user_text": "查一下 10002 订单详情，并看看有没有发票",
+            "goal_oracle": [
+              {
+                "oracle_id": "g1",
+                "goal_type": "query",
+                "evidence_span": "10002 订单详情",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "get_order_details"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "query_details",
+                  "object_type": "order"
+                }
+              },
+              {
+                "oracle_id": "g2",
+                "goal_type": "query",
+                "evidence_span": "有没有发票",
+                "required": true,
+                "depends_on": [
+                  "g1"
+                ],
+                "required_tools": [
+                  "list_invoices"
+                ],
+                "requested_effect": {
+                  "domain": "invoice",
+                  "operation": "query_status",
+                  "object_type": "invoice"
+                }
+              }
+            ],
+            "model_steps": [
+              {
+                "tool_calls": [
+                  {
+                    "name": "declare_turn_goals",
+                    "args": {
+                      "summary": "查一下 10002 订单详情，并看看有没有发票",
+                      "goals": [
+                        {
+                          "goal_id": "g1",
+                          "description": "处理用户目标：10002 订单详情",
+                          "evidence_span": "10002 订单详情",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "query_details",
+                            "object_type": "order",
+                            "raw_description": "处理用户目标：10002 订单详情"
+                          }
+                        },
+                        {
+                          "goal_id": "g2",
+                          "description": "处理用户目标：有没有发票",
+                          "evidence_span": "有没有发票",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [
+                            "g1"
+                          ],
+                          "requested_effect": {
+                            "domain": "invoice",
+                            "operation": "query_status",
+                            "object_type": "invoice",
+                            "raw_description": "处理用户目标：有没有发票"
+                          }
+                        }
+                      ]
+                    },
+                    "id": "semantic_order_detail_and_invoice:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "get_order_details",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10002"
+                      },
+                      "expected_shape": "one",
+                      "reference_span": "10002 订单详情",
+                      "goal_ids": [
+                        "g1"
+                      ]
+                    },
+                    "id": "s14:detail"
+                  },
+                  {
+                    "name": "list_invoices",
+                    "args": {
+                      "target": {
+                        "mode": "artifact",
+                        "left_handle": "artifact:fixture:order:10002"
+                      },
+                      "expected_shape": "one",
+                      "reference_span": "有没有发票",
+                      "goal_ids": [
+                        "g2"
+                      ]
+                    },
+                    "id": "s14:invoice"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "respond_to_user",
+                    "args": {
+                      "answer": "已核验订单详情和发票记录。",
+                      "evidence_handles": [
+                        "artifact:fixture:order:10002"
+                      ],
+                      "goal_ids": [
+                        "g1",
+                        "g2"
+                      ]
+                    },
+                    "id": "s14:respond"
+                  }
+                ]
+              }
+            ],
+            "allowed_tools": [
+              "get_order_details",
+              "list_invoices",
+              "respond_to_user"
+            ],
+            "required_tools": [
+              "get_order_details",
+              "list_invoices",
+              "respond_to_user"
+            ],
+            "expected": {
+              "terminal_statuses": [
+                "GroundedFinalAnswer"
+              ],
+              "workflow_levels": [
+                "L1_LIGHTWEIGHT_PLAN"
+              ],
+              "workflow_statuses": [
+                "SUCCEEDED"
+              ],
+              "public_interaction": "answer",
+              "trace": {
+                "must_include": [
+                  "get_order_details",
+                  "list_invoices"
+                ],
+                "must_not_include": []
+              },
+              "draft": {
+                "count": 0
+              },
+              "port_calls": {
+                "read_resource": {
+                  "min": 1
+                },
+                "query_related_resources": {
+                  "min": 1
+                }
+              },
+              "result_assertions": [],
+              "goal_count": 2
+            }
+          }
+        ],
+        "forbidden_assertions": [
+          {
+            "behavior": "drop_invoice_goal",
+            "kind": "trace_contains_all",
+            "tool_names": [
+              "get_order_details",
+              "list_invoices"
+            ]
+          },
+          {
+            "behavior": "replace_invoice_with_logistics",
+            "kind": "trace_absent",
+            "tool_names": [
+              "get_order_logistics"
+            ]
+          }
+        ],
+        "preproduction_risk_prototype": false,
+        "preproduction_allowed_tools": [],
+        "preproduction_forbidden_tools": []
+      }
+    }
+  ]
+}

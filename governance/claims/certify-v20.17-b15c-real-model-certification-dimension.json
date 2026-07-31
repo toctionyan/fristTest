@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b15c-real-model-certification-dimension",
+  "claims": [
+    {
+      "id": "V20-17-B15C-REAL-MODEL-DIMENSION-001",
+      "statement": "Quality Loop declares real-model certification only for one immutable release run whose five required real-model gates pass and whose three provider identities match.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b15c_real_model_certification_dimension_adversarial_bridge"
+      ],
+      "owner": "quality-loop real-model certification dimension",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

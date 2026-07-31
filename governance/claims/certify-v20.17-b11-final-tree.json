@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b11-final-tree",
+  "claims": [
+    {
+      "id": "V20-17-B11-FINAL-TREE-001",
+      "statement": "The closed B11 release tree keeps RuntimeOutcome authority in Runtime, keeps Presentation dependency-neutral outside the reduced three-package SCC, and passes the complete backend, frontend, lifecycle and Chromium product certification.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "presentation-release-boundary",
+        "frontend-vitest",
+        "frontend-build",
+        "coverage-baseline",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_presentation_dependency_boundary_scc.py::test_presentation_is_dependency_neutral_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_persistence_profile_boundary_scc.py::test_persistence_uses_kernel_profile_and_exits_main_scc"
+      ],
+      "owner": "B11 closed release tree certification",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

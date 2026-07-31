@@ -1,0 +1,812 @@
+{
+  "version": "20.6.1",
+  "schema_version": 4,
+  "evidence_root": ".quality/evidence",
+  "modes": {
+    "static": "纯静态结构、Skill、合同与语法检查。",
+    "quick": "static 加所有标准单元/合同/前端回归。",
+    "integration": "quick 加受控双服务、Postgres 和 HTTP 集成验证。",
+    "release": "integration 加受保护预发布环境的真实模型只读 smoke；任何环境边界均阻断。"
+  },
+  "steps": [
+    {
+      "id": "skill-package-verify",
+      "name": "skill-package-verify",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "architecture-skill/scripts/verify_skill_package.py"
+      ],
+      "owner": "architecture-skill",
+      "category": "skill",
+      "blocking_level": "required",
+      "repair_playbook": "修正 Skill 元数据、模板或包校验清单，不新增平行文档。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "quality-evidence-contract",
+      "name": "quality-evidence-contract",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_quality_evidence_contract.py",
+        "--workspace-root",
+        "."
+      ],
+      "owner": "scripts/quality_loop.py + governance/evidence_schema",
+      "category": "controller",
+      "blocking_level": "required",
+      "repair_playbook": "同步控制器实际 evidence、schema version 与 required repair-plan 字段。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "skill-package-verify"
+      ],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "architecture-convergence",
+      "name": "architecture-convergence",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_architecture.py"
+      ],
+      "owner": "governance/architecture-policy.json",
+      "category": "architecture",
+      "blocking_level": "required",
+      "repair_playbook": "按唯一 Owner、替换/删除矩阵和配置模板修复当前结构。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "quality-evidence-contract"
+      ],
+      "environment": {},
+      "timeout_seconds": 90
+    },
+    {
+      "id": "module-vertical-closure",
+      "name": "module-vertical-closure",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_module_closure.py",
+        "--workspace-root",
+        "."
+      ],
+      "owner": "agent_modules/*/module_manifest.json",
+      "category": "architecture",
+      "blocking_level": "required",
+      "repair_playbook": "补齐模块 manifest、能力定义、执行器、展示合同和声明测试。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "architecture-convergence"
+      ],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "presentation-contract-manifests",
+      "name": "presentation-contract-manifests",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "services/agent-service/scripts/validate_presentation_contracts.py",
+        "--contracts",
+        "services/agent-service/src/agent_core/presentation/contracts",
+        "--contracts",
+        "services/agent-service/src/agent_modules/ecommerce/presentation",
+        "--contracts",
+        "services/agent-service/src/agent_modules/support_ticket_demo/presentation"
+      ],
+      "owner": "presentation contracts",
+      "category": "contract",
+      "blocking_level": "required",
+      "repair_playbook": "修复权威展示合同或模块归属，不在 API 层复制展示逻辑。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "architecture-convergence"
+      ],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "presentation-release-boundary",
+      "name": "presentation-release-boundary",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_presentation_release_path.py",
+        "--workspace-root",
+        "."
+      ],
+      "owner": "agent_core/presentation + response projector",
+      "category": "architecture",
+      "blocking_level": "required",
+      "repair_playbook": "让客户可见数据仅经 RuntimeOutcome 和 presentation release 投影。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "presentation-contract-manifests"
+      ],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "strong-context-case-catalog",
+      "name": "runtime-contract-and-semantic-goal-catalog",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_strong_context_cases.py",
+        "--workspace-root",
+        "."
+      ],
+      "owner": "conversation runtime contracts and independent goal oracle",
+      "category": "regression-catalog",
+      "blocking_level": "required",
+      "repair_playbook": "修复 Runtime 合同套件、独立 Goal Oracle、目标声明与实际运行时断言之间的不一致；不得用候选脚本自证语义正确。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "version-consistency",
+      "name": "version-consistency",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_version_consistency.py",
+        "--workspace-root",
+        "."
+      ],
+      "owner": "VERSION + release manifest",
+      "category": "release",
+      "blocking_level": "required",
+      "repair_playbook": "同步已发布版本号、manifest 和发布报告的生成来源。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "adversarial-runtime-counterexamples",
+      "name": "adversarial-runtime-counterexamples",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/run_agent_pytest.py",
+        "--workspace-root",
+        ".",
+        "--junitxml",
+        "{evidence_dir}/junit/adversarial-runtime-counterexamples.xml",
+        "tests/runtime/test_goal_binding_counterexamples.py",
+        "tests/runtime/test_semantic_grounding_read.py",
+        "tests/runtime/test_similar_capability_rejection.py",
+        "tests/context/test_parameterized_capability_alignment.py",
+        "tests/architecture/test_quality_loop_governance.py"
+      ],
+      "owner": "capability discovery + workflow runtime + quality controller adversarial contracts",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "repair_playbook": "先复现被错误接受的反例，再修复 Capability Registry、Runtime 或 Gate；不得删除、放宽或改写反例来恢复通过。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "strong-context-case-catalog",
+        "python-ast-parse"
+      ],
+      "environment": {},
+      "blocked_exit_codes": [
+        78
+      ],
+      "timeout_seconds": 120
+    },
+    {
+      "id": "python-ast-parse",
+      "name": "python-ast-parse",
+      "modes": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "python_ast_parse",
+      "owner": "all-python-source",
+      "category": "syntax",
+      "blocking_level": "required",
+      "repair_playbook": "修复 Python 语法或删除已退休源码。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "systemic-operational-counterexamples",
+      "name": "systemic-operational-counterexamples",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/run_agent_pytest.py",
+        "--workspace-root",
+        ".",
+        "--junitxml",
+        "{evidence_dir}/junit/systemic-operational-counterexamples.xml",
+        "tests/context/test_conversation_protocol.py",
+        "tests/runtime/test_goal_evidence_satisfaction.py",
+        "tests/context/test_scenario_topology.py",
+        "tests/architecture/test_systemic_operational_closure.py"
+      ],
+      "owner": "systemic operational invariants",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "repair_playbook": "修复协议、Evidence、真实拓扑、模块、产品状态或质量需求的唯一 Owner；Mutation kill proof 不得删除或放宽。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "environment": {},
+      "blocked_exit_codes": [
+        78
+      ],
+      "timeout_seconds": 180
+    },
+    {
+      "id": "python-test-suites",
+      "name": "python-test-suites",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/run_python_test_suites.py",
+        ".",
+        "--mode",
+        "standard",
+        "--junit-dir",
+        "{evidence_dir}/junit",
+        "--coverage-dir",
+        "{evidence_dir}/coverage"
+      ],
+      "owner": "agent-service/tests + business-service/tests",
+      "category": "unit-contract",
+      "blocking_level": "required",
+      "repair_playbook": "修复当前公开合同或运行时行为，并保持标准测试零 skipped。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "architecture-convergence",
+        "strong-context-case-catalog",
+        "python-ast-parse",
+        "adversarial-runtime-counterexamples",
+        "systemic-operational-counterexamples"
+      ],
+      "environment": {},
+      "blocked_exit_codes": [
+        78
+      ],
+      "timeout_seconds": 480,
+      "env": {}
+    },
+    {
+      "id": "frontend-dependencies",
+      "name": "frontend-dependencies",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_frontend_dependencies.py",
+        "--workspace-root",
+        "."
+      ],
+      "owner": "frontend package-lock",
+      "category": "environment",
+      "blocking_level": "required",
+      "repair_playbook": "修正 package-lock 或恢复缺失依赖；development-workspace Gate 只读验证现有 node_modules，不删除用户依赖。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "architecture-convergence"
+      ],
+      "environment": {
+        "commands": [
+          "npm"
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "id": "frontend-vitest",
+      "name": "frontend-vitest",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "cwd": "services/agent-service/frontend",
+      "argv": [
+        "{npm}",
+        "run",
+        "test:ci"
+      ],
+      "owner": "frontend/src",
+      "category": "frontend-test",
+      "blocking_level": "required",
+      "repair_playbook": "修复前端公开交互合同与 Vitest 回归。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "frontend-dependencies"
+      ],
+      "environment": {
+        "commands": [
+          "npm"
+        ]
+      },
+      "env": {
+        "VITEST_JUNIT_PATH": "{evidence_dir}/junit/frontend-vitest.xml",
+        "VITEST_COVERAGE_DIR": "{evidence_dir}/coverage/frontend"
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "id": "frontend-build",
+      "name": "frontend-build",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "cwd": "services/agent-service/frontend",
+      "argv": [
+        "{npm}",
+        "run",
+        "build"
+      ],
+      "owner": "frontend",
+      "category": "frontend-build",
+      "blocking_level": "required",
+      "repair_playbook": "修复生产构建、类型或打包边界，不删除开发者 node_modules。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "frontend-dependencies"
+      ],
+      "environment": {
+        "commands": [
+          "npm"
+        ]
+      },
+      "timeout_seconds": 300
+    },
+    {
+      "id": "python-integration-tests",
+      "name": "python-integration-tests",
+      "modes": [
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/run_python_test_suites.py",
+        ".",
+        "--mode",
+        "integration",
+        "--junit-dir",
+        "{evidence_dir}/junit",
+        "--coverage-dir",
+        "{evidence_dir}/coverage"
+      ],
+      "owner": "integration test suite",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "先恢复 Agent、Business、Postgres 受控环境，再修复真实集成失败。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "python-test-suites"
+      ],
+      "environment": {
+        "variables": [
+          "AGENT_TEST_URL",
+          "BUSINESS_TEST_URL",
+          "AGENT_TEST_POSTGRES_URL"
+        ],
+        "probes": [
+          {
+            "kind": "http",
+            "url_env": "AGENT_TEST_URL",
+            "path": "/health"
+          },
+          {
+            "kind": "http",
+            "url_env": "BUSINESS_TEST_URL",
+            "path": "/health"
+          },
+          {
+            "kind": "tcp",
+            "url_env": "AGENT_TEST_POSTGRES_URL"
+          }
+        ]
+      },
+      "blocked_exit_codes": [
+        78
+      ],
+      "timeout_seconds": 360,
+      "env": {}
+    },
+    {
+      "id": "external-business-service-smoke",
+      "name": "external-business-service-smoke",
+      "modes": [
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "cwd": "services/agent-service",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_external_business_service.py"
+      ],
+      "owner": "ecommerce BusinessPort",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "先恢复声明的 Business Service 健康检查和服务令牌，再修复端口合同。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "python-test-suites"
+      ],
+      "environment": {
+        "variables": [
+          "BUSINESS_SERVICE_BASE_URL",
+          "BUSINESS_SERVICE_TOKEN"
+        ],
+        "probes": [
+          {
+            "kind": "http",
+            "url_env": "BUSINESS_SERVICE_BASE_URL",
+            "path": "/health"
+          }
+        ]
+      },
+      "timeout_seconds": 90
+    },
+    {
+      "id": "product-http-smoke",
+      "name": "product-http-smoke",
+      "modes": [
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_product_http_smoke.py"
+      ],
+      "owner": "product HTTP boundary",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "修复认证 API、事务生命周期或 SSE 公共边界；测试不得复用已写入订单。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "python-integration-tests",
+        "external-business-service-smoke",
+        "frontend-build"
+      ],
+      "environment": {
+        "variables": [
+          "AGENT_TEST_URL",
+          "BUSINESS_TEST_URL",
+          "PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA"
+        ],
+        "expected_values": {
+          "PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA": [
+            "true"
+          ]
+        },
+        "probes": [
+          {
+            "kind": "http",
+            "url_env": "AGENT_TEST_URL",
+            "path": "/health"
+          },
+          {
+            "kind": "http",
+            "url_env": "BUSINESS_TEST_URL",
+            "path": "/health"
+          }
+        ]
+      },
+      "timeout_seconds": 90
+    },
+    {
+      "id": "coverage-baseline",
+      "name": "coverage-baseline",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_coverage_baseline.py",
+        "--coverage-dir",
+        "{evidence_dir}/coverage"
+      ],
+      "owner": "quality coverage baseline",
+      "category": "coverage",
+      "blocking_level": "required",
+      "repair_playbook": "补充覆盖当前变更风险面的测试；不得下调基线规避回归。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "python-test-suites",
+        "frontend-vitest"
+      ],
+      "environment": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "full-lifecycle-canary",
+      "name": "full-lifecycle-canary",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_full_lifecycle_canary.py"
+      ],
+      "owner": "product lifecycle canary",
+      "category": "product-runtime",
+      "blocking_level": "required",
+      "repair_playbook": "修复隔离双服务、确定性模型或从登录到事务收据的完整公开生命周期，不得改为内部函数直调。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "python-test-suites",
+        "frontend-build"
+      ],
+      "environment": {},
+      "timeout_seconds": 300
+    },
+    {
+      "id": "product-browser-journey",
+      "name": "product-browser-journey",
+      "modes": [
+        "quick",
+        "integration",
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_product_browser_journey.py"
+      ],
+      "owner": "frontend real-browser product journey",
+      "category": "product-browser",
+      "blocking_level": "required",
+      "repair_playbook": "修复真实 Chromium 中的登录、订单选择、对话、跨线程事务、pending 恢复、无障碍与移动端可达性。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "full-lifecycle-canary",
+        "frontend-build"
+      ],
+      "environment": {},
+      "timeout_seconds": 300
+    },
+    {
+      "id": "configured-model-browser-conversation",
+      "name": "configured-model-browser-conversation",
+      "modes": [
+        "integration"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_product_browser_journey.py",
+        "--journey",
+        "strong-context",
+        "--model-mode",
+        "configured"
+      ],
+      "owner": "real-model Chromium conversation acceptance",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "按首个失败 turn 的能力面、实体、意图、公开投影或历史一致性证据修复唯一 Owner；必须重放客户报告的三轮原链路，不得删除轮次、放宽语义 Oracle、改用 API 或确定性模型恢复绿灯。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "product-browser-journey",
+        "strong-context-case-catalog"
+      ],
+      "environment": {},
+      "timeout_seconds": 900
+    },
+    {
+      "id": "configured-model-browser-campaign",
+      "name": "configured-model-browser-campaign",
+      "modes": [
+        "integration"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_product_browser_journey.py",
+        "--journey",
+        "strong-context-campaign",
+        "--model-mode",
+        "configured",
+        "--campaign-seed",
+        "20260715",
+        "--campaign-phase",
+        "repair-retest"
+      ],
+      "owner": "seeded real-model Chromium conversation campaign",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "保存20个隔离网页会话各10轮的公开回复与刷新记录，按首个失败边界聚类并修复共同Owner；不得删轮次、改Oracle、用API或确定性模型替代。修复后另以未见种子执行同一Campaign。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "configured-model-browser-conversation"
+      ],
+      "environment": {},
+      "timeout_seconds": 7500
+    },
+    {
+      "id": "production-certification-bundle",
+      "category": "preproduction",
+      "modes": [
+        "release"
+      ],
+      "depends_on": [
+        "product-http-smoke",
+        "python-integration-tests",
+        "full-lifecycle-canary",
+        "frontend-build"
+      ],
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_production_certification_bundle.py"
+      ],
+      "timeout_seconds": 21600,
+      "environment": {
+        "commands": [
+          "docker",
+          "node",
+          "npm"
+        ]
+      },
+      "name": "production-certification-bundle",
+      "kind": "shell",
+      "owner": "production certification control plane",
+      "blocking_level": "required",
+      "repair_playbook": "恢复官方模型、owned PostgreSQL/pgvector、Playwright Chromium 或修复单会话生产证据合同；不得复用历史组件 PASS。",
+      "rerun_contract": "dependency_closure_then_downstream"
+    },
+    {
+      "id": "clean-release-preflight",
+      "name": "clean-release-preflight",
+      "modes": [
+        "release"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/build_clean_release.py",
+        "--workspace-root",
+        ".",
+        "--output-dir",
+        "{evidence_dir}/clean-release-preflight",
+        "--frontend-mode",
+        "npm-ci",
+        "--certification-level",
+        "candidate",
+        "--artifact-name",
+        "quality-loop-release-preflight"
+      ],
+      "owner": "scripts/release_artifact.py + scripts/build_clean_release.py",
+      "category": "release",
+      "blocking_level": "required",
+      "repair_playbook": "修复 clean-release 白名单、干净依赖重建、语义自检或最终 ZIP 完整性；不得复制工作区 node_modules 或旧 dist。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "product-http-smoke",
+        "coverage-baseline",
+        "production-certification-bundle"
+      ],
+      "environment": {
+        "commands": [
+          "npm"
+        ]
+      },
+      "timeout_seconds": 900
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+name = "release_judge"
+description = "Read-only release certification coordinator."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/release-judge.md. Stay read-only. Cite concrete files and evidence. Do not modify the candidate.
+"""

@@ -1,0 +1,63 @@
+{
+  "contract_id": "commerce.next_actions@1",
+  "version": 1,
+  "result_profile": "structured_result",
+  "contract_owner": "ecommerce_overlay",
+  "projection_boundary": "ecommerce_next_actions_projector",
+  "producer": "ecommerce.eligibility_or_consultation.capability",
+  "renderer": {
+    "web": "commerce_next_actions_renderer"
+  },
+  "adequacy": {
+    "required_visible_semantics": [
+      "target_identity",
+      "target_display_label",
+      "next_action_choice"
+    ],
+    "optional_visible_semantics": [],
+    "rule": "each_exposed_action_is_bound_to_the_verified_target"
+  },
+  "payload": {
+    "block_type": "next_actions",
+    "block_required_fields": {
+      "title": "result_title",
+      "summary": "result_summary",
+      "target_order_id": "target_identity",
+      "target_product_name": "target_display_label"
+    },
+    "action_required_fields": {
+      "action_id": "next_action_identity",
+      "label": "next_action_choice",
+      "target": "next_action_target",
+      "target.resource_type": "next_action_target_type",
+      "target.order_id": "next_action_target_identity"
+    }
+  },
+  "coverage": {
+    "mode": "not_collection",
+    "source_population": "verified_single_target"
+  },
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {
+    "required_levels": [
+      "unit",
+      "contract"
+    ],
+    "end_to_end_required": true,
+    "release_gate_required": true,
+    "coverage_evidence_required": true
+  },
+  "release": {
+    "formal_response_eligible": true,
+    "renderer_registry_key": "commerce.next_actions@1",
+    "legacy_output_replaces": [
+      "ecommerce.legacy.next_actions"
+    ],
+    "release_gate": "StructuredResultReleaseGate"
+  }
+}

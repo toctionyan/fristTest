@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "EVIDENCE_IMMUTABILITY",
+      "level": "HARD_INVARIANT",
+      "scope": {
+        "applies_to": [
+          "all-changes"
+        ],
+        "excludes": []
+      },
+      "rationale": "候选不得通过改写证据或裁判获得通过。",
+      "verification": [
+        "pre-write-hook",
+        "trusted-judge",
+        "evidence-attestation"
+      ],
+      "owner": "trusted-judge",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": false,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "SINGLE_FINAL_AUTHORITY",
+      "level": "HARD_INVARIANT",
+      "scope": {
+        "applies_to": [
+          "adjudicated-facts"
+        ],
+        "excludes": [
+          "read-only-cache",
+          "projection",
+          "search-index"
+        ]
+      },
+      "rationale": "可裁决事实必须有唯一最终权威，派生数据不得反向覆盖。",
+      "verification": [
+        "architecture-review",
+        "authority-contract-tests"
+      ],
+      "owner": "architecture-governance",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": false,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "ONE_FORMAL_RESULT_CHAIN",
+      "level": "STRONG_DEFAULT",
+      "scope": {
+        "applies_to": [
+          "state-changing-runtime"
+        ],
+        "excludes": [
+          "parallel-read-projection"
+        ]
+      },
+      "rationale": "避免竞争提交或结果主链，同时允许内部并行读取。",
+      "verification": [
+        "architecture-decision",
+        "variance-review"
+      ],
+      "owner": "architecture-governance",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": true,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "REPLACE_OR_JUSTIFY",
+      "level": "STRONG_DEFAULT",
+      "scope": {
+        "applies_to": [
+          "new-public-abstractions"
+        ],
+        "excludes": [
+          "genuinely-new-capability"
+        ]
+      },
+      "rationale": "阻止抽象只增不减，但不强迫虚假一对一替换。",
+      "verification": [
+        "architecture-fitness",
+        "new-abstraction-record"
+      ],
+      "owner": "architecture-governance",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": true,
+      "supersedes": [
+        "REPLACE_OR_REJECT"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "BOUNDED_REPAIR",
+      "level": "WORKFLOW_DEFAULT",
+      "scope": {
+        "applies_to": [
+          "repair",
+          "migration",
+          "revert"
+        ],
+        "excludes": [
+          "diagnosis",
+          "design",
+          "oracle-review",
+          "certification"
+        ]
+      },
+      "rationale": "八轮是资源上限，不是完成标准。",
+      "verification": [
+        "loop-state",
+        "progress-evaluator"
+      ],
+      "owner": "quality-controller",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": true,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "CUSTOMER_AGENT_RUNTIME_PATTERNS",
+      "level": "REFERENCE_PATTERN",
+      "scope": {
+        "applies_to": [
+          "customer-agent-product-design"
+        ],
+        "excludes": [
+          "generic-skill-control-plane"
+        ]
+      },
+      "rationale": "现有 RuntimeOutcome、CapabilitySurface 等是领域参考模式，不是通用硬规则。",
+      "verification": [
+        "customer-agent-architecture-skill"
+      ],
+      "owner": "customer-agent-architecture",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": true,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "BEHAVIOR_OVER_IMPLEMENTATION_SHAPE",
+      "level": "HARD_INVARIANT",
+      "scope": {
+        "applies_to": [
+          "generic-skill-governance"
+        ],
+        "excludes": [
+          "project-baseline-snapshot"
+        ]
+      },
+      "rationale": "通用 Skill 必须约束行为、Owner 和证据，不能把当前项目类名、目录或层数冒充跨项目硬规则。",
+      "verification": [
+        "skill-package-review",
+        "baseline-metadata",
+        "architecture-decision"
+      ],
+      "owner": "skill-control-plane",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": false,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "SEMANTIC_OWNER_WITHOUT_PROGRAM_REINTERPRETATION",
+      "level": "HARD_INVARIANT",
+      "scope": {
+        "applies_to": [
+          "customer-agent-open-language-semantics"
+        ],
+        "excludes": [
+          "deterministic-fact-validation",
+          "business-state-validation"
+        ]
+      },
+      "rationale": "开放语言、上下文关系和多任务语义必须有唯一模型语义 Owner；程序只能验证候选，不得用关键词、默认分类或执行失败改写语义。",
+      "verification": [
+        "semantic-oracle",
+        "negative-regression",
+        "architecture-review"
+      ],
+      "owner": "customer-agent-architecture",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": false,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "GOAL_NOT_REWRITTEN_TO_AVAILABLE_CAPABILITY",
+      "level": "HARD_INVARIANT",
+      "scope": {
+        "applies_to": [
+          "capability-grounding",
+          "task-planning"
+        ],
+        "excludes": []
+      },
+      "rationale": "用户 Goal 必须独立于当前 Tool 目录；能力缺失、禁止或不可用不能把 Goal 偷换成相似业务效果。",
+      "verification": [
+        "capability-confusion-matrix",
+        "match-proof",
+        "unsupported-counterexamples"
+      ],
+      "owner": "customer-agent-architecture",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": false,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "PROJECT_ARCHITECTURE_BASELINE",
+      "level": "PROJECT_BASELINE",
+      "scope": {
+        "applies_to": [
+          "current-customer-agent-workspace"
+        ],
+        "excludes": [
+          "generic-skill-control-plane"
+        ]
+      },
+      "rationale": "目录、必需文件和当前 Owner 是版本化项目快照；普通 Repair 遵守，受控 Migration 可以通过批准 Delta 改变并提升新基线。",
+      "verification": [
+        "effective-policy-resolver",
+        "architecture-delta",
+        "baseline-promotion"
+      ],
+      "owner": "project-architecture-governance",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": true,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "LOCAL_GROUNDED_PLAN",
+      "level": "STRONG_DEFAULT",
+      "scope": {
+        "applies_to": [
+          "multi-goal-capability-planning"
+        ],
+        "excludes": [
+          "fixed-single-step-capability"
+        ]
+      },
+      "rationale": "按本次冻结 Goal 检索能力并生成局部闭合计划，避免维护失真的全局完整能力组合图。",
+      "verification": [
+        "plan-closure",
+        "bounded-planner",
+        "capability-contract-tests"
+      ],
+      "owner": "customer-agent-architecture",
+      "introduced_at": "2026-07-26",
+      "review_date": "2026-10-26",
+      "variance_allowed": true,
+      "supersedes": [],
+      "status": "active"
+    },
+    {
+      "id": "DEPENDENCY_DEBT_RATCHET",
+      "level": "STRONG_DEFAULT",
+      "scope": {
+        "applies_to": [
+          "project-architecture-dependency-graph"
+        ],
+        "excludes": [
+          "external-third-party-dependencies"
+        ]
+      },
+      "rationale": "已知依赖环可以作为显式技术债暂存，但新环、扩大环或合并环必须失败，架构债务只能缩小。",
+      "verification": [
+        "architecture-convergence",
+        "dependency-cycle-debt-baseline"
+      ],
+      "owner": "architecture-governance",
+      "introduced_at": "2026-07-29",
+      "review_date": "2026-10-31",
+      "variance_allowed": true,
+      "supersedes": [],
+      "status": "active"
+    }
+  ]
+}

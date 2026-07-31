@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "REPLACE_OR_REJECT",
+      "replacement": "REPLACE_OR_JUSTIFY",
+      "reason": "一对一强制替换会阻止真正新增能力并诱发假删除。"
+    },
+    {
+      "id": "SINGLE_LARGE_SKILL",
+      "replacement": "FOCUSED_SKILLS_WITH_SHARED_CORE",
+      "reason": "通用治理与客服领域规则必须分离。"
+    }
+  ]
+}

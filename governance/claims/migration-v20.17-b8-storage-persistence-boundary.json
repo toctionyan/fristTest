@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b8-storage-persistence-boundary",
+  "claims": [
+    {
+      "id": "STORAGE-PERSISTENCE-BOUNDARY-SCC-001",
+      "statement": "Storage owns only persistence ports and value contracts, concrete provider construction/settings/SQLAlchemy implementation have one owner in persistence, all callers use that owner, storage exits the main SCC, and all prior dependency removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_storage_persistence_boundary_scc.py::test_storage_is_port_only_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_context_projection_boundary_scc.py::test_context_exits_main_scc_with_canonical_read_only_state_projections"
+      ],
+      "owner": "agent_core.storage ports + agent_core.persistence concrete implementations + cumulative dependency-debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

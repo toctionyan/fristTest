@@ -1,0 +1,28 @@
+{
+  "change_id": "migration-v20.11.1-unified-semantics-grounded-planning",
+  "role": "adversarial-reviewer",
+  "decision": "PASS",
+  "scope_reviewed": [
+    "candidate versus frozen semantic authority",
+    "multiple Goal Blocker independence",
+    "trusted observation versus diagnostic partition",
+    "module-owned exact capability identities",
+    "one Goal to multiple support/completion steps",
+    "absence proof and similar-capability rejection",
+    "grounded plan semantic binding and digest",
+    "unknown dependency and cycle rejection",
+    "formal-reader cutover in capability verification and answer release"
+  ],
+  "evidence": {
+    "red_baseline_plan": "Run the new counterexample suite against clean V20.6.1 source before implementation.",
+    "implementation_verification": "To be attested in the implementation workspace after baseline recording."
+  },
+  "findings": [],
+  "release_blocks": [
+    "real langgraph/langchain dependencies unavailable in current container",
+    "real model and dual-service integration not executed",
+    "PostgreSQL test URL unavailable",
+    "frontend dependencies unavailable"
+  ],
+  "notes": "PASS approves the counterexample scope and migration boundaries only; it does not certify implementation."
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b1c-utils-scc-extraction",
+  "claims": [
+    {
+      "id": "UTILS-SCC-EXTRACTION-001",
+      "statement": "The non-authoritative flow-debug wrapper is owned by observability, utils has no lifecycle/storage dependency, and the main agent_core SCC shrinks from 14 members to 13 with utils removed.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_utils_scc_extraction.py::test_utils_package_exits_main_dependency_scc"
+      ],
+      "owner": "agent_core.observability.flow_debug + lifecycle.graph import boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

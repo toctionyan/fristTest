@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b8-storage-persistence-boundary",
+  "problem": "The storage package is intended to define repository ports, but it also owns SQLite/SQLAlchemy implementations, environment-aware database settings and provider construction. Those concrete responsibilities import persistence, observability and runtime, reverse the dependency direction and keep storage inside the core SCC.",
+  "options": [
+    {
+      "id": "keep-concrete-providers-in-storage",
+      "strategy": "conservative",
+      "name": "Keep concrete providers in storage",
+      "correctness": "Preserves current imports but retains the 7-package SCC and makes the abstraction package depend on its implementations.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "Not applicable.",
+      "verification": "Architecture debt remains unchanged."
+    },
+    {
+      "id": "persistence-owns-provider-implementations",
+      "strategy": "evolutionary",
+      "name": "Move provider implementation and construction into persistence",
+      "correctness": "Keeps storage repository contracts unchanged while making persistence the sole concrete implementation owner and updating every in-repository caller to the new explicit surface.",
+      "complexity": "A bounded ownership migration across provider files and import-only callers.",
+      "migration": "Move settings, factory and SQLAlchemy provider to persistence; update callers and migrations; delete old storage implementations; run full verification.",
+      "rollback": "Restore the three storage implementation files and previous imports.",
+      "verification": "Boundary/SCC counterexample, transaction storage tests, migration imports, full Quick, lifecycle and Chromium."
+    },
+    {
+      "id": "dynamic-storage-compatibility-facade",
+      "strategy": "redesign",
+      "name": "Keep old storage imports through a dynamic facade",
+      "correctness": "Could hide static dependency edges but would retain a runtime Service Locator and two apparent ownership surfaces.",
+      "complexity": "Medium and misleading.",
+      "migration": "Use importlib or __getattr__ to forward storage imports to persistence.",
+      "rollback": "Remove facade.",
+      "verification": "Static graph would improve without a true ownership cutover."
+    }
+  ],
+  "selected_option": "persistence-owns-provider-implementations",
+  "rejected_reasons": {
+    "keep-concrete-providers-in-storage": "It preserves the wrong abstraction-to-implementation dependency direction.",
+    "dynamic-storage-compatibility-facade": "It would manufacture apparent graph improvement while preserving hidden runtime coupling and ambiguous ownership."
+  },
+  "deletions": [
+    "Delete storage.factory, storage.settings and storage.sqlalchemy_provider after their single implementations move to persistence; delete all repository references to those old import paths."
+  ],
+  "unknowns": [
+    "The remaining 6-package SCC remains open debt.",
+    "State/Loop simplification and real-model certification remain separate future targets."
+  ],
+  "selected_responsibilities": [
+    "agent_core.storage owns repository protocols, transaction scopes and persistence value contracts only.",
+    "agent_core.persistence owns SQLite/SQLAlchemy implementations, database settings and StoreProvider construction.",
+    "Application, transaction, observability and migration callers consume the persistence implementation surface explicitly."
+  ],
+  "preserved_hard_invariants": [
+    "StoreProvider and all repository protocols remain unchanged.",
+    "Database tables, migration semantics, transaction state and idempotency behavior remain unchanged.",
+    "context, modules, kernel, resources, ledger, rag and utils remain outside the main SCC.",
+    "The dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, move the three concrete storage responsibilities to persistence without logic changes, update all callers and migration imports, delete old implementation owners, then run complete product verification.",
+  "acceptance_claims": [
+    "storage imports no persistence, observability or runtime package and contains no concrete provider implementation.",
+    "persistence contains the sole provider/settings/SQLAlchemy implementations and all callers use them.",
+    "The current SCC member count is at most 6 and storage plus all prior removed packages remain outside it.",
+    "All transaction, migration, lifecycle, frontend and browser tests remain green."
+  ],
+  "baseline_changes": []
+}

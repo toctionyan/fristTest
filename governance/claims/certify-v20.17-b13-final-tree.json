@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b13-final-tree",
+  "claims": [
+    {
+      "id": "V20-17-B13-FINAL-TREE-001",
+      "statement": "The closed B13b final delivery tree keeps Runtime independent from Lifecycle, retains Lifecycle semantic/state authority through a single neutral Kernel contract implementation, resolves the initial fourteen-package dependency-cycle debt without changing the debt baseline, and passes all current product gates.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "frontend-vitest",
+        "frontend-build",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_lifecycle_runtime_dependency_boundary_scc.py::test_runtime_is_lifecycle_neutral_and_dependency_cycle_debt_is_resolved",
+        "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py::test_transaction_consumes_explicit_execution_dependencies_and_exits_main_scc",
+        "services/agent-service/tests/context/test_dialogue_counterexamples.py::test_each_committable_action_commits_through_business_adapter"
+      ],
+      "owner": "closed B13b lifecycle/runtime dependency-resolved delivery tree",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

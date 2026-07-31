@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17d-protected-browser-runtime-authority",
+  "claims": [
+    {
+      "id": "V20-17-B17D-PROTECTED-BROWSER-001",
+      "statement": "Both configured-model browser journeys execute inside one controller-owned preprod authority that binds Agent, Checkpoint, Business, RAG and document jobs to the same PostgreSQL instance, uses injected JWT with development login disabled, requires signed business actor propagation and strict model verifiers, while the former B17c local runtime and every cross-authority composition fail closed.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17d_protected_browser_runtime_authority_adversarial_bridge"
+      ],
+      "owner": "protected browser runtime authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b9-observability-boundary",
+  "claims": [
+    {
+      "id": "OBSERVABILITY-BOUNDARY-SCC-001",
+      "statement": "Observability owns only dependency-neutral trace/event contracts, redaction, correlation, timers and node wrappers; Lifecycle supplies state validation and trace sinks explicitly; persistence solely owns the SQLite trace implementation; observability exits the main SCC and all prior removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_observability_boundary_scc.py::test_observability_is_dependency_neutral_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_storage_persistence_boundary_scc.py::test_storage_is_port_only_and_exits_main_scc"
+      ],
+      "owner": "agent_core.observability neutral contracts + lifecycle composition + persistence trace implementation + cumulative debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

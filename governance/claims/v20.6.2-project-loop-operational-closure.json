@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.6.2-project-loop-operational-closure",
+  "claims": [
+    {
+      "id": "LOOP-REQ-CATALOG-001",
+      "statement": "A project certification profile cannot converge when target and claim manifest omit the same active requirement.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_project_requirement_profile_rejects_omitted_requirement"],
+      "owner": "governance/requirements + scripts/quality_loop.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-INTEGRATION-SUITES-001",
+      "statement": "Integration mode executes both Agent and Business integration suites so every protected PostgreSQL selector can produce current JUnit evidence.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_integration_runner_includes_business_postgres_suite"],
+      "owner": "scripts/run_python_test_suites.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-CI-TRANSITION-001",
+      "statement": "A CI certification refuses to relabel an unbound regression-transition source claim as current-pass evidence.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_ci_certification_rejects_unbound_regression_transition_claims"],
+      "owner": "scripts/create_ci_quality_target.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-REPAIR-PREFLIGHT-001",
+      "statement": "The repair orchestrator validates target, policy and baseline identity before invoking any fixer and requires targeted verification to pass before the full judge.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_orchestrator_rejects_mismatched_target_before_fixer"],
+      "owner": "scripts/repair_loop.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "MODULE-EXECUTION-BEHAVIOR-001",
+      "statement": "Every declared module capability test contract executes the owned adapter and proves the exact capability route, not only callable metadata.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "module-vertical-closure", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter"],
+      "owner": "agent_modules/*/module_manifest.json + tests/architecture/test_module_installation.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "MODEL-SMOKE-VALIDATION-001",
+      "statement": "Protected model smoke rejects duplicate goal IDs through the production goal-plan validator and requires the exact base-smoke response.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_protected_model_smoke_rejects_duplicate_goal_ids_and_wrong_base_response"],
+      "owner": "services/agent-service/scripts/verify_preprod_conversation_smoke.py + verify_model_smoke.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "WORKSPACE-LOCK-READINESS-001",
+      "statement": "Workspace Doctor reports FAIL when either Python environment or frontend dependencies differ from committed lock files.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_workspace_doctor_checks_locked_environment_identity"],
+      "owner": "scripts/workspace_doctor.py + scripts/bootstrap_workspace.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "ARCHITECTURE-DAG-001",
+      "statement": "Core packages cannot depend back on the Composition Root, and the architecture Gate reports package dependency cycles.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "architecture-convergence", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_architecture_guard_rejects_core_reverse_composition_dependencies"],
+      "owner": "agent_core dependency DAG + architecture-skill/scripts/verify_convergence.py",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

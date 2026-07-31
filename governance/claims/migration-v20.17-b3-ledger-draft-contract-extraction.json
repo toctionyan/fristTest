@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b3-ledger-draft-contract-extraction",
+  "claims": [
+    {
+      "id": "LEDGER-DRAFT-CONTRACT-SCC-001",
+      "statement": "The pure TransactionDraft data contract has one neutral operations Owner, transaction.model remains a compatibility export, ledger no longer imports transaction, ledger exits the main SCC, and prior rag/utils removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_ledger_scc_extraction.py::test_ledger_exits_main_scc_through_neutral_draft_contract",
+        "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py::test_rag_exits_main_scc_when_readiness_moves_to_application_layer"
+      ],
+      "owner": "agent_core.operations.draft + cumulative dependency-debt regression contracts",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

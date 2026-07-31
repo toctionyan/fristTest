@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b6-module-presentation-boundary",
+  "claims": [
+    {
+      "id": "MODULE-PRESENTATION-BOUNDARY-SCC-001",
+      "statement": "Module contribution contracts expose presentation adapters without importing or constructing the presentation layer, Composition Root owns PresentationRegistry construction, modules exits the main SCC, and all prior dependency removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_module_presentation_boundary_scc.py::test_modules_exit_main_scc_when_presentation_registry_is_composed_outside_modules",
+        "services/agent-service/tests/architecture/test_kernel_registry_injection_scc.py::test_kernel_exits_main_scc_through_explicit_runtime_registry_injection"
+      ],
+      "owner": "agent_core.modules contribution contract + application Composition Root + presentation compatibility export + cumulative dependency-debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

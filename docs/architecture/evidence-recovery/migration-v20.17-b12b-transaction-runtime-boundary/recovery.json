@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b12b-transaction-runtime-boundary",
+  "incident": "closed_review_files_deleted_after_attestation",
+  "historical_missing_hashes": {
+    "scope-planner": "20a5231e81d90ca39ca17fbc0e68aa8378b8702a5770f0039cec46b0a3a806f2",
+    "adversarial-reviewer": "94a8e83098df9b4a498d7d14508ecf9c37f857f6574427db5e11cad7e563f48c"
+  },
+  "prior_closed_change": {
+    "path": "docs/architecture/evidence-recovery/migration-v20.17-b12b-transaction-runtime-boundary/prior-closed-change.json",
+    "sha256": "82e910c3b8dda1639a2fa50abf0ce856f9c9e54cdacaa0a505ee601ed7c8df11"
+  },
+  "replacement_reviews": {
+    "scope-planner": {
+      "path": "docs/architecture/evidence-recovery/migration-v20.17-b12b-transaction-runtime-boundary/scope-planner.md",
+      "sha256": "06c3f57b1097d34829b2ee3935a35750376fa3b315785483dadcb6e2785125e0"
+    },
+    "adversarial-reviewer": {
+      "path": "docs/architecture/evidence-recovery/migration-v20.17-b12b-transaction-runtime-boundary/adversarial-reviewer.md",
+      "sha256": "6c87980a7c07f53d4710347a098e1b3a34dc174b3619176d095055edfc68cb5b"
+    }
+  },
+  "historical_hashes_reused_for_replacement": false,
+  "product_implementation_changed": false,
+  "recovery_reason": "Original review bytes were deleted after B12b closure and cannot be reconstructed from SHA-256. Replacement reviews are independently authored and re-certified under B12c."
+}

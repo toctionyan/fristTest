@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.7-systemic-operational-closure",
+  "claims": [
+    {
+      "id": "CONTEXT-PROTOCOL-ATOMICITY-001",
+      "statement": "Every model context is compiled from complete conversation exchanges and cannot contain an orphan or incomplete tool protocol at any window boundary.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/context/test_conversation_protocol.py::test_generated_windows_preserve_complete_tool_exchanges"],
+      "owner": "agent_core.context conversation protocol compiler",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "GOAL-EVIDENCE-SATISFACTION-001",
+      "statement": "A new read goal may be satisfied by active scope-bound customer-visible historical evidence without forcing a redundant business call, while actions remain non-reusable.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_evidence_satisfaction.py::test_visible_historical_evidence_satisfies_bound_query_goal"],
+      "owner": "agent_core.lifecycle workflow goal satisfaction",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "MODULE-PUBLIC-RUNTIME-001",
+      "statement": "Module capability slices use explicit imports and every registered runtime helper executes without wildcard-dependent private symbol loss.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "module-vertical-closure", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_module_slices_have_no_wildcard_imports_and_runtime_helper_executes"],
+      "owner": "agent_modules/ecommerce/shared public runtime surface",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "SCENARIO-TOPOLOGY-SEQUENCE-001",
+      "statement": "The conversation runner executes declared thread topology with independent checkpoints and protocol sequence tests cover boundaries through one hundred turns.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/context/test_scenario_topology.py::test_runner_uses_two_real_checkpoint_threads"],
+      "owner": "conversation scenario topology runner",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "FRONTEND-PRODUCT-STATE-001",
+      "statement": "Full product state keeps an explicit order selection stable, supports thread navigation, exposes accessible chat updates and prioritizes chat on mobile.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["frontend-vitest", "frontend-build"],
+      "evidence_refs": ["gate-log:frontend-vitest"],
+      "owner": "frontend product state and App journey",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-REQUIREMENT-COMPLETENESS-001",
+      "statement": "Project requirements map the owned product inventory, declare invariants and required strategies, and higher certification profiles cumulatively include lower profiles.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_project_requirement_catalog_is_inventory_backed_and_cumulative"],
+      "owner": "governance requirements + quality_loop controller",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-MUTATION-ADEQUACY-001",
+      "statement": "Every systemic high-risk invariant declares an executable mutation and the quality Gate proves the equivalent faulty implementation is rejected.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_systemic_mutation_manifest_has_executable_kill_proofs"],
+      "owner": "governance mutation catalog + systemic counterexample gate",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "RUNTIME-FAILURE-REPLAY-001",
+      "statement": "Runtime failures emit a deterministic redacted replay envelope that can be promoted into a stable regression without secrets or raw actor identity.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_failure_replay_is_redacted_stable_and_runtime_emitted"],
+      "owner": "agent_core.observability failure replay",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

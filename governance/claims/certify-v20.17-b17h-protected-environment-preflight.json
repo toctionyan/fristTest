@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17h-protected-environment-preflight",
+  "claims": [
+    {
+      "id": "V20-17-B17H-PROTECTED-ENVIRONMENT-PREFLIGHT-001",
+      "statement": "The protected release job validates its exact base tool versions, required commands, official model and embedding configuration, production credentials, and evidence signing key before expensive dependency installation; missing or placeholder configuration fails closed, emits no credential values, and uploads one sanitized preflight result with release evidence.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17h_protected_environment_preflight_adversarial_bridge"
+      ],
+      "owner": "protected production environment preflight authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

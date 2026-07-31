@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "skill-release",
+  "description": "累积全部 Skill Profile，并验证版本和可信 Judge 部署合同。",
+  "includes": [
+    "skill-control-plane"
+  ],
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/trusted_judge.py",
+      "--self-test-external"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_version_consistency.py",
+      "--workspace-root",
+      "."
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_architecture.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_quality_evidence_contract.py"
+    ]
+  ]
+}

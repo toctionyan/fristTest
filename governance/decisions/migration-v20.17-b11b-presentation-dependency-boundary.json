@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b11b-presentation-dependency-boundary",
+  "problem": "Presentation imports runtime outcome implementation and reaches into lifecycle/transaction during startup catalog validation, closing a four-package dependency cycle despite presentation being a downstream projection boundary.",
+  "options": [
+    {
+      "id": "keep-cross-layer-imports",
+      "strategy": "conservative",
+      "name": "Keep current dependencies",
+      "correctness": "Preserves behavior but keeps presentation in the SCC.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "N/A",
+      "verification": "Debt unchanged."
+    },
+    {
+      "id": "neutral-outcome-view-explicit-catalog",
+      "strategy": "evolutionary",
+      "name": "Neutral Outcome view and explicit catalog inputs",
+      "correctness": "Runtime remains the outcome authority while presentation consumes a closed read-only mapping; application composition supplies cross-layer catalog sets explicitly.",
+      "complexity": "Small protocol and startup wiring migration.",
+      "migration": "Move only vocabulary/mapping constants to Kernel, keep constructors in Runtime, remove presentation cross-layer imports, update startup and tests.",
+      "rollback": "Restore direct imports and remove neutral contract.",
+      "verification": "Projection equivalence, startup integrity, SCC counterexample and complete Quick."
+    },
+    {
+      "id": "move-runtime-authority-to-presentation",
+      "strategy": "redesign",
+      "name": "Make presentation own RuntimeOutcome",
+      "correctness": "Would invert authority and allow rendering concerns to control execution conclusions.",
+      "complexity": "High",
+      "migration": "Move factories and validators.",
+      "rollback": "Complex.",
+      "verification": "High semantic risk."
+    }
+  ],
+  "selected_option": "neutral-outcome-view-explicit-catalog",
+  "rejected_reasons": {
+    "keep-cross-layer-imports": "Retains wrong dependency direction.",
+    "move-runtime-authority-to-presentation": "Violates RuntimeOutcome authority boundary."
+  },
+  "deletions": [
+    "Delete presentation imports of lifecycle, runtime and transaction.",
+    "Delete hidden cross-layer catalog lookups from presentation validation."
+  ],
+  "unknowns": [
+    "The remaining lifecycle/runtime/transaction SCC remains open debt.",
+    "Real-model certification remains future work."
+  ],
+  "selected_responsibilities": [
+    "Kernel owns only closed outcome vocabulary and a read-only mapping helper.",
+    "Runtime owns RuntimeOutcome construction, coercion and fail-closed conversion.",
+    "Presentation owns projection of already-normalized outcomes.",
+    "Application composition owns cross-layer catalog integrity wiring."
+  ],
+  "preserved_hard_invariants": [
+    "RuntimeOutcome remains the only customer conclusion input.",
+    "Fail-closed outcome and presentation behavior remain equivalent.",
+    "Transaction authority and business facts do not move.",
+    "Debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, add neutral projection contract, remove presentation cross-layer imports, wire catalog inputs in app composition, run full Quick.",
+  "acceptance_claims": [
+    "Presentation imports none of lifecycle/runtime/transaction.",
+    "Runtime and presentation share one closed outcome vocabulary without duplicate outcome authority.",
+    "SCC count is at most 3 with presentation and prior packages excluded.",
+    "All startup, projection, lifecycle and browser tests pass."
+  ],
+  "baseline_changes": []
+}

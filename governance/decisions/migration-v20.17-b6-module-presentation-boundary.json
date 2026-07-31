@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b6-module-presentation-boundary",
+  "problem": "ModuleContribution imports a presentation-layer protocol and ModuleRegistry constructs PresentationRegistry. This reverses the dependency direction: installed modules should contribute neutral adapter objects, while application composition should construct the presentation subsystem.",
+  "options": [
+    {
+      "id": "keep-module-built-presentation-registry",
+      "strategy": "conservative",
+      "name": "Keep ModuleRegistry as presentation factory",
+      "correctness": "Preserves current API but retains modules to presentation coupling and the 9-package SCC.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "Not applicable.",
+      "verification": "Architecture debt remains unchanged."
+    },
+    {
+      "id": "neutral-adapter-contribution-explicit-composition",
+      "strategy": "evolutionary",
+      "name": "Expose neutral adapters and compose PresentationRegistry outside modules",
+      "correctness": "Keeps one adapter protocol and one PresentationRegistry authority while restoring the dependency direction from presentation/composition toward module contributions.",
+      "complexity": "Eight governed paths including compatibility export, composition caller, module installation regression and architecture record.",
+      "migration": "Move the structural adapter protocol to the module contribution contract, re-export it from presentation.adapters, expose presentation_adapters() from ModuleRegistry, and construct PresentationRegistry in Composition Root and the presentation fallback.",
+      "rollback": "Restore PresentationAdapter import and build_presentation_registry() in modules.",
+      "verification": "Architecture Gate, module installation tests, full Quick, lifecycle and Chromium."
+    },
+    {
+      "id": "create-new-cross-layer-plugin-package",
+      "strategy": "redesign",
+      "name": "Create a new generic plugin contract package",
+      "correctness": "Could remove the edge but introduces another package and migration surface for one small structural protocol.",
+      "complexity": "High",
+      "migration": "Create package, move protocol, update all imports and public APIs.",
+      "rollback": "Restore former imports.",
+      "verification": "Broader import compatibility certification."
+    }
+  ],
+  "selected_option": "neutral-adapter-contribution-explicit-composition",
+  "rejected_reasons": {
+    "keep-module-built-presentation-registry": "It preserves the wrong dependency direction and blocks modules from leaving the SCC.",
+    "create-new-cross-layer-plugin-package": "A new package would add more architecture than the single structural contract requires."
+  },
+  "deletions": [
+    "Delete modules imports of agent_core.presentation and delete ModuleRegistry.build_presentation_registry; preserve agent_core.presentation.adapters.PresentationAdapter as a compatibility re-export."
+  ],
+  "unknowns": [
+    "The remaining 8-package SCC remains open debt.",
+    "Real model certification remains outside this structural migration."
+  ],
+  "selected_responsibilities": [
+    "agent_core.modules owns the neutral module contribution shape and adapter collection.",
+    "agent_core.presentation owns PresentationRegistry behavior and release contracts.",
+    "agent_core.composition owns construction of PresentationRegistry from installed module adapters."
+  ],
+  "preserved_hard_invariants": [
+    "There remains exactly one PresentationAdapter structural protocol and one PresentationRegistry implementation.",
+    "Presentation priorities, contracts, renderers and release behavior remain unchanged.",
+    "kernel, resources, ledger, rag and utils remain outside the main SCC.",
+    "The dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, move only the structural protocol ownership, replace ModuleRegistry factory behavior with adapter collection, update Composition Root and fallback construction, then run complete product verification.",
+  "acceptance_claims": [
+    "modules imports no presentation package and is absent from the main SCC.",
+    "PresentationRegistry is constructed only by presentation/composition callers from ModuleRegistry.presentation_adapters().",
+    "The current SCC member count is at most 8.",
+    "Module installation, startup, transaction, frontend, lifecycle and browser behavior remain green."
+  ],
+  "baseline_changes": []
+}

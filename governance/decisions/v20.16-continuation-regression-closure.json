@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "decision_id": "v20.16-continuation-regression-closure",
+  "change_id": "migration-v20.16-state-schema-v2-legacy-cutover",
+  "problem": "关闭控制平面阻断后，中央 Quick 暴露三个后续回归：双线程夹具缺少 Schema v2 requested_effect；控制器用例仍以 certification 模拟 repair；最便宜订单退款用例把支持步骤拆成无完成路径的独立计划。",
+  "selected_changes": [
+    "为双线程 narrative Goal 补充 conversation.continue_request:goal requested_effect 和 none cardinality，不放宽 Runtime Schema。",
+    "让控制器测试显式生成 repair target、regression-transition Claim 和真实范围内候选改动，匹配当前质量合同。",
+    "把排序支持能力和退款资格完成能力放在同一完整候选计划中，并以结构化可见结果 10003/无线鼠标验证最便宜对象。"
+  ],
+  "rejected_options": [
+    "允许新线程 Goal 缺少 requested_effect；这会倒退 State Schema v2。",
+    "让 certification 继续强制 baseline；这会混淆认证与迁移/修复目标。",
+    "删除 PLAN_REQUIRED_GOAL_HAS_NO_COMPLETION_PATH；这会允许只执行支持步骤后错误结束。"
+  ],
+  "red_evidence": [
+    ".quality/product-code/certify-v20.16-after-control-plane-closure/verification-quick-20260728T083044Z/run-summary.json",
+    ".quality/product-code/certify-v20.16-after-control-plane-closure/continuation-quick-20260728T083616Z/run-summary.json"
+  ],
+  "green_evidence": ".quality/product-code/certify-v20.16-after-control-plane-closure/final-continuation-quick-20260728T084917Z/run-summary.json",
+  "result": "CONVERGED",
+  "final_certification_evidence": ".quality/product-code/certify-v20.16-continuation-final/final-quick-20260728T094229Z/run-summary.json"
+}

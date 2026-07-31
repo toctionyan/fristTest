@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b9-observability-boundary",
+  "problem": "The observability package owns node trace construction but also imports Lifecycle state validation and Persistence SQLite/StoreProvider implementations. Those hidden implementation dependencies reverse the intended direction and keep observability in the core SCC.",
+  "options": [
+    {
+      "id": "keep-hidden-lookups",
+      "strategy": "conservative",
+      "name": "Keep hidden validator and StoreProvider lookups",
+      "correctness": "Preserves behavior but keeps observability coupled to lifecycle and persistence.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "Not applicable.",
+      "verification": "Architecture debt remains unchanged."
+    },
+    {
+      "id": "explicit-observability-ports",
+      "strategy": "evolutionary",
+      "name": "Inject validator and trace repository; move SQLite trace implementation to persistence",
+      "correctness": "Preserves all trace/state-contract behavior while making observability dependency-neutral and composition explicit.",
+      "complexity": "Bounded signature and ownership migration.",
+      "migration": "Add neutral protocols, move TraceLogger implementation, pass validator/trace repository from lifecycle graph, update provider and metrics.",
+      "rollback": "Restore hidden lookups and old TraceLogger owner.",
+      "verification": "Boundary/SCC counterexample, trace storage tests, state contract tests, full Quick."
+    },
+    {
+      "id": "dynamic-proxy",
+      "strategy": "redesign",
+      "name": "Hide imports behind dynamic proxies",
+      "correctness": "Could improve static graph without removing runtime coupling.",
+      "complexity": "Medium and misleading.",
+      "migration": "Use importlib or module __getattr__.",
+      "rollback": "Remove proxy.",
+      "verification": "Static-only apparent improvement."
+    }
+  ],
+  "selected_option": "explicit-observability-ports",
+  "rejected_reasons": {
+    "keep-hidden-lookups": "It preserves the wrong dependency direction.",
+    "dynamic-proxy": "It manufactures graph improvement while retaining hidden global coupling."
+  },
+  "deletions": [
+    "Delete the concrete SQLite TraceLogger from observability and delete all observability imports/lookups of lifecycle and persistence."
+  ],
+  "unknowns": [
+    "The remaining 5-package SCC remains open debt.",
+    "State/Loop simplification and real-model certification remain future targets."
+  ],
+  "selected_responsibilities": [
+    "observability owns neutral event construction, redaction, correlation, metrics contracts and timers.",
+    "lifecycle owns state validation and explicitly supplies it to debug wrappers.",
+    "persistence owns the concrete SQLite trace repository and StoreProvider construction."
+  ],
+  "preserved_hard_invariants": [
+    "Graph node trace payloads and State Contract strict/audit behavior remain unchanged.",
+    "Trace table schema, correlation, redaction and query behavior remain unchanged.",
+    "All prior removed packages remain outside the main SCC.",
+    "The dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, introduce explicit ports, move the concrete trace store without logic changes, update lifecycle/provider composition, then run complete verification.",
+  "acceptance_claims": [
+    "observability imports neither lifecycle nor persistence and has no concrete SQLite store.",
+    "Lifecycle passes the canonical validator and configured TraceRepository explicitly.",
+    "The current SCC member count is at most 5 and observability plus all prior removed packages remain outside it.",
+    "All state-contract, trace storage, lifecycle, frontend and browser tests remain green."
+  ],
+  "baseline_changes": []
+}

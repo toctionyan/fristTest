@@ -1,0 +1,44 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "checks": {
+    "missing_required": [],
+    "forbidden_paths_present": [],
+    "unexpected_core_dirs": [],
+    "unexpected_core_root_modules": [],
+    "illegal_core_module_imports": [],
+    "graph_update_state_owners": [
+      "services/agent-service/app/services/lifecycle_command_runner.py"
+    ],
+    "banned_universal_tool_hits": [],
+    "missing_module_manifests": [],
+    "line_limit_violations": [],
+    "runtime_artifacts": [],
+    "cache_artifacts": [],
+    "configuration_templates": {
+      "services/agent-service/.env.example": {
+        "exists": true,
+        "missing_variables": []
+      },
+      "services/business-service/.env.example": {
+        "exists": true,
+        "missing_variables": []
+      },
+      "services/agent-service/frontend/.env.example": {
+        "exists": true,
+        "missing_variables": []
+      },
+      "deployment/.env.example": {
+        "exists": true,
+        "missing_variables": []
+      },
+      "undocumented_runtime_environment_variables": [],
+      "model_config": {
+        "path": "services/agent-service/src/agent_core/config.py",
+        "missing_markers": [],
+        "forbidden_markers": []
+      }
+    },
+    "convergence_matrix": "docs/architecture/CONVERGENCE_MATRIX.md"
+  }
+}

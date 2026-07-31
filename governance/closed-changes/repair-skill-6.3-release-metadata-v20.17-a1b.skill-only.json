@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-skill-6.3-release-metadata-v20.17-a1b",
+  "target_kind": "repair",
+  "goal": "同步 Skill 6.3.0 的开发工作区发布元数据，消除版本一致性 Gate 对旧 6.2.0 元数据的误报，产品源码保持不变。",
+  "profile": "skill-only",
+  "allowed_paths": [
+    "architecture-skill/**",
+    "skill-system/**",
+    "governance/**",
+    "scripts/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".github/workflows/quality.yml",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "CHANGELOG.md",
+    "Makefile",
+    "skillctl.py",
+    "release/**"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "invariants": [
+    "customer-agent product source remains unchanged",
+    "trusted Judge inputs are not modified by the implementer",
+    "current evidence is required for completion"
+  ],
+  "required_profiles": [
+    "skill-static",
+    "skill-unit",
+    "skill-host-integration",
+    "skill-security",
+    "project-compatibility-smoke"
+  ],
+  "writer_role": "skill-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": ".quality/skill-control-plane/repair-skill-6.3-release-metadata-v20.17-a1b/reviews/adversarial-reviewer.json",
+      "evidence_sha256": "5da9edbc35db1092effd9db120f8ac67b9f47248eab8cbed115c8d8b5f12d404",
+      "recorded_at": "2026-07-29T03:30:21.902362+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/skill-control-plane/repair-skill-6.3-release-metadata-v20.17-a1b/verification.json",
+      "evidence_sha256": "accfc8e4b83b8a16eed8a66e4f3c02a5552584f7da35ff5ed3211b17ac12232f",
+      "recorded_at": "2026-07-29T03:30:29.081707+00:00"
+    }
+  ],
+  "decision_record": null,
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": {
+    "path": ".quality/skill-control-plane/repair-skill-6.3-release-metadata-v20.17-a1b/verification.json",
+    "sha256": "accfc8e4b83b8a16eed8a66e4f3c02a5552584f7da35ff5ed3211b17ac12232f",
+    "source_fingerprint": "4d7f7d3a47834224398bceae6c3c5403992823888a7457a4f65000a8a686d31d",
+    "source_file_count": 311,
+    "verified_at": "2026-07-29T03:30:29.080207+00:00"
+  },
+  "created_at": "2026-07-29T03:30:05.320279+00:00",
+  "status": "closed",
+  "result": "CONVERGED",
+  "closed_at": "2026-07-29T03:30:30.869140+00:00"
+}

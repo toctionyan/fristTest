@@ -1,0 +1,34 @@
+{
+  "suite": "multi_target_write_cases",
+  "cases": [
+    {
+      "id": "two_keyboard_orders_require_clarification",
+      "category": "multi_target_write_clarify",
+      "execution_contract": "visible_collection_requires_explicit_target",
+      "turns": [
+        {"role": "user", "text": "我买过两个键盘。"},
+        {"role": "assistant", "visible_result": "order_list", "items": ["10002", "11003"]},
+        {"role": "user", "text": "键盘坏了，帮我退了。"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "clarify_target_before_draft",
+        "reason": "multiple_write_targets"
+      },
+      "forbidden_behavior": ["choose_first_keyboard", "create_draft_without_unique_target", "commit_without_grant"]
+    },
+    {
+      "id": "can_refund_is_consultation_not_commit",
+      "category": "consult_vs_commit",
+      "execution_contract": "draft_state_remains_non_committing_before_authority",
+      "turns": [
+        {"role": "user", "text": "这个键盘能退吗？"},
+        {"role": "assistant", "expected": "eligibility_or_next_action"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "business_precheck_or_eligibility",
+        "must_not_create_commit_attempt": true
+      },
+      "forbidden_behavior": ["treat_consultation_as_authorization", "commit_refund"]
+    }
+  ]
+}

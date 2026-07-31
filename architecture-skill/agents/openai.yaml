@@ -1,0 +1,4 @@
+interface:
+  display_name: "客服 Agent 领域架构"
+  short_description: "约束客服语义、多任务规划、能力、事务与业务权威边界"
+  default_prompt: "Use $customer-agent-architecture only for customer-agent domain architecture; use the shared control-plane for scope, architecture decisions, reviewed baseline deltas, repair, review, promotion, and certification."

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "project-compatibility-smoke",
+  "description": "只证明 Skill 改造未修改客服生产代码并保留旧入口。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/project_compatibility.py"
+    ]
+  ]
+}

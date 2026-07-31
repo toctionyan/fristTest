@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.6.2-project-integration",
+  "requirement_catalog": "governance/requirements/project-quality-requirements.json",
+  "requirement_profile": "project-integration",
+  "claims": [
+    {
+      "id": "PROJECT-INTEGRATION-CUMULATIVE-QUICK-001",
+      "statement": "Integration re-executes and preserves every requirement certified by the cumulative project-quick profile.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["adversarial-runtime-counterexamples", "systemic-operational-counterexamples", "python-test-suites", "frontend-vitest", "frontend-build", "full-lifecycle-canary", "python-integration-tests"],
+      "evidence_refs": ["gate-log:full-lifecycle-canary", "gate-log:python-integration-tests"],
+      "owner": "cumulative project integration certification",
+      "closure_requirement": "current-pass",
+      "requirement_ids": [
+        "PROJECT-REQ-CATALOG-001", "PROJECT-INTEGRATION-RUNNER-001", "PROJECT-CI-PROVENANCE-001",
+        "PROJECT-REPAIR-ORCHESTRATOR-001", "PROJECT-MODULE-BEHAVIOR-001", "PROJECT-MODEL-SMOKE-001",
+        "PROJECT-SEMANTIC-GROUNDING-001", "PROJECT-LOCK-READINESS-001", "PROJECT-ARCHITECTURE-BOUNDARY-001",
+        "PROJECT-CONTEXT-PROTOCOL-001", "PROJECT-GOAL-EVIDENCE-001", "PROJECT-SCENARIO-TOPOLOGY-001",
+        "PROJECT-FRONTEND-STATE-001", "PROJECT-FAILURE-REPLAY-001", "PROJECT-MUTATION-ADEQUACY-001",
+        "PROJECT-RUNTIME-RESULT-REF-001", "PROJECT-TARGET-ALGEBRA-001", "PROJECT-MODEL-BUDGET-LANES-001"
+      ]
+    },
+    {
+      "id": "PROJECT-BUSINESS-PG-001",
+      "statement": "Business PostgreSQL integration executes every order-filtered resource query through its domain contract.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["python-integration-tests", "product-http-smoke"],
+      "evidence_refs": ["services/business-service/tests/test_postgres_production_persistence.py::test_postgres_all_order_filtered_resource_queries_run_through_domain_contract", "gate-log:product-http-smoke"],
+      "owner": "business-service",
+      "closure_requirement": "current-pass",
+      "requirement_ids": ["PROJECT-BUSINESS-PG-001"]
+    },
+    {
+      "id": "PROJECT-FENCE-PG-001",
+      "statement": "A replaced PostgreSQL checkpoint fencing token produces zero physical stale writes.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["python-integration-tests"],
+      "evidence_refs": ["services/agent-service/tests/integration/test_atomic_postgres_fencing.py::test_postgres_checkpoint_physically_rejects_replaced_fencing_token"],
+      "owner": "agent persistence",
+      "closure_requirement": "current-pass",
+      "requirement_ids": ["PROJECT-FENCE-PG-001"]
+    },
+    {
+      "id": "PROJECT-PRODUCT-HTTP-001",
+      "statement": "Running Agent and Business services pass authenticated product HTTP, SSE and transaction smoke.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["product-http-smoke", "full-lifecycle-canary"],
+      "evidence_refs": ["gate-log:product-http-smoke", "gate-log:full-lifecycle-canary"],
+      "owner": "product HTTP boundary",
+      "closure_requirement": "current-pass",
+      "requirement_ids": ["PROJECT-PRODUCT-HTTP-001"]
+    }
+  ]
+}

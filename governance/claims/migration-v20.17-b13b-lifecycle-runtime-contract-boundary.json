@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b13b-lifecycle-runtime-contract-boundary",
+  "claims": [
+    {
+      "id": "LIFECYCLE-RUNTIME-CONTRACT-BOUNDARY-B13B-001",
+      "statement": "Runtime imports no Lifecycle package, Kernel owns only neutral read/integrity contracts while Lifecycle retains semantic and migration authority, all prior dependency removals remain monotonic, and the agent_core package dependency debt is fully resolved without product behavior regression.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_lifecycle_runtime_dependency_boundary_scc.py::test_runtime_is_lifecycle_neutral_and_dependency_cycle_debt_is_resolved",
+        "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py::test_transaction_consumes_explicit_execution_dependencies_and_exits_main_scc",
+        "services/agent-service/tests/context/test_dialogue_counterexamples.py::test_each_committable_action_commits_through_business_adapter"
+      ],
+      "owner": "kernel neutral contracts + lifecycle semantic/state authority + runtime execution policy",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.6.1-local-claim-closure",
+  "claims": [
+    {
+      "id": "QL-CLAIM-001",
+      "statement": "Every acceptance requirement is a machine-readable claim whose highest required mode controls completion.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_claim_manifest_derives_and_enforces_the_minimum_mode"
+      ],
+      "owner": "quality-controller",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "QL-CLAIM-002",
+      "statement": "A lower-mode targeted regression cannot verify or close a higher-mode claim.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_targeted_lower_mode_cannot_verify_a_higher_mode_claim"
+      ],
+      "owner": "quality-controller",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "BUSINESS-DIALECT-001",
+      "statement": "Generic Business resource queries use domain-declared fields and contain no SQLite-only schema introspection.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/business-service/tests/test_business_integrity.py::test_resource_order_filter_uses_declared_domain_field_not_sqlite_schema_introspection"
+      ],
+      "owner": "business-service",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "FENCE-ASYNC-001",
+      "statement": "Async checkpoint mutations fail closed unless the storage provider supplies an atomic async fencing transaction.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_fenced_leases_and_document_jobs.py::test_async_fenced_checkpointer_fails_closed_without_atomic_async_storage"
+      ],
+      "owner": "agent-runtime",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "RELEASE-BOUNDARY-001",
+      "statement": "A protected artifact requires release-mode claims, immutable CI identity, and a clean npm-ci frontend build.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_clean_release_integrity.py::test_protected_release_requires_release_mode_ci_identity_and_npm_ci"
+      ],
+      "owner": "release-engineering",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "SKILL-LOOP-ALIGNMENT-001",
+      "statement": "Skill, target template, controller evidence schema, CI target generation, and release policy describe the same claim-driven loop.",
+      "risk": "P2",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "skill-package-verify",
+        "quality-evidence-contract",
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "architecture-skill/references/quality-loop-contract.md",
+        "governance/claim_schema/quality-claims.schema.json"
+      ],
+      "owner": "architecture-skill",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "QL-ENV-BLOCK-001",
+      "statement": "A required claim transitively blocked by a missing environment remains BLOCKED_BY_ENVIRONMENT rather than being misreported as a code failure.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_environment_block_propagates_through_skipped_release_claim",
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_real_failure_dominates_a_mixed_environment_dependency_chain"
+      ],
+      "owner": "quality-controller",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

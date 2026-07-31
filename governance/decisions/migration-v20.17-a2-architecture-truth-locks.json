@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-a2-architecture-truth-locks",
+  "problem": "Current architecture documentation exposed both State Schema v2 and superseded TurnGoalPlan/WorkflowPlan records as plausible authorities, while Python dependency graphs were not locked into release-visible project-local uv.lock files.",
+  "options": [
+    {
+      "id": "conservative-doc-only",
+      "strategy": "conservative",
+      "name": "Clarify existing documents only",
+      "correctness": "Reduces wording ambiguity but leaves dependency resolution non-reproducible and permits clean installs to drift from the certified graph.",
+      "complexity": "Low",
+      "migration": "Mark old records as historical and add a current entry document without generating lock files.",
+      "rollback": "Restore the previous documentation files.",
+      "verification": "Documentation contract tests only."
+    },
+    {
+      "id": "evolutionary-current-authority-and-locks",
+      "strategy": "evolutionary",
+      "name": "One current architecture authority plus release-visible locks",
+      "correctness": "Makes the State Schema v2 authority chain explicit, retains old records only as superseded history, and binds installations to the dependency graph verified by the product suite.",
+      "complexity": "Bounded to documentation, generated locks, and architecture contract tests; no runtime authority changes.",
+      "migration": "Add CURRENT_ARCHITECTURE, mark obsolete records SUPERSEDED, update references, generate both uv.lock files, and verify clean-release visibility.",
+      "rollback": "Restore the B0 closed baseline documents and remove the two generated lock files; runtime remains unchanged.",
+      "verification": "Expected-red transition, lock freshness checks, full Quick, authenticated HTTP lifecycle, and real Chromium product journey."
+    },
+    {
+      "id": "redesign-runtime-and-governance",
+      "strategy": "redesign",
+      "name": "Redesign runtime authority and dependency management together",
+      "correctness": "Could remove more legacy concepts but mixes documentation/reproducibility work with runtime and dependency-cycle redesign, increasing regression and authority-split risk.",
+      "complexity": "High and cross-boundary",
+      "migration": "Replace runtime state/planning structures, dependency assembly, documentation, and installation workflow in one cutover.",
+      "rollback": "Requires reverting runtime checkpoints, documentation, and dependency graph together.",
+      "verification": "New migration suite, checkpoint compatibility, full runtime certification, and real-model evaluation."
+    }
+  ],
+  "selected_option": "evolutionary-current-authority-and-locks",
+  "rejected_reasons": {
+    "conservative-doc-only": "It leaves dependency resolution non-reproducible and does not satisfy the lock/release claim.",
+    "redesign-runtime-and-governance": "It crosses product-runtime and architecture-governance boundaries and would invalidate the already certified B0 behavior for no necessary A2 benefit."
+  },
+  "deletions": [],
+  "unknowns": [
+    "The existing agent_core dependency SCC remains open architecture debt and is explicitly outside A2.",
+    "Real DeepSeek semantic behavior remains NOT_DECLARED and requires a later certification target."
+  ],
+  "selected_responsibilities": [
+    "CURRENT_ARCHITECTURE.md owns the sole current State Schema v2 architecture description.",
+    "Superseded TurnGoalPlan and WorkflowPlan documents remain migration history and cannot own runtime behavior.",
+    "Each Python service owns a project-local uv.lock generated from its current pyproject.",
+    "Clean-release source selection must include both lock files."
+  ],
+  "preserved_hard_invariants": [
+    "Business Service remains the authority for business facts and final writes.",
+    "Transaction Draft/Grant/Attempt/Receipt authority is unchanged.",
+    "No similar-capability fallback is introduced.",
+    "A2 does not claim dependency-cycle closure or real-model certification.",
+    "No runtime source is modified by A2."
+  ],
+  "cutover_strategy": "Introduce the current architecture entry and lock files in one documentation/reproducibility candidate, verify the expected-red to green transition, run the full product Quick, then formally close without promoting or changing the architecture baseline policy.",
+  "acceptance_claims": [
+    "The State Schema v2 authority chain is the only current architecture owner and obsolete records are explicitly superseded.",
+    "Agent and Business uv.lock files are current, pass uv lock --check, and are included in clean-release source selection.",
+    "All required product Gates remain green while architecture debt remains honestly reported as PASS_WITH_DEBT / UNCHANGED."
+  ],
+  "baseline_changes": []
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill Control Rule",
+  "type": "object",
+  "required": [
+    "id",
+    "level",
+    "scope",
+    "rationale",
+    "verification",
+    "owner",
+    "introduced_at",
+    "review_date"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_.:-]{2,127}$"
+    },
+    "level": {
+      "enum": [
+        "HARD_INVARIANT",
+        "STRONG_DEFAULT",
+        "REFERENCE_PATTERN",
+        "PROJECT_BASELINE",
+        "WORKFLOW_DEFAULT",
+        "EXAMPLE_ONLY"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "applies_to"
+      ],
+      "properties": {
+        "applies_to": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "excludes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 8
+    },
+    "verification": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "introduced_at": {
+      "type": "string"
+    },
+    "review_date": {
+      "type": "string"
+    },
+    "variance_allowed": {
+      "type": "boolean"
+    },
+    "supersedes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "enum": [
+        "active",
+        "deprecated",
+        "retired"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b2b-readiness-scc-ratchet",
+  "claims": [
+    {
+      "id": "READINESS-SCC-RATCHET-001",
+      "statement": "Readiness aggregation is owned by app.services, runtime has no RAG dependency, rag exits the main SCC, and the prior utils extraction regression remains valid under cumulative SCC reduction.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py::test_rag_exits_main_scc_when_readiness_moves_to_application_layer",
+        "services/agent-service/tests/architecture/test_utils_scc_extraction.py::test_utils_package_exits_main_dependency_scc"
+      ],
+      "owner": "app.services.readiness_service + cumulative dependency-debt regression contracts",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "skill-static",
+  "description": "Skill 结构、Schema、Registry、宿主适配与语法检查。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "architecture-skill/scripts/verify_skill_package.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/host_conformance.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/registry.py",
+      "--verify"
+    ]
+  ]
+}

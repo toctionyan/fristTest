@@ -1,0 +1,21 @@
+{
+  "suite": "correction_cases",
+  "cases": [
+    {
+      "id": "not_earphone_keyboard_correction",
+      "category": "correction_override",
+      "execution_contract": "active_draft_pointer_is_explicit",
+      "turns": [
+        {"role": "user", "text": "耳机左边没声音，能退吗？"},
+        {"role": "assistant", "visible_result": "refund_eligibility", "target": "10001"},
+        {"role": "user", "text": "不是耳机，是键盘坏了。"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "override_focus_and_reobserve",
+        "old_target_state": "superseded",
+        "new_target_candidate": "keyboard_order"
+      },
+      "forbidden_behavior": ["keep_old_earphone_focus", "commit_old_draft", "silently_change_target_after_grant"]
+    }
+  ]
+}

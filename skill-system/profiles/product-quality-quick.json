@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "product-quality-quick",
+  "description": "验证并复用由统一桥接器生成、绑定当前源码的产品 Quality Loop quick 证据。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/product_quality_bridge.py",
+      "current",
+      "--mode",
+      "quick"
+    ]
+  ]
+}

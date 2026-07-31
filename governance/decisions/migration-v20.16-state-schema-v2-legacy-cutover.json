@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.16-state-schema-v2-legacy-cutover",
+  "decision": "evolutionary_schema_v2_with_one_time_legacy_migration",
+  "status": "closed",
+  "context": "V20.12–V20.15 已建立冻结语义、Capability Contract v2、Pre-Tool Shadow 与 PlanDefinition/PlanRun，但 State 仍保留旧 GoalPlan、WorkflowPlan 和 PendingClarification 投影，存在双权威和永久兼容风险。",
+  "options": [
+    {
+      "name": "conservative_keep_dual_state_indefinitely",
+      "description": "继续让新旧字段同时持久化并由各节点自行选择。",
+      "rejected_because": "会永久保留双语义与双计划 Owner，后续修改可重新激活旧路径。"
+    },
+    {
+      "name": "evolutionary_schema_v2_with_one_time_legacy_migration",
+      "description": "新线程直接使用 v2；旧 checkpoint 在入口做一次性迁移，歧义状态要求重启。",
+      "selected_because": "能保持正式语义与事务边界，同时提供可审计、可回滚的旧状态退出路径。"
+    },
+    {
+      "name": "redesign_drop_all_old_checkpoints",
+      "description": "不读取任何旧状态，发布时全部删除。",
+      "rejected_because": "会无条件丢失可安全迁移的活动任务和用户上下文，迁移成本不可接受。"
+    }
+  ],
+  "preserved_invariants": [
+    "冻结语义合同仍是 Goal 权威。",
+    "FrozenPlanDefinition/PlanRun 仍是计划与执行权威。",
+    "事务 Draft/Grant/Attempt/Receipt 不迁入 Agent State。",
+    "歧义旧状态不得通过关键词、goal_type 或 Tool 相似度推测迁移。"
+  ],
+  "cutover": {
+    "current_phase": "schema_v2_new_threads_and_one_time_schema_v1_migration",
+    "promotion_condition": "正式 LangGraph/PostgreSQL 环境证明旧 checkpoint 迁移、恢复和 tombstone 持久化稳定，legacy fallback 使用量达到退出阈值。",
+    "rollback": "恢复 V20.15 State 读取，但不回滚已写入的事务权威记录；已迁移 v2 checkpoint 保持可读。",
+    "cleanup": "V20.17 完成真实环境认证后删除 Schema v1 fuzzy discovery、旧字段读取和迁移临时代码。"
+  },
+  "closure": {
+    "method": "scope-expanding-companion-certification",
+    "certification_change_id": "certify-v20.16-continuation-final",
+    "evidence": ".quality/product-code/certify-v20.16-continuation-final/final-quick-20260728T094229Z/run-summary.json",
+    "result": "CONVERGED",
+    "closed_at": "2026-07-28T09:51:00.334924+00:00"
+  }
+}

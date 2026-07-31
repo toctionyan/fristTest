@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.7-browser-conversation-closure",
+  "claims": [
+    {
+      "id": "PUBLIC-RESPONSE-RENDERING-001",
+      "statement": "Every completed assistant turn has a customer-visible narrative, released block or interaction in the live browser, and internal presentation violations never appear as customer text.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "frontend-vitest", "product-browser-journey"],
+      "evidence_refs": ["gate-log:systemic-operational-counterexamples", "gate-log:frontend-vitest", "gate-log:product-browser-journey"],
+      "owner": "response projector + frontend live message renderer",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LIVE-HISTORY-EQUIVALENCE-001",
+      "statement": "The visible assistant transcript and released presentation contracts are identical before and after browser reload for the same durable thread.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["configured-model-browser-conversation"],
+      "evidence_refs": ["gate-log:configured-model-browser-conversation"],
+      "owner": "public response persistence + frontend history hydration",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "CONTEXT-ENTITY-INTENT-BINDING-001",
+      "statement": "A real-model Chromium conversation preserves verified order scope and the user's invoice, logistics and refund goals across pronouns, interruptions, corrections and a fresh-thread ambiguity boundary.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["configured-model-browser-conversation"],
+      "evidence_refs": ["gate-log:configured-model-browser-conversation"],
+      "owner": "lifecycle context + ecommerce presentation + real browser oracle",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-BROWSER-MUTATION-001",
+      "statement": "Executable mutations that drop notice blocks, weaken semantic browser assertions or omit the configured-model browser Gate are rejected by the quick counterexample suite.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_strong_context_browser_gate_is_semantic_and_mutation_guarded"],
+      "owner": "quality policy + systemic mutation catalog",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

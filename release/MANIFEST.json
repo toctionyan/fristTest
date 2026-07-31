@@ -1,0 +1,15 @@
+{
+  "schema_version": 4,
+  "workspace": "customer-agent-workspace",
+  "version": "20.6.1",
+  "skill": {
+    "name": "customer-agent-architecture",
+    "version": "6.3.0"
+  },
+  "profile": "development-workspace",
+  "phase": "B17i",
+  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "certification_level": "phase-candidate",
+  "production_closed": false,
+  "boundary": "Admission failures now emit a downloadable sanitized run-bound result and the final GitHub execution handoff is explicit; one real protected same-run execution is still required."
+}

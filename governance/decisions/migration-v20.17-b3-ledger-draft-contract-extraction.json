@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b3-ledger-draft-contract-extraction",
+  "problem": "The verified artifact ledger imports transaction lifecycle implementation helpers even though transaction already depends on ledger. This single ledger-to-transaction edge keeps the whole ledger package inside the main SCC and reverses the intended authority direction.",
+  "options": [
+    {
+      "id": "keep-transaction-owned-model",
+      "strategy": "conservative",
+      "name": "Keep the pure draft model in transaction",
+      "correctness": "Preserves behavior but leaves ledger coupled to transaction execution and the 12-package SCC unchanged.",
+      "complexity": "Low",
+      "migration": "No source changes.",
+      "rollback": "Not applicable.",
+      "verification": "SCC remains 12."
+    },
+    {
+      "id": "neutral-operation-draft-contract",
+      "strategy": "evolutionary",
+      "name": "Move the pure TransactionDraft contract to operations and retain a transaction compatibility export",
+      "correctness": "Keeps one canonical implementation, preserves every public transaction import, and makes ledger depend only on a neutral operation contract rather than transaction execution.",
+      "complexity": "Six governed paths including one new contract module, one compatibility shim, one ledger import, cumulative architecture tests and one responsibility record.",
+      "migration": "Record expected-red, move the existing pure model unchanged to operations.draft, replace transaction.model with explicit re-exports, redirect ledger imports, and make the B2 count assertion monotonic.",
+      "rollback": "Restore transaction.model implementation and ledger imports, remove operations.draft, and restore the exact B2 count.",
+      "verification": "Transaction protocol tests, ledger regression, Architecture Gate, full Quick, lifecycle and Chromium."
+    },
+    {
+      "id": "move-draft-authority-into-ledger",
+      "strategy": "redesign",
+      "name": "Make ledger own transaction draft lifecycle",
+      "correctness": "Would remove the edge but incorrectly transfers transaction lifecycle authority into the artifact ledger.",
+      "complexity": "High and boundary-breaking",
+      "migration": "Rewrite transaction imports around ledger.",
+      "rollback": "Cross-boundary rollback.",
+      "verification": "Full transaction redesign certification."
+    }
+  ],
+  "selected_option": "neutral-operation-draft-contract",
+  "rejected_reasons": {
+    "keep-transaction-owned-model": "It preserves the reversed dependency and blocks the SCC elimination goal.",
+    "move-draft-authority-into-ledger": "Ledger must not become the Owner of authorization, commit or transaction execution."
+  },
+  "deletions": [
+    "The concrete TransactionDraft implementation is removed from agent_core.transaction.model and replaced by compatibility exports; no public transaction symbol is deleted."
+  ],
+  "unknowns": [
+    "The remaining 11-package SCC remains open debt.",
+    "Real model certification remains outside this structural migration."
+  ],
+  "selected_responsibilities": [
+    "agent_core.operations.draft owns the pure effect-bearing TransactionDraft data algebra.",
+    "agent_core.transaction owns authority, persistence, reconciliation and commit orchestration and re-exports the draft contract for compatibility.",
+    "agent_core.ledger stores and projects verified carriers but does not import transaction execution."
+  ],
+  "preserved_hard_invariants": [
+    "Draft states, command payload canonicalization and command digest outputs remain byte-for-byte behaviorally equivalent.",
+    "transaction.model public imports remain available.",
+    "Ledger schema and presentation projection remain unchanged.",
+    "rag and utils remain outside the main SCC.",
+    "The dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Create the red architecture contract before implementation, move the pure code without semantic edits, retain an explicit compatibility module, redirect only ledger imports, then run complete product verification.",
+  "acceptance_claims": [
+    "ledger has no transaction package import and is absent from the main SCC.",
+    "operations.draft is the only implementation Owner while transaction.model is a compatibility export.",
+    "The current SCC member count is 11 and cannot regress above prior verified bounds.",
+    "Transaction, frontend, lifecycle and browser behavior remain green."
+  ],
+  "baseline_changes": []
+}

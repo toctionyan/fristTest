@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "phase": "B17i",
+  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "product_version": "20.6.1",
+  "skill_version": "6.3.0",
+  "claim_id": "V20-17-B17I-PRODUCTION-EXECUTION-HANDOFF-001",
+  "implementation_contract_status": "TARGETED_VERIFIED",
+  "quality_loop_claim_closure": "NOT_CLOSED_ENVIRONMENT_BLOCKED",
+  "production_closed": false,
+  "target": {
+    "id": "certify-v20.17-b17i-production-execution-handoff",
+    "minimum_mode": "quick",
+    "max_rounds": 8,
+    "current_round": 1,
+    "allowed_paths": 19
+  },
+  "admission_evidence": {
+    "contract": "release-workflow-admission@1",
+    "atomic_json": "release-admission-result.json",
+    "always_uploaded": true,
+    "secret_free_job": true,
+    "run_bound_artifact": "production-release-admission-<run_id>-<attempt>",
+    "covered_statuses": [
+      "PASS",
+      "FAIL",
+      "BLOCKED_BY_ENVIRONMENT"
+    ]
+  },
+  "validation": {
+    "b17_release_control_tests": 84,
+    "clean_release_tests": 19,
+    "business_configuration_tests": 12,
+    "executable_product_and_release_total": 115,
+    "skill_unit_tests": 46,
+    "skill_security_tests": 7,
+    "skill_package": "PASS",
+    "skill_registry": "PASS",
+    "skill_host": "PASS",
+    "skill_host_strict": "PASS",
+    "architecture": "PASS",
+    "architecture_debt": "RESOLVED",
+    "version_consistency": "PASS",
+    "quality_evidence_contract": "PASS",
+    "workflow_yaml": "PASS",
+    "release_toolchain_static_contract": "PASS",
+    "python_ast": "PASS",
+    "source_change_files_excluding_manifest": 18,
+    "source_change_files_including_manifest": 19,
+    "scope_violations": 0
+  },
+  "failure_close_probes": {
+    "release_admission_missing_ci": {
+      "exit_code": 78,
+      "status": "BLOCKED_BY_ENVIRONMENT"
+    },
+    "release_admission_invalid_ref": {
+      "exit_code": 1,
+      "status": "FAIL"
+    },
+    "protected_environment_preflight": {
+      "exit_code": 78,
+      "status": "BLOCKED_BY_ENVIRONMENT"
+    },
+    "release_toolchain_runtime": {
+      "exit_code": 78,
+      "status": "BLOCKED_BY_ENVIRONMENT"
+    },
+    "production_release": {
+      "exit_code": 78,
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "reason": "locked_agent_environment_missing"
+    },
+    "quality_evidence_dir_created": false,
+    "release_artifact_dir_created": false,
+    "production_closed_files_created": false
+  },
+  "execution_handoff": {
+    "runbook": "docs/operations/B17I_FINAL_PRODUCTION_EXECUTION_RUNBOOK.md",
+    "connected_github_repository_available": false,
+    "github_app_installed_accounts": 0,
+    "required_next_action": "execute production-certification-release in a protected GitHub repository and download the same-run production-closed artifact"
+  },
+  "environment_blocks": [
+    "no GitHub App installation or accessible repository",
+    "no protected GitHub Actions run identity",
+    "locked Agent and Business Python 3.12.13 environments unavailable",
+    "exact Node 24.18.0/npm 11.16.0 environment unavailable",
+    "Docker and immutable pgvector runtime unavailable",
+    "LangChain/LangGraph and browser dependencies unavailable",
+    "production chat-model, embedding and evidence-signing secrets unavailable"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b10b-persistence-profile-boundary",
+  "claims": [
+    {
+      "id": "PERSISTENCE-PROFILE-BOUNDARY-SCC-001",
+      "statement": "Kernel owns the single deployment RuntimeProfile contract, runtime.profile re-exports the identical contract for compatibility, persistence consumes Kernel directly and exits the main SCC, and all prior dependency removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_persistence_profile_boundary_scc.py::test_persistence_uses_kernel_profile_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_observability_boundary_scc.py::test_observability_is_dependency_neutral_and_exits_main_scc"
+      ],
+      "owner": "agent_core.kernel profile contract + runtime compatibility export + persistence consumers + cumulative debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

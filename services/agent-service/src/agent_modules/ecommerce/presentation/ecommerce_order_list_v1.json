@@ -1,0 +1,61 @@
+{
+  "contract_id": "commerce.order_list@1",
+  "version": 1,
+  "result_profile": "structured_result",
+  "contract_owner": "ecommerce_overlay",
+  "projection_boundary": "ecommerce_order_list_projector",
+  "producer": "ecommerce.order.read.capability",
+  "renderer": {
+    "web": "commerce_order_list_renderer"
+  },
+  "adequacy": {
+    "required_visible_semantics": [
+      "resource_identity",
+      "resource_display_label"
+    ],
+    "optional_visible_semantics": [
+      "resource_state",
+      "supplementary_summary"
+    ],
+    "rule": "each_result_item_is_user_distinguishable"
+  },
+  "payload": {
+    "block_type": "order_list",
+    "item_required_fields": {
+      "order_id": "resource_identity",
+      "product_name": "resource_display_label"
+    },
+    "item_optional_fields": {
+      "status": "resource_state",
+      "amount": "supplementary_summary"
+    }
+  },
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {
+    "required_levels": [
+      "unit",
+      "contract"
+    ],
+    "end_to_end_required": true,
+    "end_to_end_reason": "primary order-list result crosses capability, response projection, API/SSE and web renderer",
+    "release_gate_required": true,
+    "coverage_evidence_required": true
+  },
+  "coverage": {
+    "mode": "full",
+    "source_population": "resolved_order_collection"
+  },
+  "release": {
+    "formal_response_eligible": true,
+    "renderer_registry_key": "commerce.order_list@1",
+    "legacy_output_replaces": [
+      "ecommerce.legacy.order_list"
+    ],
+    "release_gate": "StructuredResultReleaseGate"
+  }
+}

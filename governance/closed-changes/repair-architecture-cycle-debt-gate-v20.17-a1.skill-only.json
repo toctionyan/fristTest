@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-architecture-cycle-debt-gate-v20.17-a1",
+  "target_kind": "repair",
+  "goal": "修复架构收敛门禁对既有大规模依赖环误报全绿的问题，引入依赖债务棘轮和可解释架构状态，同时保持产品源码只读。",
+  "profile": "skill-only",
+  "allowed_paths": [
+    "architecture-skill/**",
+    "skill-system/**",
+    "governance/**",
+    "scripts/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".github/workflows/quality.yml",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "CHANGELOG.md",
+    "Makefile",
+    "skillctl.py",
+    "release/**"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "invariants": [
+    "customer-agent product source remains unchanged",
+    "trusted Judge inputs are not modified by the implementer",
+    "current evidence is required for completion"
+  ],
+  "required_profiles": [
+    "skill-static",
+    "skill-unit",
+    "skill-host-integration",
+    "skill-security",
+    "project-compatibility-smoke"
+  ],
+  "writer_role": "skill-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": ".quality/skill-control-plane/repair-architecture-cycle-debt-gate-v20.17-a1/reviews/adversarial-reviewer.json",
+      "evidence_sha256": "e32f368666842ad921e794193741ecfe639f631259cf42ce14bfbf713b53c5c5",
+      "recorded_at": "2026-07-29T03:20:32.139287+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/skill-control-plane/repair-architecture-cycle-debt-gate-v20.17-a1/verification.json",
+      "evidence_sha256": "95b950cd31e680567704421c95a4f0c79d20007b6d7dbb6500845d7234beda71",
+      "recorded_at": "2026-07-29T03:20:48.014500+00:00"
+    }
+  ],
+  "decision_record": null,
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": {
+    "path": ".quality/skill-control-plane/repair-architecture-cycle-debt-gate-v20.17-a1/verification.json",
+    "sha256": "95b950cd31e680567704421c95a4f0c79d20007b6d7dbb6500845d7234beda71",
+    "source_fingerprint": "420b7d16bca1984bbaa57bb978b69f845bce9c7030df9868bb0d506b238761e8",
+    "source_file_count": 308,
+    "verified_at": "2026-07-29T03:20:48.014255+00:00"
+  },
+  "created_at": "2026-07-29T03:08:56.805548+00:00",
+  "status": "closed",
+  "result": "CONVERGED",
+  "closed_at": "2026-07-29T03:21:13.174388+00:00"
+}

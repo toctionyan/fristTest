@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b12b-transaction-runtime-boundary",
+  "problem": "Transaction owns durable business-operation state transitions but imports Runtime outcome construction, decision helpers and a Runtime-wrapped global BusinessPort lookup, closing the final three-package lifecycle/runtime/transaction SCC. The legacy business-adapter regression test also monkeypatches the removed hidden lookup and must be migrated to explicit dependencies.",
+  "options": [
+    {
+      "id": "keep-runtime-imports",
+      "strategy": "conservative",
+      "name": "Keep current transaction/runtime coupling",
+      "correctness": "Preserves behavior but leaves transaction in the core SCC and keeps a hidden service locator.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "N/A",
+      "verification": "Debt unchanged."
+    },
+    {
+      "id": "explicit-transaction-execution-deps",
+      "strategy": "evolutionary",
+      "name": "Explicit transaction execution dependencies",
+      "correctness": "Transaction retains state-machine authority while Runtime supplies its outcome factory and Application Composition supplies BusinessPort explicitly.",
+      "complexity": "Small dependency envelope plus call-site migration.",
+      "migration": "Add a transaction-owned dependency envelope, move pure decision append helper to Kernel, update lifecycle/application/module callers, remove all transaction runtime imports.",
+      "rollback": "Restore direct Runtime imports and old call signatures.",
+      "verification": "Transaction counterexample, outcome equivalence, complete Quick and product journeys."
+    },
+    {
+      "id": "move-transaction-state-machine-into-runtime",
+      "strategy": "redesign",
+      "name": "Move transaction implementation into Runtime",
+      "correctness": "Would collapse distinct authorities and make model execution infrastructure own durable transaction semantics.",
+      "complexity": "High",
+      "migration": "Large rewrite.",
+      "rollback": "High risk.",
+      "verification": "Unacceptable authority change."
+    }
+  ],
+  "selected_option": "explicit-transaction-execution-deps",
+  "rejected_reasons": {
+    "keep-runtime-imports": "Retains the wrong dependency direction and hidden Provider lookup.",
+    "move-transaction-state-machine-into-runtime": "Violates transaction authority separation."
+  },
+  "deletions": [
+    "Delete every transaction import of agent_core.runtime.",
+    "Delete hidden get_business_port calls from transaction execution.",
+    "Delete transaction dependence on Runtime decision-chain helper."
+  ],
+  "unknowns": [
+    "The remaining lifecycle/runtime two-package SCC remains open debt.",
+    "State/Loop simplification and real-model certification remain future stages."
+  ],
+  "selected_responsibilities": [
+    "Transaction owns durable transaction state machines and consumes explicit dependencies.",
+    "Runtime owns concrete RuntimeOutcome construction and classification.",
+    "Kernel owns only a pure, authority-free decision trace append helper and Outcome callable protocol.",
+    "Application composition owns concrete BusinessPort selection."
+  ],
+  "preserved_hard_invariants": [
+    "Business Service remains final business authority.",
+    "Draft/Grant/Attempt/Receipt and idempotency behavior do not move.",
+    "RuntimeOutcome public shape and fail-closed behavior remain unchanged.",
+    "Dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, add explicit dependency envelope, migrate all transaction callers in one cut, remove runtime imports and service locator, then run complete Quick.",
+  "acceptance_claims": [
+    "Transaction imports no runtime package and contains no hidden BusinessPort lookup.",
+    "Runtime remains the concrete Outcome implementation owner.",
+    "SCC count is at most 2 with transaction and all previously removed packages excluded.",
+    "All transaction, lifecycle, browser and release tests pass."
+  ],
+  "baseline_changes": []
+}

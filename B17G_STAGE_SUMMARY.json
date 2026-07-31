@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "phase": "B17g",
+  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "claim_id": "V20-17-B17G-PRODUCTION-EXECUTION-READINESS-001",
+  "baseline_claim_status": "FAILED",
+  "implementation_contract_status": "TARGETED_VERIFIED",
+  "quality_loop_claim_closure": "NOT_CLOSED_ENVIRONMENT_BLOCKED",
+  "regression_transition": "FAILED_TO_TARGETED_VERIFIED",
+  "target": {
+    "id": "certify-v20.17-b17g-production-execution-readiness",
+    "minimum_mode": "quick",
+    "max_rounds": 8,
+    "current_round": 1,
+    "parse_status": "PASS"
+  },
+  "validation": {
+    "b17_release_chain": "63 passed",
+    "b17g_b17f_b17e_targeted": "31 passed",
+    "clean_release_and_b16_regression": "27 passed",
+    "productization_dependency_free": "5 passed, 2 dependency-bound deselected",
+    "systemic_dependency_free": "8 passed, 2 dependency-bound deselected",
+    "business_configuration_contract": "12 passed",
+    "executable_product_and_regression_total": "115 passed",
+    "skill_unit": "46 passed",
+    "skill_security": "7 passed",
+    "skill_package_host_registry": "PASS",
+    "skill_project_compatibility_smoke": "NOT_APPLICABLE_TO_APPROVED_PRODUCT_CERTIFICATION_CHANGE",
+    "architecture_gate": "PASS",
+    "architecture_debt_status": "RESOLVED",
+    "version_consistency": "PASS",
+    "evidence_contract": "PASS",
+    "release_toolchain_static_contract": "PASS",
+    "workflow_yaml": "PASS",
+    "source_ast": "PASS",
+    "target_and_claim_parse": "PASS",
+    "runtime_artifact_cleanliness": "PASS"
+  },
+  "release_admission_contract": {
+    "contract": "release-workflow-admission@1",
+    "secret_free_admission_job": true,
+    "protected_job_requires_admission": true,
+    "protected_job_platform_condition_retained": true,
+    "invalid_ref_fails_explicitly": true,
+    "invalid_model_or_embedding_input_fails_early": true,
+    "admission_has_production_environment": false,
+    "admission_receives_secrets": false,
+    "static_toolchain_fingerprint_binding": true
+  },
+  "environment_blocks": {
+    "exact_python_3_12_13": false,
+    "locked_uv_0_11_29": false,
+    "agent_locked_venv": false,
+    "business_locked_venv": false,
+    "frontend_node_24_18_0_and_npm_11_16_0": false,
+    "frontend_node_modules": false,
+    "docker_command": false,
+    "official_chat_model_secret_injected": false,
+    "official_embedding_secret_injected": false,
+    "quality_evidence_signing_key_injected": false,
+    "langchain_core_in_current_interpreter": false,
+    "langgraph_in_current_interpreter": false,
+    "protected_github_actions_context": false,
+    "locked_uv_bootstrap_available_from_current_registry": false
+  },
+  "dependency_bound_validation": {
+    "status": "BLOCKED_BY_ENVIRONMENT",
+    "dependency_free_tests_passed": 13,
+    "dependency_bound_tests_not_executed": 4,
+    "adversarial_bridge_status": "BLOCKED_DURING_COLLECTION",
+    "adversarial_bridge_reason": "langchain_core_and_langgraph_missing",
+    "claim_relabelled_as_pass": false
+  },
+  "control_probes": {
+    "release_admission_local": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "reason": "release_admission_ci_context_missing",
+      "exit_code": 78
+    },
+    "release_admission_unprotected": {
+      "status": "FAIL",
+      "reason": "release_admission_ref_mismatch",
+      "exit_code": 1
+    },
+    "release_toolchain": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "reason": "release_locked_python_environment_missing",
+      "exit_code": 78,
+      "evidence_created": false
+    },
+    "production_release": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "stage": "preflight",
+      "reason": "locked_agent_environment_missing",
+      "exit_code": 78,
+      "external_control_ledger_created": true,
+      "evidence_directory_created": false,
+      "artifact_directory_created": false,
+      "production_closed_artifact": false
+    }
+  },
+  "production_closed": false
+}

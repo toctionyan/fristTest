@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "decision_id": "repair-v20.16-clean-release-control-plane-copy",
+  "change_id": "repair-v20.16-clean-release-control-plane-copy",
+  "problem": "clean-release 的源复制白名单遗漏完整 Skill 控制面与宿主适配文件，导致生成阶段在 skill-package 语义自检中失败。",
+  "selected_option": "include_portable_control_plane_in_clean_release_allowlist",
+  "selected_changes": [
+    "TOP_LEVEL_FILES 加入 AGENTS.md、CLAUDE.md 和 skillctl.py。",
+    "TOP_LEVEL_DIRS 加入 skill-system、.agents、.claude 和 .codex。",
+    "新增回归测试，要求可移植 Skill 控制面被复制到发布 stage。"
+  ],
+  "rejected_options": [
+    "跳过 clean-release 的 Skill 语义自检；这会交付无法在 Codex/Claude 使用的残缺包。",
+    "手工向最终 Zip 注入漏失文件；这会绕过发布清单和源码指纹。",
+    "把完整 node_modules 或运行时缓存打进包；这不解决控制面缺失并破坏 clean-release。"
+  ],
+  "red_evidence": ".quality/manual-continuation/clean-release-packaging-red.json",
+  "green_evidence": ".quality/manual-continuation/clean-release-packaging-smoke.json",
+  "result": "CONVERGED"
+}

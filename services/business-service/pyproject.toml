@@ -1,0 +1,28 @@
+[project]
+name = "ecommerce-business-service"
+version = "20.6.1"
+description = "Independent ecommerce Business Service with tenant-safe domain commands, state machines, idempotency, and audit"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "python-dotenv>=1.0.1",
+  "pydantic>=2.7.0",
+  "psycopg[binary,pool]>=3.2.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=6.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: requires separately running Agent and Business services",
+  "preprod: requires protected preproduction credentials",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["business_service*"]

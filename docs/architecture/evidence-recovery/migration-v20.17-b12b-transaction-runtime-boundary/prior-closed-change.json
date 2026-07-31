@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b12b-transaction-runtime-boundary",
+  "target_kind": "migration",
+  "goal": "删除 transaction 对 runtime 的反向依赖和隐藏 BusinessPort 查询，并把旧测试迁移为显式事务依赖，使 transaction 退出主 SCC且事务行为不变。",
+  "profile": "product-migration",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/kernel/outcome_contract.py",
+    "services/agent-service/src/agent_core/kernel/decision_trace.py",
+    "services/agent-service/src/agent_core/runtime/node_support.py",
+    "services/agent-service/src/agent_core/runtime/deps.py",
+    "services/agent-service/src/agent_core/transaction/deps.py",
+    "services/agent-service/src/agent_core/transaction/availability.py",
+    "services/agent-service/src/agent_core/transaction/lifecycle_query.py",
+    "services/agent-service/src/agent_core/transaction/operation_preparation.py",
+    "services/agent-service/src/agent_core/transaction/gateway_runtime.py",
+    "services/agent-service/src/agent_core/transaction/commit_runtime.py",
+    "services/agent-service/src/agent_core/transaction/interaction_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/graph.py",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py",
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/app/services/lifecycle_command_runner.py",
+    "services/agent-service/app/use_cases/transaction_start.py",
+    "services/agent-service/app/use_cases/interaction_submit.py",
+    "services/agent-service/src/agent_modules/ecommerce/shared/runtime_tools.py",
+    "services/agent-service/src/agent_modules/ecommerce/shared/prepare_actions.py",
+    "services/agent-service/src/agent_modules/ecommerce/shared/refund_eligibility.py",
+    "services/agent-service/tests/support/runtime_support.py",
+    "services/agent-service/tests/support/conversation_case_runner.py",
+    "services/agent-service/tests/architecture/test_runtime_contract.py",
+    "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py",
+    "services/agent-service/tests/context/test_dialogue_counterexamples.py",
+    "docs/architecture/V20_17_B12_TRANSACTION_RUNTIME_BOUNDARY.md"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "invariants": [
+    "Business Service remains final business authority",
+    "Draft Grant Attempt Receipt and idempotency semantics remain unchanged",
+    "RuntimeOutcome shape and fail-closed behavior remain unchanged"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "scope-planner",
+      "decision": "PASS",
+      "evidence": "governance/reviews/migration-v20.17-b12b-transaction-runtime-boundary/scope-planner.md",
+      "evidence_sha256": "20a5231e81d90ca39ca17fbc0e68aa8378b8702a5770f0039cec46b0a3a806f2",
+      "recorded_at": "2026-07-29T10:13:06.639451+00:00"
+    },
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": "governance/reviews/migration-v20.17-b12b-transaction-runtime-boundary/adversarial-reviewer.md",
+      "evidence_sha256": "94a8e83098df9b4a498d7d14508ecf9c37f857f6574427db5e11cad7e563f48c",
+      "recorded_at": "2026-07-29T10:13:06.732057+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/migration-v20.17-b12b-transaction-runtime-boundary/verification.json",
+      "evidence_sha256": "2903984e8df4bded776f71983fbb81f50874ea5aca515ab6c2f109f1308cfc68",
+      "recorded_at": "2026-07-29T10:13:17.415365+00:00"
+    }
+  ],
+  "affected_modules": [
+    "agent-core-transaction",
+    "agent-core-runtime",
+    "agent-core-lifecycle",
+    "app-composition"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/migration-v20.17-b12b-transaction-runtime-boundary.md",
+  "baseline_evidence": ".quality/product-code/migration-v20.17-b12b-transaction-runtime-boundary/baseline",
+  "initial_source_fingerprint": "eb2cd4741954e1608eb2cc2e41b95a7671c4021265e87a9f7fd480cc95bcf865",
+  "initial_source_file_count": 24,
+  "product_validation": {
+    "baseline": ".quality/product-code/migration-v20.17-b12b-transaction-runtime-boundary/baseline",
+    "baseline_mode": "quick",
+    "recorded_at": "2026-07-29T10:10:07.146008+00:00",
+    "verification": ".quality/product-code/migration-v20.17-b12b-transaction-runtime-boundary/verification-quick-20260729T101052Z",
+    "verification_mode": "quick",
+    "verification_source_fingerprint": "b54123cc149f6bcf0e59d48cf5ba9dddaed2aceb60ea84cc1b87d63fbd7c18c5",
+    "verification_source_file_count": 26,
+    "verification_recorded_at": "2026-07-29T10:11:59.798351+00:00",
+    "verification_bridge_result": ".quality/product-code/migration-v20.17-b12b-transaction-runtime-boundary/bridge-results/verification-quick-20260729T101052Z.json"
+  },
+  "decision_record": "governance/decisions/migration-v20.17-b12b-transaction-runtime-boundary.json",
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": {
+    "path": ".quality/product-control-plane/migration-v20.17-b12b-transaction-runtime-boundary/verification.json",
+    "sha256": "2903984e8df4bded776f71983fbb81f50874ea5aca515ab6c2f109f1308cfc68",
+    "source_fingerprint": "b54123cc149f6bcf0e59d48cf5ba9dddaed2aceb60ea84cc1b87d63fbd7c18c5",
+    "source_file_count": 26,
+    "verified_at": "2026-07-29T10:13:17.415160+00:00"
+  },
+  "created_at": "2026-07-29T10:07:12.302227+00:00",
+  "status": "closed",
+  "result": "CONVERGED",
+  "closed_at": "2026-07-29T10:13:17.587285+00:00"
+}

@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "decision_id",
+    "change_id",
+    "problem",
+    "options",
+    "selected_option",
+    "rejected_reasons",
+    "deletions",
+    "unknowns",
+    "selected_responsibilities",
+    "preserved_hard_invariants",
+    "cutover_strategy",
+    "acceptance_claims"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "decision_id": {
+      "type": "string"
+    },
+    "change_id": {
+      "type": "string"
+    },
+    "problem": {
+      "type": "string",
+      "minLength": 8
+    },
+    "options": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "strategy",
+          "name",
+          "correctness",
+          "complexity",
+          "migration",
+          "rollback",
+          "verification"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "correctness": {
+            "type": "string"
+          },
+          "complexity": {
+            "type": "string"
+          },
+          "migration": {
+            "type": "string"
+          },
+          "rollback": {
+            "type": "string"
+          },
+          "verification": {
+            "type": "string"
+          },
+          "strategy": {
+            "enum": [
+              "conservative",
+              "evolutionary",
+              "redesign"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "selected_option": {
+      "type": "string"
+    },
+    "rejected_reasons": {
+      "type": "object"
+    },
+    "deletions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "selected_responsibilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 4
+      }
+    },
+    "preserved_hard_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 4
+      }
+    },
+    "cutover_strategy": {
+      "type": "string",
+      "minLength": 8
+    },
+    "acceptance_claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 4
+      }
+    },
+    "baseline_changes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

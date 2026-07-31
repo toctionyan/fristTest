@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "decision_id": "adr-v20.12-goal-change-evidence",
+  "change_id": "migration-v20.12-goal-change-evidence",
+  "problem": "V20.11.2 已统一开放语义，但 goal_changes 与 focus_change 仍是开放对象；程序只验证状态机合法性，无法证明用户确实要求暂停、取消、替换或聚焦该对象。冻结合同也只比较存储的 digest 字段，内容被修改后可能继续执行。",
+  "options": [
+    {
+      "id": "prompt-only",
+      "strategy": "conservative",
+      "name": "仅在 Prompt 中要求模型给证据",
+      "correctness": "不能阻止模型遗漏、伪造或引用错误 Goal，程序仍会接受形式合法状态变化。",
+      "complexity": "低，但没有确定性保护。",
+      "migration": "只改提示词。",
+      "rollback": "直接回退提示词。",
+      "verification": "只能测试模型行为，不能证明 Runtime 边界。"
+    },
+    {
+      "id": "typed-evidence-and-revision",
+      "strategy": "evolutionary",
+      "name": "强类型状态操作、原文证据、revision 与内容摘要重验",
+      "correctness": "模型仍统一理解语言；程序只验证字面证据、引用、revision、状态迁移和字段 allowlist，不重新解释语义。",
+      "complexity": "中等，局限于 lifecycle 边界。",
+      "migration": "新轮只接受 v2 操作；GoalRecord 和 Focus 增加 revision；旧记录缺 revision 时按初始 revision=1/0 读取。",
+      "rollback": "可恢复 V20.11.2 候选包；不改变业务或事务数据。",
+      "verification": "以缺证据、错 revision、非法 Patch、未知 Focus 和 digest 篡改反例验证。"
+    },
+    {
+      "id": "program-language-classifier",
+      "strategy": "redesign",
+      "name": "程序重新解析用户语言决定状态变化",
+      "correctness": "会重新建立模型与程序双语义 Owner，违反 Skill 硬边界。",
+      "complexity": "高且规则持续膨胀。",
+      "migration": "新增关键词与分类器。",
+      "rollback": "删除分类器。",
+      "verification": "只能覆盖枚举语言。"
+    }
+  ],
+  "selected_option": "typed-evidence-and-revision",
+  "rejected_reasons": {
+    "prompt-only": "缺少确定性证据和并发保护。",
+    "program-language-classifier": "违反单一开放语义 Owner。"
+  },
+  "deletions": [
+    "删除 goal_changes additionalProperties=true 的正式协议职责。",
+    "删除 focus_change 任意字典合并职责。",
+    "删除只比较两个存储 digest 字段即认定冻结合同完整的职责。",
+    "禁止 PATCH_GOAL 直接替换 requested_effect；业务效果变化必须创建新 Goal 或显式 supersede。"
+  ],
+  "unknowns": [
+    "真实模型对 required expected_revision 的输出稳定性需要后续真实模型测试。",
+    "旧 checkpoint 中没有 revision 的记录只能按兼容初值读取，最终退出由 State Schema v2 迁移负责。"
+  ],
+  "selected_responsibilities": [
+    "Semantic State Change Validator 规范化并证明 Goal/Focus 操作。",
+    "Goal Lifecycle Store 通过 revision 防止陈旧候选覆盖新状态。",
+    "Focus Apply 只接受 SET_GOAL_FOCUS、SET_INTERACTION_FOCUS、CLEAR_FOCUS。",
+    "Semantic Contract Integrity 在消费前重新计算 canonical digest。"
+  ],
+  "preserved_hard_invariants": [
+    "模型继续是开放语言语义 Owner。",
+    "程序不根据关键词选择 Goal 或 Focus。",
+    "Business Service 和事务权威不变。",
+    "候选在验证前不能修改持久状态。"
+  ],
+  "cutover_strategy": "新 declare_turn_goals Schema 只接受强类型 goal_changes/focus_change；validate_goal_declaration 在冻结前验证，tool_execution_runtime 原子应用；旧 GoalRecord 无 revision 时视为 revision=1，旧 Focus 无 revision 时视为 revision=0。",
+  "acceptance_claims": [
+    "缺少或非字面 evidence_span 的 Goal/Focus 变化被拒绝。",
+    "expected_revision 或 from 生命周期不一致被拒绝。",
+    "PATCH requested_effect 被拒绝。",
+    "合法状态变化增加 Goal revision。",
+    "内容篡改但保留旧 semantic_digest 被拒绝。"
+  ],
+  "baseline_changes": [
+    "仅修改 lifecycle 协议、验证、状态应用和对应 Runtime 测试。",
+    "不修改 Capability、Planner、Presentation、事务、业务服务或 Skill。"
+  ]
+}

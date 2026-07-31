@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14c-plan-projection-read-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B14C-PLAN-READ-001",
+      "statement": "All runtime and observability consumers resolve grounded_execution_plan through one Kernel boundary that is bound to frozen_plan_definition plus plan_run, rederives stale caches, and rejects forged compatibility views for finalization and clarification ownership.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14c_plan_projection_read_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.kernel plan projection contract",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

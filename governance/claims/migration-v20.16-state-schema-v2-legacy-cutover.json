@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.16-state-schema-v2-legacy-cutover",
+  "claims": [
+    {
+      "id": "STATE-SCHEMA-V2-NEW-THREAD-001",
+      "statement": "新线程必须从第一轮使用 State Schema v2，且不得生成 turn_goal_plan、workflow_plan 或 pending_clarification。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_new_thread_schema_v2_adversarial_bridge"],
+      "owner": "agent_core.lifecycle.state_schema + context_runtime",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LEGACY-CHECKPOINT-MIGRATION-001",
+      "statement": "具备显式结构化语义的 Schema v1 检查点必须一次性迁移为正式语义、GoalRecord、GoalBlocker，并持久化退役字段 tombstone。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_legacy_checkpoint_migration_adversarial_bridge"],
+      "owner": "agent_core.lifecycle.state_schema + CheckpointHydrator",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "AMBIGUOUS-LEGACY-RESTART-001",
+      "statement": "活动旧检查点缺少开放 requested_effect 或可靠 Goal 关系时必须明确要求新建会话，禁止推测迁移。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_ambiguous_legacy_restart_adversarial_bridge"],
+      "owner": "agent_core.lifecycle.state_schema + conversation gateway",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LEGACY-AUTHORITY-CUTOVER-001",
+      "statement": "Schema v2 不得把旧 GoalPlan、WorkflowPlan 或模糊能力发现恢复为当前正式语义或执行权威。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_legacy_authority_cutover_adversarial_bridge"],
+      "owner": "goal_planning + workflow_runtime + dialogue_runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

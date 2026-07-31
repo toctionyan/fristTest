@@ -1,0 +1,27 @@
+{
+  "contract_id": "runtime.transaction_status@1",
+  "version": 1,
+  "result_profile": "transaction_outcome",
+  "contract_owner": "runtime_transaction_projection",
+  "projection_boundary": "runtime_transaction_status_projector",
+  "producer": "runtime.transaction_status.outcome",
+  "renderer": {"web": "runtime_transaction_status_renderer"},
+  "adequacy": {
+    "required_visible_semantics": ["transaction_status_summary", "transaction_status_payload"],
+    "optional_visible_semantics": ["receipt_reference"],
+    "rule": "status_is_projected_only_from_runtime_outcome_or_receipt"
+  },
+  "payload": {
+    "block_type": "transaction_status",
+    "block_required_fields": {"summary": "transaction_status_summary", "data": "transaction_status_payload"}
+  },
+  "coverage": {"mode": "not_collection", "source_population": "runtime_transaction_outcome"},
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {"required_levels": ["unit", "contract"], "end_to_end_required": true, "release_gate_required": true, "coverage_evidence_required": true},
+  "release": {"formal_response_eligible": true, "renderer_registry_key": "runtime.transaction_status@1", "legacy_output_replaces": ["runtime.legacy.transaction_status"], "release_gate": "StructuredResultReleaseGate"}
+}

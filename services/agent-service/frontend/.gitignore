@@ -1,0 +1,6 @@
+# Local front-end dependencies and build artifacts are never released.
+node_modules/
+dist/
+.vite/
+coverage/
+.env

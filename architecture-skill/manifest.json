@@ -1,0 +1,23 @@
+{
+  "name": "customer-agent-architecture",
+  "version": "6.3.0",
+  "language": "zh-CN",
+  "entrypoint": "SKILL.md",
+  "validator": "scripts/verify_skill_package.py",
+  "workspace_verifier": "scripts/verify_convergence.py",
+  "principles": [
+    "business-authority",
+    "unsupported-not-substitution",
+    "single-semantic-owner",
+    "goal-independent-of-capability",
+    "candidate-authority-separation",
+    "local-grounded-plan",
+    "project-baseline-migration",
+    "architecture-variance",
+    "evidence-backed-closure",
+    "dependency-debt-ratchet"
+  ],
+  "control_plane": "skill-system",
+  "rule_model": "skill-system/core/rule-model.md",
+  "control_plane_version": "6.3.0"
+}

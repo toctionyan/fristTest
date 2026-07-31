@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b16c-postgres-restart-concurrency-recovery",
+  "claims": [
+    {
+      "id": "V20-17-B16C-POSTGRES-RECOVERY-001",
+      "statement": "Managed Integration certifies public Draft and transcript recovery across a first service restart, concurrent idempotent authorization through two Agent instances, and stable COMMITTED/Receipt recovery across a second restart on one owned PostgreSQL authority.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b16c_postgres_restart_concurrency_recovery_adversarial_bridge"
+      ],
+      "owner": "managed postgres public recovery runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

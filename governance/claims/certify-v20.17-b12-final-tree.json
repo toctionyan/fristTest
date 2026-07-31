@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b12-final-tree",
+  "claims": [
+    {
+      "id": "V20-17-B12-FINAL-TREE-001",
+      "statement": "The closed B12 final delivery tree preserves the explicit transaction execution boundary, keeps transaction outside the main SCC, and passes all current product gates.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "frontend-vitest",
+        "frontend-build",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py::test_transaction_consumes_explicit_execution_dependencies_and_exits_main_scc",
+        "services/agent-service/tests/context/test_dialogue_counterexamples.py::test_each_committable_action_commits_through_business_adapter"
+      ],
+      "owner": "closed B12 delivery tree",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

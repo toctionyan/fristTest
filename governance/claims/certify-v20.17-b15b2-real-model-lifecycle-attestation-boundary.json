@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b15b2-real-model-lifecycle-attestation-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B15B2-LIFECYCLE-ATTESTATION-001",
+      "statement": "Protected full-lifecycle real-model certification rejects local or unofficial identities before service startup and attests provider model, usage and finish metadata for every certified turn.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b15b2_real_model_lifecycle_attestation_boundary_adversarial_bridge"
+      ],
+      "owner": "protected preproduction full-lifecycle real-model certification",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

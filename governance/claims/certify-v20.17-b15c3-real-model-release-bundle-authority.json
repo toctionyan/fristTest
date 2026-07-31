@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b15c3-real-model-release-bundle-authority",
+  "claims": [
+    {
+      "id": "V20-17-B15C3-RELEASE-BUNDLE-AUTHORITY-001",
+      "statement": "Release real-model certification is granted only by one current-run live certification bundle plus the configured-model browser conversation and campaign gates; three independent component results have no release authority.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b15c3_real_model_release_bundle_authority_adversarial_bridge"],
+      "owner": "quality-loop release real-model bundle authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

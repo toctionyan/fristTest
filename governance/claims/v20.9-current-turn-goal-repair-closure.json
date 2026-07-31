@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.9-current-turn-goal-repair-closure",
+  "claims": [
+    {
+      "id": "CURRENT-TURN-GOAL-REPAIR-001",
+      "statement": "Goal-declaration repair returns the exact authoritative current user text instead of leaving the model to guess, and the configured-model Chromium journey preserves current-turn identity across the complete long conversation.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["python-test-suites", "configured-model-browser-conversation"],
+      "evidence_refs": ["gate-log:python-test-suites", "gate-log:configured-model-browser-conversation"],
+      "owner": "goal declaration repair contract + model prompt current-turn identity + real-model browser oracle",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

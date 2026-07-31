@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "decision_id": "certify-v20.16-continuation-final",
+  "change_id": "certify-v20.16-continuation-final",
+  "decision": "close_v20_16_with_scope_expanding_companion_certification",
+  "status": "approved",
+  "context": "V20.16 产品迁移主体完成后，中央 Quick 先后暴露控制平面测试合同、Schema v2 测试夹具、完整计划反例、前端依赖和完整生命周期问题。后续修复跨越了原 migration Target 的冻结范围，因此不得把扩大的变更伪装成原范围内修复。",
+  "selected_option": "archive_original_migration_and_close_through_read_only_full_scope_certification",
+  "selected_because": [
+    "保留原 migration 的红基线、范围和迁移决策，不重写历史。",
+    "使用覆盖所有实际源代码修复路径的只读 certification Target 重新执行中央 Quick。",
+    "最终证据绑定当前源码、18 个 required Gates、5 个 P0/P1 Claim 和真实 Chromium 旅程。"
+  ],
+  "rejected_options": [
+    "扩大原 migration Target 后沿用旧基线；这会破坏冻结范围和基线身份。",
+    "仅引用历史 PASS；这不满足 current-pass 与当前源码绑定。",
+    "忽略完整生命周期夹具失败；这会留下 LoopBudgetExhausted 的真实产品认证缺口。"
+  ],
+  "certification_evidence": ".quality/product-code/certify-v20.16-continuation-final/final-quick-20260728T094229Z/run-summary.json",
+  "result": "CONVERGED"
+}

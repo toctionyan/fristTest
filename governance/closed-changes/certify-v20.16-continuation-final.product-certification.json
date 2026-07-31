@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "change_id": "certify-v20.16-continuation-final",
+  "target_kind": "certification",
+  "goal": "对 V20.16 State Schema v2 及其后续控制平面、测试夹具、计划反例、前端与完整生命周期修复执行当前源码绑定的最终只读认证并正式关单。",
+  "profile": "product-certification",
+  "allowed_paths": [
+    "services/agent-service/app/services/checkpoint_hydrator.py",
+    "services/agent-service/app/services/lifecycle_command_runner.py",
+    "services/agent-service/app/use_cases/conversation_turn.py",
+    "services/agent-service/src/agent_core/context/**",
+    "services/agent-service/src/agent_core/lifecycle/**",
+    "services/agent-service/src/agent_core/observability/failure_replay.py",
+    "services/agent-service/src/agent_core/runtime/answer_release_alignment.py",
+    "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py",
+    "services/agent-service/src/agent_modules/ecommerce/shared/context.py",
+    "services/agent-service/tests/runtime/**",
+    "services/agent-service/tests/context/**",
+    "services/agent-service/tests/support/**",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+    "services/agent-service/tests/architecture/test_quality_loop_controller.py",
+    "services/agent-service/tests/integration/model_stub.py",
+    "services/agent-service/tests/architecture/test_protected_model_stub_contract.py",
+    "docs/architecture/**"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "invariants": [
+    "the approved product scope is the only writable product scope",
+    "quality Target, Claims, baseline, Judge and evidence are not modified to make a candidate pass",
+    "the final result is bound to current source and current product Quality Loop evidence",
+    "one writable implementer owns the candidate worktree"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "none",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "scope-planner",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/certify-v20.16-continuation-final/reviews/scope-planner.json",
+      "evidence_sha256": "58908c259b4decbffd6448f5ae232db4212f86813d1db8640c7593a89dfed290",
+      "recorded_at": "2026-07-28T09:50:23.260409+00:00"
+    },
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/certify-v20.16-continuation-final/reviews/adversarial-reviewer.json",
+      "evidence_sha256": "f9d456f037305d90007d2bc9044a26b119d693a02e9853b87f3149b3aa25953f",
+      "recorded_at": "2026-07-28T09:50:24.629519+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/certify-v20.16-continuation-final/verification.json",
+      "evidence_sha256": "b129ea471b204e63fc91be4965ed39abd8bb6170bb3deb34f925a5d5603b1972",
+      "recorded_at": "2026-07-28T09:50:42.612789+00:00"
+    }
+  ],
+  "affected_modules": [
+    "agent_core.lifecycle.state_schema",
+    "quality-controller-test-contract",
+    "tests.integration.model_stub",
+    "services/agent-service/frontend"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/certify-v20.16-continuation-final.md",
+  "baseline_evidence": null,
+  "initial_source_fingerprint": "97d09ad07d1e1e2fe4be6ea29ccf39d50f59e01b61aa9b281e132984707ff5ec",
+  "initial_source_file_count": 114,
+  "product_validation": {
+    "verification": ".quality/product-code/certify-v20.16-continuation-final/final-quick-20260728T094229Z",
+    "verification_mode": "quick",
+    "verification_source_fingerprint": "97d09ad07d1e1e2fe4be6ea29ccf39d50f59e01b61aa9b281e132984707ff5ec",
+    "verification_source_file_count": 114,
+    "verification_recorded_at": "2026-07-28T09:49:42.469623+00:00"
+  },
+  "decision_record": "governance/decisions/certify-v20.16-continuation-final.json",
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": {
+    "path": ".quality/product-control-plane/certify-v20.16-continuation-final/verification.json",
+    "sha256": "b129ea471b204e63fc91be4965ed39abd8bb6170bb3deb34f925a5d5603b1972",
+    "source_fingerprint": "97d09ad07d1e1e2fe4be6ea29ccf39d50f59e01b61aa9b281e132984707ff5ec",
+    "source_file_count": 114,
+    "verified_at": "2026-07-28T09:50:42.612367+00:00"
+  },
+  "created_at": "2026-07-28T09:49:26.081407+00:00",
+  "status": "closed",
+  "result": "CONVERGED",
+  "closed_at": "2026-07-28T09:51:00.334924+00:00"
+}

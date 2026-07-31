@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b15c-real-model-certification-bundle-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B15C-CERTIFICATION-BUNDLE-001",
+      "statement": "Final real-model certification is emitted only when smoke, semantic and full-lifecycle components are executed live under one session, one workspace fingerprint and one official provider identity.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b15c_real_model_certification_bundle_boundary_adversarial_bridge"],
+      "owner": "protected real-model certification bundle controller",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

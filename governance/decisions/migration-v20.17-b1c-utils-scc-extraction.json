@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b1c-utils-scc-extraction",
+  "problem": "agent_core.utils contains a Lifecycle graph observability wrapper that imports lifecycle and storage, while lifecycle imports it back. This makes a generic utility package part of the 14-package core SCC and hides an ownership error.",
+  "options": [
+    {
+      "id": "conservative-document-debt-only",
+      "strategy": "conservative",
+      "name": "Document the utils cycle without moving code",
+      "correctness": "Preserves behavior but leaves the wrong package ownership and makes no measurable SCC progress.",
+      "complexity": "Low",
+      "migration": "No source move; update debt notes only.",
+      "rollback": "Remove the note.",
+      "verification": "Architecture report remains UNCHANGED."
+    },
+    {
+      "id": "evolutionary-move-flow-debug",
+      "strategy": "evolutionary",
+      "name": "Move flow-debug ownership to observability",
+      "correctness": "Keeps the wrapper behavior while removing utils reverse dependencies and shrinking the main SCC by one member.",
+      "complexity": "Four governed paths with a direct import replacement and one architecture regression test.",
+      "migration": "Create observability/flow_debug.py from the existing implementation, update lifecycle.graph import, delete utils/flow_debug.py, and verify SCC debt improvement.",
+      "rollback": "Restore utils/flow_debug.py and the previous graph import.",
+      "verification": "Expected-red baseline, package-boundary test, Architecture Gate debt delta, full Quick, lifecycle and Chromium journey."
+    },
+    {
+      "id": "redesign-observability-and-storage",
+      "strategy": "redesign",
+      "name": "Redesign all observability, persistence and storage boundaries",
+      "correctness": "Could remove multiple cycles but crosses many ownership boundaries and raises regression risk beyond the first decoupling slice.",
+      "complexity": "High and cross-package",
+      "migration": "Introduce new trace ports, move providers and rewrite storage composition together.",
+      "rollback": "Requires coordinated rollback across observability, persistence, storage and composition.",
+      "verification": "New port contracts, provider migration, storage integration and full release certification."
+    }
+  ],
+  "selected_option": "evolutionary-move-flow-debug",
+  "rejected_reasons": {
+    "conservative-document-debt-only": "It records debt but does not reduce the SCC or correct ownership.",
+    "redesign-observability-and-storage": "It is too broad for the first ratcheted dependency cut and would mix multiple independently testable boundaries."
+  },
+  "deletions": [
+    "services/agent-service/src/agent_core/utils/flow_debug.py"
+  ],
+  "unknowns": [
+    "The remaining 13-package SCC is still open debt.",
+    "This slice does not redesign trace persistence or storage composition."
+  ],
+  "selected_responsibilities": [
+    "observability owns non-authoritative graph-node tracing wrappers.",
+    "utils contains only dependency-neutral helper functions.",
+    "lifecycle consumes the observability wrapper but does not own trace persistence."
+  ],
+  "preserved_hard_invariants": [
+    "Graph node wrapping and state-contract validation behavior remain unchanged.",
+    "Trace persistence stays best-effort and non-authoritative.",
+    "No business, transaction, capability or presentation behavior changes.",
+    "The dependency-debt baseline is not edited to manufacture improvement."
+  ],
+  "cutover_strategy": "Record the red baseline with the new boundary test, move the existing implementation without semantic edits, verify the SCC member reduction through the unchanged Architecture Gate, then run full product Quick and close independently.",
+  "acceptance_claims": [
+    "utils no longer imports lifecycle or storage.",
+    "observability owns flow_debug and lifecycle.graph imports it from there.",
+    "Architecture debt status reports improvement with current_member_count 13 and removed_members containing utils.",
+    "All functional and product journey Gates remain green."
+  ],
+  "baseline_changes": []
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.13-capability-contract-v2",
+  "claims": [
+    {
+      "id": "CAPABILITY-CONTRACT-V2-001",
+      "statement": "Capability Contract v2 必须以不可变结构声明 target、requires、produces、preconditions、authorization、completion proof、idempotency 和 resource conflict；缺失或重复字段必须 fail closed。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_13_capability_contract_v2_adversarial_bridge"],
+      "owner": "agent_core.kernel.capability + capability_registry",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "VERTICAL-CAPABILITY-CLOSURE-001",
+      "statement": "物流、退款和发票能力的规划合同必须由 ecommerce module 声明，并准确表达输入来源、产物、前置条件、freshness、授权和冲突键。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_13_vertical_capability_contracts_adversarial_bridge"],
+      "owner": "agent_modules.ecommerce.capabilities",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "CAPABILITY-COMPLETION-PROOF-001",
+      "statement": "查询能力可由已验证 Tool output 完成；退款和发票申请 Draft 不得作为最终业务成功，最终完成证明必须来自 Transaction Authority Receipt。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_13_completion_proof_adversarial_bridge"],
+      "owner": "CapabilityPlanningContract.completion",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

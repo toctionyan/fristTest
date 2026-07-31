@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "decision_id": "repair-v20.16-control-plane-self-test-closure",
+  "change_id": "repair-v20.16-control-plane-self-test-closure",
+  "problem": "V20.16 产品迁移的共享 Quick Gate 被两个控制平面自测阻断：一个断言仍绑定旧错误文案，另一个临时工作区遗漏 quality_loop 与 repair_loop 新增的最小控制器依赖。",
+  "selected_option": "repair-test-contract-and-portable-fixture",
+  "selected_changes": [
+    "将无实际候选变化的断言绑定到正式错误合同 actual in-scope candidate change，而不是旧的 actual in-scope repair 文案。",
+    "临时 Repair Orchestrator 工作区复制 progress.py、trusted_judge.py、fixer_env.py、issue_state.py，并在临时工作区生成最小 trusted Judge manifest。"
+  ],
+  "rejected_options": [
+    "修改 quality_loop 正式错误文案迎合旧测试；这会倒退正式合同。",
+    "降低 Repair Orchestrator 的 trusted Judge/portable runtime 要求；这会削弱控制平面安全边界。",
+    "在 V20.16 产品迁移合同内越权修改控制平面测试；这会破坏冻结范围。"
+  ],
+  "verification": {
+    "red_baseline": ".quality/control-plane-repair-v20.16/baseline/run-summary.json",
+    "green_verification": ".quality/control-plane-repair-v20.16/verification/run-summary.json",
+    "result": "CONVERGED",
+    "tests": 2
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.11.1-unified-semantics-grounded-planning",
+  "claims": [
+    {
+      "id": "UNIFIED-SEMANTIC-GROUNDED-PLANNING-001",
+      "statement": "开放 requested_effect 的冻结语义合同是唯一正式语义依据；能力身份由模块合同声明并精确匹配；局部执行计划绑定冻结语义并拒绝依赖或结构篡改。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py::test_open_requested_effect_freezes_without_goal_type",
+        "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py::test_exact_effect_surface_does_not_select_nearby_consultation",
+        "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py::test_grounded_execution_plan_is_semantically_bound_and_digest_protected"
+      ],
+      "owner": "agent_core.context + agent_core.lifecycle + agent_core.runtime + module capability contracts",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

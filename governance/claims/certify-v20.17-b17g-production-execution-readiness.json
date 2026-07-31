@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17g-production-execution-readiness",
+  "claims": [
+    {
+      "id": "V20-17-B17G-PRODUCTION-EXECUTION-READINESS-001",
+      "statement": "The production release workflow always executes a secret-free admission contract before the protected job, explicitly fails invalid event/ref/protection or malformed model and embedding inputs instead of producing a skipped-only green run, keeps the protected job behind both admission dependency and platform conditions, and publishes phase metadata that truthfully identifies the current B17g environment-blocked candidate.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17g_production_execution_readiness_adversarial_bridge"
+      ],
+      "owner": "protected release admission authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

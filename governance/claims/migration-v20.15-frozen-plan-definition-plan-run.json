@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.15-frozen-plan-definition-plan-run",
+  "claims": [
+    {
+      "id": "FROZEN-PLAN-INTEGRITY-001",
+      "statement": "FrozenPlanDefinition 必须排除运行时进度，任何结构内容篡改即使保留旧摘要也必须被拒绝。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_15_frozen_plan_integrity_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.plan_execution",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "PLAN-RUN-SEPARATION-001",
+      "statement": "执行状态只能进入 PlanRun；Attempt/Outcome 更新不得修改 FrozenPlanDefinition，兼容计划必须由两者派生。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_15_plan_run_separation_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.plan_execution + workflow_runtime",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "STEP-ATTEMPT-OUTCOME-001",
+      "statement": "每次 Tool 边界执行必须产生绑定 definition/run/effect 的独立 StepAttempt 与 StepOutcome，未知 Attempt 或定义不匹配必须拒绝。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_15_step_attempt_outcome_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.plan_execution + tool_execution_runtime",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "RECEIPT-COMPLETION-BOUNDARY-001",
+      "statement": "Draft、Attempt 和普通 Tool 成功不得成为业务完成证明；只有符合合同的 Receipt Outcome 才能声明事务 Goal 已完成。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_15_receipt_completion_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.plan_execution + transaction authority boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "contract_name": "ecommerce-business-api",
+  "contract_version": "6.3",
+  "compatibility": {
+    "agent_service": ">=0.6.3,<0.7.0",
+    "business_service": ">=0.6.3,<0.7.0"
+  },
+  "transport": "HTTP JSON",
+  "identity": "service-token plus delegated actor headers / future JWT",
+  "business_routes_are_agent_specific": false
+}

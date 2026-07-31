@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b7-context-projection-boundary",
+  "problem": "ContextBundle is a read-only projection but imports lifecycle state helpers and storage repository/scope types. This reverses the dependency direction and keeps context inside the core SCC even though context does not own lifecycle or persistence mutations.",
+  "options": [
+    {
+      "id": "keep-cross-package-projection-imports",
+      "strategy": "conservative",
+      "name": "Keep ContextBundle coupled to lifecycle and storage",
+      "correctness": "Preserves current implementation but retains the 8-package SCC and prevents context from becoming a stable input compiler boundary.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "Not applicable.",
+      "verification": "Architecture debt remains unchanged."
+    },
+    {
+      "id": "canonical-context-projections-and-structural-reader",
+      "strategy": "evolutionary",
+      "name": "Own read-only projections in context and use a structural transaction reader",
+      "correctness": "Keeps lifecycle as the only state mutation authority while moving only deterministic read projections and a minimal duck-typed repository contract into the context boundary.",
+      "complexity": "Seven governed paths including compatibility imports, architecture regression and responsibility record.",
+      "migration": "Create canonical context projections, make lifecycle names import those implementations, replace storage type imports with local structural types, and run full verification.",
+      "rollback": "Restore lifecycle/storage imports in ContextBundle and local projection definitions.",
+      "verification": "Projection identity tests, ContextBundle tests, Architecture Gate, full Quick, lifecycle and Chromium."
+    },
+    {
+      "id": "inject-all-projection-callables",
+      "strategy": "redesign",
+      "name": "Require every caller to inject projection functions",
+      "correctness": "Would remove imports but spread orchestration wiring through many tests and callers without changing business value.",
+      "complexity": "High",
+      "migration": "Change every ContextBundleBuilder construction and graph dependency factory.",
+      "rollback": "Restore defaults.",
+      "verification": "Large constructor compatibility matrix."
+    }
+  ],
+  "selected_option": "canonical-context-projections-and-structural-reader",
+  "rejected_reasons": {
+    "keep-cross-package-projection-imports": "It retains the wrong dependency direction and blocks context from leaving the SCC.",
+    "inject-all-projection-callables": "It would add wiring complexity and touch many callers for deterministic read-only behavior."
+  },
+  "deletions": [
+    "Delete context imports of agent_core.lifecycle and agent_core.storage; delete duplicate lifecycle implementations of the read-only projection functions while keeping their public names as compatibility imports."
+  ],
+  "unknowns": [
+    "The remaining 7-package SCC remains open debt.",
+    "State/Loop persistence simplification and real-model certification remain separate future targets."
+  ],
+  "selected_responsibilities": [
+    "agent_core.context owns deterministic read-only projections prepared for model context.",
+    "agent_core.lifecycle remains the sole owner of Goal, Blocker and Clarification mutation and transition rules.",
+    "storage remains the sole concrete transaction repository authority; context consumes only the list_drafts_for_scope structural read contract."
+  ],
+  "preserved_hard_invariants": [
+    "ContextBundle output fields and ordering remain unchanged.",
+    "Goal, Blocker and Clarification write paths and state schemas remain unchanged.",
+    "modules, kernel, resources, ledger, rag and utils remain outside the main SCC.",
+    "The dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, create canonical context projections, convert lifecycle names to compatibility imports, replace only ContextBundle's storage type dependency with structural local types, then run complete product verification.",
+  "acceptance_claims": [
+    "context imports no lifecycle or storage package and is absent from the main SCC.",
+    "Lifecycle compatibility symbols are the same function objects as context projections.",
+    "ContextBundle behavior and transaction scope values remain equivalent.",
+    "The current SCC member count is at most 7 and all product tests remain green."
+  ],
+  "baseline_changes": []
+}

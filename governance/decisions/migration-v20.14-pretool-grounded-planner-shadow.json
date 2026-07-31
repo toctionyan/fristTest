@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.14-pretool-grounded-planner-shadow",
+  "decision": "evolutionary_shadow_pretool_planning",
+  "status": "approved",
+  "context": "V20.13 已提供模块声明、Kernel 校验的 Capability Contract v2，但正式执行计划仍在模型 Tool Calls 产生后构建。",
+  "options": [
+    {
+      "name": "conservative_post_tool_validation",
+      "description": "继续只在 Tool Call 后验证 Goal 绑定和依赖。",
+      "rejected_because": "无法证明 Planner 已在 Tool Call 前读取 requires/produces，也无法观察模型选择与合同计划的系统性偏差。"
+    },
+    {
+      "name": "evolutionary_shadow_pretool_planning",
+      "description": "在模型业务 Tool Call 前生成只读 Shadow Plan，与现有 Tool-Calling 主链对照。",
+      "selected_because": "能验证合同驱动路径闭合，同时不扩大本阶段运行风险，也不形成第二个正式执行 Owner。"
+    },
+    {
+      "name": "redesign_immediate_planner_cutover",
+      "description": "立即让新 Planner 选择 Tool 并接管执行。",
+      "rejected_because": "缺少真实模型偏差数据、PlanDefinition/PlanRun 分离和完整输入权威绑定，直接切换风险过高。"
+    }
+  ],
+  "preserved_invariants": [
+    "模型仍是开放语言语义 Owner。",
+    "Capability 与业务步骤由模块合同声明，通用 Planner 不硬编码垂直业务。",
+    "Shadow 不创建 Permit、不调用 Tool、不修改事务或业务事实。",
+    "正式执行仍由现有 MatchProof/Permit/Transaction 主链拥有。"
+  ],
+  "cutover": {
+    "current_phase": "shadow_only",
+    "promotion_condition": "V20.14 偏差证据稳定且 V20.15 完成 FrozenPlanDefinition/PlanRun 后，另建合同决定是否接管。",
+    "rollback": "删除 Shadow State 字段与 pretool_planner 接入即可，正式执行链不受影响。",
+    "cleanup": "Shadow 比较证据在正式 Planner 接管后转为迁移审计数据，不得永久形成双执行主链。"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14a-state-v2-retired-field-quarantine",
+  "claims": [
+    {
+      "id": "V20-17-B14A-STATE-AUTHORITY-001",
+      "statement": "State Schema v2 clarification paths ignore forged retired state fields while explicit legacy checkpoints retain bounded compatibility behavior.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14a_state_v2_retired_field_quarantine_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle clarification runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

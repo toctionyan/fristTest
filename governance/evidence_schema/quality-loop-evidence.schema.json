@@ -1,0 +1,534 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Customer Agent Quality Controller Evidence",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workspace_version",
+    "mode",
+    "run_kind",
+    "decision",
+    "loop_status",
+    "generated_at",
+    "evidence_dir",
+    "target",
+    "target_identity",
+    "target_minimum_mode_declared",
+    "target_minimum_mode_derived",
+    "target_minimum_mode_effective",
+    "replan_predecessor",
+    "claim_manifest",
+    "claim_manifest_fingerprint",
+    "claim_manifest_evidence_file",
+    "claim_results",
+    "unverified_claim_ids",
+    "policy_fingerprint",
+    "rerun_from",
+    "prior_evidence",
+    "reused_prerequisites",
+    "missing_prerequisites",
+    "workspace_snapshot_start_fingerprint",
+    "workspace_snapshot_fingerprint",
+    "workspace_snapshot_file",
+    "selected_gate_ids",
+    "required_gate_ids",
+    "gate_contract_fingerprints",
+    "completion_eligible",
+    "evidence_attestation_file",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 6
+    },
+    "workspace_version": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "static",
+        "quick",
+        "integration",
+        "release"
+      ]
+    },
+    "run_kind": {
+      "enum": [
+        "baseline",
+        "verification"
+      ]
+    },
+    "decision": {
+      "enum": [
+        "PASS",
+        "BLOCKED_BY_ENVIRONMENT",
+        "FAIL"
+      ]
+    },
+    "loop_status": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "evidence_dir": {
+      "type": "string"
+    },
+    "target": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "target_identity": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "id",
+        "change_ref",
+        "context",
+        "fingerprint",
+        "claim_manifest_fingerprint"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "change_ref": {
+          "type": "string"
+        },
+        "context": {
+          "enum": [
+            "local-change",
+            "ci"
+          ]
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "claim_manifest_fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "policy_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rerun_from": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "prior_evidence": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reused_prerequisites": {
+      "type": "array"
+    },
+    "missing_prerequisites": {
+      "type": "array"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "owner",
+          "category",
+          "stderr",
+          "stdout"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "BLOCKED_BY_ENVIRONMENT",
+              "SKIPPED_UPSTREAM_FAILURE"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "workspace_snapshot_fingerprint": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "workspace_snapshot_file": {
+      "type": "string"
+    },
+    "selected_gate_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "required_gate_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "completion_eligible": {
+      "type": "boolean"
+    },
+    "evidence_attestation_file": {
+      "type": "string",
+      "const": "evidence-attestation.json"
+    },
+    "workspace_snapshot_start_fingerprint": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "gate_contract_fingerprints": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64
+      }
+    },
+    "target_minimum_mode_declared": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "static",
+        "quick",
+        "integration",
+        "release",
+        null
+      ]
+    },
+    "target_minimum_mode_derived": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "static",
+        "quick",
+        "integration",
+        "release",
+        null
+      ]
+    },
+    "target_minimum_mode_effective": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "static",
+        "quick",
+        "integration",
+        "release",
+        null
+      ]
+    },
+    "replan_predecessor": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "evidence_dir",
+        "target_identity",
+        "failed_gate_id",
+        "loop_status",
+        "attestation_manifest_fingerprint"
+      ],
+      "properties": {
+        "evidence_dir": {
+          "type": "string"
+        },
+        "target_identity": {
+          "type": "object"
+        },
+        "failed_gate_id": {
+          "type": "string"
+        },
+        "loop_status": {
+          "const": "ARCHITECTURE_REPLAN_REQUIRED"
+        },
+        "attestation_manifest_fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "claim_manifest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "claim_manifest_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "claim_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "risk",
+          "required_mode",
+          "evidence_kind",
+          "required_gates",
+          "evidence_refs",
+          "gate_statuses",
+          "evidence_ref_statuses",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "risk": {
+            "enum": [
+              "P0",
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "required_mode": {
+            "enum": [
+              "static",
+              "quick",
+              "integration",
+              "release"
+            ]
+          },
+          "evidence_kind": {
+            "enum": [
+              "static-contract",
+              "counterexample",
+              "integration",
+              "release-provenance"
+            ]
+          },
+          "required_gates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner": {
+            "type": "string"
+          },
+          "closure_requirement": {
+            "enum": [
+              "regression-transition",
+              "current-pass"
+            ]
+          },
+          "gate_statuses": {
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "VERIFIED",
+              "FAILED",
+              "BLOCKED_BY_ENVIRONMENT",
+              "NOT_EXECUTED",
+              "INSUFFICIENT_MODE"
+            ]
+          },
+          "evidence_ref_statuses": {
+            "type": "object",
+            "additionalProperties": {
+              "enum": [
+                "VERIFIED",
+                "PASS",
+                "FAIL",
+                "BLOCKED_BY_ENVIRONMENT",
+                "SKIPPED_UPSTREAM_FAILURE",
+                "NOT_EXECUTED",
+                "SOURCE_NOT_BOUND"
+              ]
+            }
+          },
+          "environment_blocked_gates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "unverified_claim_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "baseline_transition_unverified_claim_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "claim_manifest_evidence_file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "judge_identity": {
+      "type": "object",
+      "required": [
+        "root",
+        "trust_mode",
+        "controller_sha256"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "trust_mode": {
+          "enum": [
+            "workspace-fallback",
+            "external-readonly"
+          ]
+        },
+        "controller_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "quality_dimensions": {
+      "type": "object",
+      "required": [
+        "functional",
+        "architecture",
+        "real_model_certification"
+      ],
+      "properties": {
+        "functional": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "BLOCKED_BY_ENVIRONMENT",
+                "NOT_ASSESSED"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "architecture": {
+          "type": "object",
+          "required": [
+            "status",
+            "gate_status"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "PASS",
+                "PASS_WITH_DEBT",
+                "FAIL",
+                "BLOCKED_BY_ENVIRONMENT",
+                "SKIPPED_UPSTREAM_FAILURE",
+                "NOT_ASSESSED"
+              ]
+            },
+            "debt_status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "gate_status": {
+              "enum": [
+                "PASS",
+                "FAIL",
+                "BLOCKED_BY_ENVIRONMENT",
+                "SKIPPED_UPSTREAM_FAILURE",
+                "NOT_ASSESSED"
+              ]
+            }
+          },
+          "additionalProperties": true
+        },
+        "real_model_certification": {
+          "type": "object",
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "NOT_DECLARED",
+                "CERTIFIED",
+                "FAILED",
+                "BLOCKED_BY_ENVIRONMENT"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

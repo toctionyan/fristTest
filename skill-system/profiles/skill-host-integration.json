@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "skill-host-integration",
+  "description": "Codex 与 Claude 项目级发现、角色和 Hook 配置合同。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/host_conformance.py",
+      "--strict"
+    ]
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14d2a-plan-run-status-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B14D2A-PLAN-RUN-STATUS-001",
+      "statement": "PlanRun and the grounded compatibility projection derive workflow status through one Kernel-owned function for creation, revision, step progress and terminal Goal handling; Lifecycle retains no second status aggregator or direct terminal status writes.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14d2a_plan_run_status_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.kernel plan runtime status contract",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

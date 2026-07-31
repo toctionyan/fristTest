@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "phase": "B17h",
+  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "claim_id": "V20-17-B17H-PROTECTED-ENVIRONMENT-PREFLIGHT-001",
+  "baseline_claim_status": "FAILED",
+  "implementation_contract_status": "TARGETED_VERIFIED",
+  "quality_loop_claim_closure": "NOT_CLOSED_ENVIRONMENT_BLOCKED",
+  "regression_transition": "FAILED_TO_TARGETED_VERIFIED",
+  "target": {
+    "id": "certify-v20.17-b17h-protected-environment-preflight",
+    "minimum_mode": "quick",
+    "max_rounds": 8,
+    "current_round": 1,
+    "parse_status": "PASS",
+    "allowed_path_count": 19
+  },
+  "validation": {
+    "b17_release_chain": "78 passed",
+    "b17h_targeted": "15 passed",
+    "clean_release_and_b16_regression": "27 passed",
+    "productization_dependency_free": "5 passed, 2 dependency-bound deselected",
+    "systemic_dependency_free": "8 passed, 2 dependency-bound deselected",
+    "business_configuration_contract": "12 passed",
+    "executable_product_and_regression_total": "130 passed",
+    "skill_unit": "46 passed",
+    "skill_security": "7 passed",
+    "skill_package_host_registry": "PASS",
+    "skill_project_compatibility_smoke": "NOT_APPLICABLE_TO_APPROVED_RELEASE_CONTROL_CHANGE",
+    "architecture_gate": "PASS",
+    "architecture_debt_status": "RESOLVED",
+    "version_consistency": "PASS",
+    "evidence_contract": "PASS",
+    "release_toolchain_static_contract": "PASS",
+    "workflow_yaml": "PASS",
+    "source_ast": "PASS",
+    "target_and_claim_parse": "PASS",
+    "runtime_artifact_cleanliness": "PASS_AFTER_CLEANUP"
+  },
+  "protected_environment_preflight": {
+    "contract": "protected-environment-preflight@1",
+    "standard_library_only": true,
+    "runs_before_dependency_install": true,
+    "shared_chat_identity_authority": "services/agent-service/src/agent_core/model_calls/real_model_identity.py",
+    "validates_exact_python_node_npm": true,
+    "validates_docker_and_git": true,
+    "validates_official_chat_identity": true,
+    "validates_embedding_https_identity": true,
+    "validates_chat_embedding_and_signing_credentials": true,
+    "credential_values_emitted": false,
+    "sanitized_failure_artifact": "protected-environment-preflight.json"
+  },
+  "environment_blocks": {
+    "connected_github_repository_available": false,
+    "protected_github_actions_context": false,
+    "exact_python_3_12_13": false,
+    "node_24_18_0": false,
+    "npm_11_16_0": false,
+    "locked_uv_0_11_29": false,
+    "agent_locked_venv": false,
+    "business_locked_venv": false,
+    "frontend_node_modules": false,
+    "docker_command": false,
+    "official_chat_model_secret_injected": false,
+    "official_embedding_secret_injected": false,
+    "quality_evidence_signing_key_injected": false,
+    "langchain_core_in_current_interpreter": false,
+    "langgraph_in_current_interpreter": false
+  },
+  "dependency_bound_validation": {
+    "status": "BLOCKED_BY_ENVIRONMENT",
+    "dependency_free_architecture_tests_passed": 13,
+    "dependency_bound_architecture_tests_not_executed": 4,
+    "adversarial_bridge_status": "BLOCKED_DURING_COLLECTION",
+    "adversarial_bridge_reason": "langchain_core_and_langgraph_missing",
+    "claim_relabelled_as_pass": false
+  },
+  "control_probes": {
+    "protected_environment_preflight_local": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "reason": "protected_environment_ci_context_missing",
+      "exit_code": 78
+    },
+    "release_admission_local": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "reason": "release_admission_ci_context_missing",
+      "exit_code": 78
+    },
+    "release_toolchain": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "reason": "release_locked_python_environment_missing",
+      "exit_code": 78,
+      "evidence_created": false
+    },
+    "production_release": {
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "stage": "preflight",
+      "reason": "locked_agent_environment_missing",
+      "exit_code": 78,
+      "evidence_directory_created": false,
+      "artifact_directory_created": false,
+      "production_closed_artifact": false
+    }
+  },
+  "production_closed": false
+}

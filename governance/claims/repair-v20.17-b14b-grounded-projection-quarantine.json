@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14b-grounded-projection-quarantine",
+  "claims": [
+    {
+      "id": "V20-17-B14B-PLAN-AUTHORITY-001",
+      "statement": "State Schema v2 deterministically rederives grounded_execution_plan from frozen_plan_definition and plan_run, and discards any unbound persisted projection.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14b_grounded_projection_quarantine_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle state schema and plan execution",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

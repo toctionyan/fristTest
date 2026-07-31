@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "change-20260712-environment-block-propagation-v206",
+  "claims": [
+    {
+      "id": "QL-ENV-BLOCK-001",
+      "statement": "A required claim transitively blocked by a missing environment remains BLOCKED_BY_ENVIRONMENT rather than being misreported as a code failure.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_environment_block_propagates_through_skipped_release_claim",
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_real_failure_dominates_a_mixed_environment_dependency_chain"
+      ],
+      "owner": "quality-controller",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

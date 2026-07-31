@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "product-security",
+  "description": "验证产品路径不能越界、只读 Target 禁止写入、治理输入受保护。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "-m",
+      "unittest",
+      "skill-system.tests.test_product_scope",
+      "skill-system.tests.test_product_portability",
+      "skill-system.tests.test_product_quality_bridge"
+    ]
+  ]
+}

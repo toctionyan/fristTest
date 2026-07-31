@@ -1,0 +1,2 @@
+# Local Compose variables may include database credentials.
+.env

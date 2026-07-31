@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b2-readiness-scc-extraction",
+  "claims": [
+    {
+      "id": "READINESS-SCC-EXTRACTION-001",
+      "statement": "Application readiness aggregation is owned by app.services, agent_core.runtime has no RAG dependency, and the main agent_core SCC shrinks from 13 members to 12 with rag removed.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py::test_rag_exits_main_scc_when_readiness_moves_to_application_layer"
+      ],
+      "owner": "app.services.readiness_service + app.api.health_api import boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

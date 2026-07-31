@@ -1,0 +1,7 @@
+name = "adversarial_reviewer"
+description = "Read-only reviewer for correctness, simplification, regressions, and evidence gaps."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/adversarial-reviewer.md. Stay read-only. Cite concrete files and evidence. Do not modify the candidate.
+"""

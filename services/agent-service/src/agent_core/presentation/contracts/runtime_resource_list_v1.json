@@ -1,0 +1,29 @@
+{
+  "contract_id": "runtime.resource_list@1",
+  "version": 1,
+  "result_profile": "structured_result",
+  "contract_owner": "runtime_generic_resource_projection",
+  "projection_boundary": "module_resource_list_projector",
+  "producer": "module.query_capability",
+  "renderer": {"web": "runtime_resource_list_renderer"},
+  "adequacy": {
+    "required_visible_semantics": ["result_title", "result_summary", "resource_identity", "resource_display_label"],
+    "optional_visible_semantics": ["resource_kind", "resource_state", "resource_summary"],
+    "rule": "every module-owned list item exposes a stable identity and a user-distinguishable label without leaking domain-specific field assumptions into Kernel"
+  },
+  "payload": {
+    "block_type": "resource_list",
+    "block_required_fields": {"title": "result_title", "summary": "result_summary"},
+    "item_required_fields": {"resource_id": "resource_identity", "resource_label": "resource_display_label"},
+    "item_optional_fields": {"resource_type": "resource_kind", "state": "resource_state", "summary": "resource_summary"}
+  },
+  "coverage": {"mode": "full", "source_population": "module_verified_resource_collection"},
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {"required_levels": ["unit", "contract"], "end_to_end_required": true, "release_gate_required": true, "coverage_evidence_required": true},
+  "release": {"formal_response_eligible": true, "renderer_registry_key": "runtime.resource_list@1", "legacy_output_replaces": [], "release_gate": "StructuredResultReleaseGate"}
+}

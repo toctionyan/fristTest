@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14g-controller-lock-rejection",
+  "claims": [
+    {
+      "id": "V20-17-B14G-CONTROLLER-LOCK-001",
+      "statement": "Concurrent quality-run rejection returns a stable machine-readable controller result without a secondary exception and without touching rejected evidence.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py::test_quality_controller_lock_rejection_is_machine_readable"
+      ],
+      "owner": "quality controller exclusive-run rejection boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

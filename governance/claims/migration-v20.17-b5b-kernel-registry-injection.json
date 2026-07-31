@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b5b-kernel-registry-injection",
+  "claims": [
+    {
+      "id": "KERNEL-REGISTRY-INJECTION-SCC-001",
+      "statement": "Kernel implementation and public runtime architecture validation receive RuntimeRegistry explicitly, kernel no longer imports modules or a runtime service locator, kernel exits the main SCC, and prior resources/ledger/rag/utils removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_kernel_registry_injection_scc.py::test_kernel_exits_main_scc_through_explicit_runtime_registry_injection",
+        "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py::test_resources_exit_main_scc_through_explicit_registry_injection"
+      ],
+      "owner": "agent_core.kernel implementation + public API + application Composition Root + cumulative dependency-debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

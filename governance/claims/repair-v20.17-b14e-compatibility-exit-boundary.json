@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14e-compatibility-exit-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B14E-COMPATIBILITY-EXIT-001",
+      "statement": "Serving, clarification and preproduction diagnostic paths use the Kernel-owned Plan authority boundary; production exposes no compatibility projection mutation API or unused singleton clarification projection.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14e_compatibility_exit_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.kernel plan authority and lifecycle clarification boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

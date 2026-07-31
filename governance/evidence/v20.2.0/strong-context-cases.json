@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "case_count": 9,
+  "cases": [
+    "not_earphone_keyboard_correction",
+    "two_keyboard_orders_require_clarification",
+    "can_refund_is_consultation_not_commit",
+    "orders_then_delivered_filter",
+    "visible_set_then_pronoun_logistics",
+    "grant_digest_prevents_changed_command",
+    "submission_unknown_reconciles_not_blind_retry",
+    "courier_phone_not_supported",
+    "most_expensive_from_visible_orders"
+  ],
+  "categories": [
+    "consult_vs_commit",
+    "correction_override",
+    "grant_digest_guard",
+    "multi_target_write_clarify",
+    "pronoun_reference",
+    "submission_unknown_reconcile",
+    "unsupported_capability",
+    "visible_result_filter"
+  ],
+  "missing_required_categories": []
+}

@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "decision_id": "adr-v20.13-capability-contract-v2",
+  "change_id": "migration-v20.13-capability-contract-v2",
+  "problem": "V20.12 的 Capability 只声明精确业务效果和 execution_kind，无法证明输入来源、前置条件、产物、授权、幂等、资源冲突和真正完成证据；Grounded Plan 因而只能检查 Tool Call 结构，不能在下一阶段进行能力合同驱动规划。",
+  "options": [
+    {
+      "id": "prompt-descriptions-only",
+      "strategy": "conservative",
+      "name": "继续把前置条件写在 planner_rule 和 Tool 描述中",
+      "correctness": "模型可读但程序不可证明，无法可靠区分 Draft 与 Receipt。",
+      "complexity": "低，但继续依赖自然语言。",
+      "migration": "只改提示。",
+      "rollback": "删除提示。",
+      "verification": "无法做确定性输入输出闭合测试。"
+    },
+    {
+      "id": "typed-capability-contract-v2",
+      "strategy": "evolutionary",
+      "name": "领域模块声明、Kernel 验证的不可变 Capability Planning Contract",
+      "correctness": "Kernel 只验证结构和权威来源；领域模块声明具体业务输入输出，不建立通用 Runtime 业务硬编码。",
+      "complexity": "中等，可作为 V20.14 Planner 的稳定输入。",
+      "migration": "现有能力默认 v1；物流、退款、发票垂直链提升到 v2；正式执行链暂不切换。",
+      "rollback": "恢复 V20.12 合同字段，不涉及业务数据。",
+      "verification": "通过缺失字段、重复输入、错误完成证明和垂直链快照反例验证。"
+    },
+    {
+      "id": "global-business-workflow-table",
+      "strategy": "redesign",
+      "name": "在通用 Runtime 建立退款/发票/物流全局步骤表",
+      "correctness": "会把业务动作硬编码进 Kernel，破坏模块可插拔和跨领域扩展。",
+      "complexity": "高，业务增长后形成第二套工作流权威。",
+      "migration": "新增中央映射。",
+      "rollback": "删除映射。",
+      "verification": "只对当前电商业务有效。"
+    }
+  ],
+  "selected_option": "typed-capability-contract-v2",
+  "rejected_reasons": {
+    "prompt-descriptions-only": "不能形成确定性计划证明。",
+    "global-business-workflow-table": "违反 Domain-neutral Kernel 与模块垂直闭环。"
+  },
+  "deletions": [
+    "删除把 planner_rule 自然语言当作可执行前置条件合同的责任。",
+    "删除把 action_draft Tool 成功视为最终业务完成证据的合同含义。",
+    "禁止在通用 Runtime 中枚举退款、发票、物流业务步骤。"
+  ],
+  "unknowns": [
+    "V20.14 Planner 如何选择多个 produces 相同类型的候选能力尚未实现。",
+    "真实业务 API 的 freshness 和 conflict key 后续需在 PostgreSQL/预生产环境校准。"
+  ],
+  "selected_responsibilities": [
+    "Kernel 定义不可变、领域无关的 Capability Planning Contract 和静态校验。",
+    "Ecommerce module 为物流、退款、发票声明 target、requires、produces、preconditions 与完成证明。",
+    "Registry 暴露结构化 planning snapshot，供下一阶段 Shadow Planner 读取。"
+  ],
+  "preserved_hard_invariants": [
+    "模型继续是开放语言语义 Owner。",
+    "Business Service 与 Transaction Authority 继续裁决事实和提交成功。",
+    "Capability 身份继续精确匹配，不使用相似能力替代。",
+    "本阶段不改变正式执行顺序或 Tool 参数来源。"
+  ],
+  "cutover_strategy": "ToolCapabilityContract 默认维持 v1 兼容；指定三条垂直链声明 contract_version=2 和 planning_contract。Registry 构建时静态验证，V20.14 才以只读 Shadow 方式消费合同生成计划。",
+  "acceptance_claims": [
+    "V2 合同缺少必要结构时 Registry 构建失败。",
+    "物流/发票查询通过 Tool 输出完成，申请类业务通过 Transaction Receipt 完成。",
+    "退款资格产物带 freshness，并可作为退款申请的 capability_output 输入。",
+    "幂等与资源冲突字段由模块合同声明。"
+  ],
+  "baseline_changes": [
+    "新增 Kernel planning contract 类型和静态校验。",
+    "仅提升物流、退款、发票相关能力为 v2；其他能力继续 v1。",
+    "不修改 Planner、执行器、事务状态机或 Business Service。"
+  ]
+}

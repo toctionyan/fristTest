@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17b-production-release-execution",
+  "claims": [
+    {
+      "id": "V20-17-B17B-PRODUCTION-EXECUTION-001",
+      "statement": "The only protected release workflow uses official-provider credentials to execute the live production-certification bundle and complete Release Quality Loop before building a provenance-bound clean artifact; deterministic diagnostics cannot build release artifacts.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17b_production_release_execution_adversarial_bridge"
+      ],
+      "owner": "production release execution control plane",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

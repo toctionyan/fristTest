@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.7-product-runtime-gates",
+  "claims": [
+    {
+      "id": "FULL-LIFECYCLE-CANARY-001",
+      "statement": "An isolated product canary crosses authenticated public HTTP boundaries from login and chat through Draft input, authority, commit and durable Receipt.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "full-lifecycle-canary"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_full_lifecycle_gate_crosses_public_boundary_contract", "gate-log:full-lifecycle-canary"],
+      "owner": "product lifecycle canary",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "PRODUCT-BROWSER-JOURNEY-001",
+      "statement": "Real Chromium executes desktop and 390px mobile product journeys including explicit selection, accessible chat, thread navigation and pending transaction reachability.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "product-browser-journey"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_browser_gate_uses_real_playwright_desktop_and_mobile", "gate-log:product-browser-journey"],
+      "owner": "frontend real-browser product journey",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

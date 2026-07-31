@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "product-portable-conformance",
+  "description": "验证当前环境、Codex 与 Claude Code 共享同一个 skillctl、合同与 Judge 入口。",
+  "commands": [
+    ["{python}", "-B", "skill-system/controller/portable_conformance.py"]
+  ]
+}

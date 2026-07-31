@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14d2b-projection-derivation-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B14D2B-PROJECTION-DERIVATION-001",
+      "statement": "Authoritative plan projections and same-turn compatibility plans derive Goal coverage, Task status, workflow status and completion through one Kernel-owned runtime view; Lifecycle retains no duplicate private derivation functions.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14d2b_projection_derivation_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.kernel plan runtime view",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

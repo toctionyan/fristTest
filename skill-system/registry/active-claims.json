@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "active": [],
+  "note": "仅 Change Contract 显式引用的 Claim 进入当前上下文。"
+}

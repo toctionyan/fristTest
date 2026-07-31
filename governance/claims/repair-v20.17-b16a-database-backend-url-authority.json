@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b16a-database-backend-url-authority",
+  "claims": [
+    {
+      "id": "V20-17-B16A-DATABASE-AUTHORITY-001",
+      "statement": "Agent persistence accepts a database configuration only when the declared backend and effective URL belong to the same database authority, and protected PostgreSQL profiles never synthesize or accept SQLite fallback URLs.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b16a_database_backend_url_authority_adversarial_bridge"
+      ],
+      "owner": "agent persistence database authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

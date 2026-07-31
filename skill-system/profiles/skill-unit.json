@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "skill-unit",
+  "description": "控制平面纯逻辑单元测试。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "skill-system/tests",
+      "-p",
+      "test_*.py"
+    ]
+  ]
+}

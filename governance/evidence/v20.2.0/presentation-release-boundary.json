@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "checks": {
+    "api_direct_release_hits": [],
+    "required_markers_missing": {
+      "services/agent-service/app/services/response_projector.py": [],
+      "services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py": [],
+      "services/agent-service/src/agent_core/presentation/outcome.py": [],
+      "services/agent-service/src/agent_core/lifecycle/publish_runtime.py": []
+    },
+    "direct_answer_dict_returns": []
+  }
+}

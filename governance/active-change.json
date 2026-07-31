@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "status": "active",
+  "target_id": "certify-v20.17-b17i-production-execution-handoff",
+  "target_path": "governance/targets/certify-v20.17-b17i-production-execution-handoff.md",
+  "claim_manifest": "governance/claims/certify-v20.17-b17i-production-execution-handoff.json",
+  "phase": "B17i",
+  "closure": "phase-candidate-environment-execution-pending"
+}

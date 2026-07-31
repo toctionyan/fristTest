@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.7-project-product",
+  "requirement_catalog": "governance/requirements/project-quality-requirements.json",
+  "requirement_profile": "project-product",
+  "claims": [
+    {
+      "id": "PROJECT-PRODUCT-CUMULATIVE-INTEGRATION-001",
+      "statement": "Product certification preserves all Quick and PostgreSQL/service integration requirements before browser evidence is considered.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["adversarial-runtime-counterexamples", "systemic-operational-counterexamples", "python-test-suites", "frontend-vitest", "frontend-build", "full-lifecycle-canary", "python-integration-tests", "product-http-smoke"],
+      "evidence_refs": ["gate-log:full-lifecycle-canary", "gate-log:python-integration-tests", "gate-log:product-http-smoke"],
+      "owner": "cumulative product certification",
+      "closure_requirement": "current-pass",
+      "requirement_ids": [
+        "PROJECT-REQ-CATALOG-001", "PROJECT-INTEGRATION-RUNNER-001", "PROJECT-CI-PROVENANCE-001",
+        "PROJECT-REPAIR-ORCHESTRATOR-001", "PROJECT-MODULE-BEHAVIOR-001", "PROJECT-MODEL-SMOKE-001",
+        "PROJECT-SEMANTIC-GROUNDING-001", "PROJECT-LOCK-READINESS-001", "PROJECT-ARCHITECTURE-BOUNDARY-001",
+        "PROJECT-CONTEXT-PROTOCOL-001", "PROJECT-GOAL-EVIDENCE-001", "PROJECT-SCENARIO-TOPOLOGY-001",
+        "PROJECT-FRONTEND-STATE-001", "PROJECT-FAILURE-REPLAY-001", "PROJECT-MUTATION-ADEQUACY-001",
+        "PROJECT-RUNTIME-RESULT-REF-001", "PROJECT-TARGET-ALGEBRA-001", "PROJECT-MODEL-BUDGET-LANES-001",
+        "PROJECT-BUSINESS-PG-001", "PROJECT-FENCE-PG-001", "PROJECT-PRODUCT-HTTP-001"
+      ]
+    },
+    {
+      "id": "PROJECT-PRODUCT-BROWSER-001",
+      "statement": "Real Chromium completes desktop selection, thread/Draft restore, input, authority, Receipt visibility and a 390px mobile chat journey.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["product-http-smoke", "product-browser-journey"],
+      "evidence_refs": ["gate-log:product-http-smoke", "gate-log:product-browser-journey"],
+      "owner": "frontend browser journey",
+      "closure_requirement": "current-pass",
+      "requirement_ids": ["PROJECT-PRODUCT-BROWSER-001"]
+    }
+  ]
+}

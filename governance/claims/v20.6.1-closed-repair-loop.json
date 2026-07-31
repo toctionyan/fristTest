@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.6.1-closed-repair-loop",
+  "claims": [
+    {
+      "id": "LOOP-ACCEPTANCE-COVERAGE-001",
+      "statement": "Target acceptance IDs and claim IDs are an exact machine-checked set, so omitted requirements cannot converge.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_target_acceptance_ids_must_exactly_match_claim_ids"],
+      "owner": "scripts/quality_loop.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "LOOP-REPAIR-TRANSITION-001",
+      "statement": "A repair target requires a failing baseline claim and a real in-scope source change before it can converge.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_target_rejects_green_baseline_and_no_change_verification"],
+      "owner": "scripts/quality_loop.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "MODEL-SMOKE-PROTOCOL-001",
+      "statement": "Protected real-model goal smoke accepts the production goal schema and never requires forbidden expected_tools.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_tools"],
+      "owner": "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "PROCESS-GROUP-PORTABILITY-001",
+      "statement": "Gate process-group cleanup treats an inaccessible completed process group as cleaned instead of crashing the controller.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_process_group_cleanup_handles_permission_error_after_parent_exit"],
+      "owner": "scripts/quality_loop.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "MODULE-CAPABILITY-TESTS-001",
+      "statement": "Every module capability declares executable test selectors for schema, permit, execution, presentation, and negative substitution behavior.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "module-vertical-closure", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_module_closure_rejects_capability_without_executable_test_contract"],
+      "owner": "scripts/verify_module_closure.py + agent_modules/*/module_manifest.json",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "CI-CLAIM-CONTINUITY-001",
+      "statement": "CI targets can carry the exact source repair claims and their fingerprint instead of replacing them with an umbrella claim.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_ci_target_preserves_source_claim_identity"],
+      "owner": "scripts/create_ci_quality_target.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "REPAIR-ORCHESTRATOR-001",
+      "statement": "The repair orchestrator normalizes stable issues, invokes an external fixer without touching evidence, and leaves final judgment to quality_loop.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_orchestrator_builds_stable_issue_records"],
+      "owner": "scripts/repair_loop.py",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "WORKSPACE-DOCTOR-001",
+      "statement": "Workspace doctor reports Python, test-runtime, npm, frontend dependency, and required template readiness without mutating source.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_quality_loop_governance.py::test_workspace_doctor_reports_readiness_without_mutating_workspace"],
+      "owner": "scripts/workspace_doctor.py",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.16-continuation-final",
+  "claims": [
+    {
+      "id": "V20-16-FINAL-STATE-SCHEMA-001",
+      "statement": "State Schema v2 new-thread, deterministic legacy migration, ambiguous legacy restart, and legacy authority cutover counterexamples pass in the current central Quick run.",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_new_thread_schema_v2_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_legacy_checkpoint_migration_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_ambiguous_legacy_restart_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_legacy_authority_cutover_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.state_schema",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "V20-16-FINAL-CONTROL-PLANE-001",
+      "statement": "The two formerly blocking quality-control self-tests pass inside the current shared adversarial runtime gate.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_target_rejects_green_baseline_and_no_change_verification",
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_orchestrator_builds_stable_issue_records"
+      ],
+      "owner": "quality-controller-test-contract",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "V20-16-FINAL-REGRESSION-CLOSURE-001",
+      "statement": "Schema v2 topology, repair-loop transition semantics, and the cheapest-visible-order refund plan pass in the current systemic and full Python gates.",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "systemic-operational-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/context/test_scenario_topology.py::test_runner_uses_two_real_checkpoint_threads",
+        "services/agent-service/tests/architecture/test_quality_loop_controller.py::test_local_loop_requires_baseline_and_enforces_repair_round",
+        "gate-log:python-test-suites"
+      ],
+      "owner": "tests/runtime-and-quality-contracts",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "V20-16-FINAL-FRONTEND-001",
+      "statement": "Official frontend dependencies, Vitest, and production build execute in the current Quick environment.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "frontend-dependencies",
+        "frontend-vitest",
+        "frontend-build"
+      ],
+      "evidence_refs": [
+        "gate-log:frontend-dependencies",
+        "gate-log:frontend-vitest",
+        "gate-log:frontend-build"
+      ],
+      "owner": "services/agent-service/frontend",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "V20-16-FINAL-LIFECYCLE-001",
+      "statement": "The protected deterministic model emits State Schema v2 goal declarations and the current isolated HTTP and real-browser lifecycle gates complete without LoopBudgetExhausted.",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_protected_model_stub_contract.py::test_stub_declares_goals_before_emitting_a_business_candidate",
+        "gate-log:full-lifecycle-canary",
+        "gate-log:product-browser-journey"
+      ],
+      "owner": "tests.integration.model_stub + public lifecycle harness",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b13b-lifecycle-runtime-contract-boundary",
+  "problem": "Runtime imports Lifecycle for two Loop constants, a frozen semantic contract read projection and a State Schema compatibility predicate. Lifecycle legitimately consumes Runtime execution services, so these reverse read-only imports create the final lifecycle/runtime SCC.",
+  "options": [
+    {
+      "id": "keep-two-package-cycle",
+      "strategy": "conservative",
+      "name": "Keep current lifecycle/runtime coupling",
+      "correctness": "Preserves behavior but leaves the final architecture debt unresolved.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "N/A",
+      "verification": "Debt remains at two members."
+    },
+    {
+      "id": "kernel-neutral-read-contracts",
+      "strategy": "evolutionary",
+      "name": "Kernel neutral read and integrity contracts",
+      "correctness": "Kernel owns only closed constants, digest integrity and read projections; Lifecycle continues to own semantic creation, freezing, state migration and Graph behavior; Runtime consumes Kernel without reverse Lifecycle imports.",
+      "complexity": "Three small neutral modules, compatibility re-exports and import migration.",
+      "migration": "Move one implementation for each pure contract to Kernel, re-export from Lifecycle, migrate Runtime imports and make debt tests accept final RESOLVED state.",
+      "rollback": "Restore Lifecycle-local helpers and Runtime imports.",
+      "verification": "AST boundary counterexample, object/result equivalence, digest tamper failure, complete Quick and real product journeys."
+    },
+    {
+      "id": "merge-lifecycle-runtime",
+      "strategy": "redesign",
+      "name": "Merge Lifecycle and Runtime packages",
+      "correctness": "Eliminates the graph cycle by collapsing distinct orchestration and execution responsibilities.",
+      "complexity": "High and authority-blurring.",
+      "migration": "Large rewrite.",
+      "rollback": "High risk.",
+      "verification": "Unacceptable for this stage."
+    }
+  ],
+  "selected_option": "kernel-neutral-read-contracts",
+  "rejected_reasons": {
+    "keep-two-package-cycle": "Leaves the final registered architecture debt unresolved.",
+    "merge-lifecycle-runtime": "Would erase the lifecycle/execution boundary and expand Agent Loop risk."
+  },
+  "deletions": [
+    "Delete every Runtime import of agent_core.lifecycle.",
+    "Delete Lifecycle-local duplicate ownership of neutral Loop defaults, semantic digest/read projection and schema-version compatibility predicate.",
+    "Delete cumulative debt tests that require debt to remain REDUCED instead of allowing RESOLVED."
+  ],
+  "unknowns": [
+    "State/Loop simplification remains a separate stage after dependency resolution.",
+    "Real-model and prompt-injection certification remain NOT_DECLARED."
+  ],
+  "selected_responsibilities": [
+    "Kernel owns neutral closed values, integrity algorithms and read-only projections only.",
+    "Lifecycle owns semantic creation/freeze, schema migration, state mutation and Graph routing.",
+    "Runtime owns execution, capability proof, model/tool policy and outcomes."
+  ],
+  "preserved_hard_invariants": [
+    "Frozen semantic digest and tamper rejection remain byte-for-byte equivalent.",
+    "State Schema v2 and legacy restart behavior remain unchanged.",
+    "Agent Loop limits and environment overrides remain unchanged.",
+    "Business Service and transaction authorities do not move.",
+    "Dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, add neutral Kernel contracts, convert Lifecycle to compatibility imports, migrate all Runtime imports, update monotonic debt assertions, then run complete Quick.",
+  "acceptance_claims": [
+    "Runtime imports no Lifecycle package.",
+    "Lifecycle compatibility exports are identical/equivalent to Kernel contracts.",
+    "Architecture debt status is RESOLVED with no current package cycles.",
+    "All product, transaction, frontend, lifecycle and browser gates pass."
+  ],
+  "baseline_changes": []
+}

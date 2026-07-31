@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.6.2-project-release",
+  "requirement_catalog": "governance/requirements/project-quality-requirements.json",
+  "requirement_profile": "project-release",
+  "claims": [
+    {
+      "id": "PROJECT-RELEASE-CUMULATIVE-PRODUCT-001",
+      "statement": "Release re-executes every Quick, Integration and Product requirement before protected and artifact certification.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "systemic-operational-counterexamples",
+        "python-test-suites",
+        "frontend-vitest",
+        "frontend-build",
+        "full-lifecycle-canary",
+        "python-integration-tests",
+        "product-http-smoke",
+        "product-browser-journey",
+        "production-certification-bundle"
+      ],
+      "evidence_refs": [
+        "gate-log:python-integration-tests",
+        "gate-log:product-browser-journey",
+        "gate-log:production-certification-bundle"
+      ],
+      "owner": "cumulative release certification",
+      "closure_requirement": "current-pass",
+      "requirement_ids": [
+        "PROJECT-REQ-CATALOG-001",
+        "PROJECT-INTEGRATION-RUNNER-001",
+        "PROJECT-CI-PROVENANCE-001",
+        "PROJECT-REPAIR-ORCHESTRATOR-001",
+        "PROJECT-MODULE-BEHAVIOR-001",
+        "PROJECT-MODEL-SMOKE-001",
+        "PROJECT-SEMANTIC-GROUNDING-001",
+        "PROJECT-LOCK-READINESS-001",
+        "PROJECT-ARCHITECTURE-BOUNDARY-001",
+        "PROJECT-CONTEXT-PROTOCOL-001",
+        "PROJECT-GOAL-EVIDENCE-001",
+        "PROJECT-SCENARIO-TOPOLOGY-001",
+        "PROJECT-FRONTEND-STATE-001",
+        "PROJECT-FAILURE-REPLAY-001",
+        "PROJECT-MUTATION-ADEQUACY-001",
+        "PROJECT-RUNTIME-RESULT-REF-001",
+        "PROJECT-TARGET-ALGEBRA-001",
+        "PROJECT-MODEL-BUDGET-LANES-001",
+        "PROJECT-BUSINESS-PG-001",
+        "PROJECT-FENCE-PG-001",
+        "PROJECT-PRODUCT-HTTP-001",
+        "PROJECT-PRODUCT-BROWSER-001"
+      ]
+    },
+    {
+      "id": "PROJECT-PROTECTED-CHAIN-001",
+      "statement": "Agent and Business run as protected preproduction services with required trust and persistence controls.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "product-http-smoke",
+        "production-certification-bundle"
+      ],
+      "evidence_refs": [
+        "gate-log:product-http-smoke",
+        "gate-log:production-certification-bundle"
+      ],
+      "owner": "release engineering",
+      "closure_requirement": "current-pass",
+      "requirement_ids": [
+        "PROJECT-PROTECTED-CHAIN-001"
+      ]
+    },
+    {
+      "id": "PROJECT-REAL-MODEL-001",
+      "statement": "The real provider passes one live same-session base/goal/full-lifecycle bundle and configured-model browser checks through business observations and structured answer release.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "production-certification-bundle"
+      ],
+      "evidence_refs": [
+        "gate-log:production-certification-bundle"
+      ],
+      "owner": "agent model runtime",
+      "closure_requirement": "current-pass",
+      "requirement_ids": [
+        "PROJECT-REAL-MODEL-001"
+      ]
+    },
+    {
+      "id": "PROJECT-CLEAN-ARTIFACT-001",
+      "statement": "The current immutable source builds and independently verifies a lock-rebuilt clean release artifact.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "release-provenance",
+      "required_gates": [
+        "clean-release-preflight"
+      ],
+      "evidence_refs": [
+        "gate-log:clean-release-preflight"
+      ],
+      "owner": "release engineering",
+      "closure_requirement": "current-pass",
+      "requirement_ids": [
+        "PROJECT-CLEAN-ARTIFACT-001"
+      ]
+    }
+  ]
+}

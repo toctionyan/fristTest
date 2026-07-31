@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "decision_id": "repair-v20.16-lifecycle-canary-schema-v2-fixture",
+  "change_id": "repair-v20.16-lifecycle-canary-schema-v2-fixture",
+  "problem": "受保护确定性模型夹具仍按旧 Goal Schema 声明目标，缺少 State Schema v2 强制 requested_effect，导致每次 declare_turn_goals 都以 GOAL_DECLARATION_INVALID 被拒绝，六轮后 LoopBudgetExhausted。",
+  "selected_option": "align-protected-model-fixture-with-open-requested-effect",
+  "selected_changes": [
+    "取消订单目标显式声明 order.cancel/order requested_effect。",
+    "普通问候目标显式声明 conversation.respond/message requested_effect。",
+    "保护合同测试同时断言 action 与 narrative 两条声明都携带 requested_effect。"
+  ],
+  "rejected_options": [
+    "让 Runtime 为夹具自动补 requested_effect；这会倒退 V20.16 正式语义边界。",
+    "增加 Loop Budget；无效声明只会重复更多次。",
+    "绕过聊天边界直接调用 transactions/start；这会失去完整生命周期认证价值。"
+  ],
+  "red_evidence": ".quality/manual-continuation/lifecycle-diagnostic/trace_rows.json",
+  "green_evidence": ".quality/product-code/certify-v20.16-continuation-final/final-quick-20260728T094229Z/run-summary.json",
+  "result": "CONVERGED"
+}

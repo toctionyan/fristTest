@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "decision_id": "adr-v20.11.1-unified-semantics-grounded-planning",
+  "change_id": "migration-v20.11.1-unified-semantics-grounded-planning",
+  "problem": "当前正式主链仍使用 goal_type、正则语义校正和单例 clarification disposition 共同决定多任务与上下文关系，导致模型与程序形成双语义 Owner，并把用户 Goal、能力选择和 Tool 步骤混在相邻对象中。",
+  "options": [
+    {
+      "id": "conservative-goal-type-repair",
+      "strategy": "conservative",
+      "name": "继续修补 GoalType 与 pending_clarification",
+      "correctness": "能修复少量已知案例，但程序仍需枚举自然语言关系，无法消除双语义 Owner。",
+      "complexity": "短期改动小，长期规则和回归持续增长。",
+      "migration": "保留现有 TurnGoalPlan 与 WorkflowPlan，仅增加分支规则。",
+      "rollback": "回退局部规则即可。",
+      "verification": "只能证明已枚举案例，不能证明开放语言边界。"
+    },
+    {
+      "id": "evolutionary-semantic-contract",
+      "strategy": "evolutionary",
+      "name": "在现有目录内引入开放语义合同与兼容投影",
+      "correctness": "模型统一提出 requested_effect、Goal 关系和状态变化；程序只验证引用、身份、权限和合同，旧字段降级为兼容投影。",
+      "complexity": "中等；复用现有 Ledger、CapabilityGate、Workflow、事务和 LangGraph。",
+      "migration": "先增加上下文可信分区、语义候选/冻结合同和 GoalBlocker，再让 Workflow 从冻结合同读取，最后保留旧对象只读兼容。",
+      "rollback": "在正式切换前可关闭新合同读取；切换后可恢复上一个可信包。",
+      "verification": "使用红基线、结构化合同测试、现有全量回归和架构 Gate。"
+    },
+    {
+      "id": "redesign-new-root-layers",
+      "strategy": "redesign",
+      "name": "新建 semantics/goals/planning 根目录并重写主图",
+      "correctness": "边界最清晰，但一次性重写会扩大事务、前端和历史检查点风险。",
+      "complexity": "高，涉及架构 Policy Delta、迁移脚本和大量测试重写。",
+      "migration": "新旧主图长期 Shadow 后整体切换。",
+      "rollback": "需要维护两套完整运行链，回滚复杂。",
+      "verification": "需要真实模型、双服务、数据库和浏览器全套认证。"
+    }
+  ],
+  "selected_option": "evolutionary-semantic-contract",
+  "rejected_reasons": {
+    "conservative-goal-type-repair": "不能消除程序自然语言分类和单例澄清协议的根因。",
+    "redesign-new-root-layers": "当前阶段范围过大，会把已稳定的能力、事务和发布边界一起置于风险中。"
+  },
+  "deletions": [
+    "删除 GoalType/正则作为正式语义否决者或待办写操作判定者的职责。",
+    "删除 pending clarification 必须三选一的正式协议职责。",
+    "删除 Runtime 根据 Tool 名称、描述或相似度推导业务效果身份的职责。",
+    "删除 WorkflowPlan 未绑定冻结语义合同即可调度业务 Tool 的职责。",
+    "旧 turn_goal_plan/workflow_plan 保留为兼容投影，不再是新增代码的权威输入。"
+  ],
+  "unknowns": [
+    "真实 DeepSeek 对开放 requested_effect Schema 的稳定性需要真实模型 Integration 认证。",
+    "当前环境未安装真实 LangGraph/LangChain 依赖，图级多轮回归不能由测试 Stub 代替。",
+    "跨进程持久化 GoalRecord 暂不在本迁移范围，先使用 Checkpointer 状态闭环。"
+  ],
+  "selected_responsibilities": [
+    "ContextProjection 区分公开对话、已验证观察、执行诊断、事务与 Goal Blocker。",
+    "Semantic Compiler 提出开放 requested_effect、对象/输入候选、依赖和具体状态变化。",
+    "Semantic Validator 只验证证据、引用和结构，不按自然语言重新分类。",
+    "Frozen Semantic Contract 成为本轮唯一正式语义依据。",
+    "业务模块在 Capability Contract 中声明 completion_effects/support_effects；Runtime 只建立索引和精确 MatchProof。",
+    "Workflow 从冻结 Goal、精确 Capability role 和实际 Effect 构建本轮局部执行计划。",
+    "Grounded Plan Validator 校验语义合同绑定、Goal 唯一绑定、能力角色、依赖闭合、循环和结构摘要。",
+    "Tool dispatch 必须同时通过 Grounded Plan、Capability MatchProof 与 Execution Permit。",
+    "GoalBlocker 支持多个挂起 Goal；pending_clarification 仅作旧 UI/检查点兼容投影。",
+    "答案发布、能力语义验证、失败回放和澄清优先读取冻结合同与 grounded plan。"
+  ],
+  "preserved_hard_invariants": [
+    "Business Service 保持业务事实权威",
+    "候选不能直接触发副作用",
+    "无精确能力不得使用相似能力替代",
+    "Draft Grant Attempt Receipt 主链不变",
+    "无 Receipt 不得声称成功",
+    "新旧正式语义链不得并存"
+  ],
+  "cutover_strategy": "新增 turn 先冻结 semantic contract，再按模块自声明的精确 effect identity 发现 Capability；grounded plan 绑定 semantic ID/Digest 并通过确定性验证后才允许 dispatch。旧 turn_goal_plan/workflow_plan 仅同步兼容投影，正式读路径优先读取冻结合同与 grounded plan。真实 LangGraph/模型环境通过前不提升新 Baseline。",
+  "acceptance_claims": [
+    "开放 requested_effect 不依赖固定 GoalType 覆盖自然语言。",
+    "语义验证失败只拒绝或澄清，不把无效类型改为 consult。",
+    "多个 Goal Blocker 可同时存在且旧 Blocker 不劫持新任务。",
+    "ContextProjection 不把失败工具诊断混为已验证业务事实。",
+    "能力身份由业务模块声明且 Runtime 只做 exact match；未知效果保持 absent_proven。",
+    "一个 Goal 可展开为 support + completion 多 Tool，同时保持单一用户 Goal。",
+    "Grounded plan 绑定 frozen semantics，拒绝未知依赖、循环、失效语义和结构篡改。",
+    "答案发布和能力验证优先读取正式合同/grounded plan，不重新提升兼容投影为权威。"
+  ],
+  "baseline_changes": [
+    "迁移范围包括 context/lifecycle/runtime、Capability Contract、模块能力声明和对应测试。",
+    "未修改 app host transport、Business Service、事务 Runtime、公开 API、Skill、Judge 或 Architecture Baseline。"
+  ]
+}

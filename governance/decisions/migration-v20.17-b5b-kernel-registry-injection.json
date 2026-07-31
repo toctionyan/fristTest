@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b5b-kernel-registry-injection",
+  "problem": "The first B5 attempt correctly removed the implementation import but lifecycle certification exposed that agent_core.kernel.__init__ still wrapped validate_runtime_architecture as a zero-argument function. The complete boundary includes both the implementation and its public API; both must accept an explicit RuntimeRegistry.",
+  "options": [
+    {
+      "id": "keep-zero-arg-public-wrapper",
+      "strategy": "conservative",
+      "name": "Keep the public service-locator wrapper",
+      "correctness": "Would preserve call compatibility but either retain hidden composition or make the public and implementation contracts disagree.",
+      "complexity": "Low",
+      "migration": "Only implementation changes.",
+      "rollback": "Not applicable.",
+      "verification": "Lifecycle remains broken or kernel dependency remains."
+    },
+    {
+      "id": "explicit-registry-through-public-api",
+      "strategy": "evolutionary",
+      "name": "Propagate RuntimeRegistry through implementation and public API",
+      "correctness": "Maintains one RuntimeRegistry integrity authority and makes composition explicit from app.main through agent_core.kernel to the validator.",
+      "complexity": "Six governed paths including public API, startup caller, cumulative ratchet, boundary regression and responsibility record.",
+      "migration": "Record expected-red, update implementation and public wrapper signatures, pass get_runtime_registry() at startup, and make prior SCC count monotonic.",
+      "rollback": "Restore zero-argument wrapper and modules lookup.",
+      "verification": "Architecture Gate, public API signature test, full Quick, lifecycle and Chromium."
+    },
+    {
+      "id": "remove-public-api",
+      "strategy": "redesign",
+      "name": "Remove validate_runtime_architecture from agent_core.kernel",
+      "correctness": "Would eliminate the wrapper but create an unnecessary external API break and move startup callers to an implementation module.",
+      "complexity": "Medium",
+      "migration": "Delete export and update callers.",
+      "rollback": "Restore export.",
+      "verification": "Import compatibility certification."
+    }
+  ],
+  "selected_option": "explicit-registry-through-public-api",
+  "rejected_reasons": {
+    "keep-zero-arg-public-wrapper": "It caused the first B5 lifecycle failure and hides composition.",
+    "remove-public-api": "The public Kernel API remains appropriate when it is explicit and dependency-neutral."
+  },
+  "deletions": [
+    "The modules service-locator import and zero-argument public wrapper behavior are removed; no RuntimeRegistry integrity rule or public symbol is deleted."
+  ],
+  "unknowns": [
+    "The remaining 9-package SCC remains open debt.",
+    "Real model certification remains outside this structural migration."
+  ],
+  "selected_responsibilities": [
+    "agent_core.kernel owns neutral RuntimeRegistry validation and a matching explicit public API.",
+    "agent_core.composition owns registry construction.",
+    "app.main supplies the composed RuntimeRegistry at startup."
+  ],
+  "preserved_hard_invariants": [
+    "RuntimeRegistry.validate_integrity remains the sole registry consistency authority.",
+    "The public validate_runtime_architecture symbol remains available.",
+    "resources, ledger, rag and utils remain outside the main SCC.",
+    "The dependency debt baseline is not edited."
+  ],
+  "cutover_strategy": "Create a new red contract that covers both implementation and public API, propagate the explicit RuntimeRegistry argument through both, update only app.main, then run complete product verification.",
+  "acceptance_claims": [
+    "kernel has no modules import and is absent from the main SCC.",
+    "Both implementation and public API require an explicit RuntimeRegistry.",
+    "The current SCC member count is at most 9.",
+    "Startup, transaction, frontend, lifecycle and browser behavior remain green."
+  ],
+  "baseline_changes": []
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b15b1-real-model-semantic-identity-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B15B1-SEMANTIC-IDENTITY-001",
+      "statement": "Protected semantic goal prototypes reject local or unofficial model identities before invocation and require provider model, usage and finish metadata for every certified response.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b15b1_real_model_semantic_identity_boundary_adversarial_bridge"
+      ],
+      "owner": "protected preproduction semantic goal certification",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

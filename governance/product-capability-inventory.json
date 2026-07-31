@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "capabilities": [
+    {"id": "quality.requirement-catalog", "owner": "governance/requirements", "surface": "quality"},
+    {"id": "quality.integration-runner", "owner": "scripts/run_python_test_suites.py", "surface": "quality"},
+    {"id": "quality.ci-provenance", "owner": "scripts/create_ci_quality_target.py", "surface": "quality"},
+    {"id": "quality.repair-orchestrator", "owner": "scripts/repair_loop.py", "surface": "quality"},
+    {"id": "quality.mutation-adequacy", "owner": "governance/mutations", "surface": "quality"},
+    {"id": "module.capability-runtime", "owner": "agent_modules", "surface": "runtime"},
+    {"id": "model.goal-smoke", "owner": "protected model smoke", "surface": "model"},
+    {"id": "model.semantic-grounding", "owner": "semantic capability verifier", "surface": "model"},
+    {"id": "workspace.lock-readiness", "owner": "workspace bootstrap and doctor", "surface": "delivery"},
+    {"id": "architecture.dependency-dag", "owner": "agent_core dependency boundary", "surface": "architecture"},
+    {"id": "context.provider-protocol", "owner": "agent_core.context", "surface": "runtime"},
+    {"id": "context.goal-evidence-satisfaction", "owner": "agent_core.lifecycle", "surface": "runtime"},
+    {"id": "context.runtime-result-pipeline", "owner": "agent_core.context", "surface": "runtime"},
+    {"id": "runtime.target-algebra", "owner": "CapabilityGate and module schemas", "surface": "runtime"},
+    {"id": "model.budget-lanes", "owner": "agent_core.model_calls", "surface": "model"},
+    {"id": "conversation.thread-topology", "owner": "conversation scenario runner", "surface": "runtime"},
+    {"id": "frontend.product-state", "owner": "frontend product state", "surface": "product"},
+    {"id": "observability.failure-replay", "owner": "agent_core.observability", "surface": "runtime"},
+    {"id": "business.postgres-authority", "owner": "business-service", "surface": "integration"},
+    {"id": "persistence.postgres-fencing", "owner": "agent persistence", "surface": "integration"},
+    {"id": "product.http-transaction", "owner": "product HTTP boundary", "surface": "product"},
+    {"id": "product.browser-journey", "owner": "frontend browser journey", "surface": "product"},
+    {"id": "release.protected-chain", "owner": "release engineering", "surface": "release"},
+    {"id": "model.real-lifecycle", "owner": "agent model runtime", "surface": "release"},
+    {"id": "release.clean-artifact", "owner": "release engineering", "surface": "release"}
+  ]
+}

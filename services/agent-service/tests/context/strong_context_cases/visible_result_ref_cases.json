@@ -1,0 +1,21 @@
+{
+  "suite": "visible_result_ref_cases",
+  "cases": [
+    {
+      "id": "most_expensive_from_visible_orders",
+      "category": "visible_result_filter",
+      "execution_contract": "visible_collection_ref_is_scoped",
+      "turns": [
+        {"role": "user", "text": "我买了什么？"},
+        {"role": "assistant", "visible_result": "order_list", "items": [{"order_id": "10001", "amount": 199}, {"order_id": "10002", "amount": 399}]},
+        {"role": "user", "text": "最贵的那个能退吗？"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "resolve_visible_result_superlative_then_precheck",
+        "target_order_id": "10002",
+        "requires_business_precheck": true
+      },
+      "forbidden_behavior": ["use_memory_without_visible_result", "answer_refund_policy_without_business_precheck"]
+    }
+  ]
+}

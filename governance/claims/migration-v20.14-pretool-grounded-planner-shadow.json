@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.14-pretool-grounded-planner-shadow",
+  "claims": [
+    {
+      "id": "PRETOOL-PLAN-BEFORE-TOOL-001",
+      "statement": "Shadow Plan 必须在模型业务 Tool Call 前由冻结 Goal 和精确 V2 Capability 合同生成，并且不得把已有 current_turn_plan.tool_calls 当作计划来源。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_14_pretool_shadow_plan_adversarial_bridge"],
+      "owner": "agent_core.lifecycle.pretool_planner",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "CONTRACT-PATH-CLOSURE-001",
+      "statement": "Shadow Planner 必须依据 Capability Contract v2 的 requires/produces 类型生成局部候选路径；capability_output 输入只能由匹配类型的生产步骤满足，缺失时保持 unresolved。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_14_contract_path_closure_adversarial_bridge"],
+      "owner": "agent_core.lifecycle.pretool_planner",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "SHADOW-NON-AUTHORITY-001",
+      "statement": "模型 Tool Call 与 Shadow Plan 的偏差必须被记录，但 Shadow 不得阻止执行、创建 Permit、修改冻结语义或替代正式 Grounded Execution Plan。",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": ["services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_14_shadow_divergence_adversarial_bridge"],
+      "owner": "agent_core.lifecycle.pretool_planner + dialogue_runtime observability",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

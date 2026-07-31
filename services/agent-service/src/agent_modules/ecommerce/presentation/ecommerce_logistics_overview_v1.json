@@ -1,0 +1,34 @@
+{
+  "contract_id": "commerce.logistics_overview@1",
+  "version": 1,
+  "result_profile": "structured_result",
+  "contract_owner": "ecommerce_overlay",
+  "projection_boundary": "ecommerce_logistics_overview_projector",
+  "producer": "ecommerce.orders.logistics.capability",
+  "renderer": {"web": "commerce_logistics_overview_renderer"},
+  "adequacy": {
+    "required_visible_semantics": ["resource_identity", "resource_display_label", "delivery_state", "latest_delivery_update"],
+    "optional_visible_semantics": ["delivery_estimate"],
+    "rule": "each_resolved_order_has_a_customer_distinguishable_delivery_update"
+  },
+  "payload": {
+    "block_type": "logistics_overview",
+    "block_required_fields": {"title": "result_title", "summary": "result_summary"},
+    "item_required_fields": {
+      "order_id": "resource_identity",
+      "product_name": "resource_display_label",
+      "status": "delivery_state",
+      "latest": "latest_delivery_update"
+    },
+    "item_optional_fields": {"estimate": "delivery_estimate"}
+  },
+  "coverage": {"mode": "full", "source_population": "requested_result_population"},
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {"required_levels": ["unit", "contract"], "end_to_end_required": true, "release_gate_required": true, "coverage_evidence_required": true},
+  "release": {"formal_response_eligible": true, "renderer_registry_key": "commerce.logistics_overview@1", "legacy_output_replaces": ["ecommerce.legacy.logistics_overview"], "release_gate": "StructuredResultReleaseGate"}
+}

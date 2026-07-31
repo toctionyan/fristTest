@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-27T10:24:02.635719+00:00",
+  "change_id": "migration-v20.11.1-unified-semantics-grounded-planning",
+  "decision": "FOLLOW_UP_CONTRACT_REQUIRED",
+  "reason": "真实浏览器测试发现跨 Goal Presentation 与多 Observation outcome 问题，修复触及原合同未允许的 Presentation 路径；浏览器 Harness 位于产品控制面禁止写入的 .quality。",
+  "out_of_original_scope_paths": [
+    "services/agent-service/src/agent_core/presentation/registry.py",
+    "services/agent-service/src/agent_modules/ecommerce/presentation/adapter.py",
+    "services/agent-service/tests/presentation/test_presentation_modules.py",
+    ".quality/browser_runtime/**"
+  ],
+  "required_next_action": "建立独立 browser/presentation follow-up product repair contract，使用 V20.11.1 候选作为红基线，重新验证后方可关闭或提升 Baseline。",
+  "current_contract_status": "PENDING",
+  "baseline_promotion_allowed": false
+}

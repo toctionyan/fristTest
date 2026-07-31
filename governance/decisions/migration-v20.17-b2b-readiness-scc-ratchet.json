@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b2b-readiness-scc-ratchet",
+  "problem": "Application readiness aggregation is incorrectly owned by agent_core.runtime and creates the only runtime-to-rag edge. The prior B1 architecture regression also hard-codes an intermediate SCC size of 13, so a valid further reduction to 12 is incorrectly treated as a failure.",
+  "options": [
+    {
+      "id": "keep-boundary-and-exact-test",
+      "strategy": "conservative",
+      "name": "Keep readiness in Runtime and keep the exact B1 count",
+      "correctness": "Preserves the current state but prevents cumulative architecture improvement and leaves the wrong ownership.",
+      "complexity": "Low",
+      "migration": "No source changes.",
+      "rollback": "Not applicable.",
+      "verification": "SCC remains 13."
+    },
+    {
+      "id": "move-readiness-and-make-ratchet-monotonic",
+      "strategy": "evolutionary",
+      "name": "Move readiness to app.services and make B1 regression monotonic",
+      "correctness": "Preserves public health behavior, removes runtime-to-rag, and ensures earlier debt reductions remain valid when later slices reduce the SCC further.",
+      "complexity": "Six governed paths: one implementation move, one API import, two architecture tests and one responsibility record.",
+      "migration": "Record expected-red, move readiness, update health_api, delete the old owner, and change the B1 assertion from exact 13 to no greater than 13 while keeping utils permanently absent.",
+      "rollback": "Restore the old readiness owner, API import and exact B1 assertion.",
+      "verification": "Both architecture tests, Architecture Gate debt delta, full Quick, lifecycle and Chromium."
+    },
+    {
+      "id": "redesign-all-composition",
+      "strategy": "redesign",
+      "name": "Redesign all application and runtime composition",
+      "correctness": "Could remove more cycles but mixes multiple independent boundaries.",
+      "complexity": "High",
+      "migration": "Introduce multiple ports and rewrite readiness, bootstrap and runtime dependencies.",
+      "rollback": "Cross-subsystem rollback.",
+      "verification": "New composition contracts and release certification."
+    }
+  ],
+  "selected_option": "move-readiness-and-make-ratchet-monotonic",
+  "rejected_reasons": {
+    "keep-boundary-and-exact-test": "It blocks the overall SCC elimination goal and preserves incorrect ownership.",
+    "redesign-all-composition": "It is too broad for one measurable ratchet slice."
+  },
+  "deletions": [
+    "services/agent-service/src/agent_core/runtime/readiness.py"
+  ],
+  "unknowns": [
+    "The remaining 12-package SCC remains open debt.",
+    "Real model certification remains outside this structural migration."
+  ],
+  "selected_responsibilities": [
+    "app.services owns cross-subsystem deployment readiness aggregation.",
+    "agent_core.runtime does not depend on RAG for application health composition.",
+    "architecture regression tests assert durable removals and non-growth, not a frozen intermediate member count."
+  ],
+  "preserved_hard_invariants": [
+    "Public /health, /ready and /metrics behavior remains unchanged.",
+    "Readiness remains read-only.",
+    "utils remains outside the SCC permanently.",
+    "No Agent, transaction, capability, State or presentation behavior changes.",
+    "The debt baseline is not edited."
+  ],
+  "cutover_strategy": "Create a clean expanded target before implementation, record the old 13-member state as expected-red, apply the readiness move and monotonic B1 assertion, then run complete product verification and close independently.",
+  "acceptance_claims": [
+    "rag and utils are both absent from the main SCC.",
+    "The current SCC member count is 12 and cannot grow above prior verified bounds.",
+    "Readiness is owned by app.services with behavior preserved.",
+    "All product gates remain green."
+  ],
+  "baseline_changes": []
+}

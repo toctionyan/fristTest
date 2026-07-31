@@ -1,0 +1,3 @@
+.quality/
+services/agent-service/.venv/
+services/business-service/.venv/

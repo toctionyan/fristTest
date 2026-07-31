@@ -1,0 +1,7 @@
+name = "scope_planner"
+description = "Read-only scope planner for change contracts and architecture options."
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/scope-planner.md. Stay read-only. Cite concrete files and evidence. Do not modify the candidate.
+"""

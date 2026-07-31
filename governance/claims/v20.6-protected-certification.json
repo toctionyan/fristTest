@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.6-protected-release",
+  "claims": [
+    {
+      "id": "BUSINESS-PG-RUNTIME-001",
+      "statement": "All protected Business resource APIs run against PostgreSQL, including order-filtered refund, after-sales and invoice queries.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "python-integration-tests",
+        "product-http-smoke"
+      ],
+      "evidence_refs": [
+        "services/business-service/tests/test_postgres_production_persistence.py::test_postgres_all_order_filtered_resource_queries_run_through_domain_contract",
+        "gate-log:product-http-smoke"
+      ],
+      "owner": "business-service",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "FENCE-PG-RUNTIME-001",
+      "statement": "A replaced PostgreSQL checkpoint fencing token produces zero physical stale writes.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "python-integration-tests"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/integration/test_atomic_postgres_fencing.py::test_postgres_checkpoint_physically_rejects_replaced_fencing_token"
+      ],
+      "owner": "agent-runtime",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "PROTECTED-SERVICE-CHAIN-001",
+      "statement": "Agent and Business run as preprod services with PostgreSQL, signed actor identity, strict state contracts and model verifiers.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "product-http-smoke",
+        "preproduction-real-model-certification-bundle"
+      ],
+      "evidence_refs": [
+        ".github/workflows/release.yml",
+        "gate-log:product-http-smoke",
+        "gate-log:preproduction-real-model-certification-bundle"
+      ],
+      "owner": "release-engineering",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "REAL-MODEL-001",
+      "statement": "The protected real model passes the one live same-session smoke, semantic and full-lifecycle bundle plus configured-model browser certification.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "preproduction-real-model-certification-bundle",
+        "configured-model-browser-conversation",
+        "configured-model-browser-campaign"
+      ],
+      "evidence_refs": [
+        "gate-log:preproduction-real-model-certification-bundle",
+        "gate-log:configured-model-browser-conversation",
+        "gate-log:configured-model-browser-campaign"
+      ],
+      "owner": "agent-runtime",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "CLEAN-ARTIFACT-PREFLIGHT-001",
+      "statement": "The current immutable source builds and independently verifies a clean npm-ci release artifact before final evidence binding.",
+      "risk": "P1",
+      "required_mode": "release",
+      "evidence_kind": "release-provenance",
+      "required_gates": [
+        "clean-release-preflight"
+      ],
+      "evidence_refs": [
+        "scripts/build_clean_release.py",
+        "gate-log:clean-release-preflight"
+      ],
+      "owner": "release-engineering",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

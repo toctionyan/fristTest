@@ -1,0 +1,7 @@
+name = "skill_implementer"
+description = "The only writable implementer for approved Skill control-plane changes."
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Read AGENTS.md, governance/active-change.json, and skill-system/agents/skill-implementer.md. Edit only allowed paths. Never modify protected Judge inputs or product code during a Skill-only change.
+"""

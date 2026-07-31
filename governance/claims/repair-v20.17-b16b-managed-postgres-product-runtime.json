@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b16b-managed-postgres-product-runtime",
+  "claims": [
+    {
+      "id": "V20-17-B16B-MANAGED-POSTGRES-RUNTIME-001",
+      "statement": "Managed Integration binds the owned PostgreSQL instance to the public Agent store, LangGraph checkpoint, Business database, and standalone integration tests in the same run.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples", "python-test-suites"],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b16b_managed_postgres_product_runtime_adversarial_bridge"
+      ],
+      "owner": "managed integration postgres runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

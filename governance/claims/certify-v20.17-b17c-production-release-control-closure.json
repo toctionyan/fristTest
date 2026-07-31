@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17c-production-release-control-closure",
+  "claims": [
+    {
+      "id": "V20-17-B17C-PRODUCTION-CONTROL-001",
+      "statement": "The protected release controller independently loads its preflight contract, accepts only the actual CI_VERIFIED production dimension and same-identity live Bundle, records every failure stage without secrets, and closes only an exact content-addressed artifact set.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17c_production_release_control_closure_adversarial_bridge"
+      ],
+      "owner": "production release control plane",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

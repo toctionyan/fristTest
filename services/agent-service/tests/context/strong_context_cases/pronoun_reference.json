@@ -1,0 +1,36 @@
+{
+  "suite": "pronoun_reference",
+  "cases": [
+    {
+      "id": "orders_then_delivered_filter",
+      "category": "visible_result_filter",
+      "execution_contract": "visible_collection_ref_is_scoped",
+      "turns": [
+        {"role": "user", "text": "我都买了什么？"},
+        {"role": "assistant", "visible_result": "order_list", "items": ["10001", "10002", "10003", "10004"]},
+        {"role": "user", "text": "哪些签收了？"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "query_filtered_visible_result",
+        "target_scope": "previous_visible_order_list",
+        "required_filter": {"status": "已签收"}
+      },
+      "forbidden_behavior": ["ask_for_order_id_when_visible_set_exists", "drop_visible_result_scope"]
+    },
+    {
+      "id": "visible_set_then_pronoun_logistics",
+      "category": "pronoun_reference",
+      "execution_contract": "visible_collection_ref_is_scoped",
+      "turns": [
+        {"role": "user", "text": "我买了什么？"},
+        {"role": "assistant", "visible_result": "order_list", "items": ["10001", "10002", "10003", "10004"]},
+        {"role": "user", "text": "它们物流到哪里了？"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "query_visible_set_logistics",
+        "target_scope": "previous_visible_order_list"
+      },
+      "forbidden_behavior": ["resolve_to_single_latest_order_without_evidence", "invent_logistics"]
+    }
+  ]
+}

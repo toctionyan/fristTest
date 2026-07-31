@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "variance_id",
+    "affected_rule",
+    "proposed_deviation",
+    "why_better",
+    "preserved_hard_invariants",
+    "new_risks",
+    "required_evidence",
+    "rollback_plan",
+    "current_problem",
+    "expiry_or_review_date"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "variance_id": {
+      "type": "string"
+    },
+    "affected_rule": {
+      "type": "string"
+    },
+    "proposed_deviation": {
+      "type": "string"
+    },
+    "why_better": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "preserved_hard_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "new_risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "required_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "rollback_plan": {
+      "type": "string"
+    },
+    "review_date": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "current_problem": {
+      "type": "string",
+      "minLength": 8
+    },
+    "expiry_or_review_date": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "policy_delta": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,33 @@
+{
+  "contract_id": "commerce.business_status_list@1",
+  "version": 1,
+  "result_profile": "structured_result",
+  "contract_owner": "ecommerce_overlay",
+  "projection_boundary": "ecommerce_business_status_list_projector",
+  "producer": "ecommerce.related_resource_status.capability",
+  "renderer": {"web": "commerce_business_status_list_renderer"},
+  "adequacy": {
+    "required_visible_semantics": ["query_target_label", "record_identity", "record_kind", "record_state"],
+    "optional_visible_semantics": ["record_updated_at", "linked_order_identity"],
+    "rule": "each_business_record_is_user_distinguishable"
+  },
+  "payload": {
+    "block_type": "business_status_list",
+    "block_required_fields": {"title": "result_title", "summary": "result_summary", "target_label": "query_target_label"},
+    "item_required_fields": {
+      "record_reference": "record_identity",
+      "record_kind": "record_kind",
+      "status": "record_state"
+    },
+    "item_optional_fields": {"updated_at": "record_updated_at", "order_id": "linked_order_identity"}
+  },
+  "coverage": {"mode": "full", "source_population": "resolved_related_resource_collection"},
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {"required_levels": ["unit", "contract"], "end_to_end_required": true, "release_gate_required": true, "coverage_evidence_required": true},
+  "release": {"formal_response_eligible": true, "renderer_registry_key": "commerce.business_status_list@1", "legacy_output_replaces": ["ecommerce.legacy.status_list"], "release_gate": "StructuredResultReleaseGate"}
+}

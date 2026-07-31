@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b12b-transaction-runtime-boundary",
+  "claims": [
+    {
+      "id": "TRANSACTION-RUNTIME-BOUNDARY-SCC-B12B-001",
+      "statement": "Transaction consumes explicit execution dependencies, imports no runtime implementation, performs no hidden BusinessPort lookup, exits the main SCC, and preserves every prior dependency removal and transaction behavior.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py::test_transaction_consumes_explicit_execution_dependencies_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_presentation_dependency_boundary_scc.py::test_presentation_is_dependency_neutral_and_exits_main_scc",
+        "services/agent-service/tests/context/test_dialogue_counterexamples.py::test_each_committable_action_commits_through_business_adapter"
+      ],
+      "owner": "transaction state machine + runtime outcome authority + lifecycle dependency injection + application composition",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

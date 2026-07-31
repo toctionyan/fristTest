@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.15-frozen-plan-definition-plan-run",
+  "decision": "evolutionary_immutable_plan_definition_with_separate_run",
+  "status": "approved",
+  "context": "V20.14 已能在 Tool Call 前生成合同驱动 Shadow Plan，但现有 grounded_execution_plan 同时承载结构定义与执行状态，恢复、重试和审计边界不清。",
+  "options": [
+    {
+      "name": "conservative_keep_mutable_grounded_plan",
+      "description": "继续在同一计划字典中更新步骤状态。",
+      "rejected_because": "无法证明原计划未被运行过程修改，崩溃恢复时难以区分定义与轨迹。"
+    },
+    {
+      "name": "evolutionary_immutable_plan_definition_with_separate_run",
+      "description": "新增不可变定义和独立 PlanRun，旧计划作为派生兼容投影。",
+      "selected_because": "能够逐步接入现有执行链，不提前删除兼容字段，也不改变事务权威。"
+    },
+    {
+      "name": "redesign_replace_entire_workflow_and_checkpoint",
+      "description": "立即替换 Workflow、State 和所有 checkpoint。",
+      "rejected_because": "会与 V20.16 State v2/Legacy Cutover 混在同一迁移，风险和审查范围过大。"
+    }
+  ],
+  "preserved_invariants": [
+    "冻结语义合同仍是 Goal 权威。",
+    "Capability MatchProof/ExecutionPermit 仍控制 Tool 执行。",
+    "事务 Draft/Grant/Attempt/Receipt 权威不迁入 PlanRun。",
+    "旧 grounded_execution_plan 只能是派生投影，不能重新成为正式写入 Owner。"
+  ],
+  "cutover": {
+    "current_phase": "dual_representation_single_authority",
+    "promotion_condition": "所有正式执行节点只写 PlanRun，定义摘要和运行绑定回归通过，并在 V20.16 完成 State v2 后删除旧持久化投影。",
+    "rollback": "移除定义/运行接入并恢复 V20.14 的兼容计划写入；事务数据不受影响。",
+    "cleanup": "V20.16 停止持久化 grounded_execution_plan/workflow_plan，并迁移旧 checkpoint。"
+  }
+}

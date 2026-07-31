@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "change-scope",
+      "path": "skill-system/skills/change-scope/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "architecture-options",
+      "path": "skill-system/skills/architecture-options/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "red-baseline-repair",
+      "path": "skill-system/skills/red-baseline-repair/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "oracle-review",
+      "path": "skill-system/skills/oracle-review/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "adversarial-review",
+      "path": "skill-system/skills/adversarial-review/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "release-certification",
+      "path": "skill-system/skills/release-certification/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "customer-agent-architecture",
+      "path": "skill-system/skills/customer-agent-architecture/SKILL.md",
+      "status": "active"
+    },
+    {
+      "name": "product-code-governance",
+      "path": "skill-system/skills/product-code-governance/SKILL.md",
+      "status": "active"
+    }
+  ]
+}

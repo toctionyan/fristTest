@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.16-after-control-plane-closure",
+  "claims": [
+    {
+      "id": "V20-16-STATE-SCHEMA-CERT-001",
+      "statement": "State Schema v2 new-thread, deterministic legacy migration, ambiguous legacy restart, and legacy authority cutover counterexamples pass in the current central Quick run.",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_new_thread_schema_v2_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_legacy_checkpoint_migration_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_ambiguous_legacy_restart_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_16_legacy_authority_cutover_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle.state_schema",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "V20-16-CONTROL-PLANE-CERT-001",
+      "statement": "The two previously blocking quality-control self-tests pass inside the shared adversarial runtime gate.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["adversarial-runtime-counterexamples"],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_target_rejects_green_baseline_and_no_change_verification",
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_orchestrator_builds_stable_issue_records"
+      ],
+      "owner": "quality-controller-test-contract",
+      "closure_requirement": "current-pass"
+    },
+    {
+      "id": "V20-16-FRONTEND-QUICK-CERT-001",
+      "statement": "The official frontend dependency, Vitest, and build gates execute successfully in the current Quick environment.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["frontend-dependencies", "frontend-vitest", "frontend-build"],
+      "evidence_refs": [
+        "gate-log:frontend-dependencies",
+        "gate-log:frontend-vitest",
+        "gate-log:frontend-build"
+      ],
+      "owner": "services/agent-service/frontend",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

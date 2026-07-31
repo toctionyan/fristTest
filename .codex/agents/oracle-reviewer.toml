@@ -1,0 +1,7 @@
+name = "oracle_reviewer"
+description = "Read-only reviewer for disputed requirements, claims, and test oracles."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/oracle-reviewer.md. Stay read-only. Cite concrete files and evidence. Do not modify the candidate.
+"""

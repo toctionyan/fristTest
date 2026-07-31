@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.16-state-schema-v2-legacy-cutover",
+  "target_kind": "migration",
+  "goal": "建立 State Schema v2；新线程停止产生旧 Goal/Workflow/Clarification 字段，旧 checkpoint 只做一次性确定性迁移，歧义状态明确要求重启。",
+  "profile": "product-migration",
+  "allowed_paths": [
+    "services/agent-service/app/services/checkpoint_hydrator.py",
+    "services/agent-service/app/services/lifecycle_command_runner.py",
+    "services/agent-service/app/use_cases/conversation_turn.py",
+    "services/agent-service/src/agent_core/context/**",
+    "services/agent-service/src/agent_core/lifecycle/**",
+    "services/agent-service/src/agent_core/observability/failure_replay.py",
+    "services/agent-service/src/agent_core/runtime/answer_release_alignment.py",
+    "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py",
+    "services/agent-service/src/agent_modules/ecommerce/shared/context.py",
+    "services/agent-service/tests/runtime/**",
+    "services/agent-service/tests/context/**",
+    "services/agent-service/tests/support/**",
+    "docs/architecture/**"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "services/business-service/**",
+    "services/agent-service/src/agent_core/transaction/**",
+    "services/agent-service/src/agent_core/presentation/**",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/**"
+  ],
+  "invariants": [
+    "Schema v2 新线程不得生成 turn_goal_plan、workflow_plan 或 pending_clarification。",
+    "旧检查点迁移只使用显式结构化证据；歧义状态必须要求重启。",
+    "Schema v2 不允许旧 goal_type/fuzzy capability path 成为正式语义。",
+    "事务权威、Capability Contract v2 和 Presentation 均不在本阶段迁移。"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "scope-planner",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/certify-v20.16-continuation-final/reviews/scope-planner.json",
+      "evidence_sha256": "58908c259b4decbffd6448f5ae232db4212f86813d1db8640c7593a89dfed290",
+      "recorded_at": "2026-07-28T09:50:23.260409+00:00"
+    },
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/certify-v20.16-continuation-final/reviews/adversarial-reviewer.json",
+      "evidence_sha256": "f9d456f037305d90007d2bc9044a26b119d693a02e9853b87f3149b3aa25953f",
+      "recorded_at": "2026-07-28T09:50:24.629519+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/certify-v20.16-continuation-final/verification.json",
+      "evidence_sha256": "b129ea471b204e63fc91be4965ed39abd8bb6170bb3deb34f925a5d5603b1972",
+      "recorded_at": "2026-07-28T09:50:42.612789+00:00"
+    }
+  ],
+  "affected_modules": [
+    "agent_core.lifecycle.state_schema",
+    "agent_core.lifecycle.context_runtime",
+    "app.services.checkpoint_hydrator",
+    "agent_core.lifecycle.dialogue_runtime",
+    "agent_core.lifecycle.workflow_runtime",
+    "app.services.lifecycle_command_runner"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/migration-v20.16-state-schema-v2-legacy-cutover.md",
+  "baseline_evidence": ".quality/product-code/migration-v20.16-state-schema-v2-legacy-cutover/baseline",
+  "product_validation": {
+    "baseline": ".quality/product-code/migration-v20.16-state-schema-v2-legacy-cutover/baseline",
+    "baseline_mode": "quick",
+    "recorded_at": "2026-07-28T05:27:26.124083+00:00"
+  },
+  "decision_record": "governance/decisions/migration-v20.16-state-schema-v2-legacy-cutover.json",
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": "customer-agent-v20.6.1-baseline-r1",
+  "verification": {
+    "method": "scope-expanding-companion-certification",
+    "certification_change_id": "certify-v20.16-continuation-final",
+    "path": ".quality/product-code/certify-v20.16-continuation-final/final-quick-20260728T094229Z/run-summary.json",
+    "sha256": "e3bf55f02b4cabceb59eca69ec36ad7709acd7bcbfac346eeca68185008dea77",
+    "source_fingerprint": "8b4a8d42c55bb334927bbde7ad676442f00caebc99fd301de88a4ac009f15bd4",
+    "source_file_count": 110,
+    "verified_at": "2026-07-28T09:45:24+00:00",
+    "decision": "PASS",
+    "loop_status": "CONVERGED",
+    "completion_eligible": true
+  },
+  "status": "closed",
+  "result": "CONVERGED",
+  "initial_source_fingerprint": "31dc958e4d3e7a1489c894c83cb41d03bd60704aa64ab99f03ba5e4d29578cb8",
+  "initial_source_file_count": 109,
+  "created_at": "2026-07-28T00:00:00+00:00",
+  "closed_at": "2026-07-28T09:51:00.334924+00:00",
+  "closure_note": "The frozen migration scope is preserved. Cross-scope defects discovered after migration were repaired under separate records and closed by the current full-scope read-only certification."
+}

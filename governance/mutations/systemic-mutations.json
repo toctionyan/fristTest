@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "mutations": [
+    {
+      "id": "raw-message-tail-slice",
+      "invariant_id": "CONTEXT-PROTOCOL-ATOMICITY-001",
+      "operator": "Replace exchange compiler selection with a fixed raw message tail slice.",
+      "kill_test": "services/agent-service/tests/context/test_conversation_protocol.py::test_generated_windows_preserve_complete_tool_exchanges"
+    },
+    {
+      "id": "orphan-tool-result",
+      "invariant_id": "CONTEXT-PROTOCOL-ATOMICITY-001",
+      "operator": "Delete the AI tool-call message while retaining its ToolMessage.",
+      "kill_test": "services/agent-service/tests/context/test_conversation_protocol.py::test_naive_tail_mutation_is_rejected_as_orphan_tool_result"
+    },
+    {
+      "id": "disable-historical-evidence",
+      "invariant_id": "GOAL-EVIDENCE-SATISFACTION-001",
+      "operator": "Force every query without a current-turn observation Step to remain PENDING.",
+      "kill_test": "services/agent-service/tests/runtime/test_goal_evidence_satisfaction.py::test_visible_historical_evidence_satisfies_bound_query_goal"
+    },
+    {
+      "id": "collapse-thread-topology",
+      "invariant_id": "SCENARIO-TOPOLOGY-SEQUENCE-001",
+      "operator": "Map every declared scenario thread alias to one checkpoint thread id.",
+      "kill_test": "services/agent-service/tests/context/test_scenario_topology.py::test_runner_uses_two_real_checkpoint_threads"
+    },
+    {
+      "id": "wildcard-private-import",
+      "invariant_id": "MODULE-PUBLIC-RUNTIME-001",
+      "operator": "Replace explicit module imports with from-context-import-star.",
+      "kill_test": "services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_module_slices_have_no_wildcard_imports_and_runtime_helper_executes"
+    },
+    {
+      "id": "reset-order-selection",
+      "invariant_id": "FRONTEND-PRODUCT-STATE-001",
+      "operator": "Capture selectedOrderId in loadOrders so selection changes recreate the App boot dependency.",
+      "kill_test": "services/agent-service/frontend/src/hooks/useOrders.test.jsx::keeps the loader identity and explicit selection stable"
+    },
+    {
+      "id": "non-cumulative-release-profile",
+      "invariant_id": "LOOP-REQUIREMENT-COMPLETENESS-001",
+      "operator": "Remove a lower-tier requirement from a higher certification profile.",
+      "kill_test": "services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_project_requirement_catalog_is_inventory_backed_and_cumulative"
+    },
+    {
+      "id": "unredacted-failure-replay",
+      "invariant_id": "RUNTIME-FAILURE-REPLAY-001",
+      "operator": "Persist raw actor identity, current input or provider error text in replay.",
+      "kill_test": "services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_failure_replay_is_redacted_stable_and_runtime_emitted"
+    },
+    {
+      "id": "permit-free-current-turn-result-ref",
+      "invariant_id": "RUNTIME-RESULT-REF-LIFECYCLE-001",
+      "operator": "Treat every current-turn ledger result as consumable without a successful MatchProof and ExecutionPermit trace.",
+      "kill_test": "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py::test_same_turn_ledger_entry_without_verified_trace_is_rejected"
+    },
+    {
+      "id": "contradictory-target-mode-fields",
+      "invariant_id": "CAPABILITY-TARGET-ALGEBRA-001",
+      "operator": "Accept entity_match with a left_handle or a set operation without its operator-owned fields.",
+      "kill_test": "services/agent-service/tests/runtime/test_capability_target_schema.py::test_target_discriminated_union_rejects_mode_field_contradictions"
+    },
+    {
+      "id": "shared-model-budget-starvation",
+      "invariant_id": "MODEL-BUDGET-LANE-ISOLATION-001",
+      "operator": "Let Planner calls consume the capacity reserved for safety verifier calls.",
+      "kill_test": "services/agent-service/tests/architecture/test_command_and_model_governance.py::test_planner_exhaustion_cannot_consume_reserved_verifier_capacity"
+    },
+    {
+      "id": "drop-live-notice-block-rendering",
+      "invariant_id": "PUBLIC-RESPONSE-RENDERING-001",
+      "operator": "Render blocks only for structured mode so a notice-mode response becomes an empty live assistant bubble.",
+      "kill_test": "services/agent-service/frontend/src/components/ChatPanel.test.jsx::renders notice-mode released blocks in the live transcript instead of an empty bubble"
+    },
+    {
+      "id": "weaken-strong-context-browser-oracle",
+      "invariant_id": "CONTEXT-ENTITY-INTENT-BINDING-001",
+      "operator": "Replace entity and intent assertions with an HTTP-200 or non-empty-response check.",
+      "kill_test": "services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_strong_context_browser_gate_is_semantic_and_mutation_guarded"
+    },
+    {
+      "id": "omit-configured-model-browser-gate",
+      "invariant_id": "LOOP-BROWSER-MUTATION-001",
+      "operator": "Remove the configured-model Chromium conversation step from integration and release modes.",
+      "kill_test": "services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_strong_context_browser_gate_is_semantic_and_mutation_guarded"
+    }
+  ]
+}

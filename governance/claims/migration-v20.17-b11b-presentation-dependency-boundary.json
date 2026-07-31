@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b11b-presentation-dependency-boundary",
+  "claims": [
+    {
+      "id": "PRESENTATION-DEPENDENCY-BOUNDARY-SCC-001",
+      "statement": "Presentation consumes only a neutral closed Outcome projection contract and explicit catalog data, imports none of lifecycle/runtime/transaction, exits the main SCC, and preserves every prior dependency removal and public projection behavior.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["architecture-convergence", "python-test-suites", "full-lifecycle-canary", "product-browser-journey"],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_presentation_dependency_boundary_scc.py::test_presentation_is_dependency_neutral_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_persistence_profile_boundary_scc.py::test_persistence_uses_kernel_profile_and_exits_main_scc"
+      ],
+      "owner": "kernel outcome projection contract + runtime outcome authority + presentation projection + app composition",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

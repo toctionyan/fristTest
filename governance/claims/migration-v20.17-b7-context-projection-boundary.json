@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b7-context-projection-boundary",
+  "claims": [
+    {
+      "id": "CONTEXT-PROJECTION-BOUNDARY-SCC-001",
+      "statement": "Context owns the read-only state projections and a minimal transaction-read protocol used by ContextBundle without importing lifecycle or storage, lifecycle compatibility imports resolve to the same projection functions, context exits the main SCC, and all prior dependency removals remain valid.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_context_projection_boundary_scc.py::test_context_exits_main_scc_with_canonical_read_only_state_projections",
+        "services/agent-service/tests/architecture/test_module_presentation_boundary_scc.py::test_modules_exit_main_scc_when_presentation_registry_is_composed_outside_modules"
+      ],
+      "owner": "agent_core.context read-only projection + lifecycle compatibility imports + cumulative dependency-debt regressions",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

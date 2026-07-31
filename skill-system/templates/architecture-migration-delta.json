@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "delta_id": "architecture-delta-example",
+  "change_id": "replace-with-change-id",
+  "base_policy_id": "customer-agent-v20.6.1-baseline-r2",
+  "rationale": "Describe why the current project baseline blocks the selected architecture decision.",
+  "operations": {
+    "add_required_workspace_paths": [],
+    "retire_required_workspace_paths": [],
+    "add_forbidden_paths": [],
+    "retire_forbidden_paths": [],
+    "add_allowed_core_dirs": [],
+    "retire_allowed_core_dirs": [],
+    "add_allowed_core_root_modules": [],
+    "retire_allowed_core_root_modules": [],
+    "upsert_line_limits": [],
+    "retire_line_limit_paths": [],
+    "owner_changes": {}
+  },
+  "cutover": {
+    "current_formal_owner": "current project baseline owner",
+    "target_formal_owner": "selected architecture owner",
+    "shadow_is_read_only": true,
+    "cutover_condition": "State the evidence required before the target becomes the only formal owner.",
+    "rollback_condition": "State when traffic or reads must return to the previous owner.",
+    "cleanup_condition": "State when old formal read/write paths and compatibility artifacts are deleted.",
+    "sunset_date": "2026-10-26"
+  },
+  "required_evidence": [
+    "red baseline or measurable architecture gap",
+    "shadow comparison where applicable",
+    "cutover regression evidence",
+    "old-owner removal evidence"
+  ],
+  "rollback_plan": "Restore the previous baseline and formal owner using the last trusted release.",
+  "expiry_or_review_date": "2026-10-26",
+  "status": "approved"
+}

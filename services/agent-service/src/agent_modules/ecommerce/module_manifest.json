@@ -1,0 +1,343 @@
+{
+  "$schema": "agent-module-manifest@1",
+  "module_id": "ecommerce",
+  "version": "20.6.1",
+  "ownership": {
+    "resources": [
+      "order",
+      "logistics",
+      "refund",
+      "after_sales",
+      "invoice",
+      "product",
+      "coupon"
+    ],
+    "operations": [
+      "cancel_order",
+      "create_after_sales_request",
+      "create_refund",
+      "create_invoice"
+    ],
+    "presentation_contracts": [
+      "commerce.order_list@1",
+      "commerce.logistics_overview@1",
+      "commerce.business_status_list@1",
+      "commerce.next_actions@1",
+      "commerce.eligibility_decision@1",
+      "commerce.advisory@1",
+      "runtime.transaction_status@1"
+    ]
+  },
+  "capabilities": [
+    {
+      "key": "ecommerce.orders.list",
+      "tool_name": "list_orders",
+      "executor": "capabilities/list_orders.py",
+      "presentation_contract": "commerce.order_list@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.order.details",
+      "tool_name": "get_order_details",
+      "executor": "capabilities/get_order_details.py",
+      "presentation_contract": "commerce.order_list@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.order.logistics",
+      "tool_name": "get_order_logistics",
+      "executor": "capabilities/get_order_logistics.py",
+      "presentation_contract": "commerce.logistics_overview@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.refunds.list",
+      "tool_name": "list_refunds",
+      "executor": "capabilities/list_refunds.py",
+      "presentation_contract": "commerce.business_status_list@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.after_sales.list",
+      "tool_name": "list_after_sales_requests",
+      "executor": "capabilities/list_after_sales_requests.py",
+      "presentation_contract": "commerce.business_status_list@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.invoices.list",
+      "tool_name": "list_invoices",
+      "executor": "capabilities/list_invoices.py",
+      "presentation_contract": "commerce.business_status_list@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.invoice.policy_consultation",
+      "tool_name": "consult_invoice_policy",
+      "executor": "capabilities/consult_invoice_policy.py",
+      "presentation_contract": "commerce.advisory@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.refund.policy_consultation",
+      "tool_name": "consult_refund_policy",
+      "executor": "capabilities/consult_refund_policy.py",
+      "presentation_contract": "commerce.advisory@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.after_sales.policy_consultation",
+      "tool_name": "consult_after_sales_policy",
+      "executor": "capabilities/consult_after_sales_policy.py",
+      "presentation_contract": "commerce.advisory@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.warranty.policy_consultation",
+      "tool_name": "consult_warranty_policy",
+      "executor": "capabilities/consult_warranty_policy.py",
+      "presentation_contract": "commerce.advisory@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.refund.eligibility",
+      "tool_name": "evaluate_refund_eligibility",
+      "executor": "capabilities/evaluate_refund_eligibility.py",
+      "presentation_contract": "commerce.eligibility_decision@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.order.cancel.prepare",
+      "tool_name": "prepare_cancel_order",
+      "executor": "capabilities/prepare_cancel_order.py",
+      "presentation_contract": "commerce.next_actions@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.after_sales.prepare",
+      "tool_name": "prepare_after_sales_request",
+      "executor": "capabilities/prepare_after_sales_request.py",
+      "presentation_contract": "commerce.next_actions@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.refund.prepare",
+      "tool_name": "prepare_refund",
+      "executor": "capabilities/prepare_refund.py",
+      "presentation_contract": "commerce.next_actions@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.invoice.prepare",
+      "tool_name": "prepare_invoice",
+      "executor": "capabilities/prepare_invoice.py",
+      "presentation_contract": "commerce.next_actions@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.transaction_lifecycle.query",
+      "tool_name": "query_transaction_lifecycle",
+      "executor": "capabilities/query_transaction_lifecycle.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.eligibility.list",
+      "tool_name": "list_active_eligibilities",
+      "executor": "capabilities/list_active_eligibilities.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "ecommerce.refund.eligibility.promote",
+      "tool_name": "prepare_refund_from_eligibility",
+      "executor": "capabilities/prepare_refund_from_eligibility.py",
+      "presentation_contract": "commerce.next_actions@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.offer.list",
+      "tool_name": "list_active_offers",
+      "executor": "capabilities/list_active_offers.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.offer.dismiss",
+      "tool_name": "dismiss_offer",
+      "executor": "capabilities/dismiss_offer.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.eligibility.dismiss",
+      "tool_name": "dismiss_eligibility",
+      "executor": "capabilities/dismiss_eligibility.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.context.clarify",
+      "tool_name": "ask_context_clarification",
+      "executor": "capabilities/ask_context_clarification.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    },
+    {
+      "key": "runtime.unsupported",
+      "tool_name": "report_unsupported_request",
+      "executor": "capabilities/report_unsupported_request.py",
+      "presentation_contract": "runtime.transaction_status@1",
+      "test_contract": {
+        "schema": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_schema_is_registered",
+        "permit": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_rejects_dispatch_without_permit",
+        "execution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_executes_its_owned_adapter",
+        "presentation": "services/agent-service/tests/architecture/test_module_installation.py::test_every_declared_capability_owns_a_registered_presentation_contract",
+        "negative_substitution": "services/agent-service/tests/architecture/test_module_installation.py::test_every_disabled_capability_is_rejected_without_substitution"
+      }
+    }
+  ],
+  "dependencies": [
+    "ecommerce-business-service"
+  ],
+  "unsupported_behavior": "Return explicit unsupported; never substitute nearest capability.",
+  "tests": [
+    "tests/architecture/test_module_installation.py"
+  ],
+  "retired_path_status": {
+    "formal_retired_path_reachable": false,
+    "evidence": "current Composition binds only agent_modules.ecommerce.EcommerceModule and derives bindings from capabilities/*.py."
+  }
+}

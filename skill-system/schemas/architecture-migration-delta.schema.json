@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Project Architecture Migration Delta",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "delta_id",
+    "change_id",
+    "base_policy_id",
+    "rationale",
+    "operations",
+    "cutover",
+    "required_evidence",
+    "rollback_plan",
+    "expiry_or_review_date",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "delta_id": {"type": "string", "minLength": 3},
+    "change_id": {"type": "string", "minLength": 3},
+    "base_policy_id": {"type": "string", "minLength": 3},
+    "rationale": {"type": "string", "minLength": 8},
+    "operations": {
+      "type": "object",
+      "properties": {
+        "add_required_workspace_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "retire_required_workspace_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "add_forbidden_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "retire_forbidden_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "add_allowed_core_dirs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "retire_allowed_core_dirs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "add_allowed_core_root_modules": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "retire_allowed_core_root_modules": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "upsert_line_limits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "max_lines"],
+            "properties": {
+              "path": {"type": "string"},
+              "max_lines": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "retire_line_limit_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "owner_changes": {
+          "type": "object",
+          "properties": {
+            "single_graph_update_owner": {"type": "string"},
+            "composition_dir": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "cutover": {
+      "type": "object",
+      "required": [
+        "current_formal_owner",
+        "target_formal_owner",
+        "shadow_is_read_only",
+        "cutover_condition",
+        "rollback_condition",
+        "cleanup_condition",
+        "sunset_date"
+      ],
+      "properties": {
+        "current_formal_owner": {"type": "string"},
+        "target_formal_owner": {"type": "string"},
+        "shadow_is_read_only": {"const": true},
+        "cutover_condition": {"type": "string", "minLength": 8},
+        "rollback_condition": {"type": "string", "minLength": 8},
+        "cleanup_condition": {"type": "string", "minLength": 8},
+        "sunset_date": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "required_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 4}
+    },
+    "rollback_plan": {"type": "string", "minLength": 8},
+    "expiry_or_review_date": {"type": "string"},
+    "status": {"enum": ["approved", "applied", "retired"]}
+  },
+  "additionalProperties": false
+}

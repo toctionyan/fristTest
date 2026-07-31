@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Quality Repair Issue",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "issue_id",
+    "status",
+    "gate_id",
+    "owner",
+    "category",
+    "failure_kind",
+    "failure_summary",
+    "repair_playbook",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "issue_id": {
+      "type": "string",
+      "pattern": "^QI-[a-f0-9]{20}$"
+    },
+    "status": {
+      "enum": [
+        "OPEN",
+        "BLOCKED",
+        "NOT_RERUN",
+        "BLOCKED_BY_UPSTREAM",
+        "BLOCKED_BY_ENVIRONMENT",
+        "SIGNATURE_CHANGED",
+        "SUPERSEDED",
+        "RESOLVED_BY_FULL_JUDGE"
+      ]
+    },
+    "gate_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_summary": {
+      "type": "string"
+    },
+    "repair_playbook": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "stdout",
+        "stderr"
+      ],
+      "properties": {
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

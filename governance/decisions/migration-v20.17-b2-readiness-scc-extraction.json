@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b2-readiness-scc-extraction",
+  "problem": "agent_core.runtime.readiness is an application-level deployment aggregator that imports storage, RAG, migration, business and frontend concerns. Its runtime-to-rag edge keeps rag inside the 13-package core SCC even though no Agent runtime decision requires that dependency.",
+  "options": [
+    {
+      "id": "conservative-document-only",
+      "strategy": "conservative",
+      "name": "Document the readiness cycle without changing ownership",
+      "correctness": "Preserves behavior but leaves an application-composition responsibility inside Core Runtime and makes no SCC progress.",
+      "complexity": "Low",
+      "migration": "Add debt documentation only.",
+      "rollback": "Remove the note.",
+      "verification": "Architecture debt remains UNCHANGED at 13 members."
+    },
+    {
+      "id": "evolutionary-app-readiness-owner",
+      "strategy": "evolutionary",
+      "name": "Move readiness aggregation to app.services",
+      "correctness": "Preserves the public /ready and /metrics behavior while removing the core runtime-to-rag dependency and assigning cross-subsystem aggregation to the application layer.",
+      "complexity": "Five governed paths with one exact implementation move, one API import replacement, one boundary test and one architecture record.",
+      "migration": "Copy readiness_report without semantic changes to app.services.readiness_service, update health_api, delete the old Core Runtime owner and verify rag exits the main SCC.",
+      "rollback": "Restore runtime/readiness.py and the previous health_api import.",
+      "verification": "Expected-red baseline, boundary test, unchanged Architecture Gate debt delta, full Quick, HTTP lifecycle and Chromium journey."
+    },
+    {
+      "id": "redesign-all-runtime-composition",
+      "strategy": "redesign",
+      "name": "Redesign Runtime, RAG, storage and application composition together",
+      "correctness": "Could remove several cycles but combines independent boundaries and risks changing deployment and Agent behavior at the same time.",
+      "complexity": "High and cross-cutting",
+      "migration": "Introduce multiple new ports and rewrite all readiness and bootstrap ownership.",
+      "rollback": "Coordinated rollback across application, runtime, RAG and storage.",
+      "verification": "New deployment contracts and full release certification."
+    }
+  ],
+  "selected_option": "evolutionary-app-readiness-owner",
+  "rejected_reasons": {
+    "conservative-document-only": "It records the wrong ownership but does not correct it or reduce the SCC.",
+    "redesign-all-runtime-composition": "It is too broad for a single ratcheted dependency cut and would obscure which edge produced the improvement."
+  },
+  "deletions": [
+    "services/agent-service/src/agent_core/runtime/readiness.py"
+  ],
+  "unknowns": [
+    "The remaining 12-package SCC remains open debt.",
+    "This slice does not certify a real model provider and does not redesign RAG internals."
+  ],
+  "selected_responsibilities": [
+    "app.services owns cross-subsystem deployment readiness aggregation.",
+    "agent_core.runtime contains Agent runtime policy and execution concerns, not application health composition.",
+    "RAG readiness remains implemented by the RAG subsystem and is only invoked by the application readiness service."
+  ],
+  "preserved_hard_invariants": [
+    "The /health, /ready and /metrics public behavior remains unchanged.",
+    "Readiness remains read-only and never runs database migrations or seeds RAG.",
+    "No Agent, transaction, capability, State or presentation behavior changes.",
+    "The dependency-debt baseline is not edited to manufacture improvement."
+  ],
+  "cutover_strategy": "Record the red baseline with the new boundary test, move the existing implementation to app.services without semantic edits, update the API import, delete the old owner, verify the SCC reduction, then run the full product Quick and close independently.",
+  "acceptance_claims": [
+    "agent_core.runtime no longer imports agent_core.rag.",
+    "app.services.readiness_service is the only readiness aggregation owner.",
+    "Architecture debt reports current_member_count 12 and removed_members containing rag.",
+    "All functional and product journey Gates remain green."
+  ],
+  "baseline_changes": []
+}

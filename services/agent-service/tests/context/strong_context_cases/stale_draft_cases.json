@@ -1,0 +1,35 @@
+{
+  "suite": "stale_draft_cases",
+  "cases": [
+    {
+      "id": "grant_digest_prevents_changed_command",
+      "category": "grant_digest_guard",
+      "execution_contract": "effect_payload_digest_changes_with_target",
+      "turns": [
+        {"role": "assistant", "draft": {"order_id": "10002", "action": "create_refund", "digest": "A"}},
+        {"role": "user", "text": "确认提交"},
+        {"role": "system", "mutation": "command_changed_to_order_10003"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "reject_authority_digest_mismatch",
+        "must_not_commit": true
+      },
+      "forbidden_behavior": ["execute_changed_command", "reuse_grant_for_different_command"]
+    },
+    {
+      "id": "submission_unknown_reconciles_not_blind_retry",
+      "category": "submission_unknown_reconcile",
+      "execution_contract": "submission_unknown_is_a_canonical_draft_state",
+      "turns": [
+        {"role": "user", "text": "确认取消这个订单"},
+        {"role": "system", "event": "business_commit_timeout_after_request_sent"},
+        {"role": "user", "text": "刚才到底取消了吗？"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "reconcile_with_original_idempotency_key",
+        "must_not_create_new_attempt": true
+      },
+      "forbidden_behavior": ["blind_resubmit", "claim_success_without_receipt"]
+    }
+  ]
+}

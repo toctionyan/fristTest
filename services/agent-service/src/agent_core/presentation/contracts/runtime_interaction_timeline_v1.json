@@ -1,0 +1,33 @@
+{
+  "contract_id": "runtime.interaction_timeline@1",
+  "version": 1,
+  "result_profile": "transaction_outcome",
+  "contract_owner": "runtime_interaction_projection",
+  "projection_boundary": "runtime_interaction_timeline_projector",
+  "producer": "runtime.transaction_interaction",
+  "renderer": {"web": "runtime_interaction_timeline_renderer"},
+  "adequacy": {
+    "required_visible_semantics": ["interaction_identity", "interaction_lifecycle", "interaction_summary", "interaction_next_step"],
+    "optional_visible_semantics": ["interaction_target"],
+    "rule": "timeline_event_is_read_only_and_bound_to_the_live_interaction"
+  },
+  "payload": {
+    "block_type": "interaction_timeline",
+    "block_required_fields": {
+      "interaction_id": "interaction_identity",
+      "lifecycle": "interaction_lifecycle",
+      "summary": "interaction_summary",
+      "next_step": "interaction_next_step"
+    },
+    "block_optional_fields": {"target": "interaction_target"}
+  },
+  "coverage": {"mode": "not_collection", "source_population": "runtime_transaction_interaction"},
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {"required_levels": ["unit", "contract"], "end_to_end_required": true, "release_gate_required": true, "coverage_evidence_required": true},
+  "release": {"formal_response_eligible": true, "renderer_registry_key": "runtime.interaction_timeline@1", "legacy_output_replaces": ["runtime.legacy.interaction_snapshot"], "release_gate": "StructuredResultReleaseGate"}
+}

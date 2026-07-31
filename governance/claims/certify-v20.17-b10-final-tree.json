@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b10-final-tree",
+  "claims": [
+    {
+      "id": "V20-17-B10-FINAL-TREE-001",
+      "statement": "The closed B10 release tree preserves the single Kernel-owned RuntimeProfile contract, keeps persistence outside the reduced four-package SCC, and passes the complete backend, frontend, lifecycle and Chromium product certification.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "architecture-convergence",
+        "python-test-suites",
+        "frontend-vitest",
+        "frontend-build",
+        "coverage-baseline",
+        "full-lifecycle-canary",
+        "product-browser-journey"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_persistence_profile_boundary_scc.py::test_persistence_uses_kernel_profile_and_exits_main_scc",
+        "services/agent-service/tests/architecture/test_observability_boundary_scc.py::test_observability_is_dependency_neutral_and_exits_main_scc"
+      ],
+      "owner": "B10 closed release tree certification",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}

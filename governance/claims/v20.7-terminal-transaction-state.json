@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.7-terminal-transaction-state",
+  "claims": [
+    {
+      "id": "TERMINAL-TRANSACTION-STATE-001",
+      "statement": "A terminal transaction receipt uses terminal semantics in both its eyebrow and primary title and can never retain a pending-transaction heading after commit.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": ["systemic-operational-counterexamples", "frontend-vitest", "product-browser-journey"],
+      "evidence_refs": ["services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_browser_gate_uses_real_playwright_desktop_and_mobile", "gate-log:frontend-vitest", "gate-log:product-browser-journey"],
+      "owner": "frontend transaction lifecycle presentation",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

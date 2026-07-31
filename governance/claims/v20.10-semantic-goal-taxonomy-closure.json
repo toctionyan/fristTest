@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.10-semantic-goal-taxonomy-closure",
+  "claims": [
+    {
+      "id": "SEMANTIC-GOAL-TAXONOMY-001",
+      "statement": "Independent semantic oracles, model goal declarations, and capability goal-completion contracts consistently classify factual invoice existence as a query, while the complete configured-model Chromium journey remains customer-visible and context-correct.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["python-test-suites", "configured-model-browser-conversation"],
+      "evidence_refs": ["gate-log:python-test-suites", "gate-log:configured-model-browser-conversation"],
+      "owner": "semantic goal oracle + goal declaration taxonomy + capability completion contract + real-model browser oracle",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

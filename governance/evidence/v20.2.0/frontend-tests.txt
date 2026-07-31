@@ -1,0 +1,16 @@
+
+> ecommerce-agent-product-ui@0.1.0 test
+> vitest run --run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m/mnt/data/loop_work/customer_agent_workspace_v20_1_skill_v5_1_0_config_complete/services/agent-service/frontend[39m
+
+ [32m✓[39m src/components/TransactionCenter.test.jsx [2m([22m[2m1 test[22m[2m)[22m[32m 151[2mms[22m[39m
+ [32m✓[39m src/components/TransactionCard.test.jsx [2m([22m[2m3 tests[22m[2m)[22m[32m 206[2mms[22m[39m
+ [32m✓[39m src/components/ChatPanel.test.jsx [2m([22m[2m14 tests[22m[2m)[22m[33m 312[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m18 passed[39m[22m[90m (18)[39m
+[2m   Start at [22m 03:37:24
+[2m   Duration [22m 3.51s[2m (transform 585ms, setup 1.63s, import 1.56s, tests 669ms, environment 5.21s)[22m
+

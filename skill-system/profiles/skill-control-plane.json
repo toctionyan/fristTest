@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "skill-control-plane",
+  "description": "Skill 控制平面的日常完整验证，不运行客服产品全链。",
+  "includes": [
+    "skill-static",
+    "skill-unit",
+    "skill-host-integration",
+    "skill-security",
+    "project-compatibility-smoke"
+  ],
+  "commands": []
+}

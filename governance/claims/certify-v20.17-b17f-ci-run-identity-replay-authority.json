@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17f-ci-run-identity-replay-authority",
+  "claims": [
+    {
+      "id": "V20-17-B17F-CI-RUN-IDENTITY-001",
+      "statement": "The protected release derives one canonical run identity from the repository, workflow, protected ref, commit, run ID, run attempt and clean checkout; binds that identity into toolchain evidence, production certification, Quality Loop evidence, clean-release provenance and closure artifacts; and fails closed for an unprotected ref, dirty or mismatched checkout, persisted credentials, missing identity, or evidence replayed from another run or attempt.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17f_ci_run_identity_replay_authority_adversarial_bridge"
+      ],
+      "owner": "protected CI run identity authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

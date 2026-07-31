@@ -1,0 +1,28 @@
+{
+  "change_id": "migration-v20.11.1-unified-semantics-grounded-planning",
+  "role": "scope-planner",
+  "decision": "PASS",
+  "allowed_paths_reviewed": true,
+  "forbidden_paths_modified_by_implementer": false,
+  "architecture": "evolutionary migration inside existing context/lifecycle/runtime owners; module contracts own exact business-effect identities and grounded plan validation remains inside lifecycle",
+  "expanded_paths": [
+    "services/agent-service/src/agent_core/kernel/capability.py",
+    "services/agent-service/src/agent_core/kernel/capability_registry.py",
+    "services/agent-service/src/agent_modules/*/capabilities/**"
+  ],
+  "removed_environment_workarounds": [
+    "services/agent-service/app/services/langgraph_compat.py",
+    "services/agent-service/app/services/agent_service.py fallback modification",
+    "services/agent-service/src/agent_core/transaction/interaction_runtime.py pass-through interrupt modification"
+  ],
+  "scope_rationale": {
+    "kernel capability contract": "Adds exact completion/support effect identity fields; no language classification or dispatch authority.",
+    "module capabilities": "Each business module declares only effects its implementation completes or supports.",
+    "runtime/lifecycle": "Builds exact candidate surfaces, MatchProofs and a local execution plan bound to frozen semantics."
+  },
+  "new_root_directories": [],
+  "public_api_changed": false,
+  "business_or_transaction_authority_changed": false,
+  "architecture_policy_delta_required": false,
+  "notes": "The review confirms scope and responsibility placement only. It is not a real LangGraph/model/integration certification."
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b15a-real-model-identity-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B15A-REAL-MODEL-IDENTITY-001",
+      "statement": "Protected real-model smoke accepts only an official HTTPS provider identity with non-test credentials and model name, then verifies a per-run challenge plus provider-reported model, usage and finish metadata before reporting PASS.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b15a_real_model_identity_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.model_calls real-model certification identity boundary",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

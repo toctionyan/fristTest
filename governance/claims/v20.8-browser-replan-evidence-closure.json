@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.8-browser-replan-evidence-closure",
+  "claims": [
+    {
+      "id": "REPLAN-BROWSER-EVIDENCE-LINEAGE-001",
+      "statement": "An architecture-replanned repair is cryptographically bound to its stopped predecessor and the current configured-model Chromium journey proves that scoped customer-visible ResultRef evidence survives Answer Release and browser reload.",
+      "risk": "P1",
+      "required_mode": "integration",
+      "evidence_kind": "integration",
+      "required_gates": ["python-test-suites", "configured-model-browser-conversation"],
+      "evidence_refs": ["gate-log:python-test-suites", "gate-log:configured-model-browser-conversation"],
+      "owner": "quality-loop replan lineage + Answer Release evidence projection + real-model browser oracle",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "skill-security",
+  "description": "范围 Hook、保护输入、Fixer 环境白名单和不可信输入边界。",
+  "commands": [
+    [
+      "{python}",
+      "-B",
+      "-m",
+      "unittest",
+      "skill-system.tests.test_hooks",
+      "skill-system.tests.test_fixer_env"
+    ]
+  ]
+}

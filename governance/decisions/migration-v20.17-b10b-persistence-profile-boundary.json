@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b10b-persistence-profile-boundary",
+  "problem": "Persistence reads deployment protection policy from runtime.profile, creating an implementation-layer dependency that closes the persistence-runtime-transaction cycle even though profile parsing is a low-level configuration contract.",
+  "options": [
+    {
+      "id": "keep-runtime-profile-owner",
+      "strategy": "conservative",
+      "name": "Keep profile in runtime",
+      "correctness": "Preserves behavior but retains persistence→runtime and the 5-package SCC.",
+      "complexity": "Low",
+      "migration": "None.",
+      "rollback": "N/A",
+      "verification": "Debt unchanged."
+    },
+    {
+      "id": "kernel-profile-contract",
+      "strategy": "evolutionary",
+      "name": "Move the single profile contract to Kernel",
+      "correctness": "Preserves one implementation and public runtime compatibility while allowing persistence to consume a stable lower-level contract.",
+      "complexity": "Small ownership migration.",
+      "migration": "Move implementation unchanged, re-export from runtime.profile, update two persistence imports.",
+      "rollback": "Restore implementation to runtime.profile.",
+      "verification": "Identity/behavior/SCC counterexample and full Quick."
+    },
+    {
+      "id": "duplicate-profile-parser",
+      "strategy": "redesign",
+      "name": "Copy profile parsing into persistence",
+      "correctness": "Removes an edge but creates conflicting authorities.",
+      "complexity": "Low initially, high drift risk.",
+      "migration": "Duplicate enum and env parsing.",
+      "rollback": "Delete duplicate.",
+      "verification": "Static graph may improve while behavior diverges."
+    }
+  ],
+  "selected_option": "kernel-profile-contract",
+  "rejected_reasons": {
+    "keep-runtime-profile-owner": "Retains wrong dependency direction.",
+    "duplicate-profile-parser": "Violates single authority and can drift on protected-profile rules."
+  },
+  "deletions": [
+    "Delete the RuntimeProfile implementation from runtime.profile; keep only explicit compatibility re-exports."
+  ],
+  "unknowns": [
+    "The remaining 4-package SCC remains open debt.",
+    "State/Loop and real-model certification remain future targets."
+  ],
+  "selected_responsibilities": [
+    "kernel.profile owns APP_PROFILE enum, parsing, diagnostics and verifier-mode resolution.",
+    "runtime.profile is a compatibility surface only.",
+    "persistence consumes kernel.profile for database and tenant protection policy."
+  ],
+  "preserved_hard_invariants": [
+    "APP_PROFILE values and fail-closed semantics are equivalent.",
+    "Database defaults and thread tenant/owner rules remain unchanged.",
+    "All prior removed packages remain outside SCC.",
+    "Debt baseline is not edited."
+  ],
+  "cutover_strategy": "Record expected-red, move implementation unchanged, add compatibility re-export, update persistence imports, run complete verification.",
+  "acceptance_claims": [
+    "One RuntimeProfile class/function implementation exists in kernel.profile.",
+    "runtime.profile exports identical objects and persistence imports no runtime package.",
+    "SCC count is at most 4 with persistence and prior packages excluded.",
+    "All security/config/storage/lifecycle/browser tests pass."
+  ],
+  "baseline_changes": []
+}

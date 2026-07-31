@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "modules": [
+    {
+      "module_id": "ecommerce",
+      "manifest": "services/agent-service/src/agent_modules/ecommerce/module_manifest.json",
+      "capability_count": 20,
+      "errors": []
+    },
+    {
+      "module_id": "support_ticket_demo",
+      "manifest": "services/agent-service/src/agent_modules/support_ticket_demo/module_manifest.json",
+      "capability_count": 1,
+      "errors": []
+    }
+  ]
+}

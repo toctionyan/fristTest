@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17i-production-execution-handoff",
+  "claims": [
+    {
+      "id": "V20-17-B17I-PRODUCTION-EXECUTION-HANDOFF-001",
+      "statement": "Release admission persists one sanitized atomic PASS/FAIL/BLOCKED result and always uploads it from a secret-free job under the current run identity; the final runbook defines the only valid repository, protected Environment, secret, dispatch, artifact and production-closure procedure.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17i_production_execution_handoff_adversarial_bridge"
+      ],
+      "owner": "production execution handoff authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

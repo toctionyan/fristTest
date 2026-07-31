@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-v20.17-b17e-release-supply-chain-authority",
+  "claims": [
+    {
+      "id": "V20-17-B17E-RELEASE-SUPPLY-CHAIN-001",
+      "statement": "The protected release pins every remote GitHub Action to a full commit SHA, installs exact hashed bootstrap and runtime versions, explicitly uploads hidden claim evidence, pins pgvector by immutable manifest digest, captures installed-environment, Docker and container-image provenance, and binds every production component, Quality Loop dimension and closure ledger to one immutable toolchain fingerprint while mutable, cross-toolchain or cross-image evidence fails closed.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b17e_release_supply_chain_authority_adversarial_bridge"
+      ],
+      "owner": "release supply-chain authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

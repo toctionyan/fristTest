@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b14d1-plan-run-write-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B14D1-PLAN-RUN-WRITE-001",
+      "statement": "Tool outcomes update PlanRun through one authority-bound write contract derived from frozen_plan_definition plus plan_run and the actual result; grounded_execution_plan is never a write intermediary, and candidate-repair supersession persists after re-projection.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14d1_plan_run_write_boundary_adversarial_bridge"
+      ],
+      "owner": "agent_core.lifecycle PlanRun write contract",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

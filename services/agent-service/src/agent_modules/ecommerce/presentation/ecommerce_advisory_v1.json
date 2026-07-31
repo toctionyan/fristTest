@@ -1,0 +1,39 @@
+{
+  "contract_id": "commerce.advisory@1",
+  "version": 1,
+  "result_profile": "structured_result",
+  "contract_owner": "ecommerce_overlay",
+  "projection_boundary": "ecommerce_advisory_projector",
+  "producer": "ecommerce.order.consultation.capability",
+  "renderer": {"web": "commerce_advisory_renderer"},
+  "adequacy": {
+    "required_visible_semantics": ["target_identity", "target_display_label", "consultation_question", "advisory_summary", "knowledge_availability"],
+    "optional_visible_semantics": ["policy_source_identity", "policy_source_content"],
+    "rule": "a read-only consultation exposes its verified target and evidence-backed answer without inventing a transactional next action"
+  },
+  "payload": {
+    "block_type": "advisory",
+    "block_required_fields": {
+      "title": "result_title",
+      "summary": "advisory_summary",
+      "target_order_id": "target_identity",
+      "target_product_name": "target_display_label",
+      "question": "consultation_question",
+      "knowledge_available": "knowledge_availability"
+    },
+    "item_required_fields": {
+      "title": "policy_source_identity",
+      "content": "policy_source_content",
+      "source": "policy_source_origin"
+    }
+  },
+  "coverage": {"mode": "not_collection", "source_population": "verified_single_target_consultation"},
+  "validation_mode": "strict",
+  "degradation_policy": {
+    "optional_semantics": "show_unavailable_and_trace",
+    "identity_or_decision_semantics": "controlled_error",
+    "authority_or_receipt_semantics": "block_or_reconcile"
+  },
+  "testing": {"required_levels": ["unit", "contract"], "end_to_end_required": true, "release_gate_required": true, "coverage_evidence_required": true},
+  "release": {"formal_response_eligible": true, "renderer_registry_key": "commerce.advisory@1", "legacy_output_replaces": ["ecommerce.consultation.next_actions"], "release_gate": "StructuredResultReleaseGate"}
+}

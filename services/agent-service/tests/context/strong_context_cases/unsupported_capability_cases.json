@@ -1,0 +1,19 @@
+{
+  "suite": "unsupported_capability_cases",
+  "cases": [
+    {
+      "id": "courier_phone_not_supported",
+      "category": "unsupported_capability",
+      "execution_contract": "unknown_tool_has_no_registered_capability",
+      "turns": [
+        {"role": "user", "text": "快递员电话是多少？"},
+        {"role": "assistant", "expected": "unsupported_capability"}
+      ],
+      "expected_runtime_behavior": {
+        "outcome": "unsupported_capability",
+        "safe_alternatives": ["query_logistics", "human_handoff"]
+      },
+      "forbidden_behavior": ["substitute_get_order_logistics_as_phone_lookup", "invent_phone_number"]
+    }
+  ]
+}
