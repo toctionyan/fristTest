@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "phase": "B17j",
+  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "product_version": "20.6.1",
+  "skill_version": "6.3.0",
+  "claim_id": "V20-17-B17J-CI-PROFILE-BOUNDARY-001",
+  "production_closed": false,
+  "real_ci_red_baseline": {
+    "repository": "toctionyan/fristTest",
+    "workflow": "quality",
+    "run_id": 30607885939,
+    "job_id": 91084022386,
+    "changed_files": 0,
+    "skill_static": "PASS",
+    "skill_unit": "PASS",
+    "skill_host_integration": "PASS",
+    "skill_security": "PASS",
+    "project_compatibility_smoke": "FAIL",
+    "root_cause": "skill-only product-tree guard was executed as a universal project CI prerequisite"
+  },
+  "repair": {
+    "project_ci_profiles": [
+      "skill-static",
+      "skill-unit",
+      "skill-host-integration",
+      "skill-security"
+    ],
+    "skill_only_compatibility_retained": true,
+    "product_quality_gates_changed": false,
+    "customer_runtime_changed": false
+  },
+  "validation": {
+    "local_status": "PASS",
+    "ci_profile_boundary_tests": 2,
+    "skill_unit_tests": 48,
+    "skill_security_tests": 7,
+    "skill_static": "PASS",
+    "skill_host_integration": "PASS",
+    "version_consistency": "PASS",
+    "architecture": "PASS",
+    "architecture_debt": "RESOLVED",
+    "quality_evidence_contract": "PASS",
+    "workflow_yaml": "PASS",
+    "skill_only_compatibility_guard": "RETAINED_EXPECTED_FAIL_ON_PRODUCT_CHANGED_BASELINE",
+    "github_ci_status": "PENDING_RETRY"
+  },
+  "required_next_action": "rerun the zero-diff GitHub PR quality workflow, then configure protected production-certification and execute production-certification-release"
+}
