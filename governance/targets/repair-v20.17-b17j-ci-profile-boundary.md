@@ -15,6 +15,8 @@
 - `services/agent-service/tests/architecture/test_quality_loop_governance.py`
 - `services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py`
 - `services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py`
+- `scripts/verify_full_lifecycle_canary.py`
+- `services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py`
 - `docs/architecture/V20_17_B17J_CI_PROFILE_BOUNDARY_REPAIR.md`
 - `governance/claims/repair-v20.17-b17j-ci-profile-boundary.json`
 - `governance/targets/repair-v20.17-b17j-ci-profile-boundary.md`
@@ -35,7 +37,7 @@
 
 - 最低质量模式：quick
 - 声明清单：`governance/claims/repair-v20.17-b17j-ci-profile-boundary.json`
-- 验收 ID：`V20-17-B17J-CI-PROFILE-BOUNDARY-001`、`V20-17-B17J-ADVERSARIAL-HARNESS-002`、`V20-17-B17J-CI-ENV-ISOLATION-003`
+- 验收 ID：`V20-17-B17J-CI-PROFILE-BOUNDARY-001`、`V20-17-B17J-ADVERSARIAL-HARNESS-002`、`V20-17-B17J-CI-ENV-ISOLATION-003`、`V20-17-B17J-VENV-INTERPRETER-004`
 
 项目 CI 必须运行四个 Skill 自身 Profile，而不运行 Skill-only 产品树兼容性 Gate；Skill-only release 必须继续包含兼容性 Gate。净零差异 GitHub PR 必须越过 Skill 自检和 static，并且 Quick 的 adversarial-runtime-counterexamples 不得再因缺失测试助手或已退休 Workflow 步骤而失败。
 
@@ -47,9 +49,12 @@
 
 第三红基线：GitHub Actions run `30609735023` 中，`adversarial-runtime-counterexamples` 已 `137 passed`，前两轮修复得到验证；标准 `python-test-suites` 在 857 个 Agent 测试中仅剩 3 个失败：B17j Changelog 首段缺失，以及 B17h/B17i 的“无 CI 环境”子进程测试继承了 Runner 的 Workflow/GitHub 环境变量。
 
+第四红基线：GitHub Actions run `30610419110` 中，Skill、Static、`adversarial-runtime-counterexamples`、Agent 857 项、Business 28 项、前端与覆盖率均已通过；唯一新失败是 `full-lifecycle-canary`。Harness 将 `services/agent-service/.venv/bin/python` 调用 `Path.resolve()`，把虚拟环境入口解引用为系统基础 Python，导致确定性模型桩启动时报 `No module named uvicorn`。
+
 ## 修复轮次
 
 - 最大轮次：8
-- 当前轮次：3
+- 当前轮次：4
 - 第 2 轮：只修复两个过期反例桥接和一个过期发布职责断言，不触碰产品运行时。
 - 第 3 轮：补齐 B17j 当前阶段 Changelog，并隔离 B17h/B17i 无 CI 上下文子进程环境，不改变生产脚本失败优先级。
+- 第 4 轮：保留选中 Python 虚拟环境入口的符号链接路径，并增加不得解引用为基础解释器的反例；不增删依赖。

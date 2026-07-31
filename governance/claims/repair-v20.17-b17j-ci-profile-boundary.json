@@ -51,6 +51,22 @@
       ],
       "owner": "Release Harness subprocess isolation and phase metadata authority",
       "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B17J-VENV-INTERPRETER-004",
+      "statement": "The lifecycle Harness preserves the selected virtual-environment Python entrypoint instead of dereferencing it to the base interpreter, so installed runtime dependencies remain available to model and service processes.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "full-lifecycle-canary"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py::test_full_lifecycle_canary_preserves_virtualenv_python_symlink",
+        "gate-log:full-lifecycle-canary"
+      ],
+      "owner": "Product lifecycle interpreter authority",
+      "closure_requirement": "regression-transition"
     }
   ]
 }

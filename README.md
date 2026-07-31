@@ -11,6 +11,7 @@ B17a–B17i 修改了生产认证 Harness、发布控制器、供应链、CI 运
 - 项目 `quality` Workflow 现在直接运行 Skill static、unit、host integration、security；Skill-only release 仍保留 `project-compatibility-smoke`。
 - 产品 Quality Loop、客服运行时和生产关单边界均未降低。
 - B17j 第 3 轮补齐当前阶段 Changelog，并隔离“无 CI 上下文”子进程测试继承的 GitHub Runner 变量；生产 Preflight/Admission 未修改。
+- B17j 第 4 轮保留生命周期 Harness 的虚拟环境 Python 入口，避免解引用为不含项目依赖的系统解释器。
 
 ## B17i 生产执行交接状态
 

@@ -36,3 +36,11 @@ GitHub run `30608910835` 已证明新的 Profile 边界正确：Skill 自检与 
 GitHub run `30609735023` 证明第 2 轮三个反例已全部修复（`137 passed`）。标准全量测试剩余的三个失败中，一个是 B17j Changelog 首段未同步，两个是测试场景污染：声明“无 CI 上下文”的子进程继承了父 GitHub Runner 的环境。
 
 正确修复是在测试 Harness 构造明确的隔离环境，而不是修改生产 Preflight/Admission 的错误优先级。这样真实 Workflow 仍按 fail-closed 顺序裁决，离线反例也能稳定复现目标状态。
+
+## 第 4 轮：虚拟环境解释器身份
+
+GitHub run `30610419110` 已证明第 3 轮和标准测试闭环：Agent 857 项、Business 28 项、前端、覆盖率均通过。唯一新红项是 `full-lifecycle-canary`。
+
+生命周期 Harness 原本对选中的 `.venv/bin/python` 调用 `Path.resolve()`。在 Linux 上该入口通常是指向基础 Python 的符号链接；解引用后启动子进程会绕过虚拟环境 `site-packages`，因此已安装的 `uvicorn` 被错误判定为不存在。正确边界是保留虚拟环境入口路径本身，只做绝对路径规范化，不改变解释器环境身份。
+
+第 4 轮不新增依赖、不改服务实现，只修复 Harness 解释器选择并增加符号链接反例。

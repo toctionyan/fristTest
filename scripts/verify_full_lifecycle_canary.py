@@ -41,7 +41,10 @@ def _resolve_python(env_name: str, locked_path: Path) -> Path:
     candidates.extend([locked_path, Path(sys.executable)])
     for candidate in candidates:
         if candidate.is_file():
-            return candidate.resolve()
+            # Preserve the selected virtual-environment entrypoint. Resolving
+            # ``.venv/bin/python`` dereferences its symlink to the base Python
+            # executable and silently drops the venv's installed packages.
+            return candidate.absolute()
     raise RuntimeError(
         f"no usable Python interpreter for {env_name}; checked: "
         + ", ".join(str(candidate) for candidate in candidates)

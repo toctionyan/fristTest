@@ -218,13 +218,13 @@
     },
     {
       "path": "B17J_STAGE_SUMMARY.json",
-      "size": 3814,
-      "sha256": "677aac2039024496a812f9f777b5be293e0fd3f89d761bbe9ab8251e327a46b9"
+      "size": 4771,
+      "sha256": "69d8c97fefabd76e48f4aabcde453708842b27682f3721469af0be8b649725d4"
     },
     {
       "path": "CHANGELOG.md",
-      "size": 25053,
-      "sha256": "2a56e66d06ae0d7ac3a5a46ac80468e293a27324fc777bd0faeb0fa3a9f7459b"
+      "size": 25208,
+      "sha256": "64282a7c2bd393778ba684167101388a74704cb634f42b97bf51ae158c25da88"
     },
     {
       "path": "CLAUDE.md",
@@ -238,13 +238,13 @@
     },
     {
       "path": "PHASE_CANDIDATE_NOTICE.md",
-      "size": 1156,
-      "sha256": "d46b1e117dcd9ac195c94927af8cd3f6060f963ec2c3a5d1b857d77119f20f9b"
+      "size": 1294,
+      "sha256": "6d810c1be904c90e8ec6e5cb105a471c3cf3534cf5773376f8331e42f13e3fa4"
     },
     {
       "path": "README.md",
-      "size": 8233,
-      "sha256": "c9e83c9b1308d734d81044621d8e32aa04c5c42f70f38cc7f253d55bedb666d9"
+      "size": 8366,
+      "sha256": "55def206d5c7c2704f184051b2cfd1f50860676b2942d868b33ad8782559922d"
     },
     {
       "path": "VERSION",
@@ -668,8 +668,8 @@
     },
     {
       "path": "docs/architecture/V20_17_B17J_CI_PROFILE_BOUNDARY_REPAIR.md",
-      "size": 2734,
-      "sha256": "28c39cd89e6e91e8d865d7f279a5704633f44c6c30ff5ce2d51b57b1198992ff"
+      "size": 3468,
+      "sha256": "3c98a3d4b065dd502a9468fc1aa9dd19caabdc45bcb41cfb2c1095aeb4a89b72"
     },
     {
       "path": "docs/architecture/V20_17_B1_UTILS_SCC_EXTRACTION.md",
@@ -1108,8 +1108,8 @@
     },
     {
       "path": "governance/claims/repair-v20.17-b17j-ci-profile-boundary.json",
-      "size": 3058,
-      "sha256": "be5448d6999c98bd95049d692a2d329072c9b8f48656b6a71c22d63e504201ab"
+      "size": 3855,
+      "sha256": "ae747eaf6edfc1a5978c90fb100e1023f2dbdb5eb871986ac276872d30da0a5a"
     },
     {
       "path": "governance/claims/v20.10-semantic-goal-taxonomy-closure.json",
@@ -1913,8 +1913,8 @@
     },
     {
       "path": "governance/targets/repair-v20.17-b17j-ci-profile-boundary.md",
-      "size": 3350,
-      "sha256": "ba19e95f92ac87a81bcb31f1a82872136063e42a2ed9f9438d1ae4756a2bee90"
+      "size": 4089,
+      "sha256": "5415b1165eaab1f3fdd012e66a831543bf8648a34844a75a4726f522367e465d"
     },
     {
       "path": "governance/targets/v20.10-semantic-goal-taxonomy-closure.md",
@@ -2033,8 +2033,8 @@
     },
     {
       "path": "release/VALIDATION_REPORT.md",
-      "size": 3024,
-      "sha256": "8761d9c09df75811f5bc18b8b35d50a3959d544b576e8ed32809499ed0b58e2b"
+      "size": 3631,
+      "sha256": "1fa9188e7905b00554fc10e22682e12ed2cc2c164611d4e1ef47aef20c80c010"
     },
     {
       "path": "scripts/analyze_context_campaign.py",
@@ -2143,8 +2143,8 @@
     },
     {
       "path": "scripts/verify_full_lifecycle_canary.py",
-      "size": 24477,
-      "sha256": "0f11f357676043096951c0da1692c7eec6bcdadbe1e97733ebe2de1532c6d337"
+      "size": 24710,
+      "sha256": "b17f67eabf6877014f13100da2907d2e4b25f357ac27f92ba69f65d785051783"
     },
     {
       "path": "scripts/verify_managed_postgres_recovery.py",
@@ -4328,8 +4328,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py",
-      "size": 9575,
-      "sha256": "4038a319ca9b16944db1b566d9cc8f39307cad07355df85ee491b1544120ef5f"
+      "size": 10195,
+      "sha256": "08b2dcae0ba727ca80302be95672621897ec2bddb365e4c623cbd6545fab7cab"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b15a_real_model_identity_boundary.py",

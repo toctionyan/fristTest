@@ -9,3 +9,5 @@ Project CI now runs Skill static, unit, host-integration and security profiles d
 The candidate is not production closed. Protected `main`, the `production-certification` Environment, production secrets and one successful same-run release execution are still required.
 
 B17j 第 3 轮补齐当前阶段 Changelog，并隔离两个“无 CI 上下文”子进程测试继承的 GitHub Runner 变量；生产发布合同未修改。
+
+B17j 第 4 轮修复生命周期 Harness 解引用虚拟环境 Python 符号链接的问题；依赖清单和客服运行时未修改。

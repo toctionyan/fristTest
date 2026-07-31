@@ -35,6 +35,10 @@
     "round_3_repairs": [
       "prepend current B17j changelog metadata",
       "strip inherited CI/GITHUB_/PRODUCTION_RELEASE_/RELEASE_INPUT_ variables for explicit no-CI subprocess scenarios"
+    ],
+    "round_4_repairs": [
+      "return the absolute selected Python entrypoint without resolving virtualenv symlinks",
+      "add a symlink-preservation regression for the lifecycle Harness"
     ]
   },
   "validation": {
@@ -50,7 +54,7 @@
     "quality_evidence_contract": "PASS",
     "workflow_yaml": "PASS",
     "skill_only_compatibility_guard": "RETAINED_EXPECTED_FAIL_ON_PRODUCT_CHANGED_BASELINE",
-    "github_ci_status": "PENDING_ROUND_3_RETRY",
+    "github_ci_status": "PENDING_ROUND_4_RETRY",
     "targeted_round_2_contracts": "PASS",
     "targeted_round_2_count": 3,
     "verified_agent_pytest_runtime": "BLOCKED_BY_ENVIRONMENT",
@@ -58,15 +62,19 @@
     "github_round_2_adversarial_counterexamples": "PASS_137",
     "github_round_2_python_standard": "FAIL_3_OF_857",
     "round_3_targeted_tests": "PASS_3",
-    "b17_release_control_regressions": "PASS_86"
+    "b17_release_control_regressions": "PASS_86",
+    "round_4_targeted_tests": "PASS_2",
+    "round_4_virtualenv_prefix_probe": "PASS",
+    "round_4_release_control_regressions": "PASS_84"
   },
-  "required_next_action": "rerun GitHub PR quality after round-3 metadata and subprocess-environment isolation repair",
+  "required_next_action": "rerun the official GitHub PR quality workflow after the bounded virtualenv interpreter repair",
   "claim_ids": [
     "V20-17-B17J-CI-PROFILE-BOUNDARY-001",
     "V20-17-B17J-ADVERSARIAL-HARNESS-002",
-    "V20-17-B17J-CI-ENV-ISOLATION-003"
+    "V20-17-B17J-CI-ENV-ISOLATION-003",
+    "V20-17-B17J-VENV-INTERPRETER-004"
   ],
-  "repair_round": 3,
+  "repair_round": 4,
   "real_ci_quick_red_baseline": {
     "repository": "toctionyan/fristTest",
     "workflow": "quality",
@@ -97,5 +105,19 @@
       "B17h no-CI subprocess inherited GitHub Actions variables from the runner",
       "B17i no-credentials admission subprocess inherited workflow-level release variables"
     ]
+  },
+  "real_ci_lifecycle_red_baseline": {
+    "repository": "toctionyan/fristTest",
+    "workflow": "quality",
+    "run_id": 30610419110,
+    "job_id": 91091813024,
+    "skill_self_validation": "PASS",
+    "quality_static": "PASS",
+    "adversarial_runtime_counterexamples": "PASS_137",
+    "agent_tests_passed": 857,
+    "business_tests_passed": 28,
+    "frontend_and_coverage": "PASS",
+    "full_lifecycle_canary": "FAIL",
+    "root_cause": "Path.resolve dereferenced the Agent virtualenv Python entrypoint to the base interpreter, losing uvicorn and other venv packages"
   }
 }

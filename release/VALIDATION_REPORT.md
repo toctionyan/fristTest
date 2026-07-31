@@ -29,3 +29,9 @@ Round 2 replaces the missing-loader calls with direct imports of the authoritati
 Run `30609735023` verified the round-2 repair with `137 passed` in `adversarial-runtime-counterexamples`. The standard Agent suite then reported only 3 failures out of 857 tests; Business reported 28 passed. One failure was stale current-phase Changelog metadata. The other two were false scenario contamination: tests intended to prove behavior outside CI inherited GitHub Actions and Workflow-level release variables from the parent Runner.
 
 Round 3 updates metadata and makes the no-CI subprocess tests construct an isolated environment. Production Preflight and Admission code remains unchanged, preserving real fail-closed ordering.
+
+## GitHub lifecycle red baseline and round 4
+
+Run `30610419110` passed Skill self-validation, static, adversarial counterexamples, all 857 Agent tests, all 28 Business tests, frontend tests/build and coverage. The only remaining Quick failure was `full-lifecycle-canary`: the Harness resolved `.venv/bin/python` to the base system interpreter and then could not import `uvicorn`.
+
+Round 4 preserves the selected virtual-environment entrypoint with absolute path normalization only. A direct symlink regression proves the venv path is not dereferenced. No dependency or product runtime behavior is changed.
