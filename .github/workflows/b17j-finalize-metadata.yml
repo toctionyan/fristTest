@@ -1,0 +1,61 @@
+name: B17j Final Metadata Normalization
+
+on:
+  push:
+    branches:
+      - agent/b17i-quality-validation
+    paths:
+      - scripts/b17j_finalize_metadata.py
+      - .github/workflows/b17j-finalize-metadata.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: b17j-final-metadata-normalization
+  cancel-in-progress: false
+
+jobs:
+  normalize-metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b17i-quality-validation
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Normalize verified B17j metadata
+        run: python3 -B scripts/b17j_finalize_metadata.py
+      - name: Validate exact manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('.')
+          manifest = json.loads((root / 'PHASE_CANDIDATE_MANIFEST.json').read_text(encoding='utf-8'))
+          summary = json.loads((root / 'B17J_STAGE_SUMMARY.json').read_text(encoding='utf-8'))
+          assert manifest['phase'] == 'B17j'
+          assert manifest['file_count'] == len(manifest['files']) == 1052
+          assert manifest['production_closed'] is False
+          assert summary['validation']['github_preclosure_run_id'] == 30611637518
+          assert summary['validation']['github_preclosure_status'] == 'PASS'
+          assert summary['validation']['github_ci_status'] == 'EXACT_FINAL_TREE_RERUN_REQUIRED'
+          for entry in manifest['files']:
+              payload = (root / entry['path']).read_bytes()
+              assert len(payload) == entry['size'], entry['path']
+              assert hashlib.sha256(payload).hexdigest() == entry['sha256'], entry['path']
+          print('B17j final metadata candidate validation PASS')
+          PY
+      - name: Commit metadata-normalized B17j candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'No metadata changes'; exit 1; }
+          git commit -m 'Normalize verified B17j CI metadata'
+          git push origin HEAD:agent/b17i-quality-validation
