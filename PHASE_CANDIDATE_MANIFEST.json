@@ -173,8 +173,8 @@
     },
     {
       "path": ".github/workflows/quality.yml",
-      "size": 8836,
-      "sha256": "ee655ac9451070aca23f1f1978bd5c870da6b6fd12574d8b279e4d9c20e5be0b"
+      "size": 8844,
+      "sha256": "e47b7feef33e4b2cd264837e033b9b7ab10ef8128e6ae481221dbe3ba77215a8"
     },
     {
       "path": ".github/workflows/release.yml",
