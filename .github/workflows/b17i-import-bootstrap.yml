@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - b17i_source.tar.xz
+      - .github/workflows/b17i-import-bootstrap.yml
   workflow_dispatch:
 
 permissions:
@@ -136,10 +137,6 @@ jobs:
               'managed_file_count': len(declared),
               'result': 'PASS',
           }
-          (Path(os.environ['RUNNER_TEMP']) / 'b17i-import-verification.json').write_text(
-              json.dumps(verification, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
-          )
           print(json.dumps(verification, ensure_ascii=False, indent=2))
           PY
 
