@@ -218,13 +218,13 @@
     },
     {
       "path": "B17J_STAGE_SUMMARY.json",
-      "size": 2816,
-      "sha256": "d8e6168d46980f34a5fd53171fad5b50ce3067b0935ee1872beb40b39b30a5d5"
+      "size": 3814,
+      "sha256": "677aac2039024496a812f9f777b5be293e0fd3f89d761bbe9ab8251e327a46b9"
     },
     {
       "path": "CHANGELOG.md",
-      "size": 24214,
-      "sha256": "4108b4ffcd659b8aa017c01b43ef81c82e61194bd5cc973fce1204e1857ee0c5"
+      "size": 25053,
+      "sha256": "2a56e66d06ae0d7ac3a5a46ac80468e293a27324fc777bd0faeb0fa3a9f7459b"
     },
     {
       "path": "CLAUDE.md",
@@ -238,13 +238,13 @@
     },
     {
       "path": "PHASE_CANDIDATE_NOTICE.md",
-      "size": 994,
-      "sha256": "d9df7ff4f1effe772221788f29cfa2fa1706b6461030714d3a2a356a347dd634"
+      "size": 1156,
+      "sha256": "d46b1e117dcd9ac195c94927af8cd3f6060f963ec2c3a5d1b857d77119f20f9b"
     },
     {
       "path": "README.md",
-      "size": 8067,
-      "sha256": "427b74a4a2fdee03ed9bbfcb80bbaddb7d4cbdebf02d95c85f1529c61df86b0c"
+      "size": 8233,
+      "sha256": "c9e83c9b1308d734d81044621d8e32aa04c5c42f70f38cc7f253d55bedb666d9"
     },
     {
       "path": "VERSION",
@@ -668,8 +668,8 @@
     },
     {
       "path": "docs/architecture/V20_17_B17J_CI_PROFILE_BOUNDARY_REPAIR.md",
-      "size": 2182,
-      "sha256": "d98a327217f8d15a03e87929c757a1c832f6d1922f2210c6e2d72eef7b276f5d"
+      "size": 2734,
+      "sha256": "28c39cd89e6e91e8d865d7f279a5704633f44c6c30ff5ce2d51b57b1198992ff"
     },
     {
       "path": "docs/architecture/V20_17_B1_UTILS_SCC_EXTRACTION.md",
@@ -1108,8 +1108,8 @@
     },
     {
       "path": "governance/claims/repair-v20.17-b17j-ci-profile-boundary.json",
-      "size": 2011,
-      "sha256": "f66764e7761012e2696aac069cb429545de1d6b6ce98933e690b0f571ff84cde"
+      "size": 3058,
+      "sha256": "be5448d6999c98bd95049d692a2d329072c9b8f48656b6a71c22d63e504201ab"
     },
     {
       "path": "governance/claims/v20.10-semantic-goal-taxonomy-closure.json",
@@ -1913,8 +1913,8 @@
     },
     {
       "path": "governance/targets/repair-v20.17-b17j-ci-profile-boundary.md",
-      "size": 2641,
-      "sha256": "b0d4575261f3165ee0ec25a89503eb8c59064b0f47dea9699a92476eaed149ef"
+      "size": 3350,
+      "sha256": "ba19e95f92ac87a81bcb31f1a82872136063e42a2ed9f9438d1ae4756a2bee90"
     },
     {
       "path": "governance/targets/v20.10-semantic-goal-taxonomy-closure.md",
@@ -2033,8 +2033,8 @@
     },
     {
       "path": "release/VALIDATION_REPORT.md",
-      "size": 2333,
-      "sha256": "b6a53244db257c9d9dd25d34c8c55ea5138350a03f0afff7353f804aa45a743f"
+      "size": 3024,
+      "sha256": "8761d9c09df75811f5bc18b8b35d50a3959d544b576e8ed32809499ed0b58e2b"
     },
     {
       "path": "scripts/analyze_context_campaign.py",
@@ -4398,13 +4398,13 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py",
-      "size": 8035,
-      "sha256": "d709f77f3b2ca711222d48510fd907349e00bd694eb1292f60bc39f3b98b6d67"
+      "size": 8330,
+      "sha256": "4917286ca448c51035bc955138bb17f07e788f86ada7a6c90bc7fbb00510192c"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py",
-      "size": 5510,
-      "sha256": "8cf9b83087fa73f415df4e37afed1d1bc619543319039661c0e6452c89b3a1d8"
+      "size": 5733,
+      "sha256": "0658447ad9a0eea5d024fe4a7ae220d244e7ebc4b6b2575bd0561af761cfa4bf"
     },
     {
       "path": "services/agent-service/tests/runtime/test_capability_contract_v2.py",

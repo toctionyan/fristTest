@@ -34,6 +34,23 @@
       ],
       "owner": "Adversarial test harness authority",
       "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B17J-CI-ENV-ISOLATION-003",
+      "statement": "Current-phase metadata identifies B17j, and subprocess counterexamples that claim to run without CI context explicitly isolate inherited GitHub and release variables.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_b17g_production_execution_readiness.py::test_candidate_metadata_preserves_b17g_history_and_identifies_current_phase",
+        "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py::test_local_cli_writes_sanitized_environment_block",
+        "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py::test_admission_cli_persists_environment_block_without_credentials"
+      ],
+      "owner": "Release Harness subprocess isolation and phase metadata authority",
+      "closure_requirement": "regression-transition"
     }
   ]
 }
