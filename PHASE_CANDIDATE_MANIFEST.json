@@ -1,29 +1,19 @@
 {
   "schema_version": 1,
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
-  "phase": "B17i",
-  "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1047,
+  "phase": "B17j",
+  "root_name": "customer_agent_workspace_v20_17_b17j_ci_profile_boundary_repair_phase_candidate_env_blocked_20260731",
+  "file_count": 1052,
   "required_environment": [
-    "GitHub App or operator access to the repository containing this exact B17i workspace commit",
+    "GitHub repository access to the exact B17j commit",
+    "project quality CI PASS on the exact final source tree",
     "workflow_dispatch on protected refs/heads/main in the production-certification Environment",
-    "release-admission PASS with downloadable sanitized same-run admission evidence",
+    "release-admission PASS with downloadable sanitized same-run evidence",
     "protected-environment-preflight PASS before dependency installation",
-    "official chat-model provider API key, current model name and official HTTPS endpoint",
-    "official embedding provider API key, HTTPS endpoint, model and dimension",
-    "quality evidence signing key of at least 32 bytes",
-    "locked Python 3.12.13 Agent and Business environments via uv 0.11.29",
-    "exact Node 24.18.0 and npm 11.16.0 frontend environment",
-    "Docker client/server on ubuntu-24.04 x86_64",
-    "immutable pgvector image by manifest digest",
-    "locked Playwright Chromium",
-    "same repository/workflow/ref/commit/run ID/run attempt identity",
-    "complete Quick Quality Loop and production certification bundle PASS"
+    "official chat-model and embedding credentials plus quality evidence signing key",
+    "locked Python 3.12.13, Node 24.18.0, npm 11.16.0, uv 0.11.29, Docker, pgvector and Playwright Chromium",
+    "same repository/workflow/ref/commit/run ID/run attempt identity"
   ],
-  "targeted_verified_claims": [
-    "V20-17-B17I-PRODUCTION-EXECUTION-HANDOFF-001"
-  ],
-  "quality_loop_closed_claims": [],
   "production_closed": false,
   "files": [
     {
@@ -183,8 +173,8 @@
     },
     {
       "path": ".github/workflows/quality.yml",
-      "size": 8390,
-      "sha256": "2658d5aff2b259ef59ab44f13e8483663628f3b69e10fc1ad7dcdb72b146ebcb"
+      "size": 8844,
+      "sha256": "e47b7feef33e4b2cd264837e033b9b7ab10ef8128e6ae481221dbe3ba77215a8"
     },
     {
       "path": ".github/workflows/release.yml",
@@ -227,9 +217,14 @@
       "sha256": "ed5f3779c5e31b3109b40dab54989c29e79ae76f7effea55330d95b57f3fb069"
     },
     {
+      "path": "B17J_STAGE_SUMMARY.json",
+      "size": 6178,
+      "sha256": "d3a61ee2e7c3140db0c30de0cd6f33981ffbb4b061beaa4e8817d3524c5d8e0b"
+    },
+    {
       "path": "CHANGELOG.md",
-      "size": 24214,
-      "sha256": "4108b4ffcd659b8aa017c01b43ef81c82e61194bd5cc973fce1204e1857ee0c5"
+      "size": 25208,
+      "sha256": "64282a7c2bd393778ba684167101388a74704cb634f42b97bf51ae158c25da88"
     },
     {
       "path": "CLAUDE.md",
@@ -243,13 +238,13 @@
     },
     {
       "path": "PHASE_CANDIDATE_NOTICE.md",
-      "size": 1000,
-      "sha256": "0c67e7e0ae393e79a48ce923908655adbcdb031afea8247c34cc9424380ce1b7"
+      "size": 1540,
+      "sha256": "434c8f095a8fb1bfc7985e343b16953294f20ec71ae535db9481e67c32d03fce"
     },
     {
       "path": "README.md",
-      "size": 7649,
-      "sha256": "8c119899db284aedb41022913513653e0f582a72a3330a14cd1f8745d8b2f543"
+      "size": 8366,
+      "sha256": "55def206d5c7c2704f184051b2cfd1f50860676b2942d868b33ad8782559922d"
     },
     {
       "path": "VERSION",
@@ -672,6 +667,11 @@
       "sha256": "42e95faab4c1cc9c4d239ed56d458b7fa28edc3e99d1531585633d071298a74c"
     },
     {
+      "path": "docs/architecture/V20_17_B17J_CI_PROFILE_BOUNDARY_REPAIR.md",
+      "size": 3468,
+      "sha256": "3c98a3d4b065dd502a9468fc1aa9dd19caabdc45bcb41cfb2c1095aeb4a89b72"
+    },
+    {
       "path": "docs/architecture/V20_17_B1_UTILS_SCC_EXTRACTION.md",
       "size": 1721,
       "sha256": "285d6f7a9521add14df696c42b835e327ff1f7f1e72dc55accd1699dc2d1709c"
@@ -803,8 +803,8 @@
     },
     {
       "path": "governance/active-change.json",
-      "size": 382,
-      "sha256": "2d12e5140e97022a8f127decfc26f5a3da5bdd4ce3b1055c96cfd60d6f9180e5"
+      "size": 352,
+      "sha256": "a0808ec831310c2872ac9dd1a5004f5d7115dbb09a42940f399c03996ce269ad"
     },
     {
       "path": "governance/architecture-policy.json",
@@ -1105,6 +1105,11 @@
       "path": "governance/claims/repair-v20.17-b16c-postgres-restart-concurrency-recovery.json",
       "size": 973,
       "sha256": "4cc6457b980f0b66357f662604de32c8233b67ddcbadace5c26eec8ba8091d6f"
+    },
+    {
+      "path": "governance/claims/repair-v20.17-b17j-ci-profile-boundary.json",
+      "size": 3855,
+      "sha256": "ae747eaf6edfc1a5978c90fb100e1023f2dbdb5eb871986ac276872d30da0a5a"
     },
     {
       "path": "governance/claims/v20.10-semantic-goal-taxonomy-closure.json",
@@ -1907,6 +1912,11 @@
       "sha256": "7327ab515724fec6fc4a7fc447ea591061f9accea362d70509362bc80df60e29"
     },
     {
+      "path": "governance/targets/repair-v20.17-b17j-ci-profile-boundary.md",
+      "size": 4089,
+      "sha256": "5415b1165eaab1f3fdd012e66a831543bf8648a34844a75a4726f522367e465d"
+    },
+    {
       "path": "governance/targets/v20.10-semantic-goal-taxonomy-closure.md",
       "size": 2363,
       "sha256": "6eb6975bf45365dc75a775d72fcce6a3a72b66edca4638f57a7ab37199ad55f8"
@@ -2019,12 +2029,12 @@
     {
       "path": "release/MANIFEST.json",
       "size": 564,
-      "sha256": "440bced59558d7c757593802639e78db8ab797680251dd01a12feaa341aea281"
+      "sha256": "350cb68e736f8592e48c50eaf25bd02c2736a87b920bc070544a6d7f93204832"
     },
     {
       "path": "release/VALIDATION_REPORT.md",
-      "size": 2399,
-      "sha256": "7d43aed5948a0d864e534744e38333bc458b96d166c517d4f69ee26834eec56b"
+      "size": 4645,
+      "sha256": "560e68ad50a81c6cc086e2bd5ab4f568fe138f93b9fdcd71f5ecfd23fdb52d16"
     },
     {
       "path": "scripts/analyze_context_campaign.py",
@@ -2133,8 +2143,8 @@
     },
     {
       "path": "scripts/verify_full_lifecycle_canary.py",
-      "size": 24477,
-      "sha256": "0f11f357676043096951c0da1692c7eec6bcdadbe1e97733ebe2de1532c6d337"
+      "size": 24710,
+      "sha256": "b17f67eabf6877014f13100da2907d2e4b25f357ac27f92ba69f65d785051783"
     },
     {
       "path": "scripts/verify_managed_postgres_recovery.py",
@@ -4083,8 +4093,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_quality_loop_governance.py",
-      "size": 38739,
-      "sha256": "e5396efb6139a1f5cb24f7304707c8361a27f19cef19f01dc36b3b144966a264"
+      "size": 39264,
+      "sha256": "9217f191149ad0577f7604a6a352867a366673f88cb7ca42aa8758222d1a12e7"
     },
     {
       "path": "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py",
@@ -4318,8 +4328,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py",
-      "size": 9575,
-      "sha256": "4038a319ca9b16944db1b566d9cc8f39307cad07355df85ee491b1544120ef5f"
+      "size": 10195,
+      "sha256": "08b2dcae0ba727ca80302be95672621897ec2bddb365e4c623cbd6545fab7cab"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b15a_real_model_identity_boundary.py",
@@ -4388,13 +4398,13 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py",
-      "size": 8035,
-      "sha256": "d709f77f3b2ca711222d48510fd907349e00bd694eb1292f60bc39f3b98b6d67"
+      "size": 8330,
+      "sha256": "4917286ca448c51035bc955138bb17f07e788f86ada7a6c90bc7fbb00510192c"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py",
-      "size": 5510,
-      "sha256": "8cf9b83087fa73f415df4e37afed1d1bc619543319039661c0e6452c89b3a1d8"
+      "size": 5733,
+      "sha256": "0658447ad9a0eea5d024fe4a7ae220d244e7ebc4b6b2575bd0561af761cfa4bf"
     },
     {
       "path": "services/agent-service/tests/runtime/test_capability_contract_v2.py",
@@ -4423,8 +4433,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py",
-      "size": 44028,
-      "sha256": "425a4f73f9b25f57f1089a23bf13edf7303077577782f6184669e42c02161859"
+      "size": 43992,
+      "sha256": "778724ea1dabaeaadd50e4f4b95475133aac2d1b504e2a07115c5b4a8b288df5"
     },
     {
       "path": "services/agent-service/tests/runtime/test_goal_change_evidence_contract.py",
@@ -5190,6 +5200,11 @@
       "path": "skill-system/tests/test_architecture_policy.py",
       "size": 9033,
       "sha256": "6bc68bd1b1d61035de5c8ca125c2506cc85d3a2c14c0d71a8a2c188cdcd36646"
+    },
+    {
+      "path": "skill-system/tests/test_ci_profile_boundary.py",
+      "size": 1367,
+      "sha256": "e9208fc3776a0c703c3b1b9f8beaab8dd65c31bc2eb24967402115a5be5f033b"
     },
     {
       "path": "skill-system/tests/test_contract.py",

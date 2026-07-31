@@ -897,20 +897,20 @@ def test_v20_17_b17e_release_supply_chain_authority_adversarial_bridge() -> None
 
 
 def test_b17e_mutable_postgres_image_is_rejected() -> None:
-    module = _load_test_module(
-        "test_b17e_release_supply_chain_authority_counterexample_image",
-        "test_b17e_release_supply_chain_authority.py",
+    from tests.runtime.test_b17e_release_supply_chain_authority import (
+        test_protected_postgres_image_is_immutable_and_digest_locked,
     )
+
     # Static source assertion is a deterministic red-path guard for mutable image tags.
-    module.test_protected_postgres_image_is_immutable_and_digest_locked()
+    test_protected_postgres_image_is_immutable_and_digest_locked()
 
 
 def test_b17e_cross_container_image_bundle_is_rejected() -> None:
-    module = _load_test_module(
-        "test_b17e_release_supply_chain_authority_counterexample_cross_image",
-        "test_b17e_release_supply_chain_authority.py",
+    from tests.runtime.test_b17e_release_supply_chain_authority import (
+        test_postgres_and_browser_from_different_container_images_cannot_form_bundle,
     )
-    module.test_postgres_and_browser_from_different_container_images_cannot_form_bundle()
+
+    test_postgres_and_browser_from_different_container_images_cannot_form_bundle()
 
 # V20.17 B17f CI run identity bridge: signed evidence from another workflow
 # run or rerun attempt cannot close the current protected release even when the

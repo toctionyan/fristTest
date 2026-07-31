@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -197,8 +198,17 @@ def test_supply_chain_contract_locks_preflight_source_order_and_artifact() -> No
 
 def test_local_cli_writes_sanitized_environment_block(tmp_path: Path) -> None:
     output = tmp_path / "preflight.json"
+    isolated_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key != "CI"
+        and not key.startswith("GITHUB_")
+        and not key.startswith("PRODUCTION_RELEASE_")
+        and not key.startswith("RELEASE_INPUT_")
+    }
     completed = subprocess.run(
         [sys.executable, "-B", str(SCRIPT), "--workspace-root", str(ROOT), "--output", str(output)],
+        env=isolated_env,
         text=True,
         capture_output=True,
         check=False,

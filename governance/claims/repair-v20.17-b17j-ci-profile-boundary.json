@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b17j-ci-profile-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B17J-CI-PROFILE-BOUNDARY-001",
+      "statement": "Project quality CI validates Skill static, unit, host and security contracts without applying the Skill-only product-tree compatibility guard, while the Skill-only release chain retains that guard.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "skill-system/tests/test_ci_profile_boundary.py::CIProfileBoundaryTests::test_project_quality_ci_runs_skill_self_checks_without_skill_only_compatibility",
+        "skill-system/tests/test_ci_profile_boundary.py::CIProfileBoundaryTests::test_skill_only_release_retains_product_compatibility_guard"
+      ],
+      "owner": "CI profile boundary authority",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B17J-ADVERSARIAL-HARNESS-002",
+      "statement": "The adversarial runtime suite invokes B17e counterexamples through valid imports and asserts the current controller-owned protected runtime boundary instead of a retired workflow service-start step.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_b17e_mutable_postgres_image_is_rejected",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_b17e_cross_container_image_bundle_is_rejected",
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py::test_protected_release_delegates_service_startup_to_the_certification_bundle"
+      ],
+      "owner": "Adversarial test harness authority",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B17J-CI-ENV-ISOLATION-003",
+      "statement": "Current-phase metadata identifies B17j, and subprocess counterexamples that claim to run without CI context explicitly isolate inherited GitHub and release variables.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_b17g_production_execution_readiness.py::test_candidate_metadata_preserves_b17g_history_and_identifies_current_phase",
+        "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py::test_local_cli_writes_sanitized_environment_block",
+        "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py::test_admission_cli_persists_environment_block_without_credentials"
+      ],
+      "owner": "Release Harness subprocess isolation and phase metadata authority",
+      "closure_requirement": "regression-transition"
+    },
+    {
+      "id": "V20-17-B17J-VENV-INTERPRETER-004",
+      "statement": "The lifecycle Harness preserves the selected virtual-environment Python entrypoint instead of dereferencing it to the base interpreter, so installed runtime dependencies remain available to model and service processes.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "integration",
+      "required_gates": [
+        "full-lifecycle-canary"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py::test_full_lifecycle_canary_preserves_virtualenv_python_symlink",
+        "gate-log:full-lifecycle-canary"
+      ],
+      "owner": "Product lifecycle interpreter authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

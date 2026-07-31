@@ -9,18 +9,24 @@ permissions:
   contents: read
 
 jobs:
-  skill-control-plane:
+  skill-self-validation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12.13'
-      - name: Validate Skill control plane
-        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-control-plane'
+      - name: Validate Skill static contracts
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-static'
+      - name: Validate Skill unit contracts
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-unit'
+      - name: Validate Skill host integration
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-host-integration'
+      - name: Validate Skill security contracts
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-security'
 
   quality-static:
-    needs: skill-control-plane
+    needs: skill-self-validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

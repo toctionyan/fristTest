@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "phase": "B17j",
+  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "product_version": "20.6.1",
+  "skill_version": "6.3.0",
+  "production_closed": false,
+  "real_ci_red_baseline": {
+    "repository": "toctionyan/fristTest",
+    "workflow": "quality",
+    "run_id": 30607885939,
+    "job_id": 91084022386,
+    "changed_files": 0,
+    "skill_static": "PASS",
+    "skill_unit": "PASS",
+    "skill_host_integration": "PASS",
+    "skill_security": "PASS",
+    "project_compatibility_smoke": "FAIL",
+    "root_cause": "skill-only product-tree guard was executed as a universal project CI prerequisite"
+  },
+  "repair": {
+    "project_ci_profiles": [
+      "skill-static",
+      "skill-unit",
+      "skill-host-integration",
+      "skill-security"
+    ],
+    "skill_only_compatibility_retained": true,
+    "product_quality_gates_changed": false,
+    "customer_runtime_changed": false,
+    "adversarial_harness_repairs": [
+      "replace undefined dynamic loader calls with direct test imports",
+      "assert release workflow delegation and verify_full_lifecycle_canary protected runtime ownership"
+    ],
+    "round_3_repairs": [
+      "prepend current B17j changelog metadata",
+      "strip inherited CI/GITHUB_/PRODUCTION_RELEASE_/RELEASE_INPUT_ variables for explicit no-CI subprocess scenarios"
+    ],
+    "round_4_repairs": [
+      "return the absolute selected Python entrypoint without resolving virtualenv symlinks",
+      "add a symlink-preservation regression for the lifecycle Harness"
+    ]
+  },
+  "validation": {
+    "local_status": "PASS",
+    "ci_profile_boundary_tests": 2,
+    "skill_unit_tests": 48,
+    "skill_security_tests": 7,
+    "skill_static": "PASS",
+    "skill_host_integration": "PASS",
+    "version_consistency": "PASS",
+    "architecture": "PASS",
+    "architecture_debt": "RESOLVED",
+    "quality_evidence_contract": "PASS",
+    "workflow_yaml": "PASS",
+    "skill_only_compatibility_guard": "RETAINED_EXPECTED_FAIL_ON_PRODUCT_CHANGED_BASELINE",
+    "github_ci_status": "EXACT_FINAL_TREE_RERUN_REQUIRED",
+    "targeted_round_2_contracts": "PASS",
+    "targeted_round_2_count": 3,
+    "verified_agent_pytest_runtime": "BLOCKED_BY_ENVIRONMENT",
+    "verified_agent_pytest_runtime_reason": "locked Agent virtual environment is absent locally; GitHub Quick retry is authoritative",
+    "github_round_2_adversarial_counterexamples": "PASS_137",
+    "github_round_2_python_standard": "FAIL_3_OF_857",
+    "round_3_targeted_tests": "PASS_3",
+    "b17_release_control_regressions": "PASS_86",
+    "round_4_targeted_tests": "PASS_2",
+    "round_4_virtualenv_prefix_probe": "PASS",
+    "round_4_release_control_regressions": "PASS_84",
+    "github_preclosure_run_id": 30611637518,
+    "github_preclosure_head_sha": "26f3d058e77d5e025585e8c311883b07d32db325",
+    "github_preclosure_status": "PASS",
+    "github_skill_self_validation": "PASS",
+    "github_quality_static": "PASS",
+    "github_quality_quick": "PASS",
+    "github_quality_integration": "SKIPPED_BY_PR_CONTRACT",
+    "github_quick_loop_status": "CI_VERIFIED",
+    "github_quick_decision": "PASS",
+    "github_quick_completion_eligible": true,
+    "github_quick_required_gates": 18,
+    "github_agent_tests": 858,
+    "github_business_tests": 28,
+    "github_test_skips": 0,
+    "github_python_coverage_line_rate": 0.7288,
+    "github_frontend_coverage_line_rate": 0.5432,
+    "github_full_lifecycle_canary": "PASS",
+    "github_product_browser_journey": "PASS",
+    "github_static_artifact": {
+      "artifact_id": 8785676268,
+      "size_in_bytes": 78106,
+      "sha256": "51a6f9e745732a6afd1cf0ccc33019e8913e0ef0da4bb66aacd392df6195dab8"
+    },
+    "github_quick_artifact": {
+      "artifact_id": 8785743142,
+      "size_in_bytes": 334160,
+      "sha256": "87bf278e5b91dab62750f6417530367508d1f07d1ba435989c366ec9f01b0746"
+    },
+    "source_metadata_self_reference_policy": "authoritative final run identity is recorded in external delivery evidence, not by mutating the already-verified source tree"
+  },
+  "required_next_action": "run official GitHub quality CI on the exact metadata-normalized head, merge only after PASS, and record that final immutable run in external delivery evidence",
+  "claim_ids": [
+    "V20-17-B17J-CI-PROFILE-BOUNDARY-001",
+    "V20-17-B17J-ADVERSARIAL-HARNESS-002",
+    "V20-17-B17J-CI-ENV-ISOLATION-003",
+    "V20-17-B17J-VENV-INTERPRETER-004"
+  ],
+  "repair_round": 4,
+  "real_ci_quick_red_baseline": {
+    "repository": "toctionyan/fristTest",
+    "workflow": "quality",
+    "run_id": 30608910835,
+    "job_id": 91087188820,
+    "skill_self_validation": "PASS",
+    "quality_static": "PASS",
+    "adversarial_runtime_counterexamples": "FAIL",
+    "passed_before_failure": 134,
+    "failed": 3,
+    "root_causes": [
+      "two B17e bridge tests called an undefined _load_test_module helper",
+      "one architecture test asserted a retired workflow-owned service startup step instead of the current certification-bundle owner"
+    ]
+  },
+  "real_ci_python_suite_red_baseline": {
+    "repository": "toctionyan/fristTest",
+    "workflow": "quality",
+    "run_id": 30609735023,
+    "job_id": 91089703105,
+    "adversarial_runtime_counterexamples": "PASS_137",
+    "agent_tests": 857,
+    "agent_passed": 854,
+    "agent_failed": 3,
+    "business_tests_passed": 28,
+    "root_causes": [
+      "CHANGELOG current-phase header remained B17i after phase moved to B17j",
+      "B17h no-CI subprocess inherited GitHub Actions variables from the runner",
+      "B17i no-credentials admission subprocess inherited workflow-level release variables"
+    ]
+  },
+  "real_ci_lifecycle_red_baseline": {
+    "repository": "toctionyan/fristTest",
+    "workflow": "quality",
+    "run_id": 30610419110,
+    "job_id": 91091813024,
+    "skill_self_validation": "PASS",
+    "quality_static": "PASS",
+    "adversarial_runtime_counterexamples": "PASS_137",
+    "agent_tests_passed": 857,
+    "business_tests_passed": 28,
+    "frontend_and_coverage": "PASS",
+    "full_lifecycle_canary": "FAIL",
+    "root_cause": "Path.resolve dereferenced the Agent virtualenv Python entrypoint to the base interpreter, losing uvicorn and other venv packages"
+  }
+}

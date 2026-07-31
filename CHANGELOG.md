@@ -1,3 +1,12 @@
+# V20.17 B17j — CI profile boundary and Harness isolation repair
+
+- 第 4 轮修复生命周期 Harness 将 `.venv/bin/python` 解引用成系统基础解释器的问题，并增加虚拟环境符号链接身份反例。
+- 真实 GitHub CI 将通用项目 `quality` Workflow 与 Skill-only 产品树兼容性 Gate 解耦；Skill-only release 仍保留 `project-compatibility-smoke`。
+- 修复 B17e 反例桥接和受保护运行时职责断言，使反例继续指向当前唯一权威实现，而不是不存在的测试助手或已退休 Workflow 步骤。
+- 修复 B17h/B17i 子进程测试继承 GitHub Runner 环境变量造成的场景污染；“无 CI 上下文”反例现在使用显式隔离环境。
+- 产品 static/quick/integration/release Gate 未减少，客服语义、Prompt、Capability、事务、数据库与 RAG 行为未修改。
+- 当前仍为 `PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING`，尚未执行受保护生产认证，也未生成 `production_closed`。
+
 # V20.17 B17i — Production execution handoff
 
 - `release-admission` now atomically persists sanitized PASS/FAIL/BLOCKED results and always uploads a run-bound Artifact from the secret-free Job.
