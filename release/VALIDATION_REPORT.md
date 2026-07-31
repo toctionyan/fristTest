@@ -35,3 +35,11 @@ Round 3 updates metadata and makes the no-CI subprocess tests construct an isola
 Run `30610419110` passed Skill self-validation, static, adversarial counterexamples, all 857 Agent tests, all 28 Business tests, frontend tests/build and coverage. The only remaining Quick failure was `full-lifecycle-canary`: the Harness resolved `.venv/bin/python` to the base system interpreter and then could not import `uvicorn`.
 
 Round 4 preserves the selected virtual-environment entrypoint with absolute path normalization only. A direct symlink regression proves the venv path is not dereferenced. No dependency or product runtime behavior is changed.
+
+## Round 4 pre-closure GitHub PASS
+
+GitHub run `30611637518` on commit `26f3d058e77d5e025585e8c311883b07d32db325` passed Skill self-validation, Static and Quick. Quick produced `CI_VERIFIED`, decision `PASS`, `completion_eligible=true`, no missing prerequisites and all 18 required gates PASS. Standard suites reported 858 Agent tests and 28 Business tests with zero skips. Coverage passed at Python 0.7288 and frontend 0.5432. The authenticated HTTP lifecycle and Chromium product journey both passed.
+
+Downloaded evidence artifacts were CRC/read verified and matched GitHub digests: Static `51a6f9e745732a6afd1cf0ccc33019e8913e0ef0da4bb66aacd392df6195dab8`; Quick `87bf278e5b91dab62750f6417530367508d1f07d1ba435989c366ec9f01b0746`.
+
+This report update changes the source tree. To avoid a self-referential endless metadata loop, the exact final metadata-normalized commit must pass once more; that final run identity is recorded in the external delivery evidence rather than mutating source after the final run.

@@ -11,3 +11,5 @@ The candidate is not production closed. Protected `main`, the `production-certif
 B17j 第 3 轮补齐当前阶段 Changelog，并隔离两个“无 CI 上下文”子进程测试继承的 GitHub Runner 变量；生产发布合同未修改。
 
 B17j 第 4 轮修复生命周期 Harness 解引用虚拟环境 Python 符号链接的问题；依赖清单和客服运行时未修改。
+
+GitHub run `30611637518` 已证明 B17j 第 4 轮的 Skill、Static、Quick、完整 HTTP 生命周期与 Chromium 产品旅程通过；元数据归一化后的精确最终提交仍须再跑一次，最终运行身份写入外部交付证据。

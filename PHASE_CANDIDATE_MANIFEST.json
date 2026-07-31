@@ -218,8 +218,8 @@
     },
     {
       "path": "B17J_STAGE_SUMMARY.json",
-      "size": 4771,
-      "sha256": "69d8c97fefabd76e48f4aabcde453708842b27682f3721469af0be8b649725d4"
+      "size": 6178,
+      "sha256": "d3a61ee2e7c3140db0c30de0cd6f33981ffbb4b061beaa4e8817d3524c5d8e0b"
     },
     {
       "path": "CHANGELOG.md",
@@ -238,8 +238,8 @@
     },
     {
       "path": "PHASE_CANDIDATE_NOTICE.md",
-      "size": 1294,
-      "sha256": "6d810c1be904c90e8ec6e5cb105a471c3cf3534cf5773376f8331e42f13e3fa4"
+      "size": 1540,
+      "sha256": "434c8f095a8fb1bfc7985e343b16953294f20ec71ae535db9481e67c32d03fce"
     },
     {
       "path": "README.md",
@@ -2033,8 +2033,8 @@
     },
     {
       "path": "release/VALIDATION_REPORT.md",
-      "size": 3631,
-      "sha256": "1fa9188e7905b00554fc10e22682e12ed2cc2c164611d4e1ef47aef20c80c010"
+      "size": 4645,
+      "sha256": "560e68ad50a81c6cc086e2bd5ab4f568fe138f93b9fdcd71f5ecfd23fdb52d16"
     },
     {
       "path": "scripts/analyze_context_campaign.py",
