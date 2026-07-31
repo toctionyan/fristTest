@@ -1,0 +1,13 @@
+name: B17i Import Bootstrap
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify-import-ready:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify bootstrap state
+        run: |
+          echo "B17i repository bootstrap ready"
+          echo "Next step: import verified source package and run protected certification"
