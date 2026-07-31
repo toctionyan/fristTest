@@ -1,13 +1,167 @@
-name: B17i Import Bootstrap
+name: B17i Verified Source Import
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - b17i_source.tar.xz
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+concurrency:
+  group: b17i-source-import
+  cancel-in-progress: false
+
 jobs:
-  verify-import-ready:
+  import-verified-source:
+    if: github.repository == 'toctionyan/fristTest' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Verify bootstrap state
+      - name: Checkout bootstrap repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Verify and safely extract B17i package
+        shell: bash
         run: |
-          echo "B17i repository bootstrap ready"
-          echo "Next step: import verified source package and run protected certification"
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import shutil
+          import tarfile
+          from pathlib import Path, PurePosixPath
+
+          archive = Path('b17i_source.tar.xz')
+          expected_archive_sha256 = '1a191662c80fc6ab68d91b60e1ffdd0effe916f538acbea9fb052826dbc56e6d'
+          if not archive.is_file():
+              raise SystemExit('b17i_source.tar.xz is missing')
+
+          actual_archive_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if actual_archive_sha256 != expected_archive_sha256:
+              raise SystemExit(
+                  f'archive SHA256 mismatch: expected {expected_archive_sha256}, got {actual_archive_sha256}'
+              )
+
+          destination = Path(os.environ['RUNNER_TEMP']) / 'b17i-verified-source'
+          if destination.exists():
+              shutil.rmtree(destination)
+          destination.mkdir(parents=True)
+
+          with tarfile.open(archive, mode='r:xz') as bundle:
+              members = bundle.getmembers()
+              if not members:
+                  raise SystemExit('archive is empty')
+              for member in members:
+                  path = PurePosixPath(member.name)
+                  if path.is_absolute() or '..' in path.parts:
+                      raise SystemExit(f'unsafe archive path: {member.name!r}')
+                  if member.issym() or member.islnk() or member.isdev():
+                      raise SystemExit(f'links and device entries are forbidden: {member.name!r}')
+                  if not (member.isdir() or member.isfile()):
+                      raise SystemExit(f'unsupported archive entry: {member.name!r}')
+              bundle.extractall(destination)
+
+          manifest_path = destination / 'PHASE_CANDIDATE_MANIFEST.json'
+          if not manifest_path.is_file():
+              raise SystemExit('PHASE_CANDIDATE_MANIFEST.json is missing')
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+
+          required = {
+              'schema_version': 1,
+              'status': 'PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING',
+              'phase': 'B17i',
+              'file_count': 1047,
+              'production_closed': False,
+          }
+          for key, expected in required.items():
+              if manifest.get(key) != expected:
+                  raise SystemExit(
+                      f'manifest {key!r} mismatch: expected {expected!r}, got {manifest.get(key)!r}'
+                  )
+
+          entries = manifest.get('files')
+          if not isinstance(entries, list) or len(entries) != 1047:
+              raise SystemExit('manifest files list must contain exactly 1047 entries')
+
+          declared: set[str] = set()
+          for entry in entries:
+              relative = entry.get('path')
+              if not isinstance(relative, str) or not relative:
+                  raise SystemExit('manifest contains an invalid file path')
+              normalized = PurePosixPath(relative)
+              if normalized.is_absolute() or '..' in normalized.parts:
+                  raise SystemExit(f'unsafe manifest path: {relative!r}')
+              if relative in declared:
+                  raise SystemExit(f'duplicate manifest path: {relative!r}')
+              declared.add(relative)
+
+              candidate = destination / relative
+              if not candidate.is_file() or candidate.is_symlink():
+                  raise SystemExit(f'managed file is missing or invalid: {relative!r}')
+              payload = candidate.read_bytes()
+              if len(payload) != entry.get('size'):
+                  raise SystemExit(f'file size mismatch: {relative!r}')
+              digest = hashlib.sha256(payload).hexdigest()
+              if digest != entry.get('sha256'):
+                  raise SystemExit(f'file SHA256 mismatch: {relative!r}')
+
+          actual = {
+              path.relative_to(destination).as_posix()
+              for path in destination.rglob('*')
+              if path.is_file() and not path.is_symlink()
+          }
+          expected_files = declared | {'PHASE_CANDIDATE_MANIFEST.json'}
+          if actual != expected_files:
+              missing = sorted(expected_files - actual)[:10]
+              extra = sorted(actual - expected_files)[:10]
+              raise SystemExit(f'archive file set mismatch; missing={missing}, extra={extra}')
+
+          verification = {
+              'schema_version': 1,
+              'archive_sha256': actual_archive_sha256,
+              'phase': manifest['phase'],
+              'status': manifest['status'],
+              'production_closed': manifest['production_closed'],
+              'managed_file_count': len(declared),
+              'result': 'PASS',
+          }
+          (Path(os.environ['RUNNER_TEMP']) / 'b17i-import-verification.json').write_text(
+              json.dumps(verification, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(verification, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Replace bootstrap with verified source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$RUNNER_TEMP/b17i-verified-source"
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a "$SOURCE_DIR"/. .
+          test -f PHASE_CANDIDATE_MANIFEST.json
+          test -f .github/workflows/release.yml
+          test ! -e b17i_source.tar.xz
+          test ! -e .github/workflows/b17i-import-bootstrap.yml
+
+      - name: Commit complete B17i source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'No source changes to commit'; exit 1; }
+          git commit -m 'Import verified B17i source candidate'
+          git push origin HEAD:main
