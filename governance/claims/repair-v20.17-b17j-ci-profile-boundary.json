@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b17j-ci-profile-boundary",
+  "claims": [
+    {
+      "id": "V20-17-B17J-CI-PROFILE-BOUNDARY-001",
+      "statement": "Project quality CI validates Skill static, unit, host and security contracts without applying the Skill-only product-tree compatibility guard, while the Skill-only release chain retains that guard.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "skill-system/tests/test_ci_profile_boundary.py::CIProfileBoundaryTests::test_project_quality_ci_runs_skill_self_checks_without_skill_only_compatibility",
+        "skill-system/tests/test_ci_profile_boundary.py::CIProfileBoundaryTests::test_skill_only_release_retains_product_compatibility_guard"
+      ],
+      "owner": "CI profile boundary authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}
