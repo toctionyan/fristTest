@@ -18,6 +18,15 @@ def replace_exact(path: Path, old: str, new: str, *, expected: int = 1) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def replace_line(path: Path, old: str, new: str) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    indexes = [index for index, line in enumerate(lines) if line == old]
+    if len(indexes) != 1:
+        raise RuntimeError(f"{path.relative_to(ROOT)} expected one exact line, found {len(indexes)}: {old!r}")
+    lines[indexes[0]] = new
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def patch_env_example() -> None:
     path = ROOT / "services/agent-service/.env.example"
     replacements = [
@@ -32,7 +41,7 @@ def patch_env_example() -> None:
         ("EMBEDDING_DIM=1536", "EMBEDDING_DIM=1024"),
     ]
     for old, new in replacements:
-        replace_exact(path, old, new)
+        replace_line(path, old, new)
 
 
 def patch_embedding_provider_defaults() -> None:
