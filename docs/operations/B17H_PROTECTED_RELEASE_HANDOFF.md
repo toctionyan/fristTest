@@ -14,7 +14,7 @@ Create an Environment named `production-certification`. Configure required revie
 - Secret `PRODUCTION_MODEL_API_KEY`
 - Secret `PRODUCTION_EMBEDDING_API_KEY`
 - Secret `QUALITY_EVIDENCE_SIGNING_KEY` with at least 32 bytes
-- Optional variable `PRODUCTION_EMBEDDING_API_BASE`; when absent the workflow uses the official OpenAI API base
+- Optional variable `PRODUCTION_EMBEDDING_API_BASE`; when absent the workflow uses Alibaba Model Studio Beijing OpenAI-compatible base, while Singapore or workspace-specific keys must override it
 
 Do not use placeholder, test or local credentials. The preflight does not print secret values.
 

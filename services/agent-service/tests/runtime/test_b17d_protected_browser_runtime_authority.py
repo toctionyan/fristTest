@@ -29,13 +29,13 @@ def _browser_bundle():
 
 def _configure_external_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "chat-key-for-b17d-tests")
-    monkeypatch.setenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai_compatible")
     monkeypatch.setenv("EMBEDDING_API_KEY", "embedding-key-for-b17d-tests")
-    monkeypatch.setenv("EMBEDDING_API_BASE", "https://api.openai.com/v1")
-    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-3-small")
-    monkeypatch.setenv("EMBEDDING_DIM", "1536")
+    monkeypatch.setenv("EMBEDDING_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "text-embedding-v4")
+    monkeypatch.setenv("EMBEDDING_DIM", "1024")
 
 
 def _runtime_authority() -> dict[str, Any]:
@@ -230,9 +230,14 @@ def test_local_b17c_runtime_authority_is_a_negative_case() -> None:
 def test_release_workflow_requires_separate_embedding_authority() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "PRODUCTION_EMBEDDING_API_KEY" in workflow
-    assert "EMBEDDING_PROVIDER: openai" in workflow
+    assert "EMBEDDING_PROVIDER: openai_compatible" in workflow
     assert "EMBEDDING_MODEL: ${{ inputs.embedding_model }}" in workflow
     assert "EMBEDDING_DIM: ${{ inputs.embedding_dimension }}" in workflow
+    assert "default: deepseek-v4-flash" in workflow
+    assert "default: text-embedding-v4" in workflow
+    assert "default: '1024'" in workflow
+    assert "https://dashscope.aliyuncs.com/compatible-mode/v1" in workflow
+    assert "EMBEDDING_BATCH_SIZE: '10'" in workflow
     assert "Validate protected runtime prerequisites" in workflow
     assert "Start actual protected-profile services" not in workflow
 
