@@ -25,17 +25,17 @@ def _load_script(name: str):
     return module
 
 
-def test_quality_loop_policy_separates_integration_and_release_real_model_steps() -> None:
+def test_quality_loop_policy_uses_single_production_bundle_for_real_model_browser() -> None:
     root = workspace_root(__file__)
     policy = json.loads((root / "governance" / "quality-loop-policy.json").read_text(encoding="utf-8"))
     steps_by_mode = {mode: {step["name"] for step in policy["steps"] if mode in step.get("modes", [])} for mode in ["static", "quick", "integration", "release"]}
     assert {"skill-package-verify", "architecture-convergence", "module-vertical-closure", "version-consistency"} <= steps_by_mode["static"]
     assert "python-test-suites" in steps_by_mode["quick"]
     assert {"frontend-vitest", "frontend-build"} <= steps_by_mode["release"]
-    configured_model_gates = {"configured-model-browser-conversation", "configured-model-browser-campaign"}
-    assert configured_model_gates.isdisjoint(steps_by_mode["integration"])
-    assert configured_model_gates <= steps_by_mode["release"]
     steps = {step["id"]: step for step in policy["steps"]}
+    duplicate_real_model_gates = {"configured-model-browser-conversation", "configured-model-browser-campaign"}
+    assert duplicate_real_model_gates.isdisjoint(steps)
+    assert steps["production-certification-bundle"]["modes"] == ["release"]
     assert steps["frontend-vitest"]["argv"] == ["{npm}", "run", "test:ci"]
     assert steps["frontend-vitest"]["env"] == {
         "VITEST_JUNIT_PATH": "{evidence_dir}/junit/frontend-vitest.xml",

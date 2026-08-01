@@ -1568,8 +1568,8 @@
     },
     {
       "path": "governance/quality-loop-policy.json",
-      "size": 23988,
-      "sha256": "8be8aa1477d3a704e6576d7f2deff5afee6bf2e4e5f361548a063868572207b0"
+      "size": 21886,
+      "sha256": "e0dc98bb6e28ab43f130df39471f692acf941acb723eb82e3ec05d740895c4ae"
     },
     {
       "path": "governance/requirements/project-quality-requirements.json",
@@ -4093,8 +4093,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_quality_loop_governance.py",
-      "size": 39536,
-      "sha256": "1dee55959cca6d339c1a7f3d2243585b59454f0cd7991e738f150cfcc1a5d66c"
+      "size": 39537,
+      "sha256": "20346ad928ca9bd6f07132a7eacdb6889161b38c792fd9cddcb67f3bd53f8acc"
     },
     {
       "path": "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py",
@@ -4138,8 +4138,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_systemic_operational_closure.py",
-      "size": 11581,
-      "sha256": "ed9bf805ab8f62f052a3f956fc0113513eb687e45b8f9065b8c069f50ea1ae31"
+      "size": 11863,
+      "sha256": "b68edda731890fa500ed9756c549d45b16d974c65cfa0291d15a53584b3179c2"
     },
     {
       "path": "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py",
@@ -4363,8 +4363,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17a_production_certification_authority.py",
-      "size": 15944,
-      "sha256": "38904e0a5b511838a169a53efecb2eeced153348b76b3bff87fb238337fe135d"
+      "size": 15904,
+      "sha256": "e405bc41fa6ea30da7ab377c9ed75debb57dfaf41c6f2345742261d0c27782e2"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17b_production_release_execution.py",
