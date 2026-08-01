@@ -1,0 +1,98 @@
+name: one-time-fix-quality-loop-npm-launcher
+
+"on":
+  push:
+    branches:
+      - agent/fix-quality-loop-npm-launcher-boundary
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Apply exact npm launcher boundary repair
+        run: python -B .github/scripts/apply_quality_loop_npm_launcher_fix.py
+      - name: Install focused test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Run focused launcher counterexamples
+        run: >-
+          python -m pytest -q
+          services/agent-service/tests/runtime/test_quality_loop_npm_launcher_boundary.py
+      - name: Verify hosted launcher and npm JSON through Quality Loop PATH
+        shell: bash
+        run: |
+          cd services/agent-service/frontend
+          npm ci --ignore-scripts=false
+          cd ../../..
+          python - <<'PY'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          root = Path.cwd()
+          path = root / "scripts/quality_loop.py"
+          spec = importlib.util.spec_from_file_location("quality_loop_live_npm_launcher", path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          selected = module._npm_executable(root)
+          assert selected is not None
+          assert selected.name == "npm"
+          assert (selected.parent / "node").is_file(), selected
+          assert selected != selected.resolve(), (selected, selected.resolve())
+          env = os.environ.copy()
+          env["PATH"] = str(selected.parent) + os.pathsep + env.get("PATH", "")
+          completed = subprocess.run(
+              ["npm", "ls", "--all", "--offline", "--json"],
+              cwd=root / "services/agent-service/frontend",
+              env=env,
+              text=True,
+              capture_output=True,
+              timeout=180,
+              check=False,
+          )
+          payload = json.loads(completed.stdout)
+          assert completed.returncode in (0, 1), completed.stderr
+          assert payload.get("name") == "ecommerce-agent-product-ui"
+          print({
+              "selected": str(selected),
+              "resolved": str(selected.resolve()),
+              "sibling_node": str(selected.parent / "node"),
+              "npm_ls_returncode": completed.returncode,
+              "npm_ls_stdout_length": len(completed.stdout),
+          })
+          PY
+      - name: Compile modified Python files
+        run: >-
+          python -m py_compile
+          scripts/quality_loop.py
+          services/agent-service/tests/runtime/test_quality_loop_npm_launcher_boundary.py
+      - name: Remove one-time applicator and commit result
+        shell: bash
+        run: |
+          rm -f .github/scripts/apply_quality_loop_npm_launcher_fix.py
+          rm -f .github/workflows/one-time-fix-quality-loop-npm-launcher.yml
+          find scripts services/agent-service/tests -type d -name __pycache__ -prune -exec rm -rf {} +
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Preserve the npm launcher boundary in Quality Loop"
+          git push origin HEAD:${GITHUB_REF_NAME}
