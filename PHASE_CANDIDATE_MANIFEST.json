@@ -4098,8 +4098,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_quality_loop_governance.py",
-      "size": 39537,
-      "sha256": "20346ad928ca9bd6f07132a7eacdb6889161b38c792fd9cddcb67f3bd53f8acc"
+      "size": 39557,
+      "sha256": "dbaaa0fd5b6f7f89f1581e746f592ef9b55755eddfb9dedc221e1e0afaf50ae9"
     },
     {
       "path": "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py",
