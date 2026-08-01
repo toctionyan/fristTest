@@ -3,7 +3,7 @@
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
   "phase": "B17i",
   "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1054,
+  "file_count": 1057,
   "required_environment": [
     "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
@@ -167,9 +167,19 @@
       "sha256": "60e7a4620b680a385f182f1b46e5844eb4db5f7159d7a2a4751d4fbeb0b77f64"
     },
     {
+      "path": ".github/production-certification-request.json",
+      "size": 238,
+      "sha256": "2b6ce11869305b11953c4a0964aadf94a09032e25a022e8a01ae44777fab9b67"
+    },
+    {
       "path": ".github/workflows/integration-diagnostic.yml",
       "size": 4906,
       "sha256": "c6cb701051ef23dde6b59a20aeef5727740dc1ca9c9d465b82cd4e9cdefd895f"
+    },
+    {
+      "path": ".github/workflows/production-certification-request.yml",
+      "size": 7982,
+      "sha256": "5947bb820f70154c987f95b4918a3666f1ba854fb0c4f0d1a22a727da0bac15c"
     },
     {
       "path": ".github/workflows/quality.yml",
@@ -4070,6 +4080,11 @@
       "path": "services/agent-service/tests/architecture/test_presentation_dependency_boundary_scc.py",
       "size": 3652,
       "sha256": "8454cd800d9b15bcfb5a13493c6008145dba039c81933d682006c874a543e195"
+    },
+    {
+      "path": "services/agent-service/tests/architecture/test_production_certification_request_boundary.py",
+      "size": 2207,
+      "sha256": "c3d1a333e8a23280dfdbeeb6ecacc8bf99e0ab498ce5dc140ea5b781d19b22e5"
     },
     {
       "path": "services/agent-service/tests/architecture/test_production_security_contract.py",
