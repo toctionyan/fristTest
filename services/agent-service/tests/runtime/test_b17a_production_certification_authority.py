@@ -184,8 +184,8 @@ def test_release_policy_has_one_production_authority_and_no_independent_release_
     assert by_id["production-certification-bundle"]["modes"] == ["release"]
     assert by_id["production-certification-bundle"]["argv"][-1] == "scripts/verify_production_certification_bundle.py"
     assert "preproduction-real-model-certification-bundle" not in by_id
-    assert "release" not in by_id["configured-model-browser-conversation"]["modes"]
-    assert "release" not in by_id["configured-model-browser-campaign"]["modes"]
+    assert "configured-model-browser-conversation" not in by_id
+    assert "configured-model-browser-campaign" not in by_id
     assert "production-certification-bundle" in by_id["clean-release-preflight"]["depends_on"]
 
 
