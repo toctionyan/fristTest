@@ -185,3 +185,21 @@ jobs:
             ${{ runner.temp }}/agent.log
             ${{ github.workspace }}/.quality/targets/quality-target-integration.md
             ${{ github.workspace }}/.quality/targets/quality-target-integration.claims.json
+
+  actions-diagnostic:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/diagnose-actions-through-quality'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query latest release and dispatcher runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows"
+          curl -fsSL -H 'Accept: application/vnd.github+json' \
+            "$base/release.yml/runs?per_page=20" > /tmp/release-runs.json
+          curl -fsSL -H 'Accept: application/vnd.github+json' \
+            "$base/temporary-auto-release-after-real-model-repair.yml/runs?per_page=20" > /tmp/dispatcher-runs.json
+          echo 'ACTIONS_DIAGNOSTIC_BEGIN'
+          jq '{release_runs: [.workflow_runs[] | {id, run_number, event, status, conclusion, head_sha, created_at, updated_at, html_url}]}' /tmp/release-runs.json
+          jq '{dispatcher_runs: [.workflow_runs[] | {id, run_number, event, status, conclusion, head_sha, created_at, updated_at, html_url}]}' /tmp/dispatcher-runs.json
+          echo 'ACTIONS_DIAGNOSTIC_END'
