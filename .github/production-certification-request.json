@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "request_id": "production-certification-20260801-002",
+  "request_id": "production-certification-20260801-003",
   "provider": "deepseek",
   "model": "deepseek-v4-flash",
   "embedding_model": "text-embedding-v4",
   "embedding_dimension": "1024",
-  "comment_issue": 7
+  "comment_issue": 13
 }
