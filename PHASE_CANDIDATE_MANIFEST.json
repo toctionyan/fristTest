@@ -168,8 +168,8 @@
     },
     {
       "path": ".github/production-certification-request.json",
-      "size": 238,
-      "sha256": "f6e4294f148c7f7036ac791629ac278afe4e2a411d6468755b221a62866a875a"
+      "size": 239,
+      "sha256": "70b83aeed75d123e4d6c6dad206a3aa828d93ef69be913fd54183eb8e395b706"
     },
     {
       "path": ".github/workflows/integration-diagnostic.yml",
@@ -2088,8 +2088,8 @@
     },
     {
       "path": "scripts/quality_loop.py",
-      "size": 139617,
-      "sha256": "1c4cf4e544bbadc72e2cd9ec283f88f224d392d4baf9cbfc4c365cfb74eafba1"
+      "size": 141055,
+      "sha256": "7bbd09ba085d59f0924ebd5d3c6f485ee17b8b3510be4611b2a1783deded3eda"
     },
     {
       "path": "scripts/release_admission_contract.py",
