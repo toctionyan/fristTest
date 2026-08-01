@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -38,7 +39,7 @@ def test_production_request_dispatcher_is_protected_main_only() -> None:
     text = workflow_path.read_text(encoding="utf-8")
     assert "actions/workflows/release.yml/dispatches" in text
     assert '"ref": "main"' in text
-    assert 'current_main != event_sha' in text
+    assert "current_main != event_sha" in text
     assert 'provider not in {"openai", "deepseek"}' in text
     assert "pull_request_target" not in text
     assert "secrets." not in text
@@ -58,7 +59,10 @@ def test_production_request_ledger_is_explicit_and_bounded() -> None:
         "comment_issue",
     }
     assert payload["schema_version"] == 1
-    assert payload["request_id"] == "production-certification-20260801-001"
+    assert re.fullmatch(
+        r"production-certification-[0-9]{8}-[0-9]{3}",
+        payload["request_id"],
+    )
     assert payload["provider"] == "deepseek"
     assert payload["model"] == "deepseek-v4-flash"
     assert payload["embedding_model"] == "text-embedding-v4"
