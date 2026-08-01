@@ -3,7 +3,7 @@
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
   "phase": "B17i",
   "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1057,
+  "file_count": 1058,
   "required_environment": [
     "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
@@ -169,7 +169,7 @@
     {
       "path": ".github/production-certification-request.json",
       "size": 238,
-      "sha256": "f6e4294f148c7f7036ac791629ac278afe4e2a411d6468755b221a62866a875a"
+      "sha256": "0a22d2aee417b2192b52dc2a061399c85657a821cd23ec0c7bae3283f4b98b70"
     },
     {
       "path": ".github/workflows/integration-diagnostic.yml",
@@ -2088,8 +2088,8 @@
     },
     {
       "path": "scripts/quality_loop.py",
-      "size": 139617,
-      "sha256": "1c4cf4e544bbadc72e2cd9ec283f88f224d392d4baf9cbfc4c365cfb74eafba1"
+      "size": 141055,
+      "sha256": "7bbd09ba085d59f0924ebd5d3c6f485ee17b8b3510be4611b2a1783deded3eda"
     },
     {
       "path": "scripts/release_admission_contract.py",
@@ -2158,8 +2158,8 @@
     },
     {
       "path": "scripts/verify_full_lifecycle_canary.py",
-      "size": 24710,
-      "sha256": "b17f67eabf6877014f13100da2907d2e4b25f357ac27f92ba69f65d785051783"
+      "size": 25618,
+      "sha256": "012fe77918f63cd16138a8d606bb395090173e356e3e4758e2c3f0d22caf1f84"
     },
     {
       "path": "scripts/verify_managed_postgres_recovery.py",
@@ -2758,8 +2758,8 @@
     },
     {
       "path": "services/agent-service/src/agent_core/config.py",
-      "size": 23225,
-      "sha256": "50cb522a9d17ee1e13db67db633bbd0e3e2234418904d8878561d82ced31eca1"
+      "size": 23783,
+      "sha256": "4e79be05ae99cfb7916d3b04c0ef3175387c679cd9195716508441cd374b44b5"
     },
     {
       "path": "services/agent-service/src/agent_core/context/__init__.py",
@@ -4500,6 +4500,11 @@
       "path": "services/agent-service/tests/runtime/test_release_owned_runtime_boundary.py",
       "size": 5904,
       "sha256": "dec98937741aa490407657f96b13ea0e3d2d766e2100e1321306ed3a3344f0a0"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_release_runtime_database_authority.py",
+      "size": 4520,
+      "sha256": "706801f9809ae9abd9fb9cc2b1a5200313d7f38b1843def49818865bd0fa9275"
     },
     {
       "path": "services/agent-service/tests/runtime/test_scripted_chat_model.py",
