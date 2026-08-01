@@ -388,6 +388,51 @@ def _tree_digest(root: Path) -> dict[str, Any]:
     }
 
 
+def _npm_installation_identity(npm: Path) -> dict[str, Any]:
+    """Read npm identity from its installed package instead of executing npm.
+
+    The release already hashes the resolved launcher.  Reading and hashing the
+    npm package metadata and installation tree avoids making provenance depend
+    on npm's environment-sensitive startup diagnostics while strengthening the
+    proof to cover the implementation behind that launcher.
+    """
+
+    resolved = Path(npm).resolve()
+    package_json: Path | None = None
+    payload: dict[str, Any] | None = None
+    for parent in resolved.parents[:6]:
+        candidate = parent / "package.json"
+        if not candidate.is_file():
+            continue
+        try:
+            candidate_payload = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(candidate_payload, dict) and str(candidate_payload.get("name") or "") == "npm":
+            package_json = candidate
+            payload = candidate_payload
+            break
+    if package_json is None or payload is None:
+        raise ReleaseToolchainError(
+            "release_npm_installation_metadata_missing",
+            f"resolved npm installation has no valid npm package.json: {resolved}",
+            environment_blocked=True,
+        )
+    version = str(payload.get("version") or "").strip()
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?", version):
+        raise ReleaseToolchainError(
+            "release_npm_installation_version_invalid",
+            f"resolved npm package has an invalid version: {version!r}",
+            environment_blocked=True,
+        )
+    package_root = package_json.parent
+    return {
+        "version": version,
+        "package_json_sha256": _sha256_file(package_json),
+        **_tree_digest(package_root),
+    }
+
+
 def _python_environment_digest(python: Path, *, cwd: Path) -> dict[str, Any]:
     code = (
         "import hashlib,json,importlib.metadata as m;"
@@ -533,7 +578,8 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
     uv = _resolved_executable("uv")
     docker = _resolved_executable("docker")
     actual_node = _run([str(node), "--version"], cwd=workspace).lstrip("v")
-    actual_npm = _run([str(npm), "--version"], cwd=workspace)
+    npm_installation = _npm_installation_identity(npm)
+    actual_npm = str(npm_installation["version"])
     actual_uv = _normalize_uv_version_output(_run([str(uv), "--version"], cwd=workspace))
     docker_client_version = _run([str(docker), "version", "--format", "{{.Client.Version}}"], cwd=workspace)
     docker_server_version = _run([str(docker), "version", "--format", "{{.Server.Version}}"], cwd=workspace)
@@ -565,6 +611,7 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
             "uv_sha256": _sha256_file(uv),
             "docker_sha256": _sha256_file(docker),
         },
+        "npm_installation": npm_installation,
         "docker": {
             "client_version": docker_client_version,
             "server_version": docker_server_version,
