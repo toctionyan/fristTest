@@ -1,0 +1,44 @@
+name: Fix uv Version Provenance
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/fix_uv_version_provenance.py
+      - .github/workflows/fix-uv-version-provenance.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - name: Apply bounded uv provenance repair
+        id: repair
+        shell: bash
+        run: |
+          if [ ! -f scripts/fix_uv_version_provenance.py ]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "${pythonLocation}/bin/python" -B scripts/fix_uv_version_provenance.py
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+      - name: Commit exact repaired tree
+        if: steps.repair.outputs.applied == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Normalize uv platform suffix in release provenance"
+          git push origin HEAD:${{ github.head_ref }}
