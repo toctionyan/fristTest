@@ -1,0 +1,38 @@
+name: one-time-finalize-production-request-007
+
+"on":
+  push:
+    branches:
+      - agent/request-production-certification-007
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-request:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Remove transient files and rebuild exact manifest
+        run: python -B .github/scripts/finalize_production_request_007.py
+      - name: Install focused test dependencies
+        run: python -m pip install --disable-pip-version-check pytest pyyaml
+      - name: Verify protected request boundary
+        run: >-
+          python -m pytest -q
+          services/agent-service/tests/architecture/test_production_certification_request_boundary.py
+      - name: Commit final immutable request tree
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize protected production certification 007"
+          git push origin HEAD:${GITHUB_REF_NAME}
