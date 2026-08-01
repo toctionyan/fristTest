@@ -401,12 +401,95 @@ def _python_environment_digest(python: Path, *, cwd: Path) -> dict[str, Any]:
     return {"distribution_count": int(payload.get("count") or 0), "distribution_set_sha256": str(payload["sha256"])}
 
 
+def _canonical_npm_dependency_tree(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep dependency identity while discarding npm diagnostic noise.
+
+    ``npm ls`` may return exit code 1 and add fields such as ``problems`` or
+    ``error`` for peer/optional dependency diagnostics even when the installed
+    tree is executable.  The byte-level ``node_modules`` digest remains the
+    authoritative mutation proof; this semantic tree records package names,
+    versions and dependency edges only.
+    """
+
+    def normalize_node(name: str, node: Any) -> dict[str, Any]:
+        if not isinstance(node, Mapping):
+            raise ReleaseToolchainError(
+                "release_npm_environment_invalid",
+                f"npm dependency node is invalid: {name}",
+            )
+        dependencies = node.get("dependencies") or {}
+        if not isinstance(dependencies, Mapping):
+            raise ReleaseToolchainError(
+                "release_npm_environment_invalid",
+                f"npm dependency children are invalid: {name}",
+            )
+        return {
+            "name": str(name),
+            "version": str(node.get("version") or ""),
+            "dependencies": [
+                normalize_node(str(child_name), child_node)
+                for child_name, child_node in sorted(
+                    dependencies.items(), key=lambda item: str(item[0])
+                )
+            ],
+        }
+
+    root_name = str(payload.get("name") or "").strip()
+    if not root_name:
+        raise ReleaseToolchainError(
+            "release_npm_environment_invalid",
+            "npm dependency tree has no root package name",
+        )
+    return normalize_node(root_name, payload)
+
+
 def _npm_tree_digest(frontend: Path) -> dict[str, Any]:
-    stdout = _run(["npm", "ls", "--all", "--json"], cwd=frontend)
-    payload = json.loads(stdout)
+    npm = _resolved_executable("npm")
+    try:
+        completed = subprocess.run(
+            [str(npm), "ls", "--all", "--offline", "--json"],
+            cwd=frontend,
+            text=True,
+            capture_output=True,
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReleaseToolchainError(
+            "release_toolchain_command_unavailable",
+            f"toolchain command failed: {npm}",
+            environment_blocked=True,
+        ) from exc
+
+    try:
+        payload = json.loads(completed.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ReleaseToolchainError(
+            "release_npm_environment_invalid",
+            "npm dependency tree did not emit valid JSON",
+            environment_blocked=True,
+        ) from exc
+    if completed.returncode not in (0, 1):
+        raise ReleaseToolchainError(
+            "release_toolchain_command_failed",
+            f"toolchain command returned {completed.returncode}: {npm}",
+            environment_blocked=True,
+        )
     if not isinstance(payload, dict):
-        raise ReleaseToolchainError("release_npm_environment_invalid", "npm dependency tree is invalid")
-    return {"dependency_tree_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+        raise ReleaseToolchainError(
+            "release_npm_environment_invalid",
+            "npm dependency tree is invalid",
+            environment_blocked=True,
+        )
+
+    canonical = _canonical_npm_dependency_tree(payload)
+    encoded = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {"dependency_tree_sha256": hashlib.sha256(encoded).hexdigest()}
 
 
 def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
