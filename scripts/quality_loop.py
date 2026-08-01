@@ -324,7 +324,12 @@ def _npm_executable(workspace: Path) -> Path | None:
     """
     system_npm = shutil.which("npm")
     if system_npm:
-        return Path(system_npm).resolve()
+        # Preserve the launcher path. Official Node distributions expose
+        # ``bin/npm`` as a symlink into ``lib/node_modules/npm/bin``. Resolving
+        # it moves ``npm.parent`` away from the sibling ``node`` executable;
+        # _run_shell would then prepend npm's package-internal bin directory to
+        # PATH and later gates would discover the non-launcher ``npm`` script.
+        return Path(system_npm).absolute()
     tools_root = workspace / ".quality" / "tools"
     if not tools_root.is_dir():
         return None
