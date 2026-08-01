@@ -158,9 +158,33 @@ def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     return "real_model_identity_invalid"
 
 
+def _semantic_failure_code(*, stage: str, exc: Exception) -> str:
+    message = str(exc)
+    known = (
+        ("goal count mismatch", "semantic_goal_count_mismatch"),
+        ("duplicate goal_id", "semantic_duplicate_goal_id"),
+        ("no unique model goal matches oracle", "semantic_oracle_goal_mismatch"),
+        ("model emitted undeclared extra goals", "semantic_extra_goal"),
+        ("goal dependency mismatch", "semantic_dependency_mismatch"),
+        ("oracle and model goals must declare stable IDs", "semantic_goal_id_missing"),
+        ("production goal declaration rejected model output", "semantic_production_goal_contract_rejected"),
+        ("did not emit exactly one declare_turn_goals", "semantic_tool_call_shape_invalid"),
+        ("expected exactly 12 semantic prototypes", "semantic_catalog_count_invalid"),
+        ("must currently be single-turn", "semantic_catalog_turn_shape_invalid"),
+    )
+    for marker, code in known:
+        if marker in message:
+            return code
+    normalized_stage = re.sub(r"[^a-z0-9_]+", "_", str(stage or "unknown").casefold()).strip("_")
+    return f"semantic_{normalized_stage or 'unknown'}_failed"
+
+
 def main() -> int:
+    current_case_id = ""
+    failure_stage = "identity"
     try:
         identity = resolve_real_model_identity()
+        failure_stage = "catalog_load"
         payload = json.loads(CATALOG.read_text(encoding="utf-8"))
         cases = [
             row for row in payload.get("cases") or []
@@ -173,6 +197,7 @@ def main() -> int:
         if any(len(_user_turns(case)) != 1 for case in cases):
             raise RuntimeError("preproduction semantic prototypes must currently be single-turn")
 
+        failure_stage = "model_initialize"
         model = get_model()
         bound = model.bind_tools(planning_schemas()) if hasattr(model, "bind_tools") else model
         evidence: list[dict[str, Any]] = []
@@ -184,28 +209,35 @@ def main() -> int:
         # so each prototype may consume one declaration call and one verifier call.
         with model_call_scope(max_calls=24, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
+                current_case_id = str(case["id"])
                 turn = case["execution_contract"]["turn_contracts"][0]
+                failure_stage = "model_invoke"
                 response, trace = invoke_model(
                     purpose=f"preprod_semantic_goal:{case['id']}",
                     model=bound,
                     payload=[system, HumanMessage(content=str(turn["user_text"]))],
                 )
+                failure_stage = "metadata_attestation"
                 attestation = attest_real_model_metadata(
                     response=response,
                     identity=identity,
                 )
+                failure_stage = "tool_call_shape"
                 candidates = tool_calls(response)
                 if len(candidates) != 1 or str(candidates[0].get("name") or "") != "declare_turn_goals":
                     raise RuntimeError(f"{case['id']}: model did not emit exactly one declare_turn_goals call")
                 args = candidates[0].get("args") if isinstance(candidates[0].get("args"), dict) else {}
                 goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
                 oracle = [row for row in list(turn.get("goal_oracle") or []) if isinstance(row, dict)]
+                failure_stage = "oracle_match"
                 _match_oracle(case_id=case["id"], oracle=oracle, goals=goals)
+                failure_stage = "production_goal_contract"
                 declared = _validate_with_production_goal_contract(
                     case_id=str(case["id"]),
                     user_text=str(turn["user_text"]),
                     goals=goals,
                 )
+                failure_stage = "evidence_append"
                 evidence.append({
                     "case_id": case["id"],
                     "goal_count": len(goals),
@@ -251,9 +283,11 @@ def main() -> int:
         print(json.dumps({
             "status": "BLOCKED_BY_ENVIRONMENT" if environment_blocked else "FAIL",
             "error_type": exc.__class__.__name__,
+            "error_code": _semantic_failure_code(stage=failure_stage, exc=exc),
             "error_category": category,
             "reason": "configured_model_environment_unavailable" if environment_blocked else "semantic_prototype_certification_failed",
-            "error": str(exc),
+            "case_id": current_case_id,
+            "failure_stage": failure_stage,
         }, ensure_ascii=False))
         return 78 if environment_blocked else 1
 

@@ -118,6 +118,8 @@ def _safe_component_failure(component: str, payload: Mapping[str, Any]) -> dict[
                     "error_code",
                     "error_type",
                     "error_category",
+                    "case_id",
+                    "failure_stage",
                 )
                 if str(nested_failure.get(key) or "").strip()
             }
