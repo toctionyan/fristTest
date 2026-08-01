@@ -130,6 +130,21 @@ def test_uv_bootstrap_is_exact_and_hash_locked() -> None:
     assert "include-hidden-files: true" in evidence_upload
 
 
+def test_uv_version_output_normalizes_platform_suffix_without_relaxing_version_identity() -> None:
+    contract = _toolchain()
+    assert contract._normalize_uv_version_output("uv 0.11.29") == "0.11.29"
+    assert (
+        contract._normalize_uv_version_output("uv 0.11.29 (x86_64-unknown-linux-gnu)")
+        == "0.11.29"
+    )
+    assert (
+        contract._normalize_uv_version_output("uv 0.11.30 (x86_64-unknown-linux-gnu)")
+        == "0.11.30"
+    )
+    with pytest.raises(Exception, match="unexpected uv --version output"):
+        contract._normalize_uv_version_output("uv 0.11.29 injected-suffix")
+
+
 def test_toolchain_provenance_tamper_is_rejected(tmp_path: Path) -> None:
     contract = _toolchain()
     run_identity = {"contract": "release-run-identity@1", "status": "PASS"}
