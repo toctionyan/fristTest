@@ -46,6 +46,7 @@ from release_toolchain_contract import (  # noqa: E402
     validate_runtime_evidence,
 )
 from release_run_identity import FINGERPRINT_ENV as RUN_IDENTITY_FINGERPRINT_ENV  # noqa: E402
+from locked_python import locked_project_python  # noqa: E402
 
 CONTRACT = "production-release-execution@2"
 AUTHORITY_GATE = "production-certification-bundle"
@@ -667,6 +668,70 @@ def _validate_artifacts(output: Path, *, artifact_name: str) -> list[dict[str, A
     ]
 
 
+def _run_quality_in_owned_runtime(
+    command: Sequence[str],
+    *,
+    workspace: Path,
+    evidence_dir: Path,
+    source_env: Mapping[str, str],
+    command_runner,
+) -> int:
+    """Run cumulative Release gates with owned disposable integration dependencies."""
+
+    try:
+        from run_managed_quality_integration import ManagedPostgres
+        from verify_full_lifecycle_canary import ProductRuntimeHarness
+    except Exception as exc:
+        _raise(
+            "managed_quality_runtime_import_failed",
+            f"owned quality runtime could not be loaded: {exc.__class__.__name__}: {exc}",
+            stage="quality_runtime",
+        )
+
+    agent_python = locked_project_python(workspace, "agent", env=source_env)
+    business_python = locked_project_python(workspace, "business", env=source_env)
+    try:
+        with ManagedPostgres() as postgres, ProductRuntimeHarness(
+            persistence_url=postgres.url
+        ) as product:
+            # Product processes retain their deterministic provider environment.
+            # The controller receives the protected provider credentials again so
+            # the final production Bundle proves the official model in the same run.
+            environment = product.env.copy()
+            environment.update({str(key): str(value) for key, value in source_env.items()})
+            environment.update({
+                "AGENT_TEST_POSTGRES_URL": postgres.url,
+                "BUSINESS_TEST_POSTGRES_URL": postgres.url,
+                "BUSINESS_SERVICE_BASE_URL": product.business_url,
+                "BUSINESS_SERVICE_TOKEN": product.business_service_token,
+                "AGENT_TEST_URL": product.agent_url,
+                "BUSINESS_TEST_URL": product.business_url,
+                "PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA": "true",
+                "QUALITY_PYTHON_EXECUTABLE": str(agent_python),
+                "QUALITY_AGENT_PYTHON": str(agent_python),
+                "QUALITY_BUSINESS_PYTHON": str(business_python),
+            })
+            return command_runner(command, cwd=workspace, env=environment)
+    except ProductionReleaseExecutionError:
+        raise
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        text = str(exc)
+        environment_blocked = any(marker in text.lower() for marker in (
+            "docker command",
+            "docker daemon",
+            "failed to start managed pgvector",
+            "did not become ready",
+            "connection refused",
+            "temporary failure in name resolution",
+        ))
+        _raise(
+            "managed_quality_runtime_unavailable" if environment_blocked else "managed_quality_runtime_failed",
+            text,
+            stage="quality_runtime",
+            environment_blocked=environment_blocked,
+        )
+
+
 def run_production_release(
     *,
     workspace_root: Path,
@@ -718,7 +783,17 @@ def run_production_release(
         python_executable=python,
     )
 
-    if command_runner(plan["quality_command"], cwd=workspace, env=source_env) != 0:
+    if command_runner is _run and require_ci:
+        quality_exit = _run_quality_in_owned_runtime(
+            plan["quality_command"],
+            workspace=workspace,
+            evidence_dir=evidence,
+            source_env=source_env,
+            command_runner=command_runner,
+        )
+    else:
+        quality_exit = command_runner(plan["quality_command"], cwd=workspace, env=source_env)
+    if quality_exit != 0:
         raise _quality_failure_from_evidence(evidence)
 
     if require_ci:

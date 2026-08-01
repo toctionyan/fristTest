@@ -31,6 +31,8 @@ def _load_real_model_identity_module():
 _identity_module = _load_real_model_identity_module()
 RealModelCertificationError = _identity_module.RealModelCertificationError
 resolve_real_model_identity = _identity_module.resolve_real_model_identity
+from locked_python import locked_project_python  # noqa: E402
+
 from production_certification_contract import (  # noqa: E402
     ProductionCertificationError,
     postgres_database_identity,
@@ -99,7 +101,7 @@ def _validate_runtime_authority(runtime: Mapping[str, Any]) -> None:
 
 def _run_journey(args: list[str], *, env_override: Mapping[str, str]) -> tuple[int, dict[str, Any]]:
     completed = subprocess.run(
-        [sys.executable, "-B", str(ROOT / "scripts" / "verify_product_browser_journey.py"), *args],
+        [str(locked_project_python(ROOT, "agent", env=env_override)), "-B", str(ROOT / "scripts" / "verify_product_browser_journey.py"), *args],
         cwd=ROOT,
         env={**os.environ, **{str(key): str(value) for key, value in env_override.items()}},
         text=True,

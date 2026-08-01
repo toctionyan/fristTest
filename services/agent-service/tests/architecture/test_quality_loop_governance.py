@@ -894,7 +894,7 @@ def test_repair_orchestrator_builds_stable_issue_records(tmp_path: Path) -> None
         target_kind="repair",
     )
     root = workspace_root(__file__)
-    for script_name in ("quality_loop.py", "source_paths.py", "repair_loop.py"):
+    for script_name in ("quality_loop.py", "locked_python.py", "source_paths.py", "repair_loop.py"):
         source = root / "scripts" / script_name
         destination = workspace / "scripts" / script_name
         destination.parent.mkdir(parents=True, exist_ok=True)

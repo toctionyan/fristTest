@@ -16,6 +16,8 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from locked_python import locked_project_python  # noqa: E402
+
 from production_certification_contract import (  # noqa: E402
     BUNDLE_CONTRACT,
     COMPONENT_ENV,
@@ -63,7 +65,7 @@ def _default_runner(
     workspace_root: Path,
 ) -> Mapping[str, Any]:
     completed = subprocess.run(
-        [sys.executable, "-B", str(script_path)],
+        [str(locked_project_python(workspace_root, "agent", env=env)), "-B", str(script_path)],
         cwd=workspace_root,
         env={**os.environ, **{str(key): str(value) for key, value in env.items()}},
         text=True,
