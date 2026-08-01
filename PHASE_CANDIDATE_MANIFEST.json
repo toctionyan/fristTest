@@ -3,7 +3,7 @@
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
   "phase": "B17i",
   "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1058,
+  "file_count": 1059,
   "required_environment": [
     "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
@@ -169,7 +169,7 @@
     {
       "path": ".github/production-certification-request.json",
       "size": 238,
-      "sha256": "0a22d2aee417b2192b52dc2a061399c85657a821cd23ec0c7bae3283f4b98b70"
+      "sha256": "32f87a13583d527bf9267fe440cf726f6f15659ab4fdc76bded98a02ad07fbe5"
     },
     {
       "path": ".github/workflows/integration-diagnostic.yml",
@@ -2108,8 +2108,8 @@
     },
     {
       "path": "scripts/release_toolchain_contract.py",
-      "size": 29152,
-      "sha256": "518b810057994075c4ed68e3bc4abe139a9396cc89b079d0a3cc5d92125481b1"
+      "size": 32068,
+      "sha256": "5ec22d179acd23008e19905199d161f79ef19e6573a6afa0f480a5202e6f7580"
     },
     {
       "path": "scripts/repair_loop.py",
@@ -4505,6 +4505,11 @@
       "path": "services/agent-service/tests/runtime/test_release_runtime_database_authority.py",
       "size": 4520,
       "sha256": "706801f9809ae9abd9fb9cc2b1a5200313d7f38b1843def49818865bd0fa9275"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_release_toolchain_npm_diagnostics.py",
+      "size": 4199,
+      "sha256": "c0f694d754a1f3c7eec889ad872ec5e7af19e60df2105d0af84d22992660fc65"
     },
     {
       "path": "services/agent-service/tests/runtime/test_scripted_chat_model.py",
