@@ -21,28 +21,30 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.ref }}
-      - name: Read latest release workflow run
+      - name: Read latest release and repair workflow runs
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p .github/diagnostics
-          runs_url="repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?per_page=10"
-          gh api "$runs_url" > /tmp/runs.json
-          run_id="$(jq -r '.workflow_runs[0].id // empty' /tmp/runs.json)"
-          if [ -z "$run_id" ]; then
-            jq -n '{error:"no release workflow run found"}' > .github/diagnostics/latest-release-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?per_page=10" > /tmp/release-runs.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=agent%2Fpreserve-real-model-failure-evidence&per_page=30" > /tmp/repair-runs.json
+          release_id="$(jq -r '.workflow_runs[0].id // empty' /tmp/release-runs.json)"
+          if [ -n "$release_id" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${release_id}/jobs?per_page=100" > /tmp/release-jobs.json
           else
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" > /tmp/jobs.json
-            jq -n \
-              --argjson run "$(jq '.workflow_runs[0]' /tmp/runs.json)" \
-              --argjson jobs "$(jq '.jobs' /tmp/jobs.json)" \
-              '{run:$run,jobs:$jobs}' > .github/diagnostics/latest-release-run.json
+            printf '{"jobs":[]}' > /tmp/release-jobs.json
           fi
+          jq -n \
+            --argjson release_runs "$(jq '.workflow_runs' /tmp/release-runs.json)" \
+            --argjson release_jobs "$(jq '.jobs' /tmp/release-jobs.json)" \
+            --argjson repair_runs "$(jq '.workflow_runs' /tmp/repair-runs.json)" \
+            '{release_runs:$release_runs,release_jobs:$release_jobs,repair_runs:$repair_runs}' \
+            > .github/diagnostics/latest-release-run.json
       - name: Commit diagnostic result
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/diagnostics/latest-release-run.json
-          git commit -m "Record latest release workflow failure" || exit 0
+          git commit -m "Record release and repair workflow state" || exit 0
           git push origin HEAD:${GITHUB_REF_NAME}
