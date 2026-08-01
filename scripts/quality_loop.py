@@ -41,6 +41,47 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from source_paths import is_runtime_artifact_path
+try:
+    from locked_python import locked_project_python
+except ModuleNotFoundError as exc:
+    if exc.name != "locked_python":
+        raise
+
+    def locked_project_python(
+        workspace: Path,
+        project: str = "agent",
+        *,
+        env: dict[str, str] | None = None,
+    ) -> Path:
+        """Fallback for intentionally minimal controller test workspaces."""
+
+        projects = {
+            "agent": "services/agent-service",
+            "business": "services/business-service",
+        }
+        if project not in projects:
+            raise ValueError(f"unknown locked Python project: {project}")
+        source = os.environ if env is None else env
+        project_env = (
+            "QUALITY_AGENT_PYTHON" if project == "agent" else "QUALITY_BUSINESS_PYTHON"
+        )
+        candidates = [
+            str(source.get(project_env) or "").strip(),
+            (
+                str(source.get("QUALITY_PYTHON_EXECUTABLE") or "").strip()
+                if project == "agent"
+                else ""
+            ),
+            str(Path(workspace) / projects[project] / ".venv" / "bin" / "python"),
+            str(sys.executable),
+        ]
+        for raw in candidates:
+            if not raw:
+                continue
+            candidate = Path(raw).expanduser().absolute()
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
+        raise RuntimeError(f"no executable locked {project} Python interpreter")
 
 CONTROL_PLANE_DIR = SCRIPTS_DIR.parent / "skill-system" / "controller"
 if str(CONTROL_PLANE_DIR) not in sys.path:
@@ -304,9 +345,10 @@ def _npm_executable(workspace: Path) -> Path | None:
 
 def _interpolate(value: str, *, workspace: Path, evidence_dir: Path, mode: str) -> str:
     npm = _npm_executable(workspace)
+    python = locked_project_python(workspace, "agent")
     return value.format(
         workspace=str(workspace),
-        python=sys.executable,
+        python=str(python),
         npm=str(npm) if npm else "npm",
         evidence_dir=str(evidence_dir),
         mode=mode,
@@ -1333,6 +1375,9 @@ def _run_shell(workspace: Path, evidence_dir: Path, mode: str, step: dict[str, A
     env["QUALITY_EVIDENCE_DIR"] = str(evidence_dir)
     env["QUALITY_LOOP_MODE"] = mode
     env["QUALITY_GATE_ID"] = str(step.get("id") or "")
+    env["QUALITY_PYTHON_EXECUTABLE"] = str(locked_project_python(workspace, "agent", env=env))
+    env["QUALITY_AGENT_PYTHON"] = str(locked_project_python(workspace, "agent", env=env))
+    env["QUALITY_BUSINESS_PYTHON"] = str(locked_project_python(workspace, "business", env=env))
     npm = _npm_executable(workspace)
     if npm is not None:
         env["PATH"] = str(npm.parent) + os.pathsep + env.get("PATH", "")
@@ -2344,7 +2389,7 @@ def _repair_plan(
         if result["status"] not in {FAIL, BLOCKED}:
             continue
         rerun: list[str] = [
-            sys.executable,
+            str(locked_project_python(workspace, "agent")),
             "-B",
             str(workspace / "scripts" / "quality_loop.py"),
             "--workspace-root",
