@@ -1,4 +1,5 @@
 name: Configure DeepSeek and Alibaba Defaults
+# Retrigger after the workflow became visible on the branch.
 
 "on":
   push:
