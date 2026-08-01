@@ -2093,8 +2093,8 @@
     },
     {
       "path": "scripts/release_toolchain_contract.py",
-      "size": 28646,
-      "sha256": "9f864934e319dec5b5a1a8cb7b4a857e7c72dc1633521c34d655674e2e6e071f"
+      "size": 29152,
+      "sha256": "518b810057994075c4ed68e3bc4abe139a9396cc89b079d0a3cc5d92125481b1"
     },
     {
       "path": "scripts/repair_loop.py",
@@ -4383,8 +4383,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17e_release_supply_chain_authority.py",
-      "size": 10962,
-      "sha256": "b88378e4800b3b89821449d5615e15c62921e85a2bbefa2c6e032eb779db9985"
+      "size": 11572,
+      "sha256": "60218df64f69536f9500d1ee151b34964e03d0e245caa4d909849dad702d6e2e"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17f_ci_run_identity_replay_authority.py",
