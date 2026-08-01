@@ -169,7 +169,7 @@
     {
       "path": ".github/production-certification-request.json",
       "size": 238,
-      "sha256": "2b6ce11869305b11953c4a0964aadf94a09032e25a022e8a01ae44777fab9b67"
+      "sha256": "f6e4294f148c7f7036ac791629ac278afe4e2a411d6468755b221a62866a875a"
     },
     {
       "path": ".github/workflows/integration-diagnostic.yml",
@@ -4083,8 +4083,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_production_certification_request_boundary.py",
-      "size": 2207,
-      "sha256": "c3d1a333e8a23280dfdbeeb6ecacc8bf99e0ab498ce5dc140ea5b781d19b22e5"
+      "size": 2258,
+      "sha256": "9516e6beeba5a6ad53eb288b7b67bed3055130181d8cb57766923f2b98911924"
     },
     {
       "path": "services/agent-service/tests/architecture/test_production_security_contract.py",
