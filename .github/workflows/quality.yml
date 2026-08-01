@@ -36,11 +36,12 @@ jobs:
           services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py
           services/agent-service/tests/runtime/test_b15c3_real_model_release_bundle_authority.py
           services/agent-service/tests/runtime/test_production_component_failure_evidence.py
-      - name: Restore authoritative quality workflow and commit repair
+      - name: Restore authoritative workflows and commit repair
         shell: bash
         run: |
           git fetch origin main --depth=1
           git checkout origin/main -- .github/workflows/quality.yml
+          git checkout origin/main -- .github/workflows/temporary-auto-release-after-real-model-repair.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
