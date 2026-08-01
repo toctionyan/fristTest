@@ -3,7 +3,7 @@
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
   "phase": "B17i",
   "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1052,
+  "file_count": 1054,
   "required_environment": [
     "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
@@ -2060,6 +2060,11 @@
       "path": "scripts/create_ci_quality_target.py",
       "size": 7881,
       "sha256": "c039edb956961af69bf6cbe46e6dc067bb6632ab1475952e0f89a1df1eb7fd9f"
+    },
+    {
+      "path": "scripts/locked_python.py",
+      "size": 1463,
+      "sha256": "d40bc4a129a946c562ca9ac6d8384933356005017d0db0548c320ed1d6602b21"
     },
     {
       "path": "scripts/production_certification_contract.py",
@@ -4475,6 +4480,11 @@
       "path": "services/agent-service/tests/runtime/test_pretool_shadow_planner.py",
       "size": 7553,
       "sha256": "a56e8c03be412241c3ab87e7b0b15c1dd80cca857964ee58de2a365d263c33d3"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_release_owned_runtime_boundary.py",
+      "size": 5904,
+      "sha256": "dec98937741aa490407657f96b13ea0e3d2d766e2100e1321306ed3a3344f0a0"
     },
     {
       "path": "services/agent-service/tests/runtime/test_scripted_chat_model.py",
