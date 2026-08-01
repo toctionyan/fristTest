@@ -6,14 +6,13 @@ name: temporary-auto-release-after-real-model-repair
       - main
     paths:
       - .github/workflows/temporary-auto-release-after-real-model-repair.yml
+      - services/agent-service/scripts/verify_preprod_conversation_smoke.py
+      - services/agent-service/src/agent_core/model_calls/real_model_certification_bundle.py
       - scripts/verify_production_certification_bundle.py
-      - services/agent-service/scripts/verify_model_smoke.py
-      - services/agent-service/src/agent_core/model_calls/real_model_identity.py
 
 permissions:
   actions: write
   contents: read
-  issues: write
 
 concurrency:
   group: temporary-auto-release-after-real-model-repair
@@ -23,58 +22,22 @@ jobs:
   dispatch-protected-release:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Dispatch or recover protected production certification
-        id: release
+      - name: Dispatch protected production certification
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          runs_api="repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&head_sha=${GITHUB_SHA}&per_page=10"
-          run_id="$(gh api "$runs_api" --jq '.workflow_runs[0].id // empty')"
-
-          if [ -z "$run_id" ]; then
-            jq -n '{
-              ref: "main",
-              inputs: {
-                provider: "deepseek",
-                model: "deepseek-v4-flash",
-                embedding_model: "text-embedding-v4",
-                embedding_dimension: "1024"
-              }
-            }' | gh api \
-              --method POST \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
-              --input -
-          fi
-
-          for _ in $(seq 1 30); do
-            run_json="$(gh api "$runs_api")"
-            run_id="$(jq -r '.workflow_runs[0].id // empty' <<<"$run_json")"
-            if [ -n "$run_id" ]; then
-              run_status="$(jq -r '.workflow_runs[0].status // "unknown"' <<<"$run_json")"
-              run_url="$(jq -r '.workflow_runs[0].html_url // empty' <<<"$run_json")"
-              break
-            fi
-            sleep 2
-          done
-
-          if [ -z "${run_id:-}" ]; then
-            echo "Protected release dispatch succeeded but no run was discoverable." >&2
-            exit 1
-          fi
-
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "run_status=${run_status:-unknown}" >> "$GITHUB_OUTPUT"
-          echo "run_url=${run_url:-}" >> "$GITHUB_OUTPUT"
-
-      - name: Record protected release run for automated repair
-        shell: bash
-        run: |
-          marker="auto-real-model-release:${GITHUB_SHA}"
-          gh issue comment 7 --body "${marker}
-
-Protected release run: ${{ steps.release.outputs.run_id }}
-Initial status: ${{ steps.release.outputs.run_status }}
-Run: ${{ steps.release.outputs.run_url }}"
+          jq -n '{
+            ref: "main",
+            inputs: {
+              provider: "deepseek",
+              model: "deepseek-v4-flash",
+              embedding_model: "text-embedding-v4",
+              embedding_dimension: "1024"
+            }
+          }' | gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            --input -
