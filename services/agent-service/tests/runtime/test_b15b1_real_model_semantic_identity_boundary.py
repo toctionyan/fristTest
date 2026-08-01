@@ -150,6 +150,9 @@ def _patch_successful_semantic_runtime(monkeypatch, script, tmp_path: Path, *, i
 
 def test_semantic_prototype_missing_key_is_environment_blocked_before_invocation(monkeypatch) -> None:
     script = _load_script()
+    # This test owns an OpenAI missing-key scenario and must not inherit the
+    # protected Release provider (for example DeepSeek) from the parent job.
+    monkeypatch.setenv("REAL_MODEL_CERTIFICATION_PROVIDER", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)

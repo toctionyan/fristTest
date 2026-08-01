@@ -4338,13 +4338,13 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py",
-      "size": 8355,
-      "sha256": "6df0821e25935f5775aa32c811c3982357e5464dda4fa7d7fbc47e00e730a8b8"
+      "size": 8579,
+      "sha256": "d51f1262b918c4ca26e09bd075a247bf4f615acdd3fc465539bdb7c9fdf0df60"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py",
-      "size": 5911,
-      "sha256": "a834200971f8d92339449f6d55abb7c60e46ac85534403c660816ce210b0fec7"
+      "size": 6110,
+      "sha256": "ba917f356d18c2e0e2f66e921273f9bd8d02f7a10378f1c34d2ff38b9a52b43e"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b15c3_real_model_release_bundle_authority.py",

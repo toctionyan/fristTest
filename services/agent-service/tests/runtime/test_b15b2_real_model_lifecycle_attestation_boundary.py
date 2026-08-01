@@ -83,6 +83,9 @@ def test_full_lifecycle_missing_key_is_environment_blocked_before_start(monkeypa
             self.env = {"OPENAI_MODEL": "gpt-4o-mini"}
 
     Harness.entered = 0
+    # Isolate the intended OpenAI missing-key scenario from production
+    # Workflow variables inherited by the pytest process.
+    monkeypatch.setenv("REAL_MODEL_CERTIFICATION_PROVIDER", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
