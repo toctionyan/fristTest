@@ -86,6 +86,8 @@ def _default_runner(
 def _safe_component_failure(component: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Keep only bounded diagnostic fields; never expose credentials or model text."""
 
+    # Emit diagnostics at the final production boundary so one protected rerun is
+    # sufficient to locate a failed nested component without retaining raw logs.
     evidence: dict[str, Any] = {
         "component": component,
         "status": str(payload.get("status") or "FAIL"),
