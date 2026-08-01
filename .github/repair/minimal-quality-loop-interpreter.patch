@@ -1,0 +1,53 @@
+diff --git a/scripts/quality_loop.py b/scripts/quality_loop.py
+index 4ebb44c..768eddf 100644
+--- a/scripts/quality_loop.py
++++ b/scripts/quality_loop.py
+@@ -41,7 +41,47 @@ if str(SCRIPTS_DIR) not in sys.path:
+     sys.path.insert(0, str(SCRIPTS_DIR))
+ 
+ from source_paths import is_runtime_artifact_path
+-from locked_python import locked_project_python
++try:
++    from locked_python import locked_project_python
++except ModuleNotFoundError as exc:
++    if exc.name != "locked_python":
++        raise
++
++    def locked_project_python(
++        workspace: Path,
++        project: str = "agent",
++        *,
++        env: dict[str, str] | None = None,
++    ) -> Path:
++        """Fallback for intentionally minimal controller test workspaces."""
++
++        projects = {
++            "agent": "services/agent-service",
++            "business": "services/business-service",
++        }
++        if project not in projects:
++            raise ValueError(f"unknown locked Python project: {project}")
++        source = os.environ if env is None else env
++        project_env = (
++            "QUALITY_AGENT_PYTHON" if project == "agent" else "QUALITY_BUSINESS_PYTHON"
++        )
++        candidates = [
++            str(source.get(project_env) or "").strip(),
++            (
++                str(source.get("QUALITY_PYTHON_EXECUTABLE") or "").strip()
++                if project == "agent"
++                else ""
++            ),
++            str(Path(workspace) / projects[project] / ".venv" / "bin" / "python"),
++            str(sys.executable),
++        ]
++        for raw in candidates:
++            if not raw:
++                continue
++            candidate = Path(raw).expanduser().absolute()
++            if candidate.is_file() and os.access(candidate, os.X_OK):
++                return candidate
++        raise RuntimeError(f"no executable locked {project} Python interpreter")
+ 
+ CONTROL_PLANE_DIR = SCRIPTS_DIR.parent / "skill-system" / "controller"
+ if str(CONTROL_PLANE_DIR) not in sys.path:
