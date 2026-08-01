@@ -3,7 +3,7 @@
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
   "phase": "B17i",
   "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1062,
+  "file_count": 1061,
   "required_environment": [
     "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
@@ -165,11 +165,6 @@
       "path": ".codex/config.toml",
       "size": 744,
       "sha256": "60e7a4620b680a385f182f1b46e5844eb4db5f7159d7a2a4751d4fbeb0b77f64"
-    },
-    {
-      "path": ".github/diagnostics/production-request-007-trigger.txt",
-      "size": 36,
-      "sha256": "d49117430fc8ce43e454c47b35a613639b5902113e3ea8f49c52825d68f68bd6"
     },
     {
       "path": ".github/production-certification-request.json",
