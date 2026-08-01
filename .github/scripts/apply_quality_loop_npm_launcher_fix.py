@@ -61,8 +61,7 @@ def _load_quality_loop():
     return module
 
 
-def _node_distribution(tmp_path: Path) -> tuple[Path, Path, Path]:
-    root = tmp_path / "node-dist"
+def _node_distribution(root: Path) -> tuple[Path, Path, Path]:
     launcher_dir = root / "bin"
     package_bin = root / "lib" / "node_modules" / "npm" / "bin"
     launcher_dir.mkdir(parents=True)
@@ -88,7 +87,7 @@ def test_system_npm_keeps_launcher_directory_with_sibling_node(
     tmp_path: Path,
 ) -> None:
     module = _load_quality_loop()
-    npm_launcher, node, internal_npm = _node_distribution(tmp_path)
+    npm_launcher, node, internal_npm = _node_distribution(tmp_path / "node-dist")
     monkeypatch.setattr(module.shutil, "which", lambda name: str(npm_launcher) if name == "npm" else None)
 
     selected = module._npm_executable(tmp_path)
@@ -96,9 +95,8 @@ def test_system_npm_keeps_launcher_directory_with_sibling_node(
     assert selected == npm_launcher.absolute()
     assert selected != npm_launcher.resolve()
     assert selected.parent / "node" == node
-    assert (selected.parent / "node").is_file()
+    assert selected.parent != internal_npm.parent
     quality_path = str(selected.parent) + os.pathsep + str(internal_npm.parent)
-    assert Path(module.shutil.which("npm") or "") == npm_launcher
     assert quality_path.split(os.pathsep, 1)[0] == str(npm_launcher.parent)
 
 
@@ -107,26 +105,18 @@ def test_managed_npm_launcher_is_also_not_resolved(
     tmp_path: Path,
 ) -> None:
     module = _load_quality_loop()
-    npm_launcher, node, _internal_npm = _node_distribution(tmp_path / ".quality" / "tools" / "node-24.18.0")
     workspace = tmp_path
-    expected = workspace / ".quality" / "tools" / "node-24.18.0" / "node-dist" / "bin" / "npm"
-    # Recreate the managed layout expected by quality_loop.
-    expected.parent.mkdir(parents=True, exist_ok=True)
-    managed_node = expected.parent / "node"
-    managed_node.write_text(node.read_text(encoding="utf-8"), encoding="utf-8")
-    managed_node.chmod(0o755)
-    managed_cli = expected.parent.parent / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js"
-    managed_cli.parent.mkdir(parents=True, exist_ok=True)
-    managed_cli.write_text("#!/usr/bin/env node\\n", encoding="utf-8")
-    managed_cli.chmod(0o755)
-    expected.symlink_to(Path("../lib/node_modules/npm/bin/npm-cli.js"))
+    npm_launcher, node, internal_npm = _node_distribution(
+        workspace / ".quality" / "tools" / "node-24.18.0"
+    )
     monkeypatch.setattr(module.shutil, "which", lambda _name: None)
 
     selected = module._npm_executable(workspace)
 
-    assert selected == expected.absolute()
-    assert selected != expected.resolve()
-    assert (selected.parent / "node").is_file()
+    assert selected == npm_launcher.absolute()
+    assert selected != npm_launcher.resolve()
+    assert selected.parent / "node" == node
+    assert selected.parent != internal_npm.parent
 ''',
     encoding="utf-8",
 )
