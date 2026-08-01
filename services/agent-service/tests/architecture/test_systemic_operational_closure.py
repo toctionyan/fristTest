@@ -193,7 +193,7 @@ def test_strong_context_browser_gate_is_semantic_and_mutation_guarded() -> None:
     policy = json.loads((ROOT / "governance/quality-loop-policy.json").read_text(encoding="utf-8"))
     steps = {step["id"]: step for step in policy["steps"]}
     gate = steps["configured-model-browser-conversation"]
-    assert set(gate["modes"]) == {"integration"}
+    assert set(gate["modes"]) == {"release"}
     assert steps["production-certification-bundle"]["modes"] == ["release"]
     assert gate["blocking_level"] == "required"
     assert gate["rerun_contract"] == "dependency_closure_then_downstream"

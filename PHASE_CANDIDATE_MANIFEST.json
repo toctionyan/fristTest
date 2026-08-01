@@ -4138,8 +4138,8 @@
     },
     {
       "path": "services/agent-service/tests/architecture/test_systemic_operational_closure.py",
-      "size": 11585,
-      "sha256": "bb9638d3ad72107becec6a4688cf27f8e3a7cec7e7319af6f6ce93416e447dc3"
+      "size": 11581,
+      "sha256": "ed9bf805ab8f62f052a3f956fc0113513eb687e45b8f9065b8c069f50ea1ae31"
     },
     {
       "path": "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py",
