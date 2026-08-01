@@ -178,8 +178,8 @@
     },
     {
       "path": ".github/workflows/release.yml",
-      "size": 10577,
-      "sha256": "23826695ba916fbb8e2ec2a53a4f2bdb0df8f3087a05b6844f1d4d08c98661a0"
+      "size": 10777,
+      "sha256": "f6408bc79dfc1d84823cfedf92900ec139737bc3c33360e1389d05aaa4c4d767"
     },
     {
       "path": ".gitignore",
@@ -778,18 +778,18 @@
     },
     {
       "path": "docs/operations/B17H_PROTECTED_RELEASE_HANDOFF.md",
-      "size": 1953,
-      "sha256": "ddc2206c2d0ed91d1d28179cc1edff556861bedd09f480521ab949cdce1ae32f"
+      "size": 2037,
+      "sha256": "3ded6a015bbccff5b05aa7ebf13b662a218f8a3b7d1adec8d717e91eb8dcc387"
     },
     {
       "path": "docs/operations/B17I_FINAL_PRODUCTION_EXECUTION_RUNBOOK.md",
-      "size": 3717,
-      "sha256": "294611ba04ddc768db9d0aba4a7cbfc6d095dc84df1de2bccae4440a61dbe7a1"
+      "size": 3831,
+      "sha256": "090eb06a4c5449c40a10ab226e0d4a992b0bbb17f41c10abd8f5cc7da9a8a302"
     },
     {
       "path": "docs/operations/CONFIGURATION.md",
-      "size": 5437,
-      "sha256": "85779efda4d329d2b4dc500b933043f77c66088566f1c357718ac337007498c9"
+      "size": 5440,
+      "sha256": "93320a3e14b907b54502a51a094154bcce1d12749405134f27a8432b42bce2af"
     },
     {
       "path": "docs/operations/local-development.md",
@@ -2218,8 +2218,8 @@
     },
     {
       "path": "services/agent-service/.env.example",
-      "size": 3912,
-      "sha256": "8e6c360b58b57e325c562cdebc13a4ca736e193cef530826ee25eb498fcaa3f8"
+      "size": 4069,
+      "sha256": "c63e63fc58bd2b237f78dfbf0f703a630b00dea217f66a35d7e8c3b54ca75a07"
     },
     {
       "path": "services/agent-service/.gitignore",
@@ -3283,8 +3283,8 @@
     },
     {
       "path": "services/agent-service/src/agent_core/rag/embedding_providers/openai_provider.py",
-      "size": 2408,
-      "sha256": "684920e8ddfc7550545f6c5385bd58b1ef8d554f523a14a05f2b244e07683dd0"
+      "size": 2402,
+      "sha256": "23192ec0d421907ea07ed5f619c9891f8e16a150fc36e065f754587d282fccaf"
     },
     {
       "path": "services/agent-service/src/agent_core/rag/embeddings.py",
@@ -4378,8 +4378,8 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py",
-      "size": 9924,
-      "sha256": "b4ea004476adb60713aed22e8c73dd4c60d5d568498da8f6c6f3316f3e2596af"
+      "size": 10242,
+      "sha256": "18c0c3fa4b68fc01e15a8a404ccdbfe865584e768ab80a7eaa169310937b6d2a"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17e_release_supply_chain_authority.py",
@@ -4393,18 +4393,18 @@
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17g_production_execution_readiness.py",
-      "size": 5600,
-      "sha256": "b210d8cefc469c5d90d448ec69cef1ddf4d833dcdfcee582e7284265aa32e79e"
+      "size": 5599,
+      "sha256": "3d0461b7b5115c1603e21f3b5f4c95bf5ad3e5d572cb7f19e46c3cc1293d351c"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py",
-      "size": 8330,
-      "sha256": "4917286ca448c51035bc955138bb17f07e788f86ada7a6c90bc7fbb00510192c"
+      "size": 8360,
+      "sha256": "41e30f7081a7b03760cf3a8373660ba57c68615841c7a22a886ecced989ebe0b"
     },
     {
       "path": "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py",
-      "size": 5733,
-      "sha256": "0658447ad9a0eea5d024fe4a7ae220d244e7ebc4b6b2575bd0561af761cfa4bf"
+      "size": 5728,
+      "sha256": "dec199f53d9163df23b034a1e9db208816c9fa8e763060e96498219396e0e146"
     },
     {
       "path": "services/agent-service/tests/runtime/test_capability_contract_v2.py",
