@@ -454,6 +454,20 @@ def _default_component_runner(
     return payload
 
 
+def _safe_component_failure(component: str, payload: Mapping[str, Any]) -> dict[str, str]:
+    safe: dict[str, str] = {
+        "component": component,
+        "status": str(payload.get("status") or "FAIL"),
+        "reason": str(payload.get("reason") or "component_failed"),
+        "error_code": str(payload.get("error_code") or "component_failed"),
+    }
+    for key in ("error_type", "error_category", "case_id", "failure_stage"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            safe[key] = value
+    return safe
+
+
 def run_certification_bundle(
     *,
     workspace_root: Path,
@@ -508,21 +522,25 @@ def run_certification_bundle(
             raise RealModelBundleError("component_output_invalid", f"component {component} returned no mapping")
         status = str(payload.get("status") or "")
         if status == "BLOCKED_BY_ENVIRONMENT":
+            failure = _safe_component_failure(component, payload)
             return {
                 "contract": _BUNDLE_CONTRACT,
                 "status": "BLOCKED_BY_ENVIRONMENT",
                 "reason": str(payload.get("reason") or "real_model_environment_unavailable"),
-                "error_code": str(payload.get("error_code") or "component_environment_blocked"),
+                "error_code": failure["error_code"],
                 "blocked_component": component,
+                "component_failure": failure,
                 "component_launch_count": launched,
             }
         if status != "PASS":
+            failure = _safe_component_failure(component, payload)
             return {
                 "contract": _BUNDLE_CONTRACT,
                 "status": "FAIL",
                 "reason": "real_model_certification_component_failed",
                 "failed_component": component,
-                "error_code": str(payload.get("error_code") or "component_failed"),
+                "error_code": failure["error_code"],
+                "component_failure": failure,
                 "component_launch_count": launched,
             }
         components[component] = payload

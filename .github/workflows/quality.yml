@@ -1,49 +1,187 @@
 name: quality
 
-"on":
+on:
   pull_request:
-    branches:
-      - main
+  push:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  apply-semantic-failure-evidence:
-    if: github.head_ref == 'agent/semantic-failure-evidence'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
+  skill-self-validation:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 1
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12.13'
-      - name: Apply bounded semantic diagnostics
-        run: python -B .github/scripts/apply_semantic_failure_evidence.py
-      - name: Install locked test environment
+      - name: Validate Skill static contracts
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-static'
+      - name: Validate Skill unit contracts
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-unit'
+      - name: Validate Skill host integration
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-host-integration'
+      - name: Validate Skill security contracts
+        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-security'
+
+  quality-static:
+    needs: skill-self-validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - name: Create static quality target
+        env:
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-static.md
+        run: '"${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py --output "$QUALITY_TARGET" --ref "${{ github.sha }}" --workflow quality-static'
+      - name: Run static quality gates
+        env:
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/static
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-static.md
+        run: '"${pythonLocation}/bin/python" -B scripts/quality_loop.py --mode static --target "$QUALITY_TARGET"'
+      - name: Upload static evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-static-evidence
+          path: |
+            ${{ runner.temp }}/quality-evidence/static
+            ${{ github.workspace }}/.quality/targets/quality-target-static.md
+            ${{ github.workspace }}/.quality/targets/quality-target-static.claims.json
+
+  quality-quick:
+    needs: quality-static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: services/agent-service/frontend/package-lock.json
+      - name: Install locked Python environments
         run: |
-          python -m pip install --disable-pip-version-check uv
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check uv
           cd services/agent-service && uv sync --locked --all-groups
-      - name: Run focused semantic and bundle regressions
-        run: >-
-          services/agent-service/.venv/bin/python -B -m pytest -q
-          services/agent-service/tests/runtime/test_semantic_failure_evidence.py
-          services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py
-          services/agent-service/tests/runtime/test_b15c3_real_model_release_bundle_authority.py
-          services/agent-service/tests/runtime/test_production_component_failure_evidence.py
-      - name: Restore authoritative workflows and commit repair
-        shell: bash
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Create quick quality target
+        env:
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-quick.md
+        run: '"${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py --output "$QUALITY_TARGET" --ref "${{ github.sha }}" --workflow quality-quick --claims-source governance/claims/v20.6.2-project-quick-certification.json'
+      - name: Run unit, contract and frontend gates
+        env:
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/quick
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-quick.md
+        run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode quick --target "$QUALITY_TARGET"
+      - name: Upload quick evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-quick-evidence
+          path: |
+            ${{ runner.temp }}/quality-evidence/quick
+            ${{ github.workspace }}/.quality/targets/quality-target-quick.md
+            ${{ github.workspace }}/.quality/targets/quality-target-quick.claims.json
+
+  quality-integration:
+    if: github.event_name != 'pull_request'
+    needs: quality-quick
+    runs-on: ubuntu-latest
+    services:
+      pgvector:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: services/agent-service/frontend/package-lock.json
+      - name: Install locked Python environments
         run: |
-          git fetch origin main --depth=1
-          git checkout origin/main -- .github/workflows/quality.yml
-          git checkout origin/main -- .github/workflows/temporary-auto-release-after-real-model-repair.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Preserve bounded semantic certification failure evidence"
-          git push origin HEAD:${GITHUB_HEAD_REF}
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check uv
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Create integration quality target
+        env:
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
+        run: '"${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py --output "$QUALITY_TARGET" --ref "${{ github.sha }}" --workflow quality-integration --claims-source governance/claims/v20.6.2-project-integration-certification.json'
+      - name: Start deterministic model and both services
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
+          OPENAI_API_KEY: deterministic-ci-key
+          OPENAI_API_BASE: http://127.0.0.1:18081/v1
+          OPENAI_MODEL: deterministic-ci-model
+          BUSINESS_SERVICE_TOKEN: dev-service-token
+          BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'false'
+          BUSINESS_SEED_DEMO_DATA: 'true'
+          BUSINESS_SERVICE_RELOAD: 'false'
+          AGENT_SERVICE_RELOAD: 'false'
+          WEB_CONSOLE_DEV_LOGIN: 'true'
+          AGENT_REQUIRE_AUTH: 'true'
+          AGENT_AUTH_PROVIDER: dev_token
+          RAG_BACKEND: local_sparse
+          AGENT_DB_BACKEND: sqlite
+          CHECKPOINT_BACKEND: sqlite
+          SQLITE_DB_PATH: ${{ runner.temp }}/agent.db
+          CHECKPOINT_DB_PATH: ${{ runner.temp }}/checkpoints.db
+          BUSINESS_DB_PATH: ${{ runner.temp }}/business.db
+        run: |
+          services/agent-service/.venv/bin/python -m uvicorn tests.integration.model_stub:app --app-dir services/agent-service --host 127.0.0.1 --port 18081 > "${RUNNER_TEMP}/model-stub.log" 2>&1 &
+          services/business-service/.venv/bin/python services/business-service/scripts/run_business_api.py > "${RUNNER_TEMP}/business.log" 2>&1 &
+          services/agent-service/.venv/bin/python services/agent-service/scripts/run_api.py > "${RUNNER_TEMP}/agent.log" 2>&1 &
+          for _ in $(seq 1 30); do curl --fail --silent http://127.0.0.1:9000/health && curl --fail --silent http://127.0.0.1:8000/health && exit 0; sleep 2; done
+          exit 1
+      - name: Run integration quality gates
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
+          OPENAI_API_KEY: deterministic-ci-key
+          OPENAI_API_BASE: http://127.0.0.1:18081/v1
+          OPENAI_MODEL: deterministic-ci-model
+          BUSINESS_SERVICE_BASE_URL: http://127.0.0.1:9000
+          BUSINESS_SERVICE_TOKEN: dev-service-token
+          AGENT_TEST_URL: http://127.0.0.1:8000
+          BUSINESS_TEST_URL: http://127.0.0.1:9000
+          PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
+          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/integration
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
+        run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode integration --target "$QUALITY_TARGET"
+      - name: Upload integration evidence and service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-integration-evidence
+          path: |
+            ${{ runner.temp }}/quality-evidence/integration
+            ${{ runner.temp }}/model-stub.log
+            ${{ runner.temp }}/business.log
+            ${{ runner.temp }}/agent.log
+            ${{ github.workspace }}/.quality/targets/quality-target-integration.md
+            ${{ github.workspace }}/.quality/targets/quality-target-integration.claims.json
