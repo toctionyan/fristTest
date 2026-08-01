@@ -1,0 +1,44 @@
+name: Isolate Release Missing-Key Tests
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/isolate_release_missing_key_tests.py
+      - .github/workflows/isolate-release-missing-key-tests.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - name: Apply bounded release test isolation repair
+        id: repair
+        shell: bash
+        run: |
+          if [ ! -f scripts/isolate_release_missing_key_tests.py ]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "${pythonLocation}/bin/python" -B scripts/isolate_release_missing_key_tests.py
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+      - name: Commit exact repaired tree
+        if: steps.repair.outputs.applied == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Isolate missing-key tests from protected provider environment"
+          git push origin HEAD:${{ github.head_ref }}
