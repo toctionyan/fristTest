@@ -1,0 +1,42 @@
+name: temporary-auto-release-after-real-model-repair
+
+"on":
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/verify_production_certification_bundle.py
+      - services/agent-service/scripts/verify_model_smoke.py
+      - services/agent-service/src/agent_core/model_calls/real_model_identity.py
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: temporary-auto-release-after-real-model-repair
+  cancel-in-progress: false
+
+jobs:
+  dispatch-protected-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch protected production certification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n '{
+            ref: "main",
+            inputs: {
+              provider: "deepseek",
+              model: "deepseek-v4-flash",
+              embedding_model: "text-embedding-v4",
+              embedding_dimension: "1024"
+            }
+          }' | gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+            --input -
