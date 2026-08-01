@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
-  "phase": "B17j",
-  "root_name": "customer_agent_workspace_v20_17_b17j_ci_profile_boundary_repair_phase_candidate_env_blocked_20260731",
+  "phase": "B17i",
+  "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
   "file_count": 1052,
   "required_environment": [
-    "GitHub repository access to the exact B17j commit",
+    "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
     "workflow_dispatch on protected refs/heads/main in the production-certification Environment",
     "release-admission PASS with downloadable sanitized same-run evidence",
@@ -2073,8 +2073,8 @@
     },
     {
       "path": "scripts/quality_loop.py",
-      "size": 139204,
-      "sha256": "c784c0e5ffc771eef1c67ef9446897f691ef91be89d474b3b408df91697cb408"
+      "size": 139617,
+      "sha256": "1c4cf4e544bbadc72e2cd9ec283f88f224d392d4baf9cbfc4c365cfb74eafba1"
     },
     {
       "path": "scripts/release_admission_contract.py",
@@ -2113,8 +2113,8 @@
     },
     {
       "path": "scripts/run_production_release.py",
-      "size": 33062,
-      "sha256": "f0d26a9e69e5ba4f466509a9a2a60f839bf8baa1f63d892f6cf0510540dc6910"
+      "size": 36256,
+      "sha256": "843028da1f9ba13d8b1515a2b672c5f8124ccf95e9dd3734905cab8c24a209f5"
     },
     {
       "path": "scripts/run_python_test_suites.py",
@@ -2173,18 +2173,18 @@
     },
     {
       "path": "scripts/verify_production_browser_bundle.py",
-      "size": 12348,
-      "sha256": "722f3ae3fa57a61d185860e06ad64910151eb12e445103e079e526e3c14b5579"
+      "size": 12456,
+      "sha256": "5c9edb9e690ee3def6763100162b0740cf6ac656d417bdaacff699c5744878c0"
     },
     {
       "path": "scripts/verify_production_certification_bundle.py",
-      "size": 7918,
-      "sha256": "83c1207389685d42d07611b44af03c9f483c602efea455bb2371686fe19e0952"
+      "size": 8027,
+      "sha256": "17c8ecebcc7ecc641a82a530f3d11c3168c99792ef2c36e5f17098d0dde3bfe1"
     },
     {
       "path": "scripts/verify_production_postgres_bundle.py",
-      "size": 6804,
-      "sha256": "7e11af6c9c04f24687b3c9e27435bdaf335515440e7a362525f1e5cc19bc282a"
+      "size": 6903,
+      "sha256": "0aee71b19736b111cf39043ebf35d0223dddbed7c91f39728da41dffd891e78c"
     },
     {
       "path": "scripts/verify_production_real_model_bundle.py",
