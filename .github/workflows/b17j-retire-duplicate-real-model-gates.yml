@@ -1,0 +1,49 @@
+name: B17j Retire Duplicate Real Model Gates
+
+on:
+  push:
+    branches:
+      - agent/fix-integration-real-model-boundary
+    paths:
+      - scripts/b17j_retire_duplicate_real_model_gates.py
+      - .github/workflows/b17j-retire-duplicate-real-model-gates.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - name: Retire duplicate policy authorities
+        id: repair
+        shell: bash
+        run: |
+          if [ ! -f scripts/b17j_retire_duplicate_real_model_gates.py ]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          "${pythonLocation}/bin/python" -B scripts/b17j_retire_duplicate_real_model_gates.py
+          echo "applied=true" >> "$GITHUB_OUTPUT"
+      - name: Commit exact single-authority tree
+        if: steps.repair.outputs.applied == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add governance/quality-loop-policy.json \
+                  services/agent-service/tests/architecture/test_quality_loop_governance.py \
+                  services/agent-service/tests/architecture/test_systemic_operational_closure.py \
+                  services/agent-service/tests/runtime/test_b17a_production_certification_authority.py \
+                  PHASE_CANDIDATE_MANIFEST.json \
+                  scripts/b17j_retire_duplicate_real_model_gates.py
+          git diff --cached --check
+          git commit -m "Retire duplicate real-model quality gates"
+          git push origin HEAD:${{ github.ref_name }}
