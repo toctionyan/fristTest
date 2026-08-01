@@ -1,10 +1,15 @@
 name: Configure DeepSeek and Alibaba Defaults
-# Retrigger after the workflow became visible on the branch.
 
 "on":
   push:
     branches:
       - agent/configure-deepseek-aliyun-models
+    paths:
+      - scripts/configure_deepseek_aliyun_defaults.py
+      - .github/workflows/configure-deepseek-aliyun-defaults.yml
+  pull_request:
+    branches:
+      - main
     paths:
       - scripts/configure_deepseek_aliyun_defaults.py
       - .github/workflows/configure-deepseek-aliyun-defaults.yml
@@ -18,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
           fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
@@ -37,9 +42,10 @@ jobs:
         if: steps.configure.outputs.applied == 'true'
         shell: bash
         run: |
+          TARGET_BRANCH="${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --check
           git commit -m "Configure DeepSeek Flash and Alibaba text embeddings"
-          git push origin HEAD:${{ github.ref_name }}
+          git push origin HEAD:"$TARGET_BRANCH"
