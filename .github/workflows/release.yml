@@ -6,6 +6,7 @@ name: production-certification-release
       provider:
         description: Official model provider
         required: true
+        default: deepseek
         type: choice
         options:
           - openai
@@ -13,16 +14,17 @@ name: production-certification-release
       model:
         description: Current official provider model ID
         required: true
+        default: deepseek-v4-flash
         type: string
       embedding_model:
         description: OpenAI-compatible embedding model used by protected pgvector journeys
         required: true
-        default: text-embedding-3-small
+        default: text-embedding-v4
         type: string
       embedding_dimension:
         description: Vector dimension emitted by the selected embedding model
         required: true
-        default: '1536'
+        default: '1024'
         type: string
 
 permissions:
@@ -97,11 +99,12 @@ jobs:
           OPENAI_MODEL: ${{ inputs.model }}
           OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
           REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
-          EMBEDDING_PROVIDER: openai
+          EMBEDDING_PROVIDER: openai_compatible
           EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
-          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
+          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://dashscope.aliyuncs.com/compatible-mode/v1' }}
           EMBEDDING_MODEL: ${{ inputs.embedding_model }}
           EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
+          EMBEDDING_BATCH_SIZE: '10'
           QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
           PROTECTED_ENVIRONMENT_PREFLIGHT_RESULT: ${{ runner.temp }}/protected-environment-preflight.json
         run: >-
@@ -168,11 +171,12 @@ jobs:
           OPENAI_MODEL: ${{ inputs.model }}
           OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
           REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
-          EMBEDDING_PROVIDER: openai
+          EMBEDDING_PROVIDER: openai_compatible
           EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
-          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
+          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://dashscope.aliyuncs.com/compatible-mode/v1' }}
           EMBEDDING_MODEL: ${{ inputs.embedding_model }}
           EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
+          EMBEDDING_BATCH_SIZE: '10'
           QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-release.md
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/production-release-evidence
