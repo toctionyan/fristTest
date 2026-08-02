@@ -1,4 +1,5 @@
 name: One-time dispatch protected release
+run-name: Dispatch protected release after PR 38
 
 on:
   push:
