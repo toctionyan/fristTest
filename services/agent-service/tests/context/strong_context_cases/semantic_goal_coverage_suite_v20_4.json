@@ -985,27 +985,10 @@
             "goal_oracle": [
               {
                 "oracle_id": "g1",
-                "goal_type": "query",
-                "evidence_span": "待发货的订单",
+                "goal_type": "action",
+                "evidence_span": "把待发货的订单取消",
                 "required": true,
                 "depends_on": [],
-                "required_tools": [
-                  "list_orders"
-                ],
-                "requested_effect": {
-                  "domain": "order",
-                  "operation": "list",
-                  "object_type": "order"
-                }
-              },
-              {
-                "oracle_id": "g2",
-                "goal_type": "action",
-                "evidence_span": "取消",
-                "required": true,
-                "depends_on": [
-                  "g1"
-                ],
                 "required_tools": [
                   "prepare_cancel_order"
                 ],
@@ -1016,13 +999,11 @@
                 }
               },
               {
-                "oracle_id": "g3",
+                "oracle_id": "g2",
                 "goal_type": "consult",
                 "evidence_span": "已签收的看看能不能退款",
                 "required": true,
-                "depends_on": [
-                  "g1"
-                ],
+                "depends_on": [],
                 "required_tools": [
                   "evaluate_refund_eligibility"
                 ],
@@ -1043,48 +1024,38 @@
                       "goals": [
                         {
                           "goal_id": "g1",
-                          "description": "处理用户目标：待发货的订单",
-                          "evidence_span": "待发货的订单",
-                          "goal_type": "query",
+                          "description": "取消待发货订单",
+                          "evidence_span": "把待发货的订单取消",
+                          "goal_type": "action",
+                          "expected_result_cardinality": "collection",
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
                             "domain": "order",
-                            "operation": "list",
+                            "operation": "cancel",
                             "object_type": "order",
-                            "raw_description": "处理用户目标：待发货的订单"
+                            "raw_description": "取消待发货订单"
+                          },
+                          "condition": {
+                            "order_status": "pending_shipment"
                           }
                         },
                         {
                           "goal_id": "g2",
-                          "description": "处理用户目标：取消",
-                          "evidence_span": "取消",
-                          "goal_type": "action",
-                          "required": true,
-                          "depends_on": [
-                            "g1"
-                          ],
-                          "requested_effect": {
-                            "domain": "order",
-                            "operation": "cancel",
-                            "object_type": "order",
-                            "raw_description": "处理用户目标：取消"
-                          }
-                        },
-                        {
-                          "goal_id": "g3",
-                          "description": "处理用户目标：已签收的看看能不能退款",
+                          "description": "核验已签收订单的退款资格",
                           "evidence_span": "已签收的看看能不能退款",
                           "goal_type": "consult",
+                          "expected_result_cardinality": "collection",
                           "required": true,
-                          "depends_on": [
-                            "g1"
-                          ],
+                          "depends_on": [],
                           "requested_effect": {
                             "domain": "refund",
                             "operation": "assess_eligibility",
                             "object_type": "order",
-                            "raw_description": "处理用户目标：已签收的看看能不能退款"
+                            "raw_description": "核验已签收订单的退款资格"
+                          },
+                          "condition": {
+                            "order_status": "delivered"
                           }
                         }
                       ]
@@ -1102,9 +1073,10 @@
                         "mode": "all_orders"
                       },
                       "expected_shape": "collection",
-                      "reference_span": "待发货的订单",
+                      "reference_span": "把待发货的订单取消，已签收的看看能不能退款",
                       "goal_ids": [
-                        "g1"
+                        "g1",
+                        "g2"
                       ]
                     },
                     "id": "s5:orders"
@@ -1119,7 +1091,7 @@
                       "reference_span": "待发货的订单",
                       "action_span": "取消",
                       "goal_ids": [
-                        "g2"
+                        "g1"
                       ]
                     },
                     "id": "s5:cancel"
@@ -1135,7 +1107,7 @@
                       "reason_span": "能不能退款",
                       "question_span": "已签收的看看能不能退款",
                       "goal_ids": [
-                        "g3"
+                        "g2"
                       ]
                     },
                     "id": "s5:eligibility"
@@ -1191,7 +1163,7 @@
                 }
               },
               "result_assertions": [],
-              "goal_count": 3
+              "goal_count": 2
             }
           }
         ],

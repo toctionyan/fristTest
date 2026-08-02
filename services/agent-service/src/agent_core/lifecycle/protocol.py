@@ -131,6 +131,9 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
         "name": "declare_turn_goals",
         "description": (
             "在选择任何业务能力之前，按当前原话和权威上下文声明本轮全部业务 Goal、对象候选、条件、顺序和状态变化。"
+            "每个 Goal 只对应用户明确要求实现的一个独立业务结果；内部检索、筛选或目标解析只能作为执行步骤、"
+            "target_candidate 或 condition，不得凭空拆成额外 Goal，除非用户明确要求返回该检索结果。"
+            "多个独立结果即使共享同一检索步骤也必须分别声明。"
             "requested_effect 使用开放字符串描述用户要实现的业务效果，不得为了匹配现有工具改写为相近能力。"
             "goal_type 仅是旧执行链兼容提示，可省略且不是正式语义。"
             "修改已有 Goal 或 Focus 时必须复制 ContextBundle 中当前 revision，并提供当前用户原话的连续 evidence_span；"
