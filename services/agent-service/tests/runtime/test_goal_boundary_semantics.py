@@ -75,4 +75,4 @@ def test_goal_protocol_defines_business_result_boundary() -> None:
 
     assert "内部检索、筛选或目标解析" in description
     assert "不得凭空拆成额外 Goal" in description
-    assert "多个独立结果即使共享同一检索步骤也必须分别声明"
+    assert "多个独立结果即使共享同一检索步骤也必须分别声明" in description
