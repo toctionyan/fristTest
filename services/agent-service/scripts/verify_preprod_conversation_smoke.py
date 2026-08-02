@@ -218,8 +218,10 @@ def main() -> int:
         bound = model.bind_tools(planning_schemas()) if hasattr(model, "bind_tools") else model
         evidence: list[dict[str, Any]] = []
         system = SystemMessage(content=(
-            "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
-            "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
+            "只执行目标声明：调用 declare_turn_goals，完整保留用户明确要求的每一个独立业务结果、条件和依赖。"
+            "内部查找、筛选和目标解析只是执行步骤，不单独声明为 Goal，除非用户明确要求返回该查询结果。"
+            "多个独立结果即使共享同一查找步骤也必须分别声明；不能吞掉不支持分支，也不能用相似能力代替。"
+            "evidence_span 应覆盖该结果的动作或问题及关键对象条件，并且必须来自用户原话。"
         ))
         # Protected mode uses the production independent goal-alignment model,
         # so each prototype may consume one declaration call and one verifier call.

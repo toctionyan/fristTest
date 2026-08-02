@@ -189,7 +189,14 @@ def _assert_goal_oracle(*, case_id: str, contract: dict[str, Any], goal_plan: di
         oracle_id = str(expected.get("oracle_id") or "")
         assert oracle_id and oracle_id in actual_by_id, (case_id, "missing_oracle_goal", oracle_id, actual)
         row = actual_by_id[oracle_id]
-        assert str(row.get("goal_type") or "") == str(expected.get("goal_type") or ""), (case_id, oracle_id, row, expected)
+        expected_effect = expected.get("requested_effect") if isinstance(expected.get("requested_effect"), dict) else {}
+        actual_effect = row.get("requested_effect") if isinstance(row.get("requested_effect"), dict) else {}
+        for effect_key in ("domain", "operation", "object_type"):
+            expected_value = str(expected_effect.get(effect_key) or "")
+            if expected_value:
+                assert str(actual_effect.get(effect_key) or "") == expected_value, (
+                    case_id, oracle_id, effect_key, row, expected
+                )
         assert str(row.get("evidence_span") or "") == str(expected.get("evidence_span") or ""), (case_id, oracle_id, row, expected)
         assert bool(row.get("required", True)) is bool(expected.get("required", True)), (case_id, oracle_id, row, expected)
         required_tools = {str(value) for value in expected.get("required_tools") or [] if str(value)}
