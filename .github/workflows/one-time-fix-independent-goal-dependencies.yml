@@ -1,0 +1,108 @@
+name: One-time fix independent goal dependencies
+
+on:
+  push:
+    branches:
+      - agent/fix-independent-goal-dependency-semantics
+    paths:
+      - .github/workflows/one-time-fix-independent-goal-dependencies.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/fix-independent-goal-dependency-semantics
+          fetch-depth: 0
+
+      - name: Repair dependency semantics, add regressions, and remove helper
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one replacement, found {count}: {old[:100]!r}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          protocol = root / 'services/agent-service/src/agent_core/lifecycle/protocol.py'
+          replace_once(
+              protocol,
+              'MAX_WORK_ITEMS = 12\n\n\n_GOAL_LIFECYCLE_ENUM',
+              '''MAX_WORK_ITEMS = 12\n\nGOAL_DEPENDENCY_DECLARATION_RULE = (\n    "depends_on 只在同一轮中一个业务结果必须使用另一个 Goal 的业务结果或以其为语义先决条件时声明。"\n    "‘再/然后/并且’等话语顺序、共享同一对象、共享内部检索或筛选步骤都不构成依赖。"\n    "支持分支与不支持分支默认相互独立；只有后一个结果明确引用前一个结果时才建立依赖。"\n)\n\n\n_GOAL_LIFECYCLE_ENUM''',
+          )
+          replace_once(
+              protocol,
+              '"depends_on": {"type": "array", "items": {"type": "string"}},',
+              '''"depends_on": {\n                                "type": "array",\n                                "items": {"type": "string"},\n                                "description": GOAL_DEPENDENCY_DECLARATION_RULE,\n                            },''',
+          )
+
+          dialogue = root / 'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py'
+          replace_once(
+              dialogue,
+              'from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, agent_loop_schemas, planning_schemas',
+              '''from agent_core.lifecycle.protocol import (\n    GOAL_DEPENDENCY_DECLARATION_RULE,\n    TERMINAL_TOOL_NAMES,\n    agent_loop_schemas,\n    planning_schemas,\n)''',
+          )
+          replace_once(
+              dialogue,
+              '每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。系统没有对应能力时仍保留原 Goal，',
+              '每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。"\n        + GOAL_DEPENDENCY_DECLARATION_RULE\n        + "系统没有对应能力时仍保留原 Goal，',
+          )
+
+          planning = root / 'services/agent-service/src/agent_core/lifecycle/goal_planning.py'
+          replace_once(
+              planning,
+              'from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool',
+              '''from agent_core.lifecycle.protocol import (\n    GOAL_DEPENDENCY_DECLARATION_RULE,\n    TERMINAL_TOOL_NAMES,\n    classify_tool,\n)''',
+          )
+          replace_once(
+              planning,
+              '"a later outcome that relies on an earlier selection or query must declare depends_on that earlier goal",',
+              'GOAL_DEPENDENCY_DECLARATION_RULE,',
+          )
+
+          smoke = root / 'services/agent-service/scripts/verify_preprod_conversation_smoke.py'
+          replace_once(
+              smoke,
+              'from agent_core.lifecycle.protocol import planning_schemas  # noqa: E402',
+              '''from agent_core.lifecycle.protocol import (  # noqa: E402\n    GOAL_DEPENDENCY_DECLARATION_RULE,\n    planning_schemas,\n)''',
+          )
+          replace_once(
+              smoke,
+              '\ndef main() -> int:\n',
+              '''\ndef _semantic_system_instruction() -> str:\n    return (\n        "只执行目标声明：调用 declare_turn_goals，完整保留用户明确要求的每一个独立业务结果、条件和依赖。"\n        "内部查找、筛选和目标解析只是执行步骤，不单独声明为 Goal，除非用户明确要求返回该查询结果。"\n        "多个独立结果即使共享同一查找步骤也必须分别声明；不能吞掉不支持分支，也不能用相似能力代替。"\n        + GOAL_DEPENDENCY_DECLARATION_RULE\n        + "evidence_span 应覆盖该结果的动作或问题及关键对象条件，并且必须来自用户原话。"\n    )\n\n\ndef main() -> int:\n''',
+          )
+          replace_once(
+              smoke,
+              '''        system = SystemMessage(content=(\n            "只执行目标声明：调用 declare_turn_goals，完整保留用户明确要求的每一个独立业务结果、条件和依赖。"\n            "内部查找、筛选和目标解析只是执行步骤，不单独声明为 Goal，除非用户明确要求返回该查询结果。"\n            "多个独立结果即使共享同一查找步骤也必须分别声明；不能吞掉不支持分支，也不能用相似能力代替。"\n            "evidence_span 应覆盖该结果的动作或问题及关键对象条件，并且必须来自用户原话。"\n        ))''',
+              '        system = SystemMessage(content=_semantic_system_instruction())',
+          )
+
+          test_path = root / 'services/agent-service/tests/runtime/test_goal_dependency_declaration_semantics.py'
+          if test_path.exists():
+              raise SystemExit(f'{test_path}: test already exists')
+          test_path.write_text('''from __future__ import annotations\n\nimport json\nfrom pathlib import Path\n\nimport pytest\n\nfrom agent_core.lifecycle.protocol import (\n    DECLARE_TURN_GOALS_SCHEMA,\n    GOAL_DEPENDENCY_DECLARATION_RULE,\n)\nfrom scripts.verify_preprod_conversation_smoke import (\n    _match_oracle,\n    _semantic_system_instruction,\n)\n\n\nCATALOG = (\n    Path(__file__).resolve().parents[1]\n    / "context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"\n)\nCASE_ID = "semantic_supported_plus_unsupported"\n\n\ndef _oracle() -> list[dict]:\n    payload = json.loads(CATALOG.read_text(encoding="utf-8"))\n    case = next(row for row in payload["cases"] if row["id"] == CASE_ID)\n    return case["execution_contract"]["turn_contracts"][0]["goal_oracle"]\n\n\ndef _model_goals(*, unsupported_depends_on: list[str]) -> list[dict]:\n    return [\n        {\n            "goal_id": "model-logistics",\n            "evidence_span": "查一下鼠标物流",\n            "required": True,\n            "depends_on": [],\n        },\n        {\n            "goal_id": "model-phone",\n            "evidence_span": "快递员手机号",\n            "required": True,\n            "depends_on": unsupported_depends_on,\n        },\n    ]\n\n\ndef test_shared_target_and_discourse_order_do_not_create_goal_dependency() -> None:\n    _match_oracle(\n        case_id=CASE_ID,\n        oracle=_oracle(),\n        goals=_model_goals(unsupported_depends_on=[]),\n    )\n\n\ndef test_false_dependency_between_supported_and_unsupported_goals_is_rejected() -> None:\n    with pytest.raises(RuntimeError, match="goal dependency mismatch"):\n        _match_oracle(\n            case_id=CASE_ID,\n            oracle=_oracle(),\n            goals=_model_goals(unsupported_depends_on=["model-logistics"]),\n        )\n\n\ndef test_dependency_rule_is_bound_to_schema_and_live_certification_prompt() -> None:\n    depends_on = (\n        DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]\n        ["items"]["properties"]["depends_on"]\n    )\n\n    assert depends_on["description"] == GOAL_DEPENDENCY_DECLARATION_RULE\n    instruction = _semantic_system_instruction()\n    assert GOAL_DEPENDENCY_DECLARATION_RULE in instruction\n    assert "共享同一对象" in instruction\n    assert "支持分支与不支持分支默认相互独立" in instruction\n''', encoding='utf-8')
+          PY
+
+          rm .github/workflows/one-time-fix-independent-goal-dependencies.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/tests/runtime/test_goal_dependency_declaration_semantics.py \
+            .github/workflows/one-time-fix-independent-goal-dependencies.yml
+          git diff --cached --check
+          git commit -m "Clarify independent goal dependency semantics"
+          git push origin HEAD:agent/fix-independent-goal-dependency-semantics
