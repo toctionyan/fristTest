@@ -1027,7 +1027,7 @@
                           "description": "取消待发货订单",
                           "evidence_span": "把待发货的订单取消",
                           "goal_type": "action",
-                          "expected_result_cardinality": "collection",
+                          "expected_result_cardinality": "one",
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
@@ -1045,7 +1045,7 @@
                           "description": "核验已签收订单的退款资格",
                           "evidence_span": "已签收的看看能不能退款",
                           "goal_type": "consult",
-                          "expected_result_cardinality": "collection",
+                          "expected_result_cardinality": "one",
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
@@ -1146,7 +1146,7 @@
                 "L2_WORKFLOW"
               ],
               "workflow_statuses": [
-                "AWAITING_AUTHORIZATION"
+                "RUNNING"
               ],
               "public_interaction": "transaction_interaction",
               "trace": {
