@@ -34,12 +34,24 @@ _GOAL_LIFECYCLE_ENUM''',
     )
     replace_once(
         protocol,
-        '"depends_on": {"type": "array", "items": {"type": "string"}},',
-        '''"depends_on": {
+        '''                            "expected_result_cardinality": {
+                                "type": "string",
+                                "enum": ["single", "collection", "none", "unknown"],
+                            },
+                            "required": {"type": "boolean"},
+                            "depends_on": {"type": "array", "items": {"type": "string"}},
+                            "continuation_of": {''',
+        '''                            "expected_result_cardinality": {
+                                "type": "string",
+                                "enum": ["single", "collection", "none", "unknown"],
+                            },
+                            "required": {"type": "boolean"},
+                            "depends_on": {
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": GOAL_DEPENDENCY_DECLARATION_RULE,
-                            },''',
+                            },
+                            "continuation_of": {''',
     )
 
     dialogue = ROOT / "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py"
