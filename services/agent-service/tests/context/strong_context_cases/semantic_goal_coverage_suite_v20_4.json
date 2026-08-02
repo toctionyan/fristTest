@@ -1073,13 +1073,26 @@
                         "mode": "all_orders"
                       },
                       "expected_shape": "collection",
-                      "reference_span": "把待发货的订单取消，已签收的看看能不能退款",
+                      "reference_span": "待发货的订单",
                       "goal_ids": [
-                        "g1",
+                        "g1"
+                      ]
+                    },
+                    "id": "s5:orders:cancel"
+                  },
+                  {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "all_orders"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "已签收的",
+                      "goal_ids": [
                         "g2"
                       ]
                     },
-                    "id": "s5:orders"
+                    "id": "s5:orders:refund"
                   },
                   {
                     "name": "prepare_cancel_order",
