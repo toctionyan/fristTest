@@ -70,6 +70,15 @@ def test_resolved_business_outcomes_use_valid_single_cardinality() -> None:
     assert "one" not in cardinality_schema["enum"]
 
 
+def test_transaction_workflow_pauses_at_authorization_boundary() -> None:
+    expected = _turn_contract()["expected"]
+
+    assert expected["workflow_statuses"] == ["AWAITING_AUTHORIZATION"]
+    assert expected["public_interaction"] == "transaction_interaction"
+    assert expected["draft"]["states"] == ["AWAITING_AUTHORIZATION"]
+    assert "commit_action" in expected["trace"]["must_not_include"]
+
+
 def test_goal_protocol_defines_business_result_boundary() -> None:
     description = DECLARE_TURN_GOALS_SCHEMA["function"]["description"]
 
