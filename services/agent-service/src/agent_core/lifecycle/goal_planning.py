@@ -212,7 +212,7 @@ def _as_alignment_verdict(
 
 
 class ModelGoalAlignmentVerifier:
-    """Second-model verifier that can only judge declaration completeness."""
+    """Independent model judge for effect coverage, never a unique-AST authority."""
 
     def verify(
         self,
@@ -235,10 +235,10 @@ class ModelGoalAlignmentVerifier:
                 "the customer was just shown; it is historical-only and cannot prove a current business fact."
             )
         decision_rules = [
-            "exact only when every independently requested outcome is represented as its own goal",
+            "exact only when the declaration as a whole preserves every requested outcome and invents no additional business effect; do not require one unique goal decomposition when multiple representations preserve the same effects",
             "requested_effect must preserve the user's business effect even when the current system may not implement it; never rewrite an unsupported effect to a nearby available effect",
             "expected_result_cardinality describes the final verified business population, not the number of sentences in the answer: a singular choice, superlative, one entity detail, or one eligibility/policy conclusion is single; a list/set/plural comparison is collection; an existence question over records/orders/items (for example whether any record exists) is collection because the verified population may contain zero, one, or many members even when the answer is one yes/no sentence; narrative or clarification without a business result is none; intermediate sort/filter operations do not change the user's final cardinality",
-            "incomplete when distinct outcomes are collapsed into one goal or at least one literal requested outcome is absent",
+            "incomplete when a requested outcome is absent or materially changed, or an unrequested business effect is invented; decomposition shape alone is not a failure",
             GOAL_DEPENDENCY_DECLARATION_RULE,
             "depends_on links only goals declared in this same current turn; never require a dependency on a goal from an earlier turn",
             "scope modifiers such as only/related/其中/只看 belong inside the same query goal and are not a separate requested outcome when the description preserves the narrowed target",

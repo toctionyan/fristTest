@@ -10,7 +10,7 @@ from agent_core.lifecycle.protocol import (
     GOAL_DEPENDENCY_DECLARATION_RULE,
 )
 from scripts.verify_preprod_conversation_smoke import (
-    _match_oracle,
+    _assert_effect_evidence_coverage,
     _semantic_system_instruction,
 )
 
@@ -22,10 +22,10 @@ CATALOG = (
 CASE_ID = "semantic_supported_plus_unsupported"
 
 
-def _oracle() -> list[dict]:
+def _turn() -> dict:
     payload = json.loads(CATALOG.read_text(encoding="utf-8"))
     case = next(row for row in payload["cases"] if row["id"] == CASE_ID)
-    return case["execution_contract"]["turn_contracts"][0]["goal_oracle"]
+    return case["execution_contract"]["turn_contracts"][0]
 
 
 def _model_goals(*, unsupported_depends_on: list[str]) -> list[dict]:
@@ -45,31 +45,65 @@ def _model_goals(*, unsupported_depends_on: list[str]) -> list[dict]:
     ]
 
 
-def test_shared_target_and_discourse_order_do_not_create_goal_dependency() -> None:
-    _match_oracle(
+@pytest.mark.parametrize("unsupported_depends_on", [[], ["model-logistics"]])
+def test_effect_oracle_accepts_equivalent_dependency_representations(
+    unsupported_depends_on: list[str],
+) -> None:
+    turn = _turn()
+    _assert_effect_evidence_coverage(
         case_id=CASE_ID,
-        oracle=_oracle(),
-        goals=_model_goals(unsupported_depends_on=[]),
+        oracle=turn["goal_oracle"],
+        goals=_model_goals(unsupported_depends_on=unsupported_depends_on),
     )
 
 
-def test_false_dependency_between_supported_and_unsupported_goals_is_rejected() -> None:
-    with pytest.raises(RuntimeError, match="goal dependency mismatch"):
-        _match_oracle(
+def test_effect_oracle_accepts_composite_evidence_representation() -> None:
+    turn = _turn()
+    _assert_effect_evidence_coverage(
+        case_id=CASE_ID,
+        oracle=turn["goal_oracle"],
+        goals=[{
+            "goal_id": "model-composite",
+            "evidence_span": turn["user_text"],
+            "required": True,
+            "depends_on": [],
+        }],
+    )
+
+
+def test_effect_oracle_rejects_missing_requested_effect() -> None:
+    turn = _turn()
+    with pytest.raises(RuntimeError, match="required effect evidence not covered"):
+        _assert_effect_evidence_coverage(
             case_id=CASE_ID,
-            oracle=_oracle(),
-            goals=_model_goals(unsupported_depends_on=["model-logistics"]),
+            oracle=turn["goal_oracle"],
+            goals=_model_goals(unsupported_depends_on=[])[:1],
         )
 
 
-def test_dependency_rule_is_bound_to_schema_and_live_certification_prompt() -> None:
+def test_dependency_boundary_is_not_a_lexical_classifier() -> None:
     depends_on = (
         DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]
         ["items"]["properties"]["depends_on"]
     )
-
     assert depends_on["description"] == GOAL_DEPENDENCY_DECLARATION_RULE
+    assert "程序只验证引用存在" in GOAL_DEPENDENCY_DECLARATION_RULE
+    assert "局部 Plan" in GOAL_DEPENDENCY_DECLARATION_RULE
+    assert "再/然后/并且" not in GOAL_DEPENDENCY_DECLARATION_RULE
     instruction = _semantic_system_instruction()
     assert GOAL_DEPENDENCY_DECLARATION_RULE in instruction
-    assert "共享同一对象" in instruction
-    assert "支持分支与不支持分支默认相互独立" in instruction
+
+
+def test_protected_smoke_does_not_bind_unique_semantic_ast() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "scripts/verify_preprod_conversation_smoke.py"
+    ).read_text(encoding="utf-8")
+    for forbidden in (
+        "goal count mismatch",
+        "goal dependency mismatch",
+        "model emitted undeclared extra goals",
+        "actual_dependencies != expected_dependencies",
+    ):
+        assert forbidden not in source
+    assert "_assert_effect_evidence_coverage" in source

@@ -28,14 +28,14 @@ def test_safe_semantic_failure_exposes_case_and_failure_code_without_model_text(
 
     result = module._safe_semantic_failure(
         RuntimeError(
-            "ctx-multi-intent-12: goal count mismatch, expected 2, got 1; "
+            "ctx-multi-intent-12: required effect evidence not covered: ['g2']; "
             "raw-model-secret-must-not-escape"
         )
     )
 
     assert result == {
-        "error_code": "semantic_goal_count_mismatch__ctx-multi-intent-12",
-        "failure_code": "goal_count_mismatch",
+        "error_code": "semantic_required_effect_evidence_missing__ctx-multi-intent-12",
+        "failure_code": "required_effect_evidence_missing",
         "failed_case_id": "ctx-multi-intent-12",
     }
     assert "raw-model-secret-must-not-escape" not in str(result)
@@ -57,7 +57,7 @@ def test_safe_semantic_failure_classifies_tool_call_shape_without_raw_payload() 
     assert "raw-tool-payload-must-not-escape" not in str(result)
 
 
-def test_oracle_match_does_not_promote_legacy_goal_type_to_semantic_authority() -> None:
+def test_effect_coverage_does_not_promote_legacy_goal_type_or_dependency_shape_to_authority() -> None:
     module = _load_module()
     oracle = [
         {
@@ -86,20 +86,24 @@ def test_oracle_match_does_not_promote_legacy_goal_type_to_semantic_authority() 
         },
         {
             "goal_id": "model-refund-eligibility",
-            # Compatibility metadata may be omitted or differ; the formal
-            # requested outcome is validated by the production verifier.
+            # Compatibility metadata and dependency shape may differ; the
+            # production verifier judges the requested user-visible effects.
             "goal_type": "query",
             "evidence_span": "再看看它能不能退款",
             "required": True,
-            "depends_on": ["model-order"],
+            "depends_on": [],
             "requested_effect": {"operation": "assess_eligibility"},
         },
     ]
 
-    module._match_oracle(case_id="semantic_query_then_refund_consult", oracle=oracle, goals=goals)
+    module._assert_effect_evidence_coverage(
+        case_id="semantic_query_then_refund_consult",
+        oracle=oracle,
+        goals=goals,
+    )
 
 
-def test_oracle_match_still_rejects_missing_literal_branch() -> None:
+def test_effect_coverage_still_rejects_missing_literal_branch() -> None:
     module = _load_module()
     oracle = [
         {
@@ -130,5 +134,9 @@ def test_oracle_match_still_rejects_missing_literal_branch() -> None:
         },
     ]
 
-    with pytest.raises(RuntimeError, match="no unique model goal matches oracle"):
-        module._match_oracle(case_id="semantic_query_then_refund_consult", oracle=oracle, goals=goals)
+    with pytest.raises(RuntimeError, match="required effect evidence not covered"):
+        module._assert_effect_evidence_coverage(
+            case_id="semantic_query_then_refund_consult",
+            oracle=oracle,
+            goals=goals,
+        )

@@ -3,9 +3,9 @@
 
 The smoke exercises only the planning protocol.  It never builds the lifecycle
 graph, opens a Draft, or dispatches a BusinessPort.  Each real-model
-``declare_turn_goals`` call is compared with an independent ``goal_oracle``;
-therefore a multi-intent turn fails when the model drops one branch even if the
-remaining candidate tool is otherwise allowed.
+``declare_turn_goals`` call must cover the independent oracle effects and
+pass the production independent-model alignment verifier. The oracle does not
+prescribe one goal count, goal ID mapping, dependency graph, or tool order.
 """
 from __future__ import annotations
 
@@ -81,18 +81,18 @@ def _user_turns(case: dict[str, Any]) -> list[str]:
     ]
 
 
-def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dict[str, Any]]) -> None:
-    """Match independent oracle branches without promoting legacy metadata.
+def _assert_effect_evidence_coverage(
+    *, case_id: str, oracle: list[dict[str, Any]], goals: list[dict[str, Any]]
+) -> None:
+    """Prove required literal effects are represented without owning semantics.
 
-    ``goal_type`` is explicitly compatibility-only in the production semantic
-    contract.  The certification oracle therefore uses literal branch evidence,
-    requiredness, and dependencies for one-to-one structural matching.  The
-    authoritative requested outcome is separately checked by the production
-    goal-alignment verifier in ``_validate_with_production_goal_contract``.
+    This check deliberately does not compare goal count, goal IDs, dependency
+    graphs, or tool order. Those are internal representations. Semantic
+    completeness and invented effects are judged by the independent production
+    alignment verifier; this deterministic layer only proves that every required
+    oracle effect has literal current-turn evidence in at least one required goal.
     """
 
-    if len(goals) != len(oracle):
-        raise RuntimeError(f"{case_id}: goal count mismatch, expected {len(oracle)}, got {len(goals)}")
     goal_ids = [str(row.get("goal_id") or "") for row in goals]
     duplicate_ids = sorted(
         goal_id for goal_id in set(goal_ids) if goal_id and goal_ids.count(goal_id) > 1
@@ -101,47 +101,22 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
         raise RuntimeError(
             f"{case_id}: duplicate goal_id values are forbidden: {duplicate_ids}"
         )
-    unmatched = list(goals)
-    oracle_to_goal: dict[str, str] = {}
+
+    required_goals = [row for row in goals if bool(row.get("required", True))]
+    missing: list[str] = []
     for expected in oracle:
+        if not bool(expected.get("required", True)):
+            continue
         evidence = str(expected.get("evidence_span") or "")
-        required = bool(expected.get("required", True))
-        exact_matches = [
-            row for row in unmatched
-            if str(row.get("evidence_span") or "") == evidence
-            and bool(row.get("required", True)) == required
-        ]
-        matches = exact_matches or [
-            row for row in unmatched
-            if _span_matches_oracle(
-                expected=evidence,
-                actual=row.get("evidence_span"),
-            )
-            and bool(row.get("required", True)) == required
-        ]
-        if len(matches) != 1:
-            raise RuntimeError(f"{case_id}: no unique model goal matches oracle branch")
-        matched = matches[0]
-        oracle_id = str(expected.get("oracle_id") or "")
-        goal_id = str(matched.get("goal_id") or "")
-        if not oracle_id or not goal_id:
-            raise RuntimeError(f"{case_id}: oracle and model goals must declare stable IDs")
-        oracle_to_goal[oracle_id] = goal_id
-        unmatched.remove(matched)
-    if unmatched:
-        raise RuntimeError(f"{case_id}: model emitted undeclared extra goals")
-    goals_by_id = {str(row.get("goal_id") or ""): row for row in goals}
-    for expected in oracle:
-        expected_dependencies = {
-            oracle_to_goal.get(str(value), "<unmatched>")
-            for value in expected.get("depends_on") or []
-        }
-        goal = goals_by_id[oracle_to_goal[str(expected["oracle_id"])]]
-        actual_dependencies = {str(value) for value in goal.get("depends_on") or []}
-        if actual_dependencies != expected_dependencies:
-            raise RuntimeError(
-                f"{case_id}: goal dependency mismatch for oracle {expected['oracle_id']}"
-            )
+        if not evidence or not any(
+            _span_matches_oracle(expected=evidence, actual=row.get("evidence_span"))
+            for row in required_goals
+        ):
+            missing.append(str(expected.get("oracle_id") or evidence or "unknown"))
+    if missing:
+        raise RuntimeError(
+            f"{case_id}: required effect evidence not covered: {sorted(missing)}"
+        )
 
 
 def _validate_with_production_goal_contract(
@@ -180,12 +155,8 @@ def _safe_semantic_failure(exc: Exception) -> dict[str, str]:
         detail = case_match.group(2)
 
     patterns = (
-        ("goal count mismatch", "goal_count_mismatch"),
         ("duplicate goal_id values", "duplicate_goal_ids"),
-        ("no unique model goal matches oracle", "oracle_goal_match_failed"),
-        ("oracle and model goals must declare stable IDs", "stable_goal_id_missing"),
-        ("model emitted undeclared extra goals", "undeclared_extra_goals"),
-        ("goal dependency mismatch", "goal_dependency_mismatch"),
+        ("required effect evidence not covered", "required_effect_evidence_missing"),
         ("production goal declaration rejected model output", "production_goal_contract_rejected"),
         ("model did not emit exactly one declare_turn_goals call", "declare_turn_goals_call_invalid"),
         ("expected exactly 12 semantic prototypes", "prototype_catalog_count_invalid"),
@@ -251,7 +222,7 @@ def main() -> int:
                 args = candidates[0].get("args") if isinstance(candidates[0].get("args"), dict) else {}
                 goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
                 oracle = [row for row in list(turn.get("goal_oracle") or []) if isinstance(row, dict)]
-                _match_oracle(case_id=case["id"], oracle=oracle, goals=goals)
+                _assert_effect_evidence_coverage(case_id=case["id"], oracle=oracle, goals=goals)
                 declared = _validate_with_production_goal_contract(
                     case_id=str(case["id"]),
                     user_text=str(turn["user_text"]),
@@ -283,7 +254,7 @@ def main() -> int:
             "calls": calls.summary(),
             "cases": evidence,
             "guarantee": (
-                "schema-compliant real-model goal declaration, production validation, and dependency semantics; "
+                "schema-compliant real-model declaration, required-effect coverage, and representation-independent production validation; "
                 "tool authorization remains covered by deterministic runtime gates"
             ),
         }, ensure_ascii=False))

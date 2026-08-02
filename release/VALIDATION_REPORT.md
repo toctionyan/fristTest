@@ -1,10 +1,18 @@
 # B17j Validation Report
 
 - Product/workspace version: `20.6.1`
-- Architecture Skill version: `6.3.0`
+- Architecture Skill version: `6.3.1`
 - Governance phase: `V20.17 B17j`
 - Status: `PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING`
 - `production_closed`: `false`
+
+## Semantic authority correction
+
+Skill `6.3.1` makes semantic representation independence an executable hard boundary. Open-language meaning remains owned by the model semantic role; deterministic code validates structure, evidence, data lineage, permissions, authorization and transaction invariants. Semantic certification no longer treats one exact Goal count, Goal ID mapping, `depends_on` graph or Tool order as the only valid interpretation. Internal-shape disagreements must enter read-only Oracle Review before any writable repair.
+
+## Semantic Oracle migration evidence
+
+The protected semantic smoke now validates required user-visible effect evidence and delegates semantic completeness to the independent production alignment judge; it does not compare one exact Goal count or `depends_on` graph. Legacy tests that still called the retired exact-AST matcher were migrated to the effect-coverage contract. The regressions preserve strict failures for duplicate Goal IDs, missing effects and incorrect literal evidence while accepting equivalent dependency graphs and composite Goal representations.
 
 ## Real GitHub red baseline
 
