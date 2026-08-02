@@ -1,3 +1,4 @@
 repair_branch=agent/fix-independent-goal-dependency-semantics
 reason=semantic_goal_dependency_mismatch__semantic_supported_plus_unsupported
 registered_after=a5a82ee5fcf2841f860dd2ba15b8a15a3591d7e2
+retry_after_anchor_fix=e10b47ac4a0dfeb4fd2cd76db359c61cc6278469
