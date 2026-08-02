@@ -1146,7 +1146,7 @@
                 "L2_WORKFLOW"
               ],
               "workflow_statuses": [
-                "RUNNING"
+                "AWAITING_AUTHORIZATION"
               ],
               "public_interaction": "transaction_interaction",
               "trace": {
