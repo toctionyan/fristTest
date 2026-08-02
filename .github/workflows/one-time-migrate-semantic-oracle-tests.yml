@@ -41,9 +41,10 @@ jobs:
           text = identity.read_text(encoding='utf-8')
           old = 'monkeypatch.setattr(script, "_match_oracle", lambda **_kwargs: None)'
           new = 'monkeypatch.setattr(script, "_assert_effect_evidence_coverage", lambda **_kwargs: None)'
-          if text.count(old) != 1:
-              raise SystemExit(f'identity test expected one legacy matcher patch, found {text.count(old)}')
-          identity.write_text(text.replace(old, new, 1), encoding='utf-8')
+          identity_count = text.count(old)
+          if identity_count != 2:
+              raise SystemExit(f'identity test expected two legacy matcher patches, found {identity_count}')
+          identity.write_text(text.replace(old, new), encoding='utf-8')
 
           governance = root / 'services/agent-service/tests/architecture/test_quality_loop_governance.py'
           text = governance.read_text(encoding='utf-8')
