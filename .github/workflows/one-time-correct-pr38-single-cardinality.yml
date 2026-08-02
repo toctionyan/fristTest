@@ -1,0 +1,57 @@
+name: One-time correct PR 38 single cardinality
+
+on:
+  push:
+    branches:
+      - agent/fix-cancel-refund-goal-boundary
+    paths:
+      - .github/workflows/one-time-correct-pr38-single-cardinality.yml
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/fix-cancel-refund-goal-boundary
+          fetch-depth: 0
+
+      - name: Correct deterministic semantic cardinality and remove helper
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          matches = [case for case in payload.get("cases", []) if case.get("id") == "semantic_cancel_and_refund_branch"]
+          if len(matches) != 1:
+              raise SystemExit(f"expected exactly one semantic_cancel_and_refund_branch case, found {len(matches)}")
+          contracts = matches[0]["execution_contract"]["turn_contracts"]
+          if len(contracts) != 1:
+              raise SystemExit(f"expected exactly one turn contract, found {len(contracts)}")
+          goals = contracts[0]["model_steps"][0]["tool_calls"][0]["args"]["goals"]
+          found = {str(goal.get("goal_id") or "") for goal in goals}
+          if found != {"g1", "g2"}:
+              raise SystemExit(f"unexpected goal ids: {sorted(found)}")
+          for goal in goals:
+              if goal.get("expected_result_cardinality") != "collection":
+                  raise SystemExit(
+                      f"unexpected pre-correction cardinality for {goal.get('goal_id')}: "
+                      f"{goal.get('expected_result_cardinality')!r}"
+                  )
+              goal["expected_result_cardinality"] = "single"
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+          rm .github/workflows/one-time-correct-pr38-single-cardinality.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json .github/workflows/one-time-correct-pr38-single-cardinality.yml
+          git diff --cached --check
+          git commit -m "Use single cardinality for resolved business outcomes"
+          git push origin HEAD:agent/fix-cancel-refund-goal-boundary
