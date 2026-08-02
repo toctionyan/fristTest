@@ -3,6 +3,7 @@ from __future__ import annotations
 from agent_core.model_calls.real_model_certification_bundle import _safe_failed_component
 
 
+# Raw failure bodies are process-local diagnostics and must never cross the bundle boundary.
 def test_lifecycle_failure_diagnostic_is_precise_and_drops_raw_response() -> None:
     raw = (
         "dependent evidence turn degraded to a notice: "
