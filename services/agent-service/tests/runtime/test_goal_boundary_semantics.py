@@ -56,6 +56,20 @@ def test_shared_order_lookup_is_execution_step_not_third_goal() -> None:
     )
 
 
+def test_filtered_goal_candidates_use_collection_cardinality() -> None:
+    contract = _turn_contract()
+    goals = contract["model_steps"][0]["tool_calls"][0]["args"]["goals"]
+    cardinality_schema = DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]["items"]["properties"]["expected_result_cardinality"]
+
+    assert [row["expected_result_cardinality"] for row in goals] == [
+        "collection",
+        "collection",
+    ]
+    assert all(row.get("condition", {}).get("order_status") for row in goals)
+    assert "collection" in cardinality_schema["enum"]
+    assert "one" not in cardinality_schema["enum"]
+
+
 def test_goal_protocol_defines_business_result_boundary() -> None:
     description = DECLARE_TURN_GOALS_SCHEMA["function"]["description"]
 
