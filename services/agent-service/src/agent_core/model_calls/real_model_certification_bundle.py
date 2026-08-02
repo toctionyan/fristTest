@@ -454,6 +454,47 @@ def _default_component_runner(
     return payload
 
 
+def _safe_failed_component(
+    component: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return bounded component diagnostics without retaining model or user text."""
+
+    raw_error = str(payload.get("error") or "")
+    error_code = str(payload.get("error_code") or "").strip()
+    if not error_code:
+        lifecycle_patterns = (
+            ("real-model turn did not reach a safe answer", "lifecycle_safe_answer_not_reached"),
+            ("real-model answer has neither narrative nor structured presentation", "lifecycle_answer_content_missing"),
+            ("order-list turn did not publish structured evidence", "lifecycle_structured_evidence_missing"),
+            ("dependent evidence turn degraded to a notice", "lifecycle_dependent_turn_degraded_to_notice"),
+            ("public response leaked internal runtime fields", "lifecycle_public_response_leak"),
+            ("durable transcript is incomplete", "lifecycle_transcript_incomplete"),
+            ("read-only real-model canary created or removed a transaction", "lifecycle_transaction_delta_invalid"),
+            ("completed lifecycle turn did not persist any model call records", "lifecycle_model_calls_missing"),
+            ("completed lifecycle turn did not contain an attestable model call", "lifecycle_model_calls_missing"),
+        )
+        if component == "lifecycle":
+            error_code = next(
+                (code for marker, code in lifecycle_patterns if marker in raw_error),
+                "lifecycle_component_failed",
+            )
+        else:
+            error_code = f"{component}_component_failed"
+
+    result: dict[str, Any] = {
+        "component": component,
+        "status": str(payload.get("status") or "FAIL"),
+        "reason": str(payload.get("reason") or f"{component}_certification_failed"),
+        "error_code": error_code,
+    }
+    for key in ("error_type", "error_category"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            result[key] = value
+    return result
+
+
 def run_certification_bundle(
     *,
     workspace_root: Path,
@@ -508,21 +549,25 @@ def run_certification_bundle(
             raise RealModelBundleError("component_output_invalid", f"component {component} returned no mapping")
         status = str(payload.get("status") or "")
         if status == "BLOCKED_BY_ENVIRONMENT":
+            failure = _safe_failed_component(component, payload)
             return {
                 "contract": _BUNDLE_CONTRACT,
                 "status": "BLOCKED_BY_ENVIRONMENT",
                 "reason": str(payload.get("reason") or "real_model_environment_unavailable"),
-                "error_code": str(payload.get("error_code") or "component_environment_blocked"),
+                "error_code": failure["error_code"],
                 "blocked_component": component,
+                "component_failure": failure,
                 "component_launch_count": launched,
             }
         if status != "PASS":
+            failure = _safe_failed_component(component, payload)
             return {
                 "contract": _BUNDLE_CONTRACT,
                 "status": "FAIL",
                 "reason": "real_model_certification_component_failed",
                 "failed_component": component,
-                "error_code": str(payload.get("error_code") or "component_failed"),
+                "error_code": failure["error_code"],
+                "component_failure": failure,
                 "component_launch_count": launched,
             }
         components[component] = payload
