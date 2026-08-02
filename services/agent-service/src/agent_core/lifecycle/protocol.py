@@ -19,6 +19,12 @@ from agent_core.kernel.loop_contract import (
 
 MAX_WORK_ITEMS = 12
 
+GOAL_DEPENDENCY_DECLARATION_RULE = (
+    "depends_on 只在同一轮中一个业务结果必须使用另一个 Goal 的业务结果或以其为语义先决条件时声明。"
+    "‘再/然后/并且’等话语顺序、共享同一对象、共享内部检索或筛选步骤都不构成依赖。"
+    "支持分支与不支持分支默认相互独立；只有后一个结果明确引用前一个结果时才建立依赖。"
+)
+
 
 _GOAL_LIFECYCLE_ENUM = ["OPEN", "ACTIVE", "BLOCKED", "PAUSED", "COMPLETED", "CANCELLED", "SUPERSEDED"]
 _MODEL_SETTABLE_GOAL_LIFECYCLE_ENUM = ["ACTIVE", "PAUSED", "CANCELLED"]
@@ -178,7 +184,11 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                                 "enum": ["single", "collection", "none", "unknown"],
                             },
                             "required": {"type": "boolean"},
-                            "depends_on": {"type": "array", "items": {"type": "string"}},
+                            "depends_on": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": GOAL_DEPENDENCY_DECLARATION_RULE,
+                            },
                             "continuation_of": {
                                 "type": "string",
                                 "description": "需要继续既有 Goal 时引用其 goal_id；不要求改变本轮其他独立 Goal。",

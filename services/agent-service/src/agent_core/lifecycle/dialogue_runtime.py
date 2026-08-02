@@ -8,7 +8,12 @@ try:
 except Exception:  # pragma: no cover
     AIMessage = HumanMessage = SystemMessage = None  # type: ignore
 
-from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, agent_loop_schemas, planning_schemas
+from agent_core.lifecycle.protocol import (
+    GOAL_DEPENDENCY_DECLARATION_RULE,
+    TERMINAL_TOOL_NAMES,
+    agent_loop_schemas,
+    planning_schemas,
+)
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.plan_projection_contract import read_plan_projection
 from agent_core.observability.audit_turn_trace import create_plan_id
@@ -485,7 +490,9 @@ def _loop_runtime_prompt(
     planning_phase = not goal_plan_ready(state)
     pending_clarification = clarification_context_projection(state)
     planning_rule = (
-        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
+        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。"
+        + GOAL_DEPENDENCY_DECLARATION_RULE
+        + "系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
         + (
             " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮归入 resume/abandon/new_request。旧 clarification_resolution 仅用于旧检查点兼容。"
             if pending_clarification is not None else ""

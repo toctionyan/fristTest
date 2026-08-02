@@ -25,7 +25,10 @@ for path in (ROOT, ROOT / "src"):
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
 from agent_core.config import get_model, get_model_profile  # noqa: E402
-from agent_core.lifecycle.protocol import planning_schemas  # noqa: E402
+from agent_core.lifecycle.protocol import (  # noqa: E402
+    GOAL_DEPENDENCY_DECLARATION_RULE,
+    planning_schemas,
+)
 from agent_core.lifecycle.goal_planning import validate_goal_declaration  # noqa: E402
 from agent_core.model_calls import (  # noqa: E402
     RealModelCertificationError,
@@ -199,6 +202,16 @@ def _safe_semantic_failure(exc: Exception) -> dict[str, str]:
     }
 
 
+def _semantic_system_instruction() -> str:
+    return (
+        "只执行目标声明：调用 declare_turn_goals，完整保留用户明确要求的每一个独立业务结果、条件和依赖。"
+        "内部查找、筛选和目标解析只是执行步骤，不单独声明为 Goal，除非用户明确要求返回该查询结果。"
+        "多个独立结果即使共享同一查找步骤也必须分别声明；不能吞掉不支持分支，也不能用相似能力代替。"
+        + GOAL_DEPENDENCY_DECLARATION_RULE
+        + "evidence_span 应覆盖该结果的动作或问题及关键对象条件，并且必须来自用户原话。"
+    )
+
+
 def main() -> int:
     try:
         identity = resolve_real_model_identity()
@@ -217,12 +230,7 @@ def main() -> int:
         model = get_model()
         bound = model.bind_tools(planning_schemas()) if hasattr(model, "bind_tools") else model
         evidence: list[dict[str, Any]] = []
-        system = SystemMessage(content=(
-            "只执行目标声明：调用 declare_turn_goals，完整保留用户明确要求的每一个独立业务结果、条件和依赖。"
-            "内部查找、筛选和目标解析只是执行步骤，不单独声明为 Goal，除非用户明确要求返回该查询结果。"
-            "多个独立结果即使共享同一查找步骤也必须分别声明；不能吞掉不支持分支，也不能用相似能力代替。"
-            "evidence_span 应覆盖该结果的动作或问题及关键对象条件，并且必须来自用户原话。"
-        ))
+        system = SystemMessage(content=_semantic_system_instruction())
         # Protected mode uses the production independent goal-alignment model,
         # so each prototype may consume one declaration call and one verifier call.
         with model_call_scope(max_calls=24, scope="preprod_semantic_goal_prototypes") as calls:
