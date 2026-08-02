@@ -1,4 +1,0 @@
-target_branch=agent/refine-goal-dependency-target-inheritance
-reason=remove-programmatic-semantic-reinterpretation-and-unique-ast-oracle
-base=6a6dab2cf07b50e615ccac80b5b741fbfedeed40
-retry=3

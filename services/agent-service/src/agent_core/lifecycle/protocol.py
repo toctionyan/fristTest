@@ -20,9 +20,9 @@ from agent_core.kernel.loop_contract import (
 MAX_WORK_ITEMS = 12
 
 GOAL_DEPENDENCY_DECLARATION_RULE = (
-    "depends_on 只在同一轮中一个业务结果必须使用另一个 Goal 的业务结果或以其为语义先决条件时声明。"
-    "‘再/然后/并且’等话语顺序、共享同一对象、共享内部检索或筛选步骤都不构成依赖。"
-    "支持分支与不支持分支默认相互独立；只有后一个结果明确引用前一个结果时才建立依赖。"
+    "depends_on 是语义 Owner 对当前轮业务结果先决关系的候选表达，不是程序根据词面、代词、共享对象或工具数据流推导的分类。"
+    "程序只验证引用存在、无自依赖和无循环；Tool、handle 与 data 的执行依赖必须由局部 Plan 单独表达。"
+    "语义评测验证用户效果、对象、条件和安全边界，不要求一种唯一的 Goal 数量或 depends_on 图。"
 )
 
 
