@@ -6,6 +6,14 @@ name: one-time-repair-cancel-refund-goal-boundary
       - agent/fix-cancel-refund-goal-boundary
     paths:
       - .github/workflows/one-time-repair-cancel-refund-goal-boundary.yml
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+    paths:
+      - .github/workflows/one-time-repair-cancel-refund-goal-boundary.yml
+      - scripts/repair_cancel_refund_goal_boundary.py
 
 permissions:
   contents: write
@@ -17,6 +25,10 @@ concurrency:
 
 jobs:
   repair:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.head_ref == 'agent/fix-cancel-refund-goal-boundary')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -32,7 +44,6 @@ jobs:
           python -B scripts/repair_cancel_refund_goal_boundary.py
           python -m json.tool services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json >/dev/null
           git diff --check
-          git diff --exit-code -- scripts/repair_cancel_refund_goal_boundary.py || true
           test -n "$(git status --porcelain services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json)"
       - name: Commit repaired catalog
         run: |
