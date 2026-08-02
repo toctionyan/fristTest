@@ -6,7 +6,6 @@ run-name: temporary protected release dispatcher (${{ github.event_name }})
     branches:
       - main
     paths:
-      - .github/workflows/temporary-auto-release-after-real-model-repair.yml
       - scripts/verify_production_certification_bundle.py
       - services/agent-service/scripts/verify_model_smoke.py
       - services/agent-service/src/agent_core/model_calls/real_model_identity.py
@@ -17,7 +16,7 @@ run-name: temporary protected release dispatcher (${{ github.event_name }})
 
 permissions:
   actions: write
-  contents: read
+  contents: write
   issues: write
   statuses: write
 
@@ -176,3 +175,46 @@ jobs:
           Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
           gh issue comment 33 --body-file "$body_file"
+
+  repair-cancel-refund-goal-boundary:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.number == 33 &&
+      contains(github.event.comment.body, '/repair-cancel-refund-goal-boundary')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TARGET_BRANCH: agent/fix-cancel-refund-goal-boundary
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/fix-cancel-refund-goal-boundary
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Apply exact semantic catalog repair
+        run: |
+          set -euo pipefail
+          python -B scripts/repair_cancel_refund_goal_boundary.py
+          python -m json.tool services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json >/dev/null
+          git diff --check
+          test -n "$(git status --porcelain services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json)"
+      - name: Commit repaired catalog to bounded branch
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json
+          git commit -m "Correct cancel and refund business goal boundary"
+          git push origin "HEAD:${TARGET_BRANCH}"
+      - name: Record bounded catalog repair outcome
+        if: always()
+        continue-on-error: true
+        run: |
+          gh issue comment 33 --body "cancel-refund-goal-boundary-repair:${GITHUB_RUN_ID}
+
+Outcome: ${{ job.status }}
+Branch: ${TARGET_BRANCH}
+Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
