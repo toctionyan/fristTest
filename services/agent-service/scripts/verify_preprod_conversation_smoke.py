@@ -41,6 +41,7 @@ from agent_core.runtime.node_support import tool_calls  # noqa: E402
 from agent_core.composition import get_runtime_registry  # noqa: E402
 
 CATALOG = WORKSPACE / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
+_SAFE_CASE_ID_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]{0,127}):\s*(.*)$", re.DOTALL)
 
 
 def _compact_span(value: Any) -> str:
@@ -158,6 +159,40 @@ def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     return "real_model_identity_invalid"
 
 
+def _safe_semantic_failure(exc: Exception) -> dict[str, str]:
+    """Classify a semantic failure without retaining prompts or model output."""
+
+    message = str(exc or "")
+    case_id = ""
+    detail = message
+    case_match = _SAFE_CASE_ID_RE.match(message)
+    if case_match:
+        case_id = case_match.group(1)
+        detail = case_match.group(2)
+
+    patterns = (
+        ("goal count mismatch", "goal_count_mismatch"),
+        ("duplicate goal_id values", "duplicate_goal_ids"),
+        ("no unique model goal matches oracle", "oracle_goal_match_failed"),
+        ("oracle and model goals must declare stable IDs", "stable_goal_id_missing"),
+        ("model emitted undeclared extra goals", "undeclared_extra_goals"),
+        ("goal dependency mismatch", "goal_dependency_mismatch"),
+        ("production goal declaration rejected model output", "production_goal_contract_rejected"),
+        ("model did not emit exactly one declare_turn_goals call", "declare_turn_goals_call_invalid"),
+        ("expected exactly 12 semantic prototypes", "prototype_catalog_count_invalid"),
+        ("preproduction semantic prototypes must currently be single-turn", "prototype_turn_count_invalid"),
+    )
+    failure_code = next((code for marker, code in patterns if marker in detail), "semantic_component_exception")
+    error_code = f"semantic_{failure_code}"
+    if case_id:
+        error_code = f"{error_code}__{case_id}"
+    return {
+        "error_code": error_code,
+        "failure_code": failure_code,
+        **({"failed_case_id": case_id} if case_id else {}),
+    }
+
+
 def main() -> int:
     try:
         identity = resolve_real_model_identity()
@@ -248,12 +283,15 @@ def main() -> int:
     except Exception as exc:
         category = classify_model_failure(exc)
         environment_blocked = is_environmental_model_failure_category(category)
+        diagnostic = _safe_semantic_failure(exc)
+        if environment_blocked:
+            diagnostic["error_code"] = f"semantic_model_environment__{category}"
         print(json.dumps({
             "status": "BLOCKED_BY_ENVIRONMENT" if environment_blocked else "FAIL",
             "error_type": exc.__class__.__name__,
             "error_category": category,
             "reason": "configured_model_environment_unavailable" if environment_blocked else "semantic_prototype_certification_failed",
-            "error": str(exc),
+            **diagnostic,
         }, ensure_ascii=False))
         return 78 if environment_blocked else 1
 
