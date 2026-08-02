@@ -79,7 +79,7 @@ def test_semantic_prototype_rejects_local_model_stub_before_invocation(monkeypat
             "depends_on": [],
         }]},
     }])
-    monkeypatch.setattr(script, "_match_oracle", lambda **_kwargs: None)
+    monkeypatch.setattr(script, "_assert_effect_evidence_coverage", lambda **_kwargs: None)
     monkeypatch.setattr(script, "_validate_with_production_goal_contract", lambda **_kwargs: {
         "goals": [{"goal_id": "goal-1"}],
     })
@@ -142,7 +142,7 @@ def _patch_successful_semantic_runtime(monkeypatch, script, tmp_path: Path, *, i
             "depends_on": [],
         }]},
     }])
-    monkeypatch.setattr(script, "_match_oracle", lambda **_kwargs: None)
+    monkeypatch.setattr(script, "_assert_effect_evidence_coverage", lambda **_kwargs: None)
     monkeypatch.setattr(script, "_validate_with_production_goal_contract", lambda **_kwargs: {
         "goals": [{"goal_id": "goal-1"}],
     })

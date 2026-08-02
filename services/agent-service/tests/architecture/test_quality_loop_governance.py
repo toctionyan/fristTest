@@ -471,7 +471,7 @@ def test_repair_target_rejects_green_baseline_and_no_change_verification(
 
 def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_tools() -> None:
     smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
-    smoke._match_oracle(
+    smoke._assert_effect_evidence_coverage(
         case_id="schema-compliant",
         oracle=[
             {
@@ -498,7 +498,7 @@ def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_to
 
 def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording() -> None:
     smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
-    smoke._match_oracle(
+    smoke._assert_effect_evidence_coverage(
         case_id="literal-span-extension",
         oracle=[
             {
@@ -521,10 +521,10 @@ def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording
     )
 
 
-def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None:
+def test_protected_goal_smoke_rejects_fuzzy_but_accepts_composite_effect_evidence() -> None:
     smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
-    with pytest.raises(RuntimeError, match="no unique model goal"):
-        smoke._match_oracle(
+    with pytest.raises(RuntimeError, match="required effect evidence not covered"):
+        smoke._assert_effect_evidence_coverage(
             case_id="fuzzy-is-forbidden",
             oracle=[
                 {
@@ -545,42 +545,41 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                 }
             ],
         )
-    with pytest.raises(RuntimeError, match="no unique model goal"):
-        smoke._match_oracle(
-            case_id="ambiguous-containment",
-            oracle=[
-                {
-                    "oracle_id": "cancel",
-                    "evidence_span": "取消",
-                    "goal_type": "action",
-                    "required": True,
-                    "depends_on": [],
-                },
-                {
-                    "oracle_id": "ship",
-                    "evidence_span": "继续发货",
-                    "goal_type": "action",
-                    "required": True,
-                    "depends_on": [],
-                },
-            ],
-            goals=[
-                {
-                    "goal_id": "combined-a",
-                    "evidence_span": "取消，然后继续发货",
-                    "goal_type": "action",
-                    "required": True,
-                    "depends_on": [],
-                },
-                {
-                    "goal_id": "combined-b",
-                    "evidence_span": "取消并继续发货",
-                    "goal_type": "action",
-                    "required": True,
-                    "depends_on": [],
-                },
-            ],
-        )
+    smoke._assert_effect_evidence_coverage(
+        case_id="ambiguous-containment",
+        oracle=[
+            {
+                "oracle_id": "cancel",
+                "evidence_span": "取消",
+                "goal_type": "action",
+                "required": True,
+                "depends_on": [],
+            },
+            {
+                "oracle_id": "ship",
+                "evidence_span": "继续发货",
+                "goal_type": "action",
+                "required": True,
+                "depends_on": [],
+            },
+        ],
+        goals=[
+            {
+                "goal_id": "combined-a",
+                "evidence_span": "取消，然后继续发货",
+                "goal_type": "action",
+                "required": True,
+                "depends_on": [],
+            },
+            {
+                "goal_id": "combined-b",
+                "evidence_span": "取消并继续发货",
+                "goal_type": "action",
+                "required": True,
+                "depends_on": [],
+            },
+        ],
+    )
 
 
 def test_process_group_cleanup_handles_permission_error_after_parent_exit(
@@ -815,7 +814,7 @@ def test_protected_model_smoke_rejects_duplicate_goal_ids_and_wrong_base_respons
         "../services/agent-service/scripts/verify_preprod_conversation_smoke.py"
     )
     with pytest.raises(RuntimeError, match="duplicate goal_id"):
-        conversation._match_oracle(
+        conversation._assert_effect_evidence_coverage(
             case_id="duplicate-goal-id",
             oracle=[
                 {"oracle_id": "o1", "evidence_span": "查订单", "goal_type": "query", "required": True, "depends_on": []},

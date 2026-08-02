@@ -1,4 +1,0 @@
-target_branch=agent/refine-goal-dependency-target-inheritance
-reason=migrate-stale-exact-ast-tests-to-effect-coverage
-registered_on_main=d617d3aafeeeb38620d2fb3ab485f81c967b4744
-retry=2
