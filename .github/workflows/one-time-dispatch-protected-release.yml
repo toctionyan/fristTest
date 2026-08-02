@@ -7,6 +7,16 @@ on:
       - main
     paths:
       - .github/workflows/one-time-dispatch-protected-release.yml
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - main
+    paths:
+      - .github/protected-release-dispatch-trigger
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -58,6 +68,7 @@ jobs:
           cat > "$body_file" <<EOF
           one-time-protected-release-dispatch:${GITHUB_RUN_ID}
 
+          Event: ${GITHUB_EVENT_NAME}
           Target SHA: ${target_sha}
           Protected release run: ${run_id}
           Initial status: ${run_status}
