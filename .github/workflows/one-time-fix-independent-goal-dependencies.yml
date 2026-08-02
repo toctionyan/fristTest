@@ -1,4 +1,5 @@
 name: One-time fix independent goal dependencies
+run-name: Apply independent goal dependency repair
 
 on:
   push:
