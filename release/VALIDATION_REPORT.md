@@ -1,10 +1,14 @@
 # B17j Validation Report
 
 - Product/workspace version: `20.6.1`
-- Architecture Skill version: `6.3.0`
+- Architecture Skill version: `6.3.1`
 - Governance phase: `V20.17 B17j`
 - Status: `PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING`
 - `production_closed`: `false`
+
+## Semantic authority correction
+
+Skill `6.3.1` makes semantic representation independence an executable hard boundary. Open-language meaning remains owned by the model semantic role; deterministic code validates structure, evidence, data lineage, permissions, authorization and transaction invariants. Semantic certification no longer treats one exact Goal count, Goal ID mapping, `depends_on` graph or Tool order as the only valid interpretation. Internal-shape disagreements must enter read-only Oracle Review before any writable repair.
 
 ## Real GitHub red baseline
 
