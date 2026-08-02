@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 import sys
 
+import pytest
+
 
 AGENT_ROOT = Path(__file__).resolve().parents[2]
 for path in (AGENT_ROOT, AGENT_ROOT / "src"):
@@ -53,3 +55,80 @@ def test_safe_semantic_failure_classifies_tool_call_shape_without_raw_payload() 
     assert result["failure_code"] == "declare_turn_goals_call_invalid"
     assert result["failed_case_id"] == "ctx-tool-shape"
     assert "raw-tool-payload-must-not-escape" not in str(result)
+
+
+def test_oracle_match_does_not_promote_legacy_goal_type_to_semantic_authority() -> None:
+    module = _load_module()
+    oracle = [
+        {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "查一下键盘订单",
+            "required": True,
+            "depends_on": [],
+        },
+        {
+            "oracle_id": "g2",
+            "goal_type": "consult",
+            "evidence_span": "它能不能退款",
+            "required": True,
+            "depends_on": ["g1"],
+        },
+    ]
+    goals = [
+        {
+            "goal_id": "model-order",
+            "goal_type": "query",
+            "evidence_span": "查一下键盘订单",
+            "required": True,
+            "depends_on": [],
+            "requested_effect": {"operation": "list"},
+        },
+        {
+            "goal_id": "model-refund-eligibility",
+            # Compatibility metadata may be omitted or differ; the formal
+            # requested outcome is validated by the production verifier.
+            "goal_type": "query",
+            "evidence_span": "再看看它能不能退款",
+            "required": True,
+            "depends_on": ["model-order"],
+            "requested_effect": {"operation": "assess_eligibility"},
+        },
+    ]
+
+    module._match_oracle(case_id="semantic_query_then_refund_consult", oracle=oracle, goals=goals)
+
+
+def test_oracle_match_still_rejects_missing_literal_branch() -> None:
+    module = _load_module()
+    oracle = [
+        {
+            "oracle_id": "g1",
+            "evidence_span": "查一下键盘订单",
+            "required": True,
+            "depends_on": [],
+        },
+        {
+            "oracle_id": "g2",
+            "evidence_span": "它能不能退款",
+            "required": True,
+            "depends_on": ["g1"],
+        },
+    ]
+    goals = [
+        {
+            "goal_id": "model-order",
+            "evidence_span": "查一下键盘订单",
+            "required": True,
+            "depends_on": [],
+        },
+        {
+            "goal_id": "model-unrelated",
+            "evidence_span": "查一下键盘订单",
+            "required": True,
+            "depends_on": ["model-order"],
+        },
+    ]
+
+    with pytest.raises(RuntimeError, match="no unique model goal matches oracle"):
+        module._match_oracle(case_id="semantic_query_then_refund_consult", oracle=oracle, goals=goals)

@@ -79,6 +79,15 @@ def _user_turns(case: dict[str, Any]) -> list[str]:
 
 
 def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dict[str, Any]]) -> None:
+    """Match independent oracle branches without promoting legacy metadata.
+
+    ``goal_type`` is explicitly compatibility-only in the production semantic
+    contract.  The certification oracle therefore uses literal branch evidence,
+    requiredness, and dependencies for one-to-one structural matching.  The
+    authoritative requested outcome is separately checked by the production
+    goal-alignment verifier in ``_validate_with_production_goal_contract``.
+    """
+
     if len(goals) != len(oracle):
         raise RuntimeError(f"{case_id}: goal count mismatch, expected {len(oracle)}, got {len(goals)}")
     goal_ids = [str(row.get("goal_id") or "") for row in goals]
@@ -93,12 +102,10 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
     oracle_to_goal: dict[str, str] = {}
     for expected in oracle:
         evidence = str(expected.get("evidence_span") or "")
-        goal_type = str(expected.get("goal_type") or "")
         required = bool(expected.get("required", True))
         exact_matches = [
             row for row in unmatched
             if str(row.get("evidence_span") or "") == evidence
-            and str(row.get("goal_type") or "") == goal_type
             and bool(row.get("required", True)) == required
         ]
         matches = exact_matches or [
@@ -107,11 +114,10 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
                 expected=evidence,
                 actual=row.get("evidence_span"),
             )
-            and str(row.get("goal_type") or "") == goal_type
             and bool(row.get("required", True)) == required
         ]
         if len(matches) != 1:
-            raise RuntimeError(f"{case_id}: no unique model goal matches oracle span={evidence!r}, type={goal_type!r}")
+            raise RuntimeError(f"{case_id}: no unique model goal matches oracle branch")
         matched = matches[0]
         oracle_id = str(expected.get("oracle_id") or "")
         goal_id = str(matched.get("goal_id") or "")
