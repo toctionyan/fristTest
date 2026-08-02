@@ -18,7 +18,11 @@ import re
 from typing import Any, Protocol
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
-from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool
+from agent_core.lifecycle.protocol import (
+    GOAL_DEPENDENCY_DECLARATION_RULE,
+    TERMINAL_TOOL_NAMES,
+    classify_tool,
+)
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
 from agent_core.lifecycle.state_schema import legacy_fallback_allowed
 from agent_core.lifecycle.semantic_contract import (
@@ -235,7 +239,7 @@ class ModelGoalAlignmentVerifier:
             "requested_effect must preserve the user's business effect even when the current system may not implement it; never rewrite an unsupported effect to a nearby available effect",
             "expected_result_cardinality describes the final verified business population, not the number of sentences in the answer: a singular choice, superlative, one entity detail, or one eligibility/policy conclusion is single; a list/set/plural comparison is collection; an existence question over records/orders/items (for example whether any record exists) is collection because the verified population may contain zero, one, or many members even when the answer is one yes/no sentence; narrative or clarification without a business result is none; intermediate sort/filter operations do not change the user's final cardinality",
             "incomplete when distinct outcomes are collapsed into one goal or at least one literal requested outcome is absent",
-            "a later outcome that relies on an earlier selection or query must declare depends_on that earlier goal",
+            GOAL_DEPENDENCY_DECLARATION_RULE,
             "depends_on links only goals declared in this same current turn; never require a dependency on a goal from an earlier turn",
             "scope modifiers such as only/related/其中/只看 belong inside the same query goal and are not a separate requested outcome when the description preserves the narrowed target",
             "a short why/explain/summary follow-up is not ambiguous when the most recent public answer supplies one clear referent; the declared description may name that referent even though its evidence_span remains the literal current user text",
