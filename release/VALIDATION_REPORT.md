@@ -10,6 +10,10 @@
 
 Skill `6.3.1` makes semantic representation independence an executable hard boundary. Open-language meaning remains owned by the model semantic role; deterministic code validates structure, evidence, data lineage, permissions, authorization and transaction invariants. Semantic certification no longer treats one exact Goal count, Goal ID mapping, `depends_on` graph or Tool order as the only valid interpretation. Internal-shape disagreements must enter read-only Oracle Review before any writable repair.
 
+## Semantic Oracle migration evidence
+
+The protected semantic smoke now validates required user-visible effect evidence and delegates semantic completeness to the independent production alignment judge; it does not compare one exact Goal count or `depends_on` graph. Legacy tests that still called the retired exact-AST matcher were migrated to the effect-coverage contract. The regressions preserve strict failures for duplicate Goal IDs, missing effects and incorrect literal evidence while accepting equivalent dependency graphs and composite Goal representations.
+
 ## Real GitHub red baseline
 
 A zero-file-difference draft PR ran the restored `quality` Workflow. Skill package/static, 46 Skill unit tests, host integration and 7 security tests all passed. The only failure was `project-compatibility-smoke`, which compared the current approved product candidate against a historical Skill-only product baseline and prevented all project Quality jobs from starting.
