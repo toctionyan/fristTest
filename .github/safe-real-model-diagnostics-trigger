@@ -1,3 +1,0 @@
-target_branch=agent/add-safe-real-model-failure-diagnostics
-reason=preserve-bounded-lifecycle-failure-code-without-raw-model-output
-registered_on_main=1f9947c1e5a8cac5a8ceadf2699ba1d0329f6bf5
