@@ -19,6 +19,7 @@ permissions:
   actions: write
   contents: read
   issues: write
+  statuses: write
 
 concurrency:
   group: temporary-auto-release-after-real-model-repair
@@ -37,6 +38,22 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Resolve release target and publish pending status
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          dispatcher_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${target_sha}" \
+            -f state=pending \
+            -f context=protected-release-dispatcher \
+            -f description="Dispatcher ${GITHUB_RUN_ID} started" \
+            -f target_url="$dispatcher_url"
+
       - name: Record dispatcher start
         continue-on-error: true
         shell: bash
@@ -46,6 +63,7 @@ jobs:
           auto-real-model-dispatch-start:${GITHUB_RUN_ID}
 
           Event: ${GITHUB_EVENT_NAME}
+          Target SHA: ${{ steps.target.outputs.target_sha }}
           Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
           gh issue comment 33 --body-file "$body_file"
@@ -53,16 +71,14 @@ jobs:
       - name: Dispatch or recover protected production certification
         id: release
         shell: bash
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
         run: |
           set -euo pipefail
-          failure_stage="resolve-main-sha"
+          failure_stage="discover-existing-release-run"
           trap 'echo "failure_stage=$failure_stage" >> "$GITHUB_OUTPUT"' ERR
 
-          target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
-          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-
-          failure_stage="discover-existing-release-run"
-          runs_api="repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&head_sha=${target_sha}&per_page=10"
+          runs_api="repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&head_sha=${TARGET_SHA}&per_page=10"
           run_id="$(gh api "$runs_api" --jq '.workflow_runs[0].id // empty')"
 
           if [ -z "$run_id" ]; then
@@ -104,13 +120,44 @@ jobs:
           echo "run_status=${run_status:-unknown}" >> "$GITHUB_OUTPUT"
           echo "run_url=${run_url:-}" >> "$GITHUB_OUTPUT"
 
+      - name: Publish dispatcher outcome status
+        if: always()
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          FAILURE_STAGE: ${{ steps.release.outputs.failure_stage }}
+          RELEASE_RUN_ID: ${{ steps.release.outputs.run_id }}
+          RELEASE_RUN_STATUS: ${{ steps.release.outputs.run_status }}
+          RELEASE_RUN_URL: ${{ steps.release.outputs.run_url }}
+        run: |
+          set -euo pipefail
+          dispatcher_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ "$RELEASE_OUTCOME" = "success" ]; then
+            state="success"
+            description="Release ${RELEASE_RUN_ID} ${RELEASE_RUN_STATUS}"
+            target_url="${RELEASE_RUN_URL:-$dispatcher_url}"
+          else
+            state="failure"
+            description="Dispatcher failed at ${FAILURE_STAGE:-unknown}"
+            target_url="$dispatcher_url"
+          fi
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${TARGET_SHA}" \
+            -f state="$state" \
+            -f context=protected-release-dispatcher \
+            -f description="$description" \
+            -f target_url="$target_url"
+
       - name: Record dispatcher outcome
         if: always()
+        continue-on-error: true
         shell: bash
         env:
           RELEASE_OUTCOME: ${{ steps.release.outcome }}
           FAILURE_STAGE: ${{ steps.release.outputs.failure_stage }}
-          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
           RELEASE_RUN_ID: ${{ steps.release.outputs.run_id }}
           RELEASE_RUN_STATUS: ${{ steps.release.outputs.run_status }}
           RELEASE_RUN_URL: ${{ steps.release.outputs.run_url }}
