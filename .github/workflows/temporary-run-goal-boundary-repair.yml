@@ -1,4 +1,5 @@
 name: temporary-run-goal-boundary-repair
+run-name: one-time mixed-workflow expectation repair v2
 
 "on":
   push:
@@ -30,38 +31,26 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
-      - name: Apply exact semantic goal-boundary repair
+      - name: Apply exact mixed-workflow expectation repair
         run: |
           set -euo pipefail
           python -B scripts/repair_cancel_refund_goal_boundary.py
           python -m json.tool services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json >/dev/null
-          python -m py_compile \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
-            services/agent-service/tests/support/conversation_case_runner.py
           git diff --check
-          test -n "$(git status --porcelain \
-            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
-            services/agent-service/tests/support/conversation_case_runner.py)"
-      - name: Commit repaired semantic boundary to bounded branch
+          test -n "$(git status --porcelain services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json)"
+      - name: Commit repaired catalog to bounded branch
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add \
-            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
-            services/agent-service/tests/support/conversation_case_runner.py
-          git commit -m "Correct cancel and refund business goal boundary"
+          git add services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json
+          git commit -m "Align mixed workflow cardinality and status"
           git push origin "HEAD:${TARGET_BRANCH}"
-      - name: Record bounded semantic repair outcome
+      - name: Record bounded repair outcome
         if: always()
         continue-on-error: true
         run: |
-          gh issue comment 33 --body "cancel-refund-goal-boundary-repair:${GITHUB_RUN_ID}
+          gh issue comment 33 --body "mixed-workflow-expectation-repair:${GITHUB_RUN_ID}
 
 Outcome: ${{ job.status }}
 Branch: ${TARGET_BRANCH}
