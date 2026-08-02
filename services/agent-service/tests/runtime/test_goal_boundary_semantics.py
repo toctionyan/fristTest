@@ -38,9 +38,16 @@ def test_cancel_and_refund_are_two_business_outcomes() -> None:
 def test_shared_order_lookup_is_execution_step_not_third_goal() -> None:
     contract = _turn_contract()
     execution_calls = contract["model_steps"][1]["tool_calls"]
-    calls_by_name = {row["name"]: row for row in execution_calls}
+    list_calls = [row for row in execution_calls if row["name"] == "list_orders"]
+    calls_by_name = {
+        row["name"]: row
+        for row in execution_calls
+        if row["name"] != "list_orders"
+    }
 
-    assert calls_by_name["list_orders"]["args"]["goal_ids"] == ["g1", "g2"]
+    assert len(list_calls) == 2
+    assert {tuple(row["args"]["goal_ids"]) for row in list_calls} == {("g1",), ("g2",)}
+    assert all(len(row["args"]["goal_ids"]) == 1 for row in execution_calls)
     assert calls_by_name["prepare_cancel_order"]["args"]["goal_ids"] == ["g1"]
     assert calls_by_name["evaluate_refund_eligibility"]["args"]["goal_ids"] == ["g2"]
     assert all(
