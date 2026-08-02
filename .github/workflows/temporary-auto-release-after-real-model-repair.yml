@@ -13,6 +13,7 @@ run-name: temporary protected release dispatcher (${{ github.event_name }})
   issue_comment:
     types:
       - created
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -27,6 +28,7 @@ jobs:
   dispatch-protected-release:
     if: >-
       github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
        github.event.issue.number == 7 &&
        contains(github.event.comment.body, '/dispatch-protected-release'))
@@ -39,10 +41,14 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          gh issue comment 7 --body "auto-real-model-dispatch-start:${GITHUB_RUN_ID}
+          body_file="${RUNNER_TEMP}/dispatcher-start.md"
+          cat > "$body_file" <<EOF
+          auto-real-model-dispatch-start:${GITHUB_RUN_ID}
 
-Event: ${GITHUB_EVENT_NAME}
-Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          Event: ${GITHUB_EVENT_NAME}
+          Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          gh issue comment 7 --body-file "$body_file"
 
       - name: Dispatch or recover protected production certification
         id: release
@@ -101,14 +107,25 @@ Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_
       - name: Record dispatcher outcome
         if: always()
         shell: bash
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          FAILURE_STAGE: ${{ steps.release.outputs.failure_stage }}
+          TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+          RELEASE_RUN_ID: ${{ steps.release.outputs.run_id }}
+          RELEASE_RUN_STATUS: ${{ steps.release.outputs.run_status }}
+          RELEASE_RUN_URL: ${{ steps.release.outputs.run_url }}
         run: |
-          gh issue comment 7 --body "auto-real-model-dispatch-result:${GITHUB_RUN_ID}
+          body_file="${RUNNER_TEMP}/dispatcher-outcome.md"
+          cat > "$body_file" <<EOF
+          auto-real-model-dispatch-result:${GITHUB_RUN_ID}
 
-Event: ${GITHUB_EVENT_NAME}
-Dispatch outcome: ${{ steps.release.outcome }}
-Failure stage: ${{ steps.release.outputs.failure_stage }}
-Target SHA: ${{ steps.release.outputs.target_sha }}
-Protected release run: ${{ steps.release.outputs.run_id }}
-Initial status: ${{ steps.release.outputs.run_status }}
-Protected release URL: ${{ steps.release.outputs.run_url }}
-Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          Event: ${GITHUB_EVENT_NAME}
+          Dispatch outcome: ${RELEASE_OUTCOME}
+          Failure stage: ${FAILURE_STAGE}
+          Target SHA: ${TARGET_SHA}
+          Protected release run: ${RELEASE_RUN_ID}
+          Initial status: ${RELEASE_RUN_STATUS}
+          Protected release URL: ${RELEASE_RUN_URL}
+          Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          gh issue comment 7 --body-file "$body_file"
