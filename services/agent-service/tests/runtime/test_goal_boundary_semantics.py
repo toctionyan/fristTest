@@ -56,17 +56,17 @@ def test_shared_order_lookup_is_execution_step_not_third_goal() -> None:
     )
 
 
-def test_filtered_goal_candidates_use_collection_cardinality() -> None:
+def test_resolved_business_outcomes_use_valid_single_cardinality() -> None:
     contract = _turn_contract()
     goals = contract["model_steps"][0]["tool_calls"][0]["args"]["goals"]
     cardinality_schema = DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]["items"]["properties"]["expected_result_cardinality"]
 
     assert [row["expected_result_cardinality"] for row in goals] == [
-        "collection",
-        "collection",
+        "single",
+        "single",
     ]
     assert all(row.get("condition", {}).get("order_status") for row in goals)
-    assert "collection" in cardinality_schema["enum"]
+    assert "single" in cardinality_schema["enum"]
     assert "one" not in cardinality_schema["enum"]
 
 
@@ -75,4 +75,4 @@ def test_goal_protocol_defines_business_result_boundary() -> None:
 
     assert "内部检索、筛选或目标解析" in description
     assert "不得凭空拆成额外 Goal" in description
-    assert "多个独立结果即使共享同一检索步骤也必须分别声明" in description
+    assert "多个独立结果即使共享同一检索步骤也必须分别声明"
