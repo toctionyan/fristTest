@@ -19,7 +19,6 @@ permissions:
   actions: write
   contents: read
   issues: write
-  pull-requests: write
 
 concurrency:
   group: temporary-auto-release-after-real-model-repair
@@ -31,7 +30,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
-       github.event.issue.number == 7 &&
+       github.event.issue.number == 33 &&
        contains(github.event.comment.body, '/dispatch-protected-release'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -49,7 +48,7 @@ jobs:
           Event: ${GITHUB_EVENT_NAME}
           Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
-          gh issue comment 7 --body-file "$body_file"
+          gh issue comment 33 --body-file "$body_file"
 
       - name: Dispatch or recover protected production certification
         id: release
@@ -129,4 +128,4 @@ jobs:
           Protected release URL: ${RELEASE_RUN_URL}
           Dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
-          gh issue comment 7 --body-file "$body_file"
+          gh issue comment 33 --body-file "$body_file"
