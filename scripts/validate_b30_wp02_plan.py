@@ -36,6 +36,7 @@ FORBIDDEN_PREFIXES = (
     "skill-system/hooks/",
     ".github/workflows/",
 )
+EXPECTED_SEPARATELY_GOVERNED = {"skill-system/registry/product-source-baseline.json"}
 
 
 class PlanError(ValueError):
@@ -93,12 +94,15 @@ def validate(plan_path: Path, doc_path: Path) -> None:
     implementation_paths = set(plan.get("implementation_paths") or [])
     if not REQUIRED_IMPLEMENTATION_PATHS.issubset(implementation_paths):
         raise PlanError("required_implementation_path_missing")
+    separately_governed = set(plan.get("separately_governed_paths") or [])
+    if separately_governed != EXPECTED_SEPARATELY_GOVERNED:
+        raise PlanError("baseline_refresh_must_be_separately_governed")
+    overlap = implementation_paths & separately_governed
+    if overlap:
+        raise PlanError(f"separately_governed_path_in_implementation_scope:{sorted(overlap)}")
     for path in implementation_paths:
         if any(path.startswith(prefix) for prefix in FORBIDDEN_PREFIXES):
             raise PlanError(f"forbidden_implementation_path:{path}")
-
-    if set(plan.get("separately_governed_paths") or []) != {"skill-system/registry/product-source-baseline.json"}:
-        raise PlanError("baseline_refresh_must_be_separately_governed")
 
     phases = plan.get("phases")
     if not isinstance(phases, list) or [row.get("id") for row in phases if isinstance(row, dict)] != EXPECTED_PHASES:
