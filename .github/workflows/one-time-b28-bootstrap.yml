@@ -1,0 +1,110 @@
+name: One-time B28 workspace bootstrap
+run-name: Apply verified B28 workspace snapshot
+
+"on":
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - main
+    paths:
+      - .github/b28-upgrade.zip
+      - .github/workflows/one-time-b28-bootstrap.yml
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b28-bootstrap'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b28-bootstrap
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Verify and install B28 stable snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4  .github/b28-upgrade.zip' | sha256sum -c -
+          rm -rf "$RUNNER_TEMP/b28-upgrade"
+          mkdir -p "$RUNNER_TEMP/b28-upgrade"
+          unzip -q .github/b28-upgrade.zip -d "$RUNNER_TEMP/b28-upgrade"
+          SRC="$RUNNER_TEMP/b28-upgrade/customer_agent_workspace_v20_17_b28_repository_onboarding_phase_candidate_20260803"
+          test -f "$SRC/PHASE_CANDIDATE_MANIFEST.json"
+          export SRC
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          workspace = pathlib.Path.cwd()
+          source = pathlib.Path(os.environ['SRC'])
+          manifest_path = source / 'PHASE_CANDIDATE_MANIFEST.json'
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          records = manifest.get('files', [])
+          if len(records) != manifest.get('file_count'):
+              raise SystemExit('manifest_file_count_mismatch')
+
+          for record in records:
+              relative = pathlib.PurePosixPath(record['path'])
+              if relative.is_absolute() or '..' in relative.parts:
+                  raise SystemExit(f'unsafe_manifest_path:{relative}')
+              candidate = source / pathlib.Path(*relative.parts)
+              if not candidate.is_file() or candidate.is_symlink():
+                  raise SystemExit(f'manifest_file_missing_or_unsafe:{relative}')
+              payload = candidate.read_bytes()
+              if len(payload) != record['size']:
+                  raise SystemExit(f'manifest_size_mismatch:{relative}')
+              if hashlib.sha256(payload).hexdigest() != record['sha256']:
+                  raise SystemExit(f'manifest_sha256_mismatch:{relative}')
+
+          for child in list(workspace.iterdir()):
+              if child.name == '.git':
+                  continue
+              if child.is_dir() and not child.is_symlink():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+
+          for record in records:
+              relative = pathlib.PurePosixPath(record['path'])
+              src = source / pathlib.Path(*relative.parts)
+              dst = workspace / pathlib.Path(*relative.parts)
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, dst)
+
+          shutil.copy2(manifest_path, workspace / 'PHASE_CANDIDATE_MANIFEST.json')
+          PY
+
+          python -B scripts/verify_task_ledger.py --workspace-root .
+          python -B scripts/verify_version_consistency.py --workspace-root .
+          git diff --check
+
+      - name: Commit verified B28 snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Upgrade workspace governance to B28 repository onboarding'
+          git push origin HEAD:agent/b28-bootstrap
+
+# synchronization trigger 2026-08-03
