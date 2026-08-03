@@ -59,9 +59,72 @@
     },
     {
       "id": "WP-02",
-      "name": "Semantic and target authority",
-      "allowed_paths": ["services/agent-service/src/agent_core/lifecycle/**", "services/agent-service/tests/context/**", "services/agent-service/tests/runtime/**"],
-      "exit_conditions": ["one SemanticDecision owner", "typed target-set counterexamples pass", "no per-intent context owner"]
+      "name": "Request, semantic and target authority convergence",
+      "allowed_paths": [
+        "services/agent-service/app/schemas/**",
+        "services/agent-service/app/api/**",
+        "services/agent-service/app/services/**",
+        "services/agent-service/app/use_cases/**",
+        "services/agent-service/src/agent_core/lifecycle/**",
+        "services/agent-service/src/agent_core/persistence/**",
+        "services/agent-service/src/agent_core/storage/**",
+        "services/agent-service/frontend/src/**",
+        "services/agent-service/tests/context/**",
+        "services/agent-service/tests/persistence/**",
+        "services/agent-service/tests/runtime/**",
+        "services/agent-service/tests/api/**"
+      ],
+      "exit_conditions": [
+        "one durable external request identity creates at most one Turn",
+        "one SemanticDecision owner",
+        "typed target-set counterexamples pass",
+        "no per-intent context owner"
+      ],
+      "sub_work_packages": [
+        {
+          "id": "WP-02A",
+          "parent": "WP-02",
+          "name": "Request identity and TurnRequestLedger",
+          "authority_owner": "TurnRequestLedger",
+          "allowed_paths": [
+            "services/agent-service/app/schemas/chat_schema.py",
+            "services/agent-service/app/api/product_api.py",
+            "services/agent-service/app/services/agent_service.py",
+            "services/agent-service/app/use_cases/conversation_turn.py",
+            "services/agent-service/src/agent_core/persistence/**",
+            "services/agent-service/src/agent_core/storage/**",
+            "services/agent-service/frontend/src/components/ChatPanel.jsx",
+            "services/agent-service/frontend/src/components/ChatPanel.test.jsx",
+            "services/agent-service/tests/persistence/**",
+            "services/agent-service/tests/runtime/**",
+            "services/agent-service/tests/api/**"
+          ],
+          "exit_conditions": [
+            "HTTP and SSE require one transport-neutral client_request_id",
+            "one request creates at most one durable Turn and one user message",
+            "terminal results replay without graph or model invocation",
+            "uncertain requests require reconciliation instead of automatic re-execution"
+          ]
+        },
+        {
+          "id": "WP-02B",
+          "parent": "WP-02",
+          "name": "Semantic, context and typed target authority",
+          "authority_owner": "TurnSemanticContract+TypedTargetSet+VisibleResultRef+SourceEffect",
+          "allowed_paths": [
+            "services/agent-service/src/agent_core/lifecycle/**",
+            "services/agent-service/src/agent_core/runtime/**",
+            "services/agent-service/tests/context/**",
+            "services/agent-service/tests/runtime/**"
+          ],
+          "exit_conditions": [
+            "one TurnSemanticContract owns user meaning and typed goals",
+            "pronoun, set, subset, correction and interruption counterexamples pass",
+            "per-intent and per-tool history resolvers cannot become authorities",
+            "ambiguous evidence fails closed to clarification"
+          ]
+        }
+      ]
     },
     {
       "id": "WP-03",
