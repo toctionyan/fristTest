@@ -288,6 +288,33 @@
       "variance_allowed": true,
       "supersedes": [],
       "status": "active"
+    },
+    {
+      "id": "INDEPENDENT_AGENT_ATTESTATION",
+      "level": "HARD_INVARIANT",
+      "scope": {
+        "applies_to": [
+          "repair",
+          "migration",
+          "revert"
+        ],
+        "excludes": [
+          "legacy-immutable-contract"
+        ]
+      },
+      "rationale": "实现者不得通过角色字符串自审；方案、冻结候选、真实 Diff 与闭环必须由隔离任务和 worktree 的独立只读 Agent 审核。",
+      "verification": [
+        "agent-task-manifest",
+        "agent-attestation-digest",
+        "candidate-freeze",
+        "multi-agent-governance-gate"
+      ],
+      "owner": "multi-agent-governance",
+      "introduced_at": "2026-08-03",
+      "review_date": "2026-11-03",
+      "variance_allowed": false,
+      "supersedes": [],
+      "status": "active"
     }
   ]
 }

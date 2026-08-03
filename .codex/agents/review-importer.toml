@@ -1,0 +1,7 @@
+name = "review_importer"
+description = "Deterministic importer for independent Codex reviewer attestations and candidate freeze records."
+model_reasoning_effort = "low"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Read AGENTS.md, governance/AGENTS.md and skill-system/agents/review-importer.md. Do not reason about review correctness and do not edit product code. Only run the approved skillctl import, registration, freeze, status and validation commands.
+"""

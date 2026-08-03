@@ -157,3 +157,7 @@ python3 -B skillctl.py task-ledger-status
 ```
 
 Validator 会检查固定阶段/工作包、唯一 ID、依赖图、必做项、阻塞原因、Scope Decision 和证据引用。
+
+## Codex 多 Agent 修复链
+
+`governed-repair` 要求独立 Failure Explorer、Repair Plan Reviewer、Product Implementer、Diff Integrity Reviewer 和 Closure Arbiter。角色配置文件不是执行证明；`agent-task-manifest.json`、attestation 摘要、候选冻结和 CI 校验共同决定是否允许写入和闭环。

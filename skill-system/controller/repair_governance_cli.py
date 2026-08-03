@@ -25,6 +25,23 @@ except ImportError:
         write_diff_review,
     )
 
+try:
+    from .multi_agent_governance import (
+        multi_agent_required,
+        validate_failure_explorer_artifact,
+        validate_multi_agent_begin_ready,
+        validate_multi_agent_verification_ready,
+        validate_plan_review_artifact,
+    )
+except ImportError:
+    from multi_agent_governance import (  # type: ignore
+        multi_agent_required,
+        validate_failure_explorer_artifact,
+        validate_multi_agent_begin_ready,
+        validate_multi_agent_verification_ready,
+        validate_plan_review_artifact,
+    )
+
 
 def _workspace() -> Path:
     return Path.cwd().resolve()
@@ -68,13 +85,16 @@ def main() -> int:
     payload = _contract()
     try:
         if args.command == "issue-permit":
+            if multi_agent_required(payload):
+                validate_failure_explorer_artifact(workspace, payload)
+                validate_plan_review_artifact(workspace, payload)
             path = create_permit(workspace, payload)
             result = {"status": "PASS", "permit": path.relative_to(workspace).as_posix()}
         elif args.command == "validate":
             result = (
-                validate_begin_ready(workspace, payload)
+                validate_multi_agent_begin_ready(workspace, payload)
                 if args.stage == "permit"
-                else validate_verification_ready(workspace, payload, expected_result=args.result)
+                else validate_multi_agent_verification_ready(workspace, payload, expected_result=args.result)
             )
         elif args.command == "diff-review":
             path = write_diff_review(

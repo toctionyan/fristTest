@@ -40,6 +40,7 @@ PRODUCT_CONTROL_FORBIDDEN = (
     "architecture-skill/**",
     "governance/quality-loop-policy.json",
     "governance/evidence/**",
+    "governance/repair-cases/**",
     ".quality/**",
     ".agents/**",
     ".claude/**",
@@ -166,6 +167,17 @@ def validate_contract_payload(payload: dict[str, Any]) -> list[str]:
     consumed_at = payload.get("repair_governance_consumed_at")
     if consumed_at is not None and (not isinstance(consumed_at, str) or not consumed_at.strip()):
         errors.append("repair_governance_consumed_at_must_be_string")
+
+    multi_agent_mode = payload.get("multi_agent_mode")
+    if multi_agent_mode is not None and multi_agent_mode not in {"required", "not-applicable", "legacy"}:
+        errors.append("invalid_multi_agent_mode")
+    if (
+        multi_agent_mode is not None
+        and profile in PRODUCT_PROFILES
+        and target_kind in TRANSITION_TARGETS
+        and multi_agent_mode != "required"
+    ):
+        errors.append("product_transition_multi_agent_mode_must_be_required")
 
     delta = str(payload.get("architecture_policy_delta") or "").strip()
     if delta:

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex Multi-Agent Task Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "change_id",
+    "repository",
+    "baseline_commit",
+    "stages",
+    "manifest_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "record_type": {
+      "const": "agent-task-manifest"
+    },
+    "change_id": {
+      "type": "string",
+      "minLength": 3
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "baseline_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "stages": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "failure-explorer",
+          "repair-plan-reviewer",
+          "product-implementer",
+          "diff-integrity-reviewer",
+          "closure-arbiter"
+        ]
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "status",
+          "task_id",
+          "thread_id",
+          "worktree_id",
+          "provider",
+          "decision",
+          "baseline_commit",
+          "artifact",
+          "artifact_sha256",
+          "attestation",
+          "attestation_sha256"
+        ]
+      }
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

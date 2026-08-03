@@ -34,9 +34,9 @@ from architecture_policy import (  # type: ignore
     promote_delta,
     validate_delta,
 )
-from repair_governance import (  # type: ignore
-    validate_begin_ready,
-    validate_verification_ready,
+from multi_agent_governance import (  # type: ignore
+    validate_multi_agent_begin_ready,
+    validate_multi_agent_verification_ready,
 )
 
 FINAL_RESULTS = (
@@ -121,6 +121,7 @@ def _product_payload(args: argparse.Namespace, workspace: Path) -> dict[str, Any
         "verification": None,
         "repair_governance": args.repair_governance,
         "repair_governance_consumed_at": None,
+        "multi_agent_mode": "required" if args.target_kind in TRANSITION_KINDS else "not-applicable",
         "created_at": _now(),
         "status": "approved" if args.approve else "draft",
         "result": "PENDING",
@@ -153,6 +154,7 @@ def _skill_payload(args: argparse.Namespace) -> dict[str, Any]:
         "verification": None,
         "repair_governance": args.repair_governance,
         "repair_governance_consumed_at": None,
+        "multi_agent_mode": "legacy",
         "created_at": _now(),
         "status": "approved" if args.approve else "draft",
         "result": "PENDING",
@@ -238,7 +240,7 @@ def cmd_begin(_args: argparse.Namespace) -> int:
         # until final verification after implementation and tests have already run.
         _validate_architecture_inputs(workspace, payload)
         try:
-            governance = validate_begin_ready(workspace, payload)
+            governance = validate_multi_agent_begin_ready(workspace, payload)
         except ValueError as exc:
             raise SystemExit(f"repair governance is not ready: {exc}") from exc
         payload["repair_governance_permit_digest"] = governance["permit_digest"]
@@ -385,7 +387,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     repair_governance: dict[str, object] | None = None
     if contract.target_kind.value in TRANSITION_KINDS:
         try:
-            repair_governance = validate_verification_ready(
+            repair_governance = validate_multi_agent_verification_ready(
                 workspace, contract.payload, expected_result=args.result
             )
         except ValueError as exc:
@@ -481,7 +483,7 @@ def cmd_close(args: argparse.Namespace) -> int:
     payload = dict(contract.payload)
     if contract.target_kind.value in TRANSITION_KINDS:
         try:
-            validate_verification_ready(workspace, contract.payload, expected_result=args.result)
+            validate_multi_agent_verification_ready(workspace, contract.payload, expected_result=args.result)
         except ValueError as exc:
             raise SystemExit(f"repair governance changed after verification: {exc}") from exc
         payload["repair_governance_consumed_at"] = _now()
