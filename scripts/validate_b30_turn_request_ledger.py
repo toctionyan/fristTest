@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the B30 WP-02 TurnRequestLedger design contract."""
+"""Validate the B30 WP-02A TurnRequestLedger design contract."""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+REQUIRED_WORK_PACKAGE = "WP-02A"
 REQUIRED_SCOPE = ["tenant_id", "user_id", "thread_id", "client_request_id"]
 REQUIRED_STATES = {
     "CLAIMED", "RUNNING", "SUCCEEDED", "FAILED_RETRYABLE",
@@ -62,7 +63,11 @@ def _text(value: Any, label: str) -> str:
 def validate(contract_path: Path, doc_path: Path) -> None:
     contract = _read(contract_path)
     documentation = doc_path.read_text(encoding="utf-8")
-    if contract.get("schema_version") != 1 or contract.get("stage") != "B30" or contract.get("work_package") != "WP-02":
+    if (
+        contract.get("schema_version") != 1
+        or contract.get("stage") != "B30"
+        or contract.get("work_package") != REQUIRED_WORK_PACKAGE
+    ):
         raise LedgerContractError("schema_stage_or_work_package_invalid")
 
     authority = contract.get("authority")
@@ -123,9 +128,9 @@ def validate(contract_path: Path, doc_path: Path) -> None:
             raise LedgerContractError(f"required_section_missing:{section}")
 
     for reference in (
-        "TurnRequestLedger", "client_request_id", "PAYLOAD_CONFLICT",
-        "RECOVERY_REQUIRED", "SUBMISSION_UNKNOWN", "fencing token",
-        "HTTP", "SSE", "one user message",
+        "WP-02A", "WP-02B", "TurnRequestLedger", "TurnSemanticContract",
+        "client_request_id", "PAYLOAD_CONFLICT", "RECOVERY_REQUIRED",
+        "SUBMISSION_UNKNOWN", "fencing token", "HTTP", "SSE", "one user message",
     ):
         if reference not in documentation:
             raise LedgerContractError(f"documentation_reference_missing:{reference}")
@@ -141,7 +146,7 @@ def main() -> int:
     except (LedgerContractError, OSError) as exc:
         print(json.dumps({"status": "FAIL", "error": str(exc)}, ensure_ascii=False))
         return 1
-    print(json.dumps({"status": "PASS", "stage": "B30", "work_package": "WP-02"}, ensure_ascii=False))
+    print(json.dumps({"status": "PASS", "stage": "B30", "work_package": REQUIRED_WORK_PACKAGE}, ensure_ascii=False))
     return 0
 
 
