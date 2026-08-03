@@ -1,0 +1,246 @@
+name: B28 Canary Assertion Migration
+run-name: Migrate B28 canary launcher assertion to preserved virtualenv identity
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: [.b28-canary-assertion-trigger]
+
+permissions:
+  contents: write
+
+env:
+  B28_BRANCH: agent/b28-repository-onboarding
+  B28_EXPECTED_HEAD: 4c42f1e84ddecd583877b476207a58018a731c32
+  B28_EXPECTED_TREE: 2f6d74689b70dd6a5a5bcba3005bda84acfd9b87
+  B28_EXPECTED_TEST_BLOB: 99dcdda83f7b3e1379ea319a6864d825c3f4364f
+
+jobs:
+  migrate:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b28-canary-assertion-trigger'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable B28 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.B28_EXPECTED_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          clean: true
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify candidate and install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
+          test "$(git -C candidate rev-parse HEAD^{tree})" = "$B28_EXPECTED_TREE"
+          test "$(git -C candidate hash-object services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py)" = "$B28_EXPECTED_TEST_BLOB"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Migrate exact stale launcher assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          from pathlib import Path
+
+          root = Path("candidate").resolve()
+          path = root / "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py"
+          source = path.read_text(encoding="utf-8")
+          start = source.find("def test_full_lifecycle_canary_resolves_declared_or_current_python(")
+          end = source.find("\n\ndef test_product_browser_journey_uses_portable_python", start)
+          if start < 0 or end < 0:
+              raise SystemExit("canary_assertion_function_boundary_missing")
+          block = source[start:end]
+          replacements = {
+              '== executable.resolve()': '== executable.absolute()',
+              '== Path(sys.executable).resolve()': '== Path(sys.executable).absolute()',
+          }
+          for old, new in replacements.items():
+              if block.count(old) != 1 or source.count(old) != 1:
+                  raise SystemExit(
+                      f"unexpected_assertion_count:{old}:block={block.count(old)}:file={source.count(old)}"
+                  )
+              source = source.replace(old, new)
+          path.write_text(source, encoding="utf-8")
+          print(
+              "MIGRATED_TEST_SHA256=" + hashlib.sha256(path.read_bytes()).hexdigest()
+          )
+          PY
+
+      - name: Prove exact regression and adversarial bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
+          export APP_PROFILE=local
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            'tests/runtime/test_b14f1_sqlite_resource_lifecycle.py::test_full_lifecycle_canary_resolves_declared_or_current_python' \
+            'tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14f1_sqlite_resource_lifecycle_adversarial_bridge'
+
+      - name: Run complete adversarial runtime selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
+          export APP_PROFILE=local
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            tests/runtime/test_goal_binding_counterexamples.py \
+            tests/runtime/test_semantic_grounding_read.py \
+            tests/runtime/test_similar_capability_rejection.py \
+            tests/context/test_parameterized_capability_alignment.py \
+            tests/architecture/test_quality_loop_governance.py
+
+      - name: Run complete Agent standard regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
+          export APP_PROFILE=local
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            -m 'not integration and not preprod'
+
+      - name: Commit migrated adversarial contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          rm -f services/agent-service/runtime/vector-store/vector_store.db
+
+          test "$(git rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^{tree})" = "$B28_EXPECTED_TREE"
+          printf '%s\n' \
+            'services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py' \
+            > /tmp/expected-test-paths.txt
+          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-test-paths.txt
+          diff -u /tmp/expected-test-paths.txt /tmp/actual-test-paths.txt
+
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py
+          git diff --cached --check
+          git commit -m 'Preserve virtualenv launcher identity in canary contract'
+          echo "ASSERTION_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "ASSERTION_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+
+      - name: Refresh exact product-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("candidate").resolve()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          ignored_parts = {".venv", "node_modules", "__pycache__"}
+          current: dict[str, str] = {}
+          for name in tuple(str(item) for item in payload["protected_roots"]):
+              protected_root = root / name
+              for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
+                  if any(part in ignored_parts for part in path.parts):
+                      continue
+                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          baseline = {str(key): str(value) for key, value in payload["files"].items()}
+          test_path = "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py"
+          changed = {
+              path
+              for path in set(current) | set(baseline)
+              if current.get(path) != baseline.get(path)
+          }
+          if changed != {test_path}:
+              raise SystemExit("unexpected_product_source_delta:" + ",".join(sorted(changed)))
+          if len(current) != int(payload["file_count"]):
+              raise SystemExit(
+                  f"protected_file_count_changed:{payload['file_count']}->{len(current)}"
+              )
+
+          payload["generated_from"] = "git:" + os.environ["ASSERTION_COMMIT"]
+          payload["generated_at"] = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          payload["files"] = dict(sorted(current.items()))
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "status": "PASS",
+              "generated_from": payload["generated_from"],
+              "updated_path": test_path,
+              "updated_sha256": current[test_path],
+              "file_count": len(current),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate complete Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Publish exact two-commit migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          rm -f services/agent-service/runtime/vector-store/vector_store.db
+
+          test "$(git rev-parse HEAD)" = "$ASSERTION_COMMIT"
+          test "$(git rev-parse HEAD^{tree})" = "$ASSERTION_TREE"
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected-baseline-paths.txt
+          git diff --name-only "$ASSERTION_COMMIT" -- | sort > /tmp/actual-baseline-paths.txt
+          diff -u /tmp/expected-baseline-paths.txt /tmp/actual-baseline-paths.txt
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh product-source baseline for canary contract'
+
+          printf '%s\n' \
+            'services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py' \
+            'skill-system/registry/product-source-baseline.json' \
+            | sort > /tmp/expected-final-paths.txt
+          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-final-paths.txt
+          diff -u /tmp/expected-final-paths.txt /tmp/actual-final-paths.txt
+          echo "FINAL_COMMIT=$(git rev-parse HEAD)"
+          echo "FINAL_TREE=$(git rev-parse HEAD^{tree})"
+          git push --force-with-lease=refs/heads/${B28_BRANCH}:$B28_EXPECTED_HEAD \
+            origin HEAD:${B28_BRANCH}
