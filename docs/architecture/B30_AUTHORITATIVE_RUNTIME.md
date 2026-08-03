@@ -64,7 +64,17 @@ Legacy fields may be read only by explicit migration adapters. Once canonical ev
 
 ## Codex work packages
 
-B30 is executed through WP-01 to WP-08 from `b30-legacy-retirement.json`. Every work package has explicit allowed paths and exit conditions. Codex implementers may not widen scope, edit governance evidence, weaken tests or preserve a second authority for compatibility.
+B30 is executed through top-level WP-01 to WP-08 from `b30-legacy-retirement.json`. Every work package has explicit allowed paths and exit conditions. Codex implementers may not widen scope, edit governance evidence, weaken tests or preserve a second authority for compatibility.
+
+`WP-02` is a parent architecture boundary rather than one implementation task:
+
+```text
+WP-02 Request, semantic and target authority convergence
+├── WP-02A Request identity and TurnRequestLedger
+└── WP-02B Semantic, context and typed target authority
+```
+
+`WP-02A` owns only durable external request identity, replay and one-Turn creation. `WP-02B` owns only meaning, goals, context and typed references. The taxonomy is deliberately split so a request-idempotency implementation cannot reinterpret user meaning, and semantic code cannot create a second durable request authority.
 
 ## B30 exit criteria
 
