@@ -1,0 +1,118 @@
+name: B28 Quick Gate Repair
+run-name: Repair B28 quick-gate regressions from reviewed evidence
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: [.b28-quick-repair-trigger]
+
+permissions:
+  contents: write
+
+env:
+  B28_BRANCH: agent/b28-repository-onboarding
+  B28_EXPECTED_HEAD: 165f2c452137242ba1c23c3eb24d01247973780f
+
+jobs:
+  repair:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b28-quick-repair-trigger'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable B28 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.B28_EXPECTED_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          clean: true
+          persist-credentials: true
+
+      - name: Checkout reviewed repair control
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: control
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install locked Agent test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Apply reviewed six-file repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/.github/scripts/b28_quick_gate_repair.py candidate
+
+      - name: Reproduce and close all 18 failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          PYTHON=.venv/bin/python
+          "$PYTHON" -B -m pytest -q -ra -p no:cacheprovider \
+            tests/context/test_conversation_regression_suite_execution.py \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            'tests/runtime/test_b17h_protected_environment_preflight.py::test_local_cli_writes_sanitized_environment_block' \
+            'tests/runtime/test_b17i_production_execution_handoff.py::test_admission_cli_persists_environment_block_without_credentials' \
+            'tests/runtime/test_goal_coverage_runtime.py::test_verified_history_recall_binds_only_the_response_protocol' \
+            'tests/runtime/test_goal_coverage_runtime.py::test_plain_content_protocol_retry_forces_a_bound_terminal_tool_call' \
+            'tests/runtime/test_goal_coverage_runtime.py::test_plain_prose_with_pending_query_reopens_only_goal_completion_capability'
+
+      - name: Run complete Agent standard regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            -m 'not integration and not preprod'
+
+      - name: Publish exact reviewed repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
+          cat > /tmp/expected-paths.txt <<'EOF'
+          services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+          services/agent-service/src/agent_core/runtime/capability_gate.py
+          services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py
+          services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py
+          services/agent-service/tests/runtime/test_goal_coverage_runtime.py
+          services/agent-service/tests/support/conversation_case_fixtures.py
+          EOF
+          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-paths.txt
+          diff -u /tmp/expected-paths.txt /tmp/actual-paths.txt
+
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -- $(cat /tmp/expected-paths.txt)
+          git diff --cached --check
+          git commit -m 'Repair B28 quick-gate protocol regressions'
+          echo "REPAIR_COMMIT=$(git rev-parse HEAD)"
+          echo "REPAIR_TREE=$(git rev-parse HEAD^{tree})"
+          git push --force-with-lease=refs/heads/${B28_BRANCH}:$B28_EXPECTED_HEAD \
+            origin HEAD:${B28_BRANCH}
