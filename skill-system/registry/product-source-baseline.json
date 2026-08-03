@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "generated_from": "git:9a5d9ddc808bef5678ae0c49988684c91e657067",
+  "generated_from": "git:e2f6fb0a120d9cdff2be50b2636fca119632499e",
   "source_release_sha256": "a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4",
-  "generated_at": "2026-08-03T11:29:19Z",
+  "generated_at": "2026-08-03T12:13:39Z",
   "protected_roots": [
     "services",
     "web",
     "contracts"
   ],
-  "file_count": 535,
+  "file_count": 536,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -385,6 +385,7 @@
     "services/agent-service/tests/architecture/test_current_contract_boundary.py": "92b0af10a43efd6b21fcf97e79f5bd7da72ec755350bad209035db6a439b0217",
     "services/agent-service/tests/architecture/test_dependency_lock_contract.py": "ea7a861551f824e8e3886e18396570ffd32796d6d8d8aa9647b9ddcdddd4b459",
     "services/agent-service/tests/architecture/test_fenced_leases_and_document_jobs.py": "14644c4310fba95e7ed73616abc5995ac36eda16ffea4c3eb8259902e7665b4c",
+    "services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py": "2985fb4b77e390209a467f00834c24bafa55166532e90d8197de898c8f16cb7c",
     "services/agent-service/tests/architecture/test_kernel_registry_injection_scc.py": "19969a8c1c3b2dee87337f897a1015763266048cad13379b97c9976a40f5bdc5",
     "services/agent-service/tests/architecture/test_ledger_scc_extraction.py": "4cbfb0de131c94cf9f22855e35f2096cefff7ee254e85acc6a75c75f7b3aa1ba",
     "services/agent-service/tests/architecture/test_lifecycle_path.py": "157585c748717670507f3db86886f5e13efb3d0c22aca9718f52d346200fb3a8",
