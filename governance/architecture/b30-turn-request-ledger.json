@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "stage": "B30",
+  "work_package": "WP-02",
+  "status": "PROPOSED",
+  "authority": {
+    "owner": "TurnRequestLedger",
+    "scope_key": ["tenant_id", "user_id", "thread_id", "client_request_id"],
+    "request_digest_inputs": ["normalized_message", "actor_context_digest", "response_profile"],
+    "transport_excluded_from_digest": true,
+    "reason": "HTTP and SSE retries for the same logical turn must share one claim and one durable result."
+  },
+  "required_record_fields": [
+    "tenant_id", "user_id", "thread_id", "client_request_id", "request_digest",
+    "turn_id", "message_id", "state", "owner_id", "fencing_token",
+    "lease_expires_at", "response_json", "response_digest", "failure_code",
+    "created_at", "updated_at"
+  ],
+  "states": ["CLAIMED", "RUNNING", "SUCCEEDED", "FAILED_RETRYABLE", "FAILED_FINAL", "SUBMISSION_UNKNOWN", "RECONCILING"],
+  "terminal_states": ["SUCCEEDED", "FAILED_FINAL"],
+  "transitions": [
+    {"from": "NEW", "to": "CLAIMED", "precondition": "scope key absent and request digest supplied"},
+    {"from": "CLAIMED", "to": "RUNNING", "precondition": "same owner and fencing token before user message persistence"},
+    {"from": "RUNNING", "to": "SUCCEEDED", "precondition": "public response and response digest are durable before return"},
+    {"from": "RUNNING", "to": "FAILED_RETRYABLE", "precondition": "no uncertain side effect and retry is explicitly safe"},
+    {"from": "RUNNING", "to": "FAILED_FINAL", "precondition": "failure is terminal and response is durable"},
+    {"from": "RUNNING", "to": "SUBMISSION_UNKNOWN", "precondition": "the process cannot prove whether graph or transaction effects completed"},
+    {"from": "FAILED_RETRYABLE", "to": "RUNNING", "precondition": "same digest, explicit retry claim, new fencing token and no prior completed Turn"},
+    {"from": "SUBMISSION_UNKNOWN", "to": "RECONCILING", "precondition": "same digest and explicit recovery operation"},
+    {"from": "RECONCILING", "to": "SUCCEEDED", "precondition": "authoritative checkpoint or durable public response proves completion"},
+    {"from": "RECONCILING", "to": "FAILED_FINAL", "precondition": "authoritative evidence proves the request cannot complete"}
+  ],
+  "claim_decisions": [
+    {"decision": "NEW_CLAIM", "condition": "scope key absent", "action": "create one turn_id and one message_id"},
+    {"decision": "REPLAY_SUCCEEDED", "condition": "same scope key, same digest and state SUCCEEDED", "action": "return the stored response without message append or graph invocation"},
+    {"decision": "REQUEST_IN_PROGRESS", "condition": "same scope key, same digest and active CLAIMED/RUNNING lease", "action": "do not invoke the graph again"},
+    {"decision": "PAYLOAD_CONFLICT", "condition": "same scope key and different digest", "action": "reject client_request_id reuse"},
+    {"decision": "RECOVERY_REQUIRED", "condition": "same scope key and state SUBMISSION_UNKNOWN or expired RUNNING", "action": "do not automatically execute; reconcile durable evidence first"},
+    {"decision": "REJECTED_FINAL", "condition": "same scope key, same digest and state FAILED_FINAL", "action": "return the stored terminal failure"}
+  ],
+  "operation_order": [
+    "authenticate_and_normalize_scope",
+    "require_client_request_id",
+    "acquire_conversation_lease",
+    "claim_turn_request_ledger",
+    "branch_on_claim_decision",
+    "persist_user_message_with_ledger_message_id",
+    "invoke_lifecycle_graph_with_turn_identity",
+    "persist_public_response",
+    "complete_ledger_with_response_digest",
+    "return_or_emit_terminal_response"
+  ],
+  "message_invariant": {
+    "message_id_source": "TurnRequestLedger.message_id",
+    "required_uniqueness": ["tenant_id", "user_id", "thread_id", "message_id"],
+    "rule": "A retried request may never append a second user message."
+  },
+  "completion_invariant": {
+    "compare_and_set_fields": ["owner_id", "fencing_token", "request_digest", "state"],
+    "rule": "A stale worker cannot complete or overwrite a newer claim."
+  },
+  "replay_contract": {
+    "stored_value": "canonical ChatResponse/public result envelope",
+    "digest_required": true,
+    "http_sse_equivalence": true,
+    "debug_profile_bound_to_request_digest": true,
+    "graph_invocation_on_replay": false
+  },
+  "backend_requirements": [
+    {"backend": "SQLite", "requirements": ["unique composite scope key", "BEGIN IMMEDIATE or equivalent atomic claim", "fencing-token compare-and-set transitions"]},
+    {"backend": "SQLAlchemy/PostgreSQL", "requirements": ["unique composite scope key", "transactional insert-or-read claim", "row-version or fencing-token compare-and-set transitions"]}
+  ],
+  "api_contract": {
+    "field": "ChatRequest.client_request_id",
+    "required": true,
+    "server_generated_fallback_allowed": false,
+    "minimum_length": 1,
+    "frontend_rule": "Generate once per user submission and reuse for every network retry or HTTP/SSE replay."
+  },
+  "forbidden_behaviors": [
+    "process_memory_as_request_authority",
+    "server_generated_request_id_for_public_chat",
+    "message_append_before_ledger_claim",
+    "graph_invocation_before_ledger_claim",
+    "automatic_reexecution_of_expired_running_record",
+    "same_client_request_id_with_different_payload",
+    "transport_specific_turn_identity",
+    "completion_without_owner_and_fencing_compare_and_set",
+    "successful_return_before_ledger_completion"
+  ],
+  "implementation_scope": {
+    "allowed_paths": [
+      "services/agent-service/app/schemas/chat_schema.py",
+      "services/agent-service/app/api/product_api.py",
+      "services/agent-service/app/use_cases/conversation_turn.py",
+      "services/agent-service/src/agent_core/storage/repositories/base.py",
+      "services/agent-service/src/agent_core/persistence/store_provider.py",
+      "services/agent-service/src/agent_core/persistence/turn_request_store.py",
+      "services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py",
+      "services/agent-service/frontend/src/**",
+      "services/agent-service/tests/**",
+      "governance/architecture/**",
+      "docs/architecture/**"
+    ],
+    "forbidden_paths": ["services/business-service/**", "skill-system/controller/**", "skill-system/hooks/**"]
+  },
+  "acceptance_tests": [
+    "first_claim_creates_one_turn_and_message_identity",
+    "same_id_same_digest_success_replays_without_graph",
+    "same_id_different_digest_is_rejected",
+    "simultaneous_claims_have_one_winner",
+    "http_then_sse_same_id_uses_one_turn",
+    "sse_disconnect_retry_replays_terminal_result",
+    "crash_after_claim_requires_recovery_not_reexecution",
+    "expired_running_record_is_not_automatically_reexecuted",
+    "user_message_is_appended_once",
+    "response_is_durable_before_successful_return",
+    "scope_isolated_by_tenant_user_and_thread",
+    "missing_client_request_id_is_rejected_at_api_boundary",
+    "stale_fencing_token_cannot_complete_request"
+  ],
+  "exit_conditions": [
+    "Chat HTTP and SSE both require client_request_id",
+    "SQLite and SQLAlchemy providers implement the same repository contract",
+    "one external request creates at most one durable Turn and one user message",
+    "terminal responses replay without graph or model invocation",
+    "uncertain records fail closed into reconciliation",
+    "focused, concurrency, crash, HTTP/SSE and complete regression tests pass"
+  ]
+}
