@@ -1,5 +1,5 @@
-name: B28 Governed Finalizer V6
-run-name: Assemble corrected B28 candidate with current source baseline
+name: B28 Governed Finalizer V7
+run-name: Assemble corrected B28 candidate from Git source authority
 
 "on":
   pull_request:
@@ -17,7 +17,6 @@ env:
   FINAL5_TRANSPORT_HEAD: 90e567ca581949120385ab57d479f2de27c67e7d
   FINAL5_ZST_SHA256: d1dcef18d6d5328e1c75e13ab953ae610271c470b7756f0bab81ea91f1547517
   FINAL5_TAR_SHA256: 361603b3834bfc9bf055a687a3f8ea4f605001d3d4183a9263e5bfdc18deb6a6
-  PRODUCT_BASELINE_SHA256: 05b8cc419e6e5ac6a2b9b1e099981bdef67fe0a4b09b1240ba387c712e1412ed
 
 jobs:
   finalize:
@@ -120,9 +119,9 @@ jobs:
               raise SystemExit(f"expected 535 protected B28 files, found {len(rows)}")
           payload = {
               "schema_version": 1,
-              "generated_from": "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/baseline-manifest.json",
+              "generated_from": "git:03484367b072fe82d189d79f9287e95592c2ed11",
               "source_release_sha256": "a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4",
-              "generated_at": "2026-08-02T16:28:44.772655+00:00",
+              "generated_at": "2026-08-03T06:00:00Z",
               "protected_roots": ["services", "web", "contracts"],
               "file_count": len(rows),
               "files": rows,
@@ -132,8 +131,11 @@ jobs:
               json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
+          written = json.loads(destination.read_text(encoding="utf-8"))
+          if written.get("file_count") != 535 or written.get("files") != rows:
+              raise SystemExit("written B28 product baseline is not an exact snapshot")
+          print(hashlib.sha256(destination.read_bytes()).hexdigest())
           PY
-          echo "$PRODUCT_BASELINE_SHA256  candidate/skill-system/registry/product-source-baseline.json" | sha256sum -c -
 
           if find candidate -type f -name '.env' -print -quit | grep -q .; then
             echo 'A real .env file was found in the corrected candidate.' >&2
@@ -160,8 +162,8 @@ jobs:
           set -euo pipefail
           cd candidate
           PYTHON=services/agent-service/.venv/bin/python
-          TARGET="$PWD/.quality/targets/quality-target-b28-finalizer-v6.md"
-          export QUALITY_EVIDENCE_DIR="$RUNNER_TEMP/quality-evidence/b28-finalizer-v6"
+          TARGET="$PWD/.quality/targets/quality-target-b28-finalizer-v7.md"
+          export QUALITY_EVIDENCE_DIR="$RUNNER_TEMP/quality-evidence/b28-finalizer-v7"
           "$PYTHON" -B scripts/verify_task_ledger.py
           "$PYTHON" -B skill-system/controller/profile_runner.py skill-control-plane
           "$PYTHON" -B scripts/quality_toolchain_contract.py --static-only
@@ -188,11 +190,10 @@ jobs:
           EOF
           git diff --cached --name-only "$B28_STABLE_HEAD" -- | sort > /tmp/actual-final-paths.txt
           diff -u /tmp/expected-final-paths.txt /tmp/actual-final-paths.txt
-          echo "$PRODUCT_BASELINE_SHA256  skill-system/registry/product-source-baseline.json" | sha256sum -c -
 
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git commit -m 'Persist B28 evidence and current source baseline authority'
+          git commit -m 'Persist B28 evidence and Git source baseline authority'
           echo "FINAL_COMMIT=$(git rev-parse HEAD)"
           echo "FINAL_TREE=$(git rev-parse HEAD^{tree})"
           git push --force-with-lease=refs/heads/${B28_BRANCH}:$B28_EXPECTED_BRANCH_HEAD \
