@@ -44,9 +44,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "b9a69e8d14d8e912ccfb060b12e1e0fec673277e"
+          test "$(git rev-parse HEAD^)" = "af8484e2151169ce99cfba1730313ed19c237abb"
           test "$(git diff --name-only HEAD^ HEAD | sort | tr '\n' ' ')" = ".github/workflows/b29-hardening-publisher.yml "
-          echo "0b25aff520af67b496aea4ef84b1b49e7579da30ab204dc9f9003a66cff56ef8  .github/b29-hardening.tar.gz" | sha256sum -c -
+          test "$(git hash-object .github/b29-hardening.tar.gz)" = "ca5d5998528f225e78bdfe108d679068ff0e2258"
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
@@ -72,24 +72,24 @@ jobs:
           manifest_path = staging / "B29_HARDENING_MANIFEST.json"
           payload = json.loads(manifest_path.read_text(encoding="utf-8"))
           expected = {
-              "skill-system/controller/agent_attestation.py",
-              "skill-system/controller/candidate_freeze.py",
-              "skill-system/tests/test_multi_agent_governance.py",
-              "skill-system/schemas/agent-attestation.schema.json",
-              "skill-system/schemas/multi-agent-governance.schema.json",
-              "skill-system/skills/governed-repair/SKILL.md",
+              "skill-system/controller/agent_attestation.py": "d337bf070337dbcf5a85f289ff8c424eac0fee4d6808f16ac8c52903307618e5",
+              "skill-system/controller/candidate_freeze.py": "02f25a43a790c698f959e7a8cc0c325d6b71069bd518e9986d44b38b06dfcf49",
+              "skill-system/schemas/agent-attestation.schema.json": "5fc147bd636f7f643f2251ac56f99a94aa8042c0ccd88e15df3b74585a058900",
+              "skill-system/schemas/multi-agent-governance.schema.json": "89284a11cc17191f9176658f81f70e74936ef8b92318b0243048e6e831dd1c1b",
+              "skill-system/skills/governed-repair/SKILL.md": "8b44ddf9ddd5fe27bdec205e034ee56962cbf17fda98a780aa2c57888b8ce320",
+              "skill-system/tests/test_multi_agent_governance.py": "9bb256f470eed3f9955972f7192d0147f26c542fdc0a3d91a0d620192cef9061",
           }
           files = payload.get("files")
-          if payload.get("schema_version") != 1 or not isinstance(files, dict) or set(files) != expected:
-              raise SystemExit("B29 hardening manifest scope mismatch")
-          for relative, expected_sha in sorted(files.items()):
+          if payload.get("schema_version") != 1 or files != expected:
+              raise SystemExit("B29 hardening manifest identity mismatch")
+          for relative, expected_sha in sorted(expected.items()):
               source = (staging / relative).resolve()
               source.relative_to(staging)
               if not source.is_file():
                   raise SystemExit(f"missing archive file: {relative}")
               actual_sha = hashlib.sha256(source.read_bytes()).hexdigest()
               if actual_sha != expected_sha:
-                  raise SystemExit(f"archive digest mismatch: {relative}")
+                  raise SystemExit(f"archive content digest mismatch: {relative}")
               target = (root / relative).resolve()
               target.relative_to(root)
               target.parent.mkdir(parents=True, exist_ok=True)
