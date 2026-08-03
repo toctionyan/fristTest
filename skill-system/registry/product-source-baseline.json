@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_from": "git:e2f6fb0a120d9cdff2be50b2636fca119632499e",
+  "generated_from": "git:08b56461f79c0912e6909c93edb00a7d92bbd2fc",
   "source_release_sha256": "a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4",
-  "generated_at": "2026-08-03T12:13:39Z",
+  "generated_at": "2026-08-03T12:36:39Z",
   "protected_roots": [
     "services",
     "web",
@@ -450,7 +450,7 @@
     "services/agent-service/tests/runtime/test_b14d2a_plan_run_status_boundary.py": "fcad2e3d09e97965829e8ed11665c81fb5e521e587e839a9d52149a88981cee4",
     "services/agent-service/tests/runtime/test_b14d2b_projection_derivation_boundary.py": "84e9f8142d5792df35892e47f1ff93cf5a3744c6e781934c367fba06c5024408",
     "services/agent-service/tests/runtime/test_b14e1_compatibility_projection_exit.py": "f7897a14ffb3e385b4c556263e2d2a1d151891afcdfe1e6cc61279d8eafc8086",
-    "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py": "4038a319ca9b16944db1b566d9cc8f39307cad07355df85ee491b1544120ef5f",
+    "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py": "a6b113a55064976cb8934e40fdf18fc4f0d32397a07fa030d3ad21736a069b06",
     "services/agent-service/tests/runtime/test_b15a_real_model_identity_boundary.py": "96961b0c17ce64c4d595e500f4b5526cc1adfa58ae5178f043127a0b554ad4ba",
     "services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py": "6df0821e25935f5775aa32c811c3982357e5464dda4fa7d7fbc47e00e730a8b8",
     "services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py": "a834200971f8d92339449f6d55abb7c60e46ac85534403c660816ce210b0fec7",
