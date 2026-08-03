@@ -91,14 +91,24 @@ jobs:
             exit 1
           fi
 
+      - name: Install locked Agent validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check uv
+          cd services/agent-service
+          uv sync --locked --all-groups
+
       - name: Revalidate governance and static quality authority
         shell: bash
         run: |
           set -euo pipefail
-          python -B scripts/verify_task_ledger.py
-          python -B skill-system/controller/profile_runner.py skill-control-plane
-          python -B scripts/quality_toolchain_contract.py --static-only
-          python -B scripts/quality_loop.py --mode static
+          VALIDATION_PYTHON="services/agent-service/.venv/bin/python"
+          test -x "$VALIDATION_PYTHON"
+          "$VALIDATION_PYTHON" -B scripts/verify_task_ledger.py
+          "$VALIDATION_PYTHON" -B skill-system/controller/profile_runner.py skill-control-plane
+          "$VALIDATION_PYTHON" -B scripts/quality_toolchain_contract.py --static-only
+          "$VALIDATION_PYTHON" -B scripts/quality_loop.py --mode static
 
       - name: Commit and publish corrected B28 candidate
         shell: bash
