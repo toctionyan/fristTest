@@ -46,7 +46,10 @@ class WP02ImplementationPlanTest(unittest.TestCase):
         payload = json.loads(self.plan.read_text(encoding="utf-8"))
         payload["implementation_paths"].append("skill-system/registry/product-source-baseline.json")
         payload["phases"][0]["writes"].append("skill-system/registry/product-source-baseline.json")
-        with self.assertRaisesRegex(validator.PlanError, "forbidden_implementation_path|baseline_refresh"):
+        with self.assertRaisesRegex(
+            validator.PlanError,
+            "separately_governed_path_in_implementation_scope",
+        ):
             self._validate(payload)
 
     def test_phase_cannot_write_outside_approved_scope(self) -> None:
