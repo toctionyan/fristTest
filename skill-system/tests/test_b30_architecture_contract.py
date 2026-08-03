@@ -65,6 +65,31 @@ class B30ArchitectureContractTest(unittest.TestCase):
         with self.assertRaisesRegex(validator.ContractError, "work_package_set_invalid"):
             self._validate_mutation(retirement=payload)
 
+    def test_missing_wp02a_request_identity_subpackage_is_rejected(self) -> None:
+        payload = json.loads(self.retirement_path.read_text(encoding="utf-8"))
+        wp02 = next(item for item in payload["work_packages"] if item["id"] == "WP-02")
+        wp02["sub_work_packages"] = [
+            item for item in wp02["sub_work_packages"] if item["id"] != "WP-02A"
+        ]
+        with self.assertRaisesRegex(validator.ContractError, "wp02_sub_work_package_set_invalid"):
+            self._validate_mutation(retirement=payload)
+
+    def test_wp02b_cannot_claim_request_identity_owner(self) -> None:
+        payload = json.loads(self.retirement_path.read_text(encoding="utf-8"))
+        wp02 = next(item for item in payload["work_packages"] if item["id"] == "WP-02")
+        wp02b = next(item for item in wp02["sub_work_packages"] if item["id"] == "WP-02B")
+        wp02b["authority_owner"] = "TurnRequestLedger"
+        with self.assertRaisesRegex(validator.ContractError, "wp02_sub_work_package_owner_invalid:WP-02B"):
+            self._validate_mutation(retirement=payload)
+
+    def test_wp02_subpackage_cannot_have_wrong_parent(self) -> None:
+        payload = json.loads(self.retirement_path.read_text(encoding="utf-8"))
+        wp02 = next(item for item in payload["work_packages"] if item["id"] == "WP-02")
+        wp02a = next(item for item in wp02["sub_work_packages"] if item["id"] == "WP-02A")
+        wp02a["parent"] = "WP-03"
+        with self.assertRaisesRegex(validator.ContractError, "wp02_sub_work_package_parent_invalid:WP-02A"):
+            self._validate_mutation(retirement=payload)
+
 
 if __name__ == "__main__":
     unittest.main()
