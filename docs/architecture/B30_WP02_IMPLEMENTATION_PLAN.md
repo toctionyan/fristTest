@@ -10,7 +10,7 @@ The current code establishes the failure mechanism directly:
 
 - `ChatRequest` has no `client_request_id`, although structured transaction requests already require one.
 - HTTP and SSE both append the user message inside `ConversationTurnService` before any durable request claim.
-- `MessageRepository.add_message` and SQLite/SQLAlchemy message tables have no stable public `message_id` contract.
+- `MessageRepository.add_message` and the concrete SQLite `MessageStore` plus SQLAlchemy message tables have no stable public `message_id` contract.
 - `StoreProvider` has no `TurnRequestRepository`.
 - `ChatPanel` already generates an optimistic user-row ID, but sends only `thread_id` and `message` to `/chat/turn`.
 
@@ -21,7 +21,7 @@ This means the repair is not a generic retry wrapper. It requires a first-class 
 The initial contract listed the repository, provider, schema, conversation use case and frontend tree, but omitted two concrete files that are necessary to satisfy its own invariants:
 
 - `app/services/agent_service.py` must receive the repository from the composed StoreProvider; it must not construct a private second authority.
-- `persistence/message_store.py` must accept the ledger-owned stable message identity and enforce idempotent user-message persistence.
+- `persistence/message_store.py` contains `MessageStore`; it must accept the ledger-owned stable message identity and enforce idempotent user-message persistence.
 
 The Repair Plan Reviewer must explicitly approve this amendment. The implementer cannot infer approval from this document alone.
 
@@ -41,7 +41,7 @@ Add the same table and repository semantics. Production schema-present mode must
 
 ### P4 — Stable message identity
 
-Extend message persistence with an optional stable `message_id`, preserving historical rows. Repeated insertion of the same identity and same payload is idempotent; the same identity with different content is a conflict.
+Extend `MessageStore` and SQLAlchemy message persistence with an optional stable `message_id`, preserving historical rows. Repeated insertion of the same identity and same payload is idempotent; the same identity with different content is a conflict.
 
 ### P5 — API, composition and frontend
 
@@ -67,7 +67,7 @@ Run focused, counterexample, concurrency, crash, backend parity, HTTP/SSE and co
 - Adding a compatibility route that bypasses the ledger.
 - Automatically retrying an expired RUNNING or SUBMISSION_UNKNOWN record.
 - Returning success before response persistence and fenced ledger completion.
-- Allowing the product implementer to refresh its own protected-source baseline.
+- Allowing the product implementer to refresh its own product-source baseline.
 
 ## Exit rule
 
