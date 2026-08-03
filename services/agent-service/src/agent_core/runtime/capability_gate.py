@@ -389,6 +389,15 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
         for ref in visible_refs
         if bool(ref.get("is_latest_visible_turn")) and str(ref.get("result_ref") or "")
     }
+    latest_release_scope_keys = {
+        (
+            f"effect:{str(ref.get('source_effect_id') or '')}"
+            if str(ref.get("source_effect_id") or "")
+            else f"result:{str(ref.get('result_ref') or '')}"
+        )
+        for ref in visible_refs
+        if bool(ref.get("is_latest_visible_turn")) and str(ref.get("result_ref") or "")
+    }
     latest_member_handles = {
         str(member)
         for ref in visible_refs
@@ -466,7 +475,7 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
 
     selected_latest_handles = selected_visible_handles.intersection(latest_handles)
     if (
-        len(latest_handles) > 1
+        len(latest_release_scope_keys) > 1
         and mode in {"collection", "artifact"}
         and len(selected_latest_handles) == 1
         and binding_kind != "explicit_return"
@@ -556,7 +565,8 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
             "source_span": binding_span or None,
             "group_size": binding_group_size or None,
             "latest_visible_result_count": len(latest_handles),
-            "latest_visible_scope_ambiguous": len(latest_handles) > 1,
+            "latest_visible_scope_count": len(latest_release_scope_keys),
+            "latest_visible_scope_ambiguous": len(latest_release_scope_keys) > 1,
             "group_source_span": group_source_span if explicit_group_binding else None,
             "explicit_group_binding_complete": explicit_group_binding,
         },

@@ -123,9 +123,9 @@ def test_full_lifecycle_canary_resolves_declared_or_current_python(monkeypatch, 
     executable = tmp_path / "python"
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
     monkeypatch.setenv("B14F1_TEST_PYTHON", str(executable))
-    assert module._resolve_python("B14F1_TEST_PYTHON", tmp_path / "missing") == executable.resolve()
+    assert module._resolve_python("B14F1_TEST_PYTHON", tmp_path / "missing") == executable.absolute()
     monkeypatch.delenv("B14F1_TEST_PYTHON")
-    assert module._resolve_python("B14F1_TEST_PYTHON", tmp_path / "missing") == Path(sys.executable).resolve()
+    assert module._resolve_python("B14F1_TEST_PYTHON", tmp_path / "missing") == Path(sys.executable).absolute()
 
 
 def test_product_browser_journey_uses_portable_python_and_canonical_plan_projection() -> None:
