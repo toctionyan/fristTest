@@ -69,6 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
           PYTHON=.venv/bin/python
           "$PYTHON" -B -m pytest -q -ra -p no:cacheprovider \
             tests/context/test_conversation_regression_suite_execution.py \
@@ -84,6 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
           .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
             -m 'not integration and not preprod'
 
