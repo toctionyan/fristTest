@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 6
+          fetch-depth: 7
           clean: true
           persist-credentials: true
 
@@ -42,9 +42,10 @@ jobs:
           git merge-base --is-ancestor b33e876eb0f9a6df3a9222dd4696c24230e0f8d9 HEAD
           COMMIT_COUNT="$(git rev-list --count b33e876eb0f9a6df3a9222dd4696c24230e0f8d9..HEAD)"
           test "$COMMIT_COUNT" -ge 1
-          test "$COMMIT_COUNT" -le 5
+          test "$COMMIT_COUNT" -le 6
           command -v zstd >/dev/null
           test "$(find .b28-bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "16"
+          echo "80770a9c0ff833b576e00be58b9535702bb87b0fc7cb09208ebfe62212e527f6  .github/workflows/source-snapshot.yml" | sha256sum -c -
 
       - name: Reconstruct and verify governed B28 snapshot
         shell: bash
@@ -54,14 +55,10 @@ jobs:
           find . -path './.git' -prune -o -type d -exec chmod 0755 {} +
           find . -path './.git' -prune -o -type f -exec chmod 0644 {} +
 
-          # The current main tree differs from the retained B17j package by
-          # exactly one one-time source-snapshot workflow. Excluding it and
-          # the bootstrap transport reproduces the immutable B17j source tar.
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --format=gnu \
             --exclude='./.git' \
             --exclude='./.b28-bootstrap' \
             --exclude='./.github/workflows/b28-bootstrap.yml' \
-            --exclude='./.github/workflows/source-snapshot.yml' \
             -cf /tmp/b17j-source.tar .
           echo "526e44071fe3e78f42af33baef52a2769daa59a1deb5bf1bdd5ec220bf2598ff  /tmp/b17j-source.tar" | sha256sum -c -
 
