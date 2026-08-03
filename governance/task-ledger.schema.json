@@ -8,6 +8,7 @@
     "ledger_id",
     "project",
     "frozen_at",
+    "evidence_archive",
     "active_stage_id",
     "policy",
     "stages",
@@ -62,6 +63,10 @@
     },
     "known_issues": {
       "type": "array"
+    },
+    "evidence_archive": {
+      "type": "string",
+      "minLength": 1
     }
   },
   "additionalProperties": false

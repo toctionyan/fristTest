@@ -3,6 +3,7 @@
   "ledger_id": "customer-agent-final-closure-ledger-v1",
   "project": "customer-agent-workspace",
   "frozen_at": "2026-08-02T09:12:29.840244+00:00",
+  "evidence_archive": "governance/task-ledger-evidence-archive.json",
   "active_stage_id": "STAGE-5",
   "policy": {
     "required_stage_ids": [

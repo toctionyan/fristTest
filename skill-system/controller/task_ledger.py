@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +55,71 @@ def _string_list(value: object) -> list[str] | None:
     return [str(item) for item in value]
 
 
-def _check_existing_refs(workspace: Path, refs: object, label: str, errors: list[str]) -> None:
+def _valid_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+def _load_evidence_archive(
+    workspace: Path, payload: dict[str, Any], errors: list[str]
+) -> dict[str, dict[str, Any]]:
+    raw_path = payload.get("evidence_archive")
+    if not _nonempty_text(raw_path):
+        errors.append("task ledger requires evidence_archive")
+        return {}
+    archive_path = (workspace / str(raw_path)).resolve()
+    try:
+        archive_path.relative_to(workspace.resolve())
+    except ValueError:
+        errors.append(f"task ledger evidence_archive escapes workspace: {raw_path}")
+        return {}
+    if not archive_path.is_file():
+        errors.append(f"task ledger evidence_archive does not exist: {raw_path}")
+        return {}
+    try:
+        archive = json.loads(archive_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        errors.append(f"task ledger evidence_archive is not valid JSON: {raw_path}")
+        return {}
+    if not isinstance(archive, dict) or archive.get("schema_version") != 1:
+        errors.append("task ledger evidence_archive schema_version must be 1")
+        return {}
+    for field in ("archive_id", "artifact", "scope"):
+        if not _nonempty_text(archive.get(field)):
+            errors.append(f"task ledger evidence_archive requires {field}")
+    if not _valid_sha256(archive.get("artifact_sha256")):
+        errors.append("task ledger evidence_archive requires lowercase artifact_sha256")
+    raw_entries = archive.get("entries")
+    if not isinstance(raw_entries, dict):
+        errors.append("task ledger evidence_archive requires entries object")
+        return {}
+    entries: dict[str, dict[str, Any]] = {}
+    for raw_ref, raw_entry in raw_entries.items():
+        if not _nonempty_text(raw_ref) or not isinstance(raw_entry, dict):
+            errors.append("task ledger evidence_archive contains invalid entry")
+            continue
+        ref = str(raw_ref)
+        resolved = (workspace / ref).resolve()
+        try:
+            resolved.relative_to(workspace.resolve())
+        except ValueError:
+            errors.append(f"task ledger evidence_archive entry escapes workspace: {ref}")
+            continue
+        size = raw_entry.get("size")
+        digest = raw_entry.get("sha256")
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0 or not _valid_sha256(digest):
+            errors.append(f"task ledger evidence_archive has invalid identity: {ref}")
+            continue
+        entries[ref] = {"size": size, "sha256": str(digest)}
+    return entries
+
+
+def _check_existing_refs(
+    workspace: Path,
+    refs: object,
+    label: str,
+    errors: list[str],
+    archive_entries: dict[str, dict[str, Any]],
+) -> None:
     values = _string_list(refs)
     if values is None or not values:
         errors.append(f"{label} requires at least one evidence_ref")
@@ -66,8 +131,14 @@ def _check_existing_refs(workspace: Path, refs: object, label: str, errors: list
         except ValueError:
             errors.append(f"{label} evidence_ref escapes workspace: {raw}")
             continue
-        if not resolved.exists():
-            errors.append(f"{label} evidence_ref does not exist: {raw}")
+        archived = archive_entries.get(raw)
+        if resolved.is_file():
+            if archived is not None:
+                content = resolved.read_bytes()
+                if len(content) != archived["size"] or hashlib.sha256(content).hexdigest() != archived["sha256"]:
+                    errors.append(f"{label} evidence_ref does not match archive identity: {raw}")
+        elif archived is None:
+            errors.append(f"{label} evidence_ref does not exist or have an archive identity: {raw}")
 
 
 def _validate_graph(nodes: dict[str, dict[str, Any]], dependency_key: str, label: str, errors: list[str]) -> None:
@@ -126,13 +197,14 @@ def _terminal_semantics(
     status: str,
     must_close: bool,
     errors: list[str],
+    archive_entries: dict[str, dict[str, Any]],
 ) -> None:
     if must_close and status in TERMINAL_EXCEPTION_STATUSES:
         errors.append(f"must-close item {node_id} cannot be {status}")
     if status == "CLOSED_VERIFIED":
         if row.get("blockers"):
             errors.append(f"closed item {node_id} cannot retain blockers")
-        _check_existing_refs(workspace, row.get("evidence_refs"), node_id, errors)
+        _check_existing_refs(workspace, row.get("evidence_refs"), node_id, errors, archive_entries)
     elif status == "BLOCKED":
         blockers = _string_list(row.get("blockers"))
         if blockers is None or not blockers:
@@ -142,7 +214,7 @@ def _terminal_semantics(
         if not _nonempty_text(decision_record):
             errors.append(f"{status} item {node_id} requires decision_record")
         else:
-            _check_existing_refs(workspace, [decision_record], f"{node_id} decision", errors)
+            _check_existing_refs(workspace, [decision_record], f"{node_id} decision", errors, archive_entries)
 
 
 def validate_payload(workspace: Path, payload: dict[str, Any]) -> LedgerValidation:
@@ -155,6 +227,8 @@ def validate_payload(workspace: Path, payload: dict[str, Any]) -> LedgerValidati
             errors.append(f"task ledger requires {field}")
     if payload.get("active_stage_id") is not None and not _nonempty_text(payload.get("active_stage_id")):
         errors.append("active_stage_id must be a non-empty stage id or null")
+
+    archive_entries = _load_evidence_archive(workspace, payload, errors)
 
     policy = payload.get("policy")
     if not isinstance(policy, dict):
@@ -202,7 +276,7 @@ def validate_payload(workspace: Path, payload: dict[str, Any]) -> LedgerValidati
         must_close = row.get("must_close") is True
         if row.get("must_close") not in {True, False}:
             errors.append(f"work package {package_id} requires boolean must_close")
-        _terminal_semantics(workspace, row, node_id=package_id, status=status, must_close=must_close, errors=errors)
+        _terminal_semantics(workspace, row, node_id=package_id, status=status, must_close=must_close, errors=errors, archive_entries=archive_entries)
         dependencies = [str(value) for value in row.get("depends_on") or [] if isinstance(value, str)]
         if status in {"IN_PROGRESS", "CLOSED_VERIFIED"}:
             for dependency in dependencies:
@@ -227,7 +301,7 @@ def validate_payload(workspace: Path, payload: dict[str, Any]) -> LedgerValidati
         expected = stage_package_ownership.get(stage_id, set())
         if set(listed) != expected:
             errors.append(f"stage {stage_id} work_package_ids do not match owned packages")
-        _terminal_semantics(workspace, row, node_id=stage_id, status=status, must_close=True, errors=errors)
+        _terminal_semantics(workspace, row, node_id=stage_id, status=status, must_close=True, errors=errors, archive_entries=archive_entries)
         if status == "CLOSED_VERIFIED":
             incomplete = sorted(
                 package_id
@@ -274,7 +348,7 @@ def validate_payload(workspace: Path, payload: dict[str, Any]) -> LedgerValidati
             errors.append(f"known issue {issue_id} requires description")
         refs = row.get("evidence_refs")
         if refs:
-            _check_existing_refs(workspace, refs, f"known issue {issue_id}", errors)
+            _check_existing_refs(workspace, refs, f"known issue {issue_id}", errors, archive_entries)
 
     decisions = _index_rows(payload.get("scope_decisions", []), "decision_id", "scope_decisions", errors)
     for decision_id, row in decisions.items():
@@ -285,7 +359,7 @@ def validate_payload(workspace: Path, payload: dict[str, Any]) -> LedgerValidati
             if not _nonempty_text(row.get(field)):
                 errors.append(f"scope decision {decision_id} requires {field}")
         if _nonempty_text(row.get("decision_record")):
-            _check_existing_refs(workspace, [row["decision_record"]], f"scope decision {decision_id}", errors)
+            _check_existing_refs(workspace, [row["decision_record"]], f"scope decision {decision_id}", errors, archive_entries)
 
     return LedgerValidation(payload=payload, errors=tuple(errors))
 

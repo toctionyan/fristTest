@@ -80,6 +80,44 @@ class TaskLedgerTest(unittest.TestCase):
         result = validate_payload(ROOT, payload)
         self.assertTrue(any("does not exist" in error for error in result.errors))
 
+
+    def test_archived_evidence_identity_is_accepted(self) -> None:
+        payload = copy.deepcopy(self.payload)
+        payload["work_packages"][0]["status"] = "CLOSED_VERIFIED"
+        payload["work_packages"][0]["blockers"] = []
+        payload["work_packages"][0]["evidence_refs"] = [
+            "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/original-failure.json"
+        ]
+        result = validate_payload(ROOT, payload)
+        self.assertEqual(result.errors, ())
+
+    def test_unindexed_missing_evidence_is_rejected(self) -> None:
+        payload = copy.deepcopy(self.payload)
+        payload["work_packages"][0]["status"] = "CLOSED_VERIFIED"
+        payload["work_packages"][0]["blockers"] = []
+        payload["work_packages"][0]["evidence_refs"] = ["missing-evidence.json"]
+        result = validate_payload(ROOT, payload)
+        self.assertTrue(any("does not exist or have an archive identity" in error for error in result.errors))
+
+    def test_present_evidence_must_match_archive_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / "governance").mkdir(parents=True)
+            archive = json.loads((ROOT / self.payload["evidence_archive"]).read_text(encoding="utf-8"))
+            ref = next(iter(archive["entries"]))
+            target = workspace / ref
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("tampered", encoding="utf-8")
+            archive_path = workspace / "governance" / "task-ledger-evidence-archive.json"
+            archive_path.write_text(json.dumps(archive), encoding="utf-8")
+            payload = copy.deepcopy(self.payload)
+            payload["evidence_archive"] = "governance/task-ledger-evidence-archive.json"
+            payload["work_packages"][0]["status"] = "CLOSED_VERIFIED"
+            payload["work_packages"][0]["blockers"] = []
+            payload["work_packages"][0]["evidence_refs"] = [ref]
+            result = validate_payload(workspace, payload)
+            self.assertTrue(any("does not match archive identity" in error for error in result.errors))
+
     def test_must_close_item_cannot_be_deferred(self) -> None:
         payload = copy.deepcopy(self.payload)
         payload["work_packages"][2]["status"] = "DEFERRED"
