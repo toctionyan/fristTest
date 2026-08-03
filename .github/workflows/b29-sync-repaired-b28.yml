@@ -1,0 +1,274 @@
+name: B29 Sync Repaired B28
+run-name: Synchronize repaired B28 into B29 governance candidate
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: [.b29-sync-b28-trigger]
+
+permissions:
+  contents: write
+
+env:
+  B29_BRANCH: agent/b29-codex-multi-agent-governance
+  B29_EXPECTED_HEAD: c70d4ae13e472b2c5ed05072ba8c52da3b7e2c3a
+  B28_EXPECTED_HEAD: e6c2c4d3df6baceaff258b4be6af8062c8448334
+  B28_EXPECTED_TREE: a0d9e371b608887a6ba30beb1611ba9fa3363c8e
+  EXPECTED_MERGE_BASE: 165f2c452137242ba1c23c3eb24d01247973780f
+
+jobs:
+  sync:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b29-sync-b28-trigger'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout immutable B29 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.B29_EXPECTED_HEAD }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify immutable histories and merge repaired B28
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$B29_EXPECTED_HEAD"
+          git fetch --no-tags origin "$B28_EXPECTED_HEAD"
+          test "$(git rev-parse "$B28_EXPECTED_HEAD")" = "$B28_EXPECTED_HEAD"
+          test "$(git rev-parse "$B28_EXPECTED_HEAD^{tree}")" = "$B28_EXPECTED_TREE"
+          test "$(git merge-base HEAD "$B28_EXPECTED_HEAD")" = "$EXPECTED_MERGE_BASE"
+
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+
+          set +e
+          git merge --no-commit --no-ff "$B28_EXPECTED_HEAD"
+          merge_status=$?
+          set -e
+
+          git diff --name-only --diff-filter=U | sort > /tmp/unmerged-paths.txt
+          if test -s /tmp/unmerged-paths.txt; then
+            printf '%s\n' 'skill-system/registry/product-source-baseline.json' \
+              > /tmp/expected-conflict-paths.txt
+            diff -u /tmp/expected-conflict-paths.txt /tmp/unmerged-paths.txt
+            git checkout --ours skill-system/registry/product-source-baseline.json
+            git add skill-system/registry/product-source-baseline.json
+          elif test "$merge_status" -ne 0; then
+            echo 'merge_failed_without_resolvable_conflict' >&2
+            exit 1
+          fi
+          test -z "$(git diff --name-only --diff-filter=U)"
+
+          cat > /tmp/expected-b28-paths.txt <<'EOF'
+          scripts/verify_full_lifecycle_canary.py
+          services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+          services/agent-service/src/agent_core/runtime/capability_gate.py
+          services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py
+          services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py
+          services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py
+          services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py
+          services/agent-service/tests/runtime/test_goal_coverage_runtime.py
+          services/agent-service/tests/support/conversation_case_fixtures.py
+          skill-system/registry/product-source-baseline.json
+          EOF
+          git diff --cached --name-only | sort > /tmp/actual-merge-paths.txt
+          diff -u /tmp/expected-b28-paths.txt /tmp/actual-merge-paths.txt
+          git diff --cached --check
+          git commit -m 'Synchronize repaired B28 into B29 governance candidate'
+          echo "SYNC_MERGE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "SYNC_MERGE_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+
+      - name: Regenerate combined product-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          ignored_parts = {".venv", "node_modules", "__pycache__"}
+
+          current: dict[str, str] = {}
+          for name in tuple(str(item) for item in payload["protected_roots"]):
+              protected_root = root / name
+              for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
+                  if any(part in ignored_parts for part in path.parts):
+                      continue
+                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          previous = {str(key): str(value) for key, value in payload["files"].items()}
+          expected_product_delta = {
+              "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+              "services/agent-service/src/agent_core/runtime/capability_gate.py",
+              "services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py",
+              "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py",
+              "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py",
+              "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py",
+              "services/agent-service/tests/runtime/test_goal_coverage_runtime.py",
+              "services/agent-service/tests/support/conversation_case_fixtures.py",
+          }
+          actual_product_delta = {
+              path
+              for path in set(current) | set(previous)
+              if current.get(path) != previous.get(path)
+          }
+          if actual_product_delta != expected_product_delta:
+              raise SystemExit(
+                  "unexpected_combined_product_delta:"
+                  + json.dumps(
+                      {
+                          "expected": sorted(expected_product_delta),
+                          "actual": sorted(actual_product_delta),
+                      },
+                      sort_keys=True,
+                  )
+              )
+
+          payload["generated_from"] = "git:" + os.environ["SYNC_MERGE_COMMIT"]
+          payload["generated_at"] = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          payload["file_count"] = len(current)
+          payload["files"] = dict(sorted(current.items()))
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              json.dumps(
+                  {
+                      "status": "PASS",
+                      "generated_from": payload["generated_from"],
+                      "file_count": len(current),
+                      "product_delta": sorted(actual_product_delta),
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          )
+          PY
+
+          git diff --name-only "$SYNC_MERGE_COMMIT" -- | sort \
+            > /tmp/actual-baseline-paths.txt
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' \
+            > /tmp/expected-baseline-paths.txt
+          diff -u /tmp/expected-baseline-paths.txt /tmp/actual-baseline-paths.txt
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Regenerate product-source baseline for combined B29 tree'
+          echo "SYNC_FINAL_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "SYNC_FINAL_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+
+      - name: Install locked validation environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+          cd ../business-service
+          uv sync --locked --all-groups
+          cd ../agent-service/frontend
+          npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Validate B29 multi-agent and Skill control planes
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            skill-system/controller/host_conformance.py --strict
+          "${pythonLocation}/bin/python" -B \
+            skill-system/tests/test_multi_agent_governance.py
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+          services/agent-service/.venv/bin/python -B \
+            scripts/quality_toolchain_contract.py --workspace-root . --static-only
+
+      - name: Run combined static quality profile
+        shell: bash
+        env:
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/b29-sync-evidence/static
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/b29-sync-static.md
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
+            --output "$QUALITY_TARGET" --ref "$SYNC_FINAL_COMMIT" \
+            --workflow b29-sync-static
+          "${pythonLocation}/bin/python" -B scripts/quality_loop.py \
+            --mode static --target "$QUALITY_TARGET"
+
+      - name: Run combined quick quality profile
+        shell: bash
+        env:
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/b29-sync-evidence/quick
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/b29-sync-quick.md
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py \
+            --workspace-root . --runtime-only \
+            --output "${RUNNER_TEMP}/b29-sync-toolchain.json"
+          "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
+            --output "$QUALITY_TARGET" --ref "$SYNC_FINAL_COMMIT" \
+            --workflow b29-sync-quick \
+            --claims-source governance/claims/v20.6.2-project-quick-certification.json
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --mode quick --target "$QUALITY_TARGET"
+
+      - name: Publish exact synchronized B29 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          rm -rf .quality/targets
+          rm -f services/agent-service/runtime/vector-store/vector_store.db
+
+          test "$(git rev-parse HEAD)" = "$SYNC_FINAL_COMMIT"
+          test "$(git rev-parse HEAD^{tree})" = "$SYNC_FINAL_TREE"
+          test -z "$(git status --porcelain)"
+
+          cat > /tmp/expected-final-paths.txt <<'EOF'
+          scripts/verify_full_lifecycle_canary.py
+          services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+          services/agent-service/src/agent_core/runtime/capability_gate.py
+          services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py
+          services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py
+          services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py
+          services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py
+          services/agent-service/tests/runtime/test_goal_coverage_runtime.py
+          services/agent-service/tests/support/conversation_case_fixtures.py
+          skill-system/registry/product-source-baseline.json
+          EOF
+          git diff --name-only "$B29_EXPECTED_HEAD"..HEAD | sort \
+            > /tmp/actual-final-paths.txt
+          diff -u /tmp/expected-final-paths.txt /tmp/actual-final-paths.txt
+          echo "FINAL_COMMIT=$SYNC_FINAL_COMMIT"
+          echo "FINAL_TREE=$SYNC_FINAL_TREE"
+          git push --force-with-lease=refs/heads/${B29_BRANCH}:$B29_EXPECTED_HEAD \
+            origin HEAD:${B29_BRANCH}
