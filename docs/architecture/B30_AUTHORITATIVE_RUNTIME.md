@@ -10,10 +10,11 @@ Machine-readable contracts:
 - `governance/architecture/b30-legacy-retirement.json`
 - `governance/architecture/b30-runtime-entrypoints.json`
 
-Validation command:
+Validation commands:
 
 ```bash
 python3 -B scripts/validate_b30_architecture.py
+python3 -B scripts/validate_b30_entrypoints.py
 ```
 
 ## One authoritative runtime chain
