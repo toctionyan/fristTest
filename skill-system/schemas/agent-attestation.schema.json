@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex Agent Attestation",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "change_id",
+    "role",
+    "provider",
+    "repository",
+    "task_id",
+    "thread_id",
+    "worktree_id",
+    "baseline_commit",
+    "input_sha256",
+    "output_sha256",
+    "decision",
+    "issued_at",
+    "attestation_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"const": "agent-attestation"},
+    "change_id": {"type": "string", "minLength": 3},
+    "role": {
+      "enum": [
+        "failure-explorer",
+        "repair-plan-reviewer",
+        "product-implementer",
+        "diff-integrity-reviewer",
+        "closure-arbiter"
+      ]
+    },
+    "provider": {"enum": ["codex-cloud", "codex-app", "codex-cli"]},
+    "repository": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+    "task_id": {"type": "string", "minLength": 3},
+    "thread_id": {"type": "string", "minLength": 3},
+    "worktree_id": {"type": "string", "minLength": 3},
+    "baseline_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_commit": {"type": "string", "pattern": "^$|^[0-9a-f]{40}$"},
+    "input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision": {"type": "string", "minLength": 2},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "signature": {
+      "type": "object",
+      "required": ["algorithm", "key_id", "value"],
+      "properties": {
+        "algorithm": {"const": "hmac-sha256"},
+        "key_id": {"type": "string", "minLength": 3},
+        "value": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "attestation_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

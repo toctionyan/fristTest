@@ -65,7 +65,7 @@ class ContractTest(unittest.TestCase):
                 "_validate_architecture_inputs",
                 side_effect=SystemExit("architecture decision record is required"),
             ) as architecture_gate,
-            patch.object(change_contract_cli, "validate_begin_ready") as permit_gate,
+            patch.object(change_contract_cli, "validate_multi_agent_begin_ready") as permit_gate,
         ):
             with self.assertRaisesRegex(SystemExit, "architecture decision record is required"):
                 change_contract_cli.cmd_begin(SimpleNamespace())

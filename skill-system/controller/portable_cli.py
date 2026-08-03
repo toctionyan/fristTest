@@ -14,6 +14,8 @@ QUALITY_BRIDGE = CONTROLLER / "product_quality_bridge.py"
 PROFILE_RUNNER = CONTROLLER / "profile_runner.py"
 REPAIR_LOOP = ROOT / "scripts" / "repair_loop.py"
 REPAIR_GOVERNANCE_CLI = CONTROLLER / "repair_governance_cli.py"
+AGENT_REVIEW_CLI = CONTROLLER / "review_import_cli.py"
+CANDIDATE_FREEZE_CLI = CONTROLLER / "candidate_freeze_cli.py"
 TASK_LEDGER_CLI = CONTROLLER / "task_ledger_cli.py"
 
 
@@ -218,6 +220,13 @@ FORWARD_ALIASES = {
     "repair-diff-review": (REPAIR_GOVERNANCE_CLI, "diff-review"),
     "repair-closure-record": (REPAIR_GOVERNANCE_CLI, "closure-record"),
     "repair-governance-status": (REPAIR_GOVERNANCE_CLI, "status"),
+    "agent-review-import": (AGENT_REVIEW_CLI, "import-review"),
+    "agent-implementer-register": (AGENT_REVIEW_CLI, "register-implementer"),
+    "multi-agent-validate": (AGENT_REVIEW_CLI, "validate"),
+    "multi-agent-status": (AGENT_REVIEW_CLI, "status"),
+    "candidate-freeze": (CANDIDATE_FREEZE_CLI, "freeze"),
+    "candidate-freeze-validate": (CANDIDATE_FREEZE_CLI, "validate"),
+    "candidate-freeze-status": (CANDIDATE_FREEZE_CLI, "status"),
     "task-ledger-validate": (TASK_LEDGER_CLI, "validate"),
     "task-ledger-status": (TASK_LEDGER_CLI, "status"),
 }

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex Multi-Agent Repair Records",
+  "oneOf": [
+    {"$ref": "#/$defs/candidateFreeze"},
+    {"$ref": "#/$defs/semanticDiffReview"},
+    {"$ref": "#/$defs/closureDecision"}
+  ],
+  "$defs": {
+    "candidateFreeze": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "record_type",
+        "change_id",
+        "permit_digest",
+        "baseline_commit",
+        "candidate_commit",
+        "candidate_tree",
+        "candidate_source_fingerprint",
+        "candidate_commit_source_fingerprint",
+        "implementer_task_id",
+        "implementer_worktree_id",
+        "status",
+        "freeze_digest"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "candidate-freeze"},
+        "change_id": {"type": "string", "minLength": 3},
+        "permit_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "baseline_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "candidate_tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "candidate_source_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "candidate_commit_source_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "implementer_task_id": {"type": "string", "minLength": 3},
+        "implementer_worktree_id": {"type": "string", "minLength": 3},
+        "status": {"const": "FROZEN"},
+        "freeze_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "semanticDiffReview": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "record_type",
+        "change_id",
+        "reviewer_role",
+        "decision",
+        "candidate_commit",
+        "candidate_source_fingerprint",
+        "deterministic_diff_review_sha256",
+        "root_cause_mapping",
+        "findings"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "semantic-diff-review"},
+        "change_id": {"type": "string", "minLength": 3},
+        "reviewer_role": {"const": "diff-integrity-reviewer"},
+        "decision": {"enum": ["PASS", "REJECT"]},
+        "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "candidate_source_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "deterministic_diff_review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "root_cause_mapping": {"type": "array", "minItems": 1},
+        "findings": {"type": "array"}
+      }
+    },
+    "closureDecision": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "record_type",
+        "change_id",
+        "reviewer_role",
+        "decision",
+        "candidate_commit",
+        "closure_matrix_sha256",
+        "evidence_findings",
+        "residual_risks"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "record_type": {"const": "closure-decision"},
+        "change_id": {"type": "string", "minLength": 3},
+        "reviewer_role": {"const": "closure-arbiter"},
+        "decision": {"enum": ["CLOSED_VERIFIED", "BLOCKED", "NOT_CLOSED"]},
+        "candidate_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "closure_matrix_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "evidence_findings": {"type": "array"},
+        "residual_risks": {"type": "array"}
+      }
+    }
+  }
+}

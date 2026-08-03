@@ -267,6 +267,13 @@
         "string",
         "null"
       ]
+    },
+    "multi_agent_mode": {
+      "enum": [
+        "required",
+        "not-applicable",
+        "legacy"
+      ]
     }
   },
   "additionalProperties": false
