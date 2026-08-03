@@ -9,12 +9,14 @@ Machine-readable contracts:
 - `governance/architecture/b30-authority-map.json`
 - `governance/architecture/b30-legacy-retirement.json`
 - `governance/architecture/b30-runtime-entrypoints.json`
+- `governance/architecture/b30-semantic-context-authority.json`
 
 Validation commands:
 
 ```bash
 python3 -B scripts/validate_b30_architecture.py
 python3 -B scripts/validate_b30_entrypoints.py
+python3 -B scripts/validate_b30_semantic_context.py
 ```
 
 ## One authoritative runtime chain
@@ -22,8 +24,8 @@ python3 -B scripts/validate_b30_entrypoints.py
 ```text
 external request
   -> TurnRequestLedger
+  -> ContextEvidenceProjection
   -> TurnSemanticContract
-  -> ContextPackBuilder
   -> CapabilitySurface + MatchProof
   -> PlanRun
   -> BusinessService + TransactionRepository
@@ -31,15 +33,18 @@ external request
   -> ResponseProjector
 ```
 
-The chain is authoritative in this order. A later stage may reject or project evidence from an earlier stage; it may not reinterpret ownership that belongs to an earlier stage.
+Context evidence is built before semantic freeze because the semantic compiler needs bounded, scoped history and verified references. `ContextEvidenceProjection` never chooses meaning or a target. It may be rebuilt later, but after freeze it cannot replace or mutate the `TurnSemanticContract`.
+
+A later stage may reject or project evidence from an earlier stage; it may not reinterpret ownership that belongs to an earlier stage.
 
 ## Authority boundaries
 
 | Concern | Sole authority | Forbidden alternatives |
 |---|---|---|
 | Request identity and deduplication | `TurnRequestLedger` | retry handler, graph node, client state |
-| User meaning and typed goals | `TurnSemanticContract` | keyword router, per-intent parser, tool choice |
-| Dialogue references and sets | `TypedTargetSet + VisibleResultRef + SourceEffect` | free-text history scan, latest-object guess |
+| Eligible semantic evidence | `ContextEvidenceProjection` | model memory, free-text history scan, tool error, audit target selection |
+| User meaning and typed goals | `TurnSemanticContract` | keyword router, per-intent parser, tool choice, ContextBundle |
+| Dialogue references and sets | `TurnSemanticContract.TypedTargetSet` | ResultRef recency, referent-set projection, latest-object guess |
 | Capability support | `CapabilitySurface + MatchProof` | similarity match, model-selected tool, legacy intent map |
 | Executable plan | `PlanRun` | `grounded_execution_plan`, tool-loop scratch plan |
 | Business facts | `BusinessService` | checkpoint, model answer, UI state |
@@ -52,7 +57,9 @@ A turn must end in one typed outcome: execute, read-only answer, clarify, unsupp
 
 ## Context model
 
-Pronouns, corrections, subsets and references such as “它们”, “第二个”, “坏的” and “刚才那个” are resolved through typed targets and source-bound result references. Individual intents and tools do not own independent history resolution.
+Pronouns, corrections, subsets and references such as “它们”, “第二个”, “坏的” and “刚才那个” are resolved into typed targets inside the frozen semantic contract. `VisibleResultRef`, `SourceEffect` and visible referent sets provide scoped provenance only. They are not target selectors and are not dispatchable.
+
+Individual intents and tools do not own independent history resolution. Focus is a revisioned UI/orchestration projection, not semantic authority.
 
 ## Transaction model
 
@@ -71,10 +78,10 @@ B30 is executed through top-level WP-01 to WP-08 from `b30-legacy-retirement.jso
 ```text
 WP-02 Request, semantic and target authority convergence
 ├── WP-02A Request identity and TurnRequestLedger
-└── WP-02B Semantic, context and typed target authority
+└── WP-02B Context evidence, semantic contract and typed target authority
 ```
 
-`WP-02A` owns only durable external request identity, replay and one-Turn creation. `WP-02B` owns only meaning, goals, context and typed references. The taxonomy is deliberately split so a request-idempotency implementation cannot reinterpret user meaning, and semantic code cannot create a second durable request authority.
+`WP-02A` owns only durable external request identity, replay and one-Turn creation. `WP-02B` owns eligible semantic evidence, meaning, goals and typed references. The taxonomy is deliberately split so a request-idempotency implementation cannot reinterpret user meaning, and semantic code cannot create a second durable request authority.
 
 ## B30 exit criteria
 
@@ -82,9 +89,10 @@ B30 closes only when:
 
 1. every HTTP, SSE and interaction entrypoint reaches the same authoritative chain;
 2. every authority boundary has one runtime owner;
-3. unsupported, clarification, multi-goal, typed-reference and transaction counterexamples pass;
-4. active legacy paths cannot bypass semantic, capability, plan or transaction authority;
-5. HTTP, SSE and frontend are projections of the same RuntimeOutcome;
-6. Skill, multi-agent, static, quick and architecture acceptance gates pass.
+3. context evidence precedes semantic freeze and remains non-selecting;
+4. unsupported, clarification, multi-goal, typed-reference and transaction counterexamples pass;
+5. active legacy paths cannot bypass semantic, capability, plan or transaction authority;
+6. HTTP, SSE and frontend are projections of the same RuntimeOutcome;
+7. Skill, multi-agent, static, quick and architecture acceptance gates pass.
 
 Real PostgreSQL/pgvector, configured model/RAG, dual-service and browser certification remain WP-08 evidence and are required before the later source-delivery candidate can claim production readiness.
