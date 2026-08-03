@@ -43,6 +43,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/b29-upgrade.part02')
+          text = path.read_text(encoding='utf-8')
+          old = 'I4lbs1J3'
+          new = 'I4pbs1J3'
+          if text.count(old) != 1 or new in text:
+              raise SystemExit('unexpected B29 part02 transport state')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
           echo 'e5c719e7dc0139af01908f53150483c0ad2f937db5e6dec098fc21660b61fe45  .github/scripts/b29-upgrade.part00' | sha256sum -c -
           echo '026fe61970d3a91c318150e22ea5399f4367185e2c57015c4bd8461fc714ad9b  .github/scripts/b29-upgrade.part01' | sha256sum -c -
           echo '0e482676cc66a0fb6abd33632ffae09930becc35fbf8af1cde5e21616b1970d1  .github/scripts/b29-upgrade.part02' | sha256sum -c -
