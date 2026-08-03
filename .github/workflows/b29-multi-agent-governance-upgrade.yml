@@ -51,10 +51,12 @@ jobs:
           cat .github/scripts/b29-upgrade.part0{0,1,2,3,4} > "${RUNNER_TEMP}/b29-upgrade.b64"
           "${pythonLocation}/bin/python" - <<'PY'
           import base64
+          import os
           import pathlib
           import zlib
-          source = pathlib.Path("${RUNNER_TEMP}/b29-upgrade.b64")
-          target = pathlib.Path("${RUNNER_TEMP}/b29-upgrade.py")
+          root = pathlib.Path(os.environ["RUNNER_TEMP"])
+          source = root / "b29-upgrade.b64"
+          target = root / "b29-upgrade.py"
           target.write_bytes(zlib.decompress(base64.b64decode(source.read_text(encoding="utf-8"))))
           PY
           echo 'f23b93f3391046fd4dd560bed2e52d6ca52ac4ab769f8d9553ae0ea10a239989  '"${RUNNER_TEMP}"'/b29-upgrade.py' | sha256sum -c -
@@ -63,7 +65,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" != ''
           "${pythonLocation}/bin/python" -B "${RUNNER_TEMP}/b29-upgrade.py"
 
       - name: Compile governance controllers and hooks
