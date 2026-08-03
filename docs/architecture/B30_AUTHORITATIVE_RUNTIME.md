@@ -8,6 +8,7 @@ Machine-readable contracts:
 
 - `governance/architecture/b30-authority-map.json`
 - `governance/architecture/b30-legacy-retirement.json`
+- `governance/architecture/b30-runtime-entrypoints.json`
 
 Validation command:
 
