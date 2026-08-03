@@ -1,4 +1,13 @@
-# B30 WP-02 TurnRequestLedger Contract
+# B30 WP-02A TurnRequestLedger Contract
+
+## Work-package position
+
+Top-level `WP-02` converges request, semantic and target authority. It is split into two non-overlapping sub-work-packages:
+
+- `WP-02A` owns durable external request identity through `TurnRequestLedger`.
+- `WP-02B` owns user meaning, context and typed references through `TurnSemanticContract + TypedTargetSet + VisibleResultRef + SourceEffect`.
+
+Neither sub-work-package may absorb the other authority. Request identity cannot interpret language, and semantic/context code cannot create or replay a durable Turn identity.
 
 ## Why this authority is required
 
@@ -51,7 +60,7 @@ The stored terminal result is the canonical public response envelope plus a dige
 
 ## Required counterexamples
 
-WP-02 cannot close until tests prove:
+WP-02A cannot close until tests prove:
 
 1. two simultaneous claims produce one winner;
 2. same ID plus different payload is rejected;
