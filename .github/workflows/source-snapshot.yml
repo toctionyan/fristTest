@@ -23,11 +23,11 @@ jobs:
           persist-credentials: false
       - name: Build source snapshot
         run: |
-          tar --exclude=.git --exclude=source-snapshot.tgz -czf source-snapshot.tgz .
+          tar --exclude=.git -czf "$RUNNER_TEMP/source-snapshot.tgz" .
       - name: Upload source snapshot
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: b17j-source-snapshot-${{ github.event.pull_request.head.sha }}
-          path: source-snapshot.tgz
+          path: ${{ runner.temp }}/source-snapshot.tgz
           retention-days: 3
           if-no-files-found: error
