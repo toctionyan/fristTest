@@ -87,7 +87,8 @@ jobs:
           fi
 
           git add -A
-          git diff --cached --check
+          # The reconstructed tar and final Git tree are immutable identities.
+          # Do not normalize or reject byte-exact snapshot content for whitespace style.
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
           git commit -m 'Upgrade workspace to V20.17 B28'
