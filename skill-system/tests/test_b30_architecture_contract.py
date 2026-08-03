@@ -41,16 +41,29 @@ class B30ArchitectureContractTest(unittest.TestCase):
         with self.assertRaisesRegex(validator.ContractError, "authoritative_chain_order_invalid|duplicate_chain_stage"):
             self._validate_mutation(authority=payload)
 
+    def test_context_evidence_cannot_follow_semantic_contract(self) -> None:
+        payload = json.loads(self.authority_path.read_text(encoding="utf-8"))
+        chain = payload["authoritative_chain"]
+        chain[1], chain[2] = chain[2], chain[1]
+        with self.assertRaisesRegex(validator.ContractError, "authoritative_chain_order_invalid"):
+            self._validate_mutation(authority=payload)
+
     def test_missing_unsupported_outcome_is_rejected(self) -> None:
         payload = json.loads(self.authority_path.read_text(encoding="utf-8"))
         payload["allowed_terminal_outcomes"].remove("UNSUPPORTED")
         with self.assertRaisesRegex(validator.ContractError, "required_terminal_outcome_missing"):
             self._validate_mutation(authority=payload)
 
-    def test_duplicate_authority_owner_is_rejected(self) -> None:
+    def test_semantic_boundary_cannot_claim_request_owner(self) -> None:
         payload = json.loads(self.authority_path.read_text(encoding="utf-8"))
-        payload["authority_boundaries"]["semantic_meaning"]["owner"] = payload["authority_boundaries"]["request_identity"]["owner"]
-        with self.assertRaisesRegex(validator.ContractError, "duplicate_authority_owner"):
+        payload["authority_boundaries"]["semantic_meaning"]["owner"] = "TurnRequestLedger"
+        with self.assertRaisesRegex(validator.ContractError, "authority_boundary_owner_invalid:semantic_meaning"):
+            self._validate_mutation(authority=payload)
+
+    def test_context_evidence_cannot_become_typed_target_owner(self) -> None:
+        payload = json.loads(self.authority_path.read_text(encoding="utf-8"))
+        payload["authority_boundaries"]["dialogue_reference"]["owner"] = "ContextEvidenceProjection"
+        with self.assertRaisesRegex(validator.ContractError, "authority_boundary_owner_invalid:dialogue_reference"):
             self._validate_mutation(authority=payload)
 
     def test_retirement_without_deletion_condition_is_rejected(self) -> None:

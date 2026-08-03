@@ -9,8 +9,8 @@ from typing import Any
 
 REQUIRED_CHAIN = [
     "request_ledger",
+    "context_evidence",
     "semantic_contract",
-    "context_pack",
     "capability_match",
     "plan_run",
     "execution_authority",
@@ -20,6 +20,7 @@ REQUIRED_CHAIN = [
 REQUIRED_OUTCOMES = {"EXECUTE", "CLARIFY", "UNSUPPORTED", "SUBMISSION_UNKNOWN"}
 REQUIRED_BOUNDARIES = {
     "request_identity",
+    "context_evidence",
     "semantic_meaning",
     "dialogue_reference",
     "capability_support",
@@ -28,11 +29,22 @@ REQUIRED_BOUNDARIES = {
     "transaction_state",
     "public_outcome",
 }
+REQUIRED_BOUNDARY_OWNERS = {
+    "request_identity": "TurnRequestLedger",
+    "context_evidence": "ContextEvidenceProjection",
+    "semantic_meaning": "TurnSemanticContract",
+    "dialogue_reference": "TurnSemanticContract.TypedTargetSet",
+    "capability_support": "CapabilitySurface+MatchProof",
+    "executable_plan": "PlanRun",
+    "business_fact": "BusinessService",
+    "transaction_state": "TransactionRepository",
+    "public_outcome": "RuntimeOutcome",
+}
 REQUIRED_WORK_PACKAGES = {f"WP-{index:02d}" for index in range(1, 9)}
 REQUIRED_WP02_SUBPACKAGES = {"WP-02A", "WP-02B"}
 REQUIRED_WP02_OWNERS = {
     "WP-02A": "TurnRequestLedger",
-    "WP-02B": "TurnSemanticContract+TypedTargetSet+VisibleResultRef+SourceEffect",
+    "WP-02B": "ContextEvidenceProjection+TurnSemanticContract+TurnSemanticContract.TypedTargetSet",
 }
 
 
@@ -96,7 +108,10 @@ def validate(authority_path: Path, retirement_path: Path, doc_path: Path) -> Non
     for name, boundary in boundaries.items():
         if not isinstance(boundary, dict):
             raise ContractError(f"boundary_must_be_object:{name}")
-        boundary_owners.append(_require_nonempty_string(boundary.get("owner"), f"{name}.owner"))
+        owner = _require_nonempty_string(boundary.get("owner"), f"{name}.owner")
+        if owner != REQUIRED_BOUNDARY_OWNERS[name]:
+            raise ContractError(f"authority_boundary_owner_invalid:{name}:{owner}")
+        boundary_owners.append(owner)
         forbidden = boundary.get("must_not_be_owned_by")
         if not isinstance(forbidden, list) or not forbidden:
             raise ContractError(f"boundary_forbidden_owners_missing:{name}")
@@ -107,8 +122,10 @@ def validate(authority_path: Path, retirement_path: Path, doc_path: Path) -> Non
     if not isinstance(outcomes, list) or not REQUIRED_OUTCOMES.issubset(set(outcomes)):
         raise ContractError("required_terminal_outcome_missing")
     invariants = authority.get("hard_invariants")
-    if not isinstance(invariants, list) or len(invariants) < 8 or len(invariants) != len(set(invariants)):
+    if not isinstance(invariants, list) or len(invariants) < 10 or len(invariants) != len(set(invariants)):
         raise ContractError("hard_invariants_incomplete_or_duplicate")
+    if "context_evidence_is_projected_before_semantic_freeze_and_never_selects_a_target" not in invariants:
+        raise ContractError("context_before_semantics_invariant_missing")
 
     if retirement.get("schema_version") != 1 or retirement.get("stage") != "B30":
         raise ContractError("retirement_schema_or_stage_invalid")
@@ -168,6 +185,7 @@ def validate(authority_path: Path, retirement_path: Path, doc_path: Path) -> Non
 
     for required_reference in (
         "TurnRequestLedger",
+        "ContextEvidenceProjection",
         "TurnSemanticContract",
         "CapabilitySurface",
         "MatchProof",
