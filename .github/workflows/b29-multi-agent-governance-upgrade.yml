@@ -107,6 +107,42 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B "${RUNNER_TEMP}/b29-upgrade.py"
 
+      - name: Isolate temporary repository identity in governance tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          path = Path('skill-system/tests/test_multi_agent_governance.py')
+          text = path.read_text(encoding='utf-8')
+          replacements = (
+              (
+                  'import json\nimport subprocess',
+                  'import json\nimport os\nimport subprocess',
+              ),
+              (
+                  '    def setUp(self) -> None:\n        self.temp = tempfile.TemporaryDirectory()\n',
+                  '    def setUp(self) -> None:\n        self._github_repository = os.environ.pop("GITHUB_REPOSITORY", None)\n        self.temp = tempfile.TemporaryDirectory()\n',
+              ),
+              (
+                  '    def tearDown(self) -> None:\n        self.temp.cleanup()\n',
+                  '    def tearDown(self) -> None:\n        self.temp.cleanup()\n        if self._github_repository is None:\n            os.environ.pop("GITHUB_REPOSITORY", None)\n        else:\n            os.environ["GITHUB_REPOSITORY"] = self._github_repository\n',
+              ),
+          )
+          for old, new in replacements:
+              if text.count(old) != 1 or new in text:
+                  raise SystemExit('unexpected multi-agent test isolation anchor')
+              text = text.replace(old, new, 1)
+          digest = hashlib.sha256(text.encode('utf-8')).hexdigest()
+          if digest != '2d4959021c9fca3545df98cdc0b64e88a4e2047076dcb675238d08d7ec72c0ff':
+              raise SystemExit(f'unexpected isolated test digest: {digest}')
+          compile(text, str(path), 'exec')
+          path.write_text(text, encoding='utf-8')
+          print(f'ISOLATED_MULTI_AGENT_TEST_SHA256={digest}')
+          PY
+
       - name: Compile governance controllers and hooks
         shell: bash
         run: |
@@ -121,7 +157,8 @@ jobs:
             skill-system/controller/scope_guard.py \
             skill-system/hooks/pre_tool_use.py \
             skill-system/hooks/post_tool_use.py \
-            skill-system/hooks/stop_guard.py
+            skill-system/hooks/stop_guard.py \
+            skill-system/tests/test_multi_agent_governance.py
 
       - name: Run governance registry and host checks
         shell: bash
