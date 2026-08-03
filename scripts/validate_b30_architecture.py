@@ -29,6 +29,11 @@ REQUIRED_BOUNDARIES = {
     "public_outcome",
 }
 REQUIRED_WORK_PACKAGES = {f"WP-{index:02d}" for index in range(1, 9)}
+REQUIRED_WP02_SUBPACKAGES = {"WP-02A", "WP-02B"}
+REQUIRED_WP02_OWNERS = {
+    "WP-02A": "TurnRequestLedger",
+    "WP-02B": "TurnSemanticContract+TypedTargetSet+VisibleResultRef+SourceEffect",
+}
 
 
 class ContractError(ValueError):
@@ -49,6 +54,15 @@ def _require_nonempty_string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ContractError(f"missing_or_empty:{label}")
     return value.strip()
+
+
+def _validate_paths_and_exit_conditions(payload: dict[str, Any], identifier: str) -> None:
+    allowed_paths = payload.get("allowed_paths")
+    exit_conditions = payload.get("exit_conditions")
+    if not isinstance(allowed_paths, list) or not allowed_paths or not all(isinstance(item, str) and item for item in allowed_paths):
+        raise ContractError(f"work_package_allowed_paths_invalid:{identifier}")
+    if not isinstance(exit_conditions, list) or len(exit_conditions) < 2 or not all(isinstance(item, str) and item for item in exit_conditions):
+        raise ContractError(f"work_package_exit_conditions_invalid:{identifier}")
 
 
 def validate(authority_path: Path, retirement_path: Path, doc_path: Path) -> None:
@@ -118,15 +132,39 @@ def validate(authority_path: Path, retirement_path: Path, doc_path: Path) -> Non
     work_package_ids = {item.get("id") for item in work_packages if isinstance(item, dict)}
     if work_package_ids != REQUIRED_WORK_PACKAGES:
         raise ContractError(f"work_package_set_invalid:{sorted(str(item) for item in work_package_ids)}")
+
+    wp02: dict[str, Any] | None = None
     for package in work_packages:
+        if not isinstance(package, dict):
+            raise ContractError("work_package_must_be_object")
         package_id = _require_nonempty_string(package.get("id"), "work_package.id")
         _require_nonempty_string(package.get("name"), f"{package_id}.name")
-        allowed_paths = package.get("allowed_paths")
-        exit_conditions = package.get("exit_conditions")
-        if not isinstance(allowed_paths, list) or not allowed_paths or not all(isinstance(item, str) and item for item in allowed_paths):
-            raise ContractError(f"work_package_allowed_paths_invalid:{package_id}")
-        if not isinstance(exit_conditions, list) or len(exit_conditions) < 2 or not all(isinstance(item, str) and item for item in exit_conditions):
-            raise ContractError(f"work_package_exit_conditions_invalid:{package_id}")
+        _validate_paths_and_exit_conditions(package, package_id)
+        if package_id == "WP-02":
+            wp02 = package
+        elif "sub_work_packages" in package:
+            raise ContractError(f"sub_work_packages_only_allowed_on_wp02:{package_id}")
+
+    if wp02 is None:
+        raise ContractError("wp02_missing")
+    subpackages = wp02.get("sub_work_packages")
+    if not isinstance(subpackages, list):
+        raise ContractError("wp02_sub_work_packages_missing")
+    subpackage_ids = {item.get("id") for item in subpackages if isinstance(item, dict)}
+    if subpackage_ids != REQUIRED_WP02_SUBPACKAGES:
+        raise ContractError(f"wp02_sub_work_package_set_invalid:{sorted(str(item) for item in subpackage_ids)}")
+    if len(subpackages) != len(subpackage_ids):
+        raise ContractError("duplicate_wp02_sub_work_package")
+    for subpackage in subpackages:
+        if not isinstance(subpackage, dict):
+            raise ContractError("wp02_sub_work_package_must_be_object")
+        subpackage_id = _require_nonempty_string(subpackage.get("id"), "wp02_sub_work_package.id")
+        if subpackage.get("parent") != "WP-02":
+            raise ContractError(f"wp02_sub_work_package_parent_invalid:{subpackage_id}")
+        _require_nonempty_string(subpackage.get("name"), f"{subpackage_id}.name")
+        if subpackage.get("authority_owner") != REQUIRED_WP02_OWNERS[subpackage_id]:
+            raise ContractError(f"wp02_sub_work_package_owner_invalid:{subpackage_id}")
+        _validate_paths_and_exit_conditions(subpackage, subpackage_id)
 
     for required_reference in (
         "TurnRequestLedger",
@@ -139,6 +177,8 @@ def validate(authority_path: Path, retirement_path: Path, doc_path: Path) -> Non
         "RuntimeOutcome",
         "b30-authority-map.json",
         "b30-legacy-retirement.json",
+        "WP-02A",
+        "WP-02B",
     ):
         if required_reference not in documentation:
             raise ContractError(f"documentation_reference_missing:{required_reference}")
