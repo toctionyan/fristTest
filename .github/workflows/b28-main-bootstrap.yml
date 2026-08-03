@@ -17,8 +17,8 @@ permissions:
 
 env:
   B28_UPGRADE_BRANCH: agent/b28-repository-onboarding
-  B28_EXPECTED_HEAD: 6e22385a06763dbfcf602d43151221c454a53f33
-  B28_STABLE_HEAD: 03484367b072fe82d189d79f9287e95592c2ed11
+  B28_EXPECTED_HEAD: 4382c38d04fdd2570eaf20d1cfc2032b734c80fd
+  B28_TRANSPORT_PARENT: 6e22385a06763dbfcf602d43151221c454a53f33
   CORRECTION_ZST_SHA256: 99129c5c474e6deb5a440693f810decd50e928e9854acd8e2d15aa65e2b16432
   CORRECTION_TAR_SHA256: 1342275712e254753518c1dba3567c6f43b1f7660a20e6254d121da3ba3917bb
   B28_FINAL_TREE: 753c01b000fa51754879b7c46620294ab3dd603d
@@ -50,11 +50,23 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
-          test "$(git rev-parse HEAD^)" = "$B28_STABLE_HEAD"
-          test "$(find .b28-import-correction -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "5"
-          for part in 00 01 02 03 04; do
-            test -f ".b28-import-correction/part-${part}"
-          done
+          test "$(git rev-parse HEAD^)" = "$B28_TRANSPORT_PARENT"
+          test "$(find .b28-import-correction -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "14"
+
+          test "$(git hash-object .b28-import-correction/part-000)" = "40c752016ca2649c82af27906e15660f4e7ed04f"
+          test "$(git hash-object .b28-import-correction/part-001)" = "727aa69796358bbad7bd10375e1afb51f7c1e8cf"
+          test "$(git hash-object .b28-import-correction/part-0020)" = "3f92128b4fb903b36ac601d0d8913c01d9a40a86"
+          test "$(git hash-object .b28-import-correction/part-0021)" = "d55e8c1b466b14f73b6537359a264dc49e843d21"
+          test "$(git hash-object .b28-import-correction/part-0022)" = "3349deee816b74a1926736e366a6d519a5fffbce"
+          test "$(git hash-object .b28-import-correction/part-0023)" = "e666a9c969dfd204ec00cc74ab68c819cb5ef063"
+          test "$(git hash-object .b28-import-correction/part-0024)" = "3a3300b9819c7456bd633acb7e98dbe372b8f5d8"
+          test "$(git hash-object .b28-import-correction/part-0025)" = "f6b344198e41bf2646071b14e692e83fa6e8c9e9"
+          test "$(git hash-object .b28-import-correction/part-0026)" = "60aa693fd1ece12c2fe42425b98245e7cc04209c"
+          test "$(git hash-object .b28-import-correction/part-0027)" = "7f0433165356cc55928f53b7b4121ced967c5168"
+          test "$(git hash-object .b28-import-correction/part-01)" = "76665d4754a65402140e3dd29100be8bdcd9af7d"
+          test "$(git hash-object .b28-import-correction/part-02)" = "5fedded4a296e4dc83cdf35fb4cd2970158ac782"
+          test "$(git hash-object .b28-import-correction/part-03)" = "2db4750366dd2cbaddd158276fd474bb0e352c88"
+          test "$(git hash-object .b28-import-correction/part-04)" = "04d89c67815cdc86d82a5c1ab3bf9cf9885dcaf7"
 
           cat .b28-import-correction/part-* | base64 --decode > /tmp/b28-import-correction.tar.zst
           echo "$CORRECTION_ZST_SHA256  /tmp/b28-import-correction.tar.zst" | sha256sum -c -
