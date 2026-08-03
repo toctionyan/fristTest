@@ -1,18 +1,22 @@
 {
   "schema_version": 1,
-  "generated_from": "git:03484367b072fe82d189d79f9287e95592c2ed11",
+  "generated_from": "git:a0913178a3a6488571ac8e057611ab5dc72957bd",
   "source_release_sha256": "a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4",
-  "generated_at": "2026-08-03T06:00:00Z",
+  "generated_at": "2026-08-03T09:47:18Z",
   "protected_roots": [
     "services",
     "web",
     "contracts"
   ],
-  "file_count": 535,
+  "file_count": 537,
   "files": {
+    "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
+    "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
+    "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21",
     "services/agent-service/.env.example": "8e6c360b58b57e325c562cdebc13a4ca736e193cef530826ee25eb498fcaa3f8",
     "services/agent-service/.gitignore": "865aff3868d71c17bb463346cf6483752f4fb778bce2528b84dcd9584b2157bd",
     "services/agent-service/.python-version": "aa0d6581054e6e4ff3f91839deca7a854ad37221b8784d060b42d0f847ff1a3b",
+    "services/agent-service/AGENTS.md": "bc4cc277ef9f8ccdfa76a4bfc3fcbeb777f4774b3b9806184aa5758c5541bba0",
     "services/agent-service/Makefile": "4b3251cb6670f0fad44b6ff29d3dca9d884d908a6181c198fc0d17a6bab2a667",
     "services/agent-service/README.md": "a24f74b863428fa9e38f2d04b30c9bb7f3844e46fa1108bafa77f70bc908bbff",
     "services/agent-service/app/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -505,6 +509,7 @@
     "services/agent-service/uv.lock": "c73436fbf5a8fc62aa560d7fb2370163ba71f56271e52cf27a664b006124ad1a",
     "services/business-service/.env.example": "ca7482bc6122620a8c711f39c447ce0009983c3dc281a85e9a879ae1a757e0aa",
     "services/business-service/.gitignore": "d0a32829ef9a8b814345a90c89b65a1a45fe1500c801f2b5528babe4ac6e93b8",
+    "services/business-service/AGENTS.md": "f944a8316c6674c6f4dbcb5806a89e73648a64cafb3fb3f118b57f697ee7d607",
     "services/business-service/README.md": "49c8eb7918d379eabd3dfceed2d0075d5fce8c985854485b8142ce29eeae9638",
     "services/business-service/business_service/__init__.py": "659ef436e31373d25792b7b3f888ffc809867dcf91f280c3e7468634909c82f6",
     "services/business-service/business_service/api.py": "7c7a0695d71eadffaf194ec50c6531ac7e74428b542894cb56758860c2dfe311",
@@ -541,9 +546,6 @@
     "services/business-service/tests/test_main.py": "a94446ebb8c9b45836b96da8a50e1e4ff262fa3e023467d55b85da5916b04aa2",
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
-    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
-    "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
-    "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
-    "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21"
+    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   }
 }
