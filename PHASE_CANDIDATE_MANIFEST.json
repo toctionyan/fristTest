@@ -3,7 +3,7 @@
   "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
   "phase": "B17i",
   "root_name": "customer_agent_workspace_v20_17_b17i_production_execution_handoff_phase_candidate_env_blocked_20260731",
-  "file_count": 1060,
+  "file_count": 1061,
   "required_environment": [
     "GitHub repository access to the exact B17i commit",
     "project quality CI PASS on the exact final source tree",
@@ -169,7 +169,7 @@
     {
       "path": ".github/production-certification-request.json",
       "size": 238,
-      "sha256": "d1c33acc23baaf37fefcad9e79b5c87c2d37db3e8b71a45e50e92bdde527e74d"
+      "sha256": "2f5029b001dbf41c6fa5dcd32c34f1cac36b7e2b76b18d9e606ab4e1d5799fe4"
     },
     {
       "path": ".github/workflows/integration-diagnostic.yml",
@@ -2088,8 +2088,8 @@
     },
     {
       "path": "scripts/quality_loop.py",
-      "size": 141055,
-      "sha256": "7bbd09ba085d59f0924ebd5d3c6f485ee17b8b3510be4611b2a1783deded3eda"
+      "size": 141445,
+      "sha256": "a09400059738397b095d2d0eff911d8431edceb5b06f13cbb9476f3311effd18"
     },
     {
       "path": "scripts/release_admission_contract.py",
@@ -4495,6 +4495,11 @@
       "path": "services/agent-service/tests/runtime/test_pretool_shadow_planner.py",
       "size": 7553,
       "sha256": "a56e8c03be412241c3ab87e7b0b15c1dd80cca857964ee58de2a365d263c33d3"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_quality_loop_npm_launcher_boundary.py",
+      "size": 2818,
+      "sha256": "51777b7625a2ff780224993497317bbb31d20b1e4a6a270b2df93d18985df044"
     },
     {
       "path": "services/agent-service/tests/runtime/test_release_owned_runtime_boundary.py",
