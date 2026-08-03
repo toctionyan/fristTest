@@ -21,7 +21,9 @@ env:
   B28_TRANSPORT_PARENT: 6e22385a06763dbfcf602d43151221c454a53f33
   CORRECTION_ZST_SHA256: 99129c5c474e6deb5a440693f810decd50e928e9854acd8e2d15aa65e2b16432
   CORRECTION_TAR_SHA256: 1342275712e254753518c1dba3567c6f43b1f7660a20e6254d121da3ba3917bb
-  B28_FINAL_TREE: 753c01b000fa51754879b7c46620294ab3dd603d
+  BASELINE_OLD_SHA256: 794fccb32df38fff87ec0472217de014acd923471083c1da328060d497a845ac
+  BASELINE_NEW_SHA256: 250ed571ca73a1338d232a070fc2442b1dbe263318db4f0e3e700c7a5dc0a419
+  B28_FINAL_TREE: 43697955f83e1ba0d77d579832186e26e3d86ca2
 
 jobs:
   apply-verified-import-correction:
@@ -88,6 +90,35 @@ jobs:
           rm -rf .b28-import-correction
           tar -xf /tmp/b28-import-correction.tar -C .
 
+          BASELINE=skill-system/registry/product-source-baseline.json
+          echo "$BASELINE_OLD_SHA256  $BASELINE" | sha256sum -c -
+          "${pythonLocation}/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("skill-system/registry/product-source-baseline.json")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          files = payload.get("files")
+          if not isinstance(files, dict) or payload.get("file_count") != 537 or len(files) != 537:
+              raise SystemExit("unexpected B28 product source baseline shape")
+          generated_runtime_paths = (
+              "services/agent-service/runtime/sqlite/app.db",
+              "services/business-service/runtime/business-service/business.db",
+          )
+          for item in generated_runtime_paths:
+              if item not in files:
+                  raise SystemExit(f"expected generated runtime path missing from old baseline: {item}")
+              files.pop(item)
+          payload["file_count"] = len(files)
+          if payload["file_count"] != 535:
+              raise SystemExit("corrected product source baseline must contain 535 files")
+          path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          echo "$BASELINE_NEW_SHA256  $BASELINE" | sha256sum -c -
+
           if find . -type f -name '.env' -print -quit | grep -q .; then
             echo 'A real .env file was found in the corrected candidate.' >&2
             exit 1
@@ -112,11 +143,19 @@ jobs:
         run: |
           set -euo pipefail
           VALIDATION_PYTHON="services/agent-service/.venv/bin/python"
+          QUALITY_TARGET="$GITHUB_WORKSPACE/.quality/targets/quality-target-b28-import-correction.md"
+          export QUALITY_EVIDENCE_DIR="$RUNNER_TEMP/quality-evidence/b28-import-correction"
           test -x "$VALIDATION_PYTHON"
           "$VALIDATION_PYTHON" -B scripts/verify_task_ledger.py
           "$VALIDATION_PYTHON" -B skill-system/controller/profile_runner.py skill-control-plane
           "$VALIDATION_PYTHON" -B scripts/quality_toolchain_contract.py --static-only
-          "$VALIDATION_PYTHON" -B scripts/quality_loop.py --mode static
+          "$VALIDATION_PYTHON" -B scripts/create_ci_quality_target.py \
+            --output "$QUALITY_TARGET" \
+            --ref "$B28_EXPECTED_HEAD" \
+            --workflow quality-static
+          "$VALIDATION_PYTHON" -B scripts/quality_loop.py \
+            --mode static \
+            --target "$QUALITY_TARGET"
 
       - name: Commit and publish corrected B28 candidate
         shell: bash
@@ -127,7 +166,7 @@ jobs:
           test "$(git write-tree)" = "$B28_FINAL_TREE"
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git commit -m 'Persist evidence and repository baseline required by B28'
+          git commit -m 'Persist evidence and correct B28 repository baseline'
           test "$(git rev-parse HEAD^{tree})" = "$B28_FINAL_TREE"
           git push --force-with-lease=refs/heads/${B28_UPGRADE_BRANCH}:$B28_EXPECTED_HEAD \
             origin HEAD:${B28_UPGRADE_BRANCH}
