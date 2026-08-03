@@ -1,4 +1,4 @@
-name: B28 Governed Finalizer V7
+name: B28 Governed Finalizer V8
 run-name: Assemble corrected B28 candidate from Git source authority
 
 "on":
@@ -17,6 +17,7 @@ env:
   FINAL5_TRANSPORT_HEAD: 90e567ca581949120385ab57d479f2de27c67e7d
   FINAL5_ZST_SHA256: d1dcef18d6d5328e1c75e13ab953ae610271c470b7756f0bab81ea91f1547517
   FINAL5_TAR_SHA256: 361603b3834bfc9bf055a687a3f8ea4f605001d3d4183a9263e5bfdc18deb6a6
+  TRUSTED_TEMP_HELPER_BLOB: 7d834a427d1bdba9edd1ed2889f2064d203587ef
 
 jobs:
   finalize:
@@ -162,8 +163,8 @@ jobs:
           set -euo pipefail
           cd candidate
           PYTHON=services/agent-service/.venv/bin/python
-          TARGET="$PWD/.quality/targets/quality-target-b28-finalizer-v7.md"
-          export QUALITY_EVIDENCE_DIR="$RUNNER_TEMP/quality-evidence/b28-finalizer-v7"
+          TARGET="$PWD/.quality/targets/quality-target-b28-finalizer-v8.md"
+          export QUALITY_EVIDENCE_DIR="$RUNNER_TEMP/quality-evidence/b28-finalizer-v8"
           "$PYTHON" -B scripts/verify_task_ledger.py
           "$PYTHON" -B skill-system/controller/profile_runner.py skill-control-plane
           "$PYTHON" -B scripts/quality_toolchain_contract.py --static-only
@@ -178,6 +179,15 @@ jobs:
           cd candidate
           rm -rf .quality services/agent-service/.venv
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+
+          test -z "$(git ls-tree -r --name-only "$B28_STABLE_HEAD" -- .github/scripts/b28_finalize_overlay.py)"
+          if [ -e .github/scripts/b28_finalize_overlay.py ]; then
+            test "$(git hash-object .github/scripts/b28_finalize_overlay.py)" = "$TRUSTED_TEMP_HELPER_BLOB"
+            rm -f .github/scripts/b28_finalize_overlay.py
+            rmdir .github/scripts 2>/dev/null || true
+          fi
+          test ! -e .github/scripts/b28_finalize_overlay.py
+
           git add -A
 
           cat > /tmp/expected-final-paths.txt <<'EOF'
