@@ -73,6 +73,34 @@ jobs:
           PY
           echo 'f23b93f3391046fd4dd560bed2e52d6ca52ac4ab769f8d9553ae0ea10a239989  '"${RUNNER_TEMP}"'/b29-upgrade.py' | sha256sum -c -
 
+      - name: Correct verified multiline patch anchors
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ['RUNNER_TEMP']) / 'b29-upgrade.py'
+          text = path.read_text(encoding='utf-8')
+          marker = 'replace_once(\n    "skill-system/controller/portable_cli.py",\n    \'REPAIR_GOVERNANCE_CLI'
+          if text.count(marker) != 1:
+              raise SystemExit('unexpected B29 multiline patch marker count')
+          prefix, suffix = text.split(marker, 1)
+          escaped_newline = '\\\\n'
+          source_newline_escape = '\\n'
+          if prefix.count(escaped_newline) != 0 or suffix.count(escaped_newline) != 37:
+              raise SystemExit('unexpected B29 multiline patch escape count')
+          patched = prefix + marker + suffix.replace(escaped_newline, source_newline_escape)
+          digest = hashlib.sha256(patched.encode('utf-8')).hexdigest()
+          if digest != '2be06fb1d0f5fb5f24ddf0d266832ccaa0717f702cf3b90649e4c4b3e4e0b0e4':
+              raise SystemExit(f'unexpected patched B29 upgrade digest: {digest}')
+          compile(patched, str(path), 'exec')
+          path.write_text(patched, encoding='utf-8')
+          print(f'PATCHED_B29_UPGRADE_SHA256={digest}')
+          PY
+
       - name: Apply multi-agent governance upgrade
         shell: bash
         run: |
