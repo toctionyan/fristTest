@@ -121,6 +121,11 @@ def _workflow_repair_tools(
     pending_goal_ids = {
         str(goal.get("goal_id") or "") for goal in pending_rows if str(goal.get("goal_id") or "")
     }
+    clarification_goal_ids = {
+        str(goal.get("goal_id") or "")
+        for goal in pending_rows
+        if str(goal.get("goal_type") or "") == "clarification" and str(goal.get("goal_id") or "")
+    }
     completion_tools = {
         str(name)
         for row in list(surface.get("goals") or [])
@@ -133,6 +138,7 @@ def _workflow_repair_tools(
         for row in list(surface.get("goals") or [])
         if isinstance(row, dict)
         and str(row.get("goal_id") or "") in pending_goal_ids
+        and str(row.get("goal_id") or "") not in clarification_goal_ids
         and str(row.get("status") or "") in {"absent_proven", "completion_capability_absent"}
         for name in list(row.get("candidate_tools") or [])
         if str(name)

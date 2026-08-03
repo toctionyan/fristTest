@@ -282,18 +282,6 @@ def test_verified_history_recall_binds_only_the_response_protocol():
         "task_board": [],
         "loop_plans": [],
 
-        "grounded_execution_plan": {
-            "status": "RUNNING",
-            "goals": [{
-                "goal_id": "recall",
-                "goal_type": "query",
-                "required": True,
-                "coverage_status": "PENDING",
-                "covered_by_step_ids": [],
-                "covered_by_terminal_tools": [],
-            }],
-            "steps": [],
-        },
     })
     install_test_semantic_contract(state, {
             "version": "turn-goal-plan@1.0",
@@ -306,9 +294,23 @@ def test_verified_history_recall_binds_only_the_response_protocol():
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "conversation_history",
+                    "operation": "recall_released_answer",
+                    "object_type": "released_answer",
+                    "raw_description": "确认刚才开票的订单",
+                },
                 "expected_tools": [],
             }],
         })
+    install_test_plan_authority(
+        state,
+        goals=[{
+            "goal_id": "recall",
+            "goal_type": "query",
+            "required": True,
+        }],
+    )
     model = ScriptedChatModel([{
         "tool_calls": [{
             "id": "recall-answer",
@@ -1094,6 +1096,12 @@ def test_plain_content_protocol_retry_forces_a_bound_terminal_tool_call():
                 "goal_type": "clarification",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "clarify_target",
+                    "object_type": "order",
+                    "raw_description": "澄清具体退款订单",
+                },
                 "expected_tools": [],
             }],
         })
@@ -1170,6 +1178,12 @@ def test_plain_prose_with_pending_query_reopens_only_goal_completion_capability(
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "list",
+                    "object_type": "order",
+                    "raw_description": "查询当前集合中最贵的对象",
+                },
                 "expected_tools": [],
             }],
         })

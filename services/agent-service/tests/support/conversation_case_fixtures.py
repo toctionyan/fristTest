@@ -282,10 +282,19 @@ def fixture_ledger(*, tenant_id: str, user_id: str, thread_id: str) -> list[dict
         "current_thread_id": thread_id,
         "turn_index": 0,
     }
+    visible_handles = [
+        *handles,
+        *[str(item["handle"]) for item in views],
+        str(result["handle"]),
+    ]
     return mark_visible_result_refs(
         [*artifacts, *views, result],
         state=state,
-        evidence_handles=[*handles, *(item["handle"] for item in views), result["handle"]],
+        evidence_handles=visible_handles,
+        source_effect_by_handle={
+            handle: "turn-plan:conversation-regression-fixture:effect:visible-bootstrap"
+            for handle in visible_handles
+        },
     )
 
 

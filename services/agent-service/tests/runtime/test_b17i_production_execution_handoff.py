@@ -44,7 +44,14 @@ def _valid_env(**overrides: str) -> dict[str, str]:
 
 
 def _run(output: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    merged = dict(os.environ)
+    merged = {
+        key: value
+        for key, value in os.environ.items()
+        if key != "CI"
+        and not key.startswith("GITHUB_")
+        and not key.startswith("PRODUCTION_RELEASE_")
+        and not key.startswith("RELEASE_INPUT_")
+    }
     merged.update(env)
     return subprocess.run(
         [sys.executable, "-B", str(SCRIPT), "--output", str(output)],
