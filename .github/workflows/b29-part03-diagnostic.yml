@@ -19,13 +19,13 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - name: Print bounded part03 block hashes
+      - name: Print narrowed part03 hashes
         run: |
           python3 - <<'PY'
           import hashlib
           from pathlib import Path
           text = Path('.github/scripts/b29-upgrade.part03').read_text(encoding='utf-8')
           print('length', len(text))
-          for start in range(0, len(text), 500):
-              print(start, hashlib.sha256(text[start:start+500].encode()).hexdigest())
+          for start in range(1500, 2000, 50):
+              print(start, hashlib.sha256(text[start:start+50].encode()).hexdigest())
           PY
