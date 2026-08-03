@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_from": "git:03484367b072fe82d189d79f9287e95592c2ed11",
+  "generated_from": "git:9a5d9ddc808bef5678ae0c49988684c91e657067",
   "source_release_sha256": "a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4",
-  "generated_at": "2026-08-03T06:00:00Z",
+  "generated_at": "2026-08-03T11:29:19Z",
   "protected_roots": [
     "services",
     "web",
@@ -10,6 +10,9 @@
   ],
   "file_count": 535,
   "files": {
+    "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
+    "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
+    "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21",
     "services/agent-service/.env.example": "8e6c360b58b57e325c562cdebc13a4ca736e193cef530826ee25eb498fcaa3f8",
     "services/agent-service/.gitignore": "865aff3868d71c17bb463346cf6483752f4fb778bce2528b84dcd9584b2157bd",
     "services/agent-service/.python-version": "aa0d6581054e6e4ff3f91839deca7a854ad37221b8784d060b42d0f847ff1a3b",
@@ -153,7 +156,7 @@
     "services/agent-service/src/agent_core/lifecycle/clarification_runtime.py": "fbc9e3c58680ba011f50721ba8cc89767d608790498fe020da87b390c858af32",
     "services/agent-service/src/agent_core/lifecycle/context_runtime.py": "f335004439f9a6db011974786b6d130753e471c5d87675db688875f62ea11be2",
     "services/agent-service/src/agent_core/lifecycle/continuation_runtime.py": "3e068bf7d1100dbbff1d0949666b5058ac0f9e3ebd9e1a67e550f2fb32d998bb",
-    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "774dc13e55a7f03b143686d7710f5299be89a6a1bb2e60425c26c8727b87aa46",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "4662c742873b8fee8b956e4b98d0c41153be8fbcb787ac15030cb96cde3cbf6b",
     "services/agent-service/src/agent_core/lifecycle/disposition_runtime.py": "3e2f054d0aec694d65f36616093a5cba45c9a4c602f82583984825dd31936a1f",
     "services/agent-service/src/agent_core/lifecycle/execution_disposition.py": "9c9d89351e47619d978052d095b49e26bb080f2d0e6ce03c28f509d39986486c",
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
@@ -258,7 +261,7 @@
     "services/agent-service/src/agent_core/runtime/__init__.py": "a89ccf2feed2281675242ccf4ab9123765b6858bc997ccc5f2c16876404207cf",
     "services/agent-service/src/agent_core/runtime/answer_release_alignment.py": "637be82793c3365d6ebea734868a07d0a0a89c0e6b9ff7d6447dcbe6f2a6024d",
     "services/agent-service/src/agent_core/runtime/capability_effects.py": "813c76ccb2a9db5ed5f4dacbf7cd25fde28c70381227a11b539ced295dbbcd9f",
-    "services/agent-service/src/agent_core/runtime/capability_gate.py": "625d034012bee6833f13df5cc594120b1632cac6d0bd2343cb3302f611236c9c",
+    "services/agent-service/src/agent_core/runtime/capability_gate.py": "365e50b5ce46aa380ba556417afe0313e908b669ef1862ad621b7c20a9de9ac2",
     "services/agent-service/src/agent_core/runtime/deps.py": "132f5093501d66facb6116681f3782feee09636f21cd085aee6fd5433d3c8a7f",
     "services/agent-service/src/agent_core/runtime/migrations.py": "d71793fcd1179afbe509ccf5670b452c9c84a9557c39efcbedc63b9dbe75d5a6",
     "services/agent-service/src/agent_core/runtime/node_support.py": "8dd790c1eac49fcfa00b38af3b5c089fc893f5b0b9acaceed3359a445aeeb1d0",
@@ -460,8 +463,8 @@
     "services/agent-service/tests/runtime/test_b17e_release_supply_chain_authority.py": "b88378e4800b3b89821449d5615e15c62921e85a2bbefa2c6e032eb779db9985",
     "services/agent-service/tests/runtime/test_b17f_ci_run_identity_replay_authority.py": "939708c271ad3ab0c0a8f5d10a5f94ee8a30520837b2d539c061088d7a01e99e",
     "services/agent-service/tests/runtime/test_b17g_production_execution_readiness.py": "b210d8cefc469c5d90d448ec69cef1ddf4d833dcdfcee582e7284265aa32e79e",
-    "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py": "d709f77f3b2ca711222d48510fd907349e00bd694eb1292f60bc39f3b98b6d67",
-    "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py": "8cf9b83087fa73f415df4e37afed1d1bc619543319039661c0e6452c89b3a1d8",
+    "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py": "7b220110b1ba080bb1dd33f2e18e958e4bfe93c0da7008b3328ef5444a78cc33",
+    "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py": "0658447ad9a0eea5d024fe4a7ae220d244e7ebc4b6b2575bd0561af761cfa4bf",
     "services/agent-service/tests/runtime/test_capability_contract_v2.py": "8eec1ebc9809c2502ad920df51e256c0fd2796a5237f5ce659d55805c4cd947a",
     "services/agent-service/tests/runtime/test_capability_target_schema.py": "e6ddb46851b5f362d25dec1242a3f8233023419b5f5de766441f3998e89cbab3",
     "services/agent-service/tests/runtime/test_clarification_continuation_protocol.py": "6d54b9d621709053efede80f0997b53de01bff1280e09b8fd60c0edf9b01c2d0",
@@ -469,7 +472,7 @@
     "services/agent-service/tests/runtime/test_finalizer_internal_trace.py": "a5aad011e88f25649c9594b4db26f2c5c036d7397e6e5ad5f89a428da9f9d874",
     "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py": "fe55e43b29b69157462467dac13a0f62cfd615f06ad226aa1896475fa534ce4f",
     "services/agent-service/tests/runtime/test_goal_change_evidence_contract.py": "e731942f7bb6b649f39110c4c007bd635c3f957652cdc9fb2b668ea191959967",
-    "services/agent-service/tests/runtime/test_goal_coverage_runtime.py": "6b9db89920112dafef5573275e4943164d894e9a339d6115b06e9ea1579f1273",
+    "services/agent-service/tests/runtime/test_goal_coverage_runtime.py": "14d22a59c0be5ccd2e2807dfd0eeaae6bcf8e3c6dd6e13659f71ef95a2f7155f",
     "services/agent-service/tests/runtime/test_goal_evidence_satisfaction.py": "b467bad0c58a77bbb0a728f082f62f01d277864fab7063937122971b73c1c4f7",
     "services/agent-service/tests/runtime/test_multi_intent_runtime.py": "729e708a273fbce3b7f5acd6c7a2f4522bf9cde4ad5704a6aa2aafaf092dd068",
     "services/agent-service/tests/runtime/test_multi_task_runtime.py": "fd881625f2748a5581126faf5294e25f3a0a1940188ee6500e78960272b56e38",
@@ -488,7 +491,7 @@
     "services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py": "110598eea3c697b7fa5e3cf796b16572fef6a07277b55b63fdc36da2d7303f01",
     "services/agent-service/tests/runtime/test_workflow_runtime.py": "a88d7caa0a3376fedbd546d3548524f46f30aba0613a7be852fbc18f44e6e659",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
-    "services/agent-service/tests/support/conversation_case_fixtures.py": "86355e1b98ca086762bade87ee2ba1d240b6e76d30bc36f0c9051f9337bf3b71",
+    "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
     "services/agent-service/tests/support/conversation_case_runner.py": "a9a826277c81f08f16f0bb0e8e2f268f0df588c9c8a19b1695380f7e32e66d31",
     "services/agent-service/tests/support/dependency_debt.py": "e6ff891bdbe2054e939c5f3eca5cb2bbea65e4d8f0fcc1af1222e84b01ae5dcc",
     "services/agent-service/tests/support/legacy_workflow_projection.py": "0d432cea3d188a285e8703730ad122f84506f7afdf4b63fb10495162c22f0427",
@@ -541,9 +544,6 @@
     "services/business-service/tests/test_main.py": "a94446ebb8c9b45836b96da8a50e1e4ff262fa3e023467d55b85da5916b04aa2",
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
-    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
-    "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
-    "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
-    "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21"
+    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   }
 }
