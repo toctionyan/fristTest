@@ -97,3 +97,37 @@ def test_quality_workflow_rejects_toolchain_step_reordering(tmp_path: Path):
     with pytest.raises(MODULE.QualityToolchainError) as caught:
         MODULE.validate_static(root)
     assert caught.value.code == "quality_toolchain_step_order_invalid"
+
+
+def test_runtime_accepts_uv_platform_suffix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    root = _copy_workspace(tmp_path)
+    outputs = iter(
+        (
+            "3.12.13",
+            "v24.18.0",
+            "11.16.0",
+            "uv 0.11.29 (x86_64-unknown-linux-gnu)",
+        )
+    )
+    monkeypatch.setattr(MODULE, "_run_version", lambda _command: next(outputs))
+    result = MODULE.validate_runtime(root)
+    assert result["status"] == "PASS"
+    assert result["versions"]["uv"] == "0.11.29"
+
+
+def test_runtime_rejects_uv_semantic_version_drift(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    root = _copy_workspace(tmp_path)
+    outputs = iter(
+        (
+            "3.12.13",
+            "v24.18.0",
+            "11.16.0",
+            "uv 0.11.30 (x86_64-unknown-linux-gnu)",
+        )
+    )
+    monkeypatch.setattr(MODULE, "_run_version", lambda _command: next(outputs))
+    with pytest.raises(MODULE.QualityToolchainError) as caught:
+        MODULE.validate_runtime(root)
+    assert caught.value.code == "quality_toolchain_runtime_mismatch"
+    assert caught.value.environment_blocked is True
+    assert "0.11.30" in str(caught.value)
