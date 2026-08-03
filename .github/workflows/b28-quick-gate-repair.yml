@@ -63,6 +63,8 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B \
             control/.github/scripts/b28_quick_gate_repair.py candidate
+          "${pythonLocation}/bin/python" -B \
+            control/.github/scripts/b28_quick_gate_repair_v2.py candidate
 
       - name: Reproduce and close all 18 failures
         shell: bash
