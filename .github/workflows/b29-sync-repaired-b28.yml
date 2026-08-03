@@ -80,7 +80,6 @@ jobs:
           services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py
           services/agent-service/tests/runtime/test_goal_coverage_runtime.py
           services/agent-service/tests/support/conversation_case_fixtures.py
-          skill-system/registry/product-source-baseline.json
           EOF
           git diff --cached --name-only | sort > /tmp/actual-merge-paths.txt
           diff -u /tmp/expected-b28-paths.txt /tmp/actual-merge-paths.txt
