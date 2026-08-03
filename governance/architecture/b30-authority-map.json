@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "stage": "B30",
+  "title": "Authoritative runtime architecture",
+  "baseline_commit": "cf1ae3e406557070bc18c33782583a1c8f70de70",
+  "status": "PROPOSED",
+  "authoritative_chain": [
+    {
+      "id": "request_ledger",
+      "owner": "TurnRequestLedger",
+      "responsibility": "Deduplicate one external request into one durable turn identity.",
+      "output": "TurnRequest"
+    },
+    {
+      "id": "context_evidence",
+      "owner": "ContextEvidenceProjection",
+      "responsibility": "Project bounded, scoped and source-bound evidence for semantic compilation without selecting a target or creating meaning.",
+      "output": "ContextEvidenceBundle"
+    },
+    {
+      "id": "semantic_contract",
+      "owner": "TurnSemanticContract",
+      "responsibility": "Freeze current user meaning, business-effect goals, typed target sets, corrections and explicit reference relations.",
+      "output": "SemanticDecision"
+    },
+    {
+      "id": "capability_match",
+      "owner": "CapabilitySurface+MatchProof",
+      "responsibility": "Prove an exact supported capability or return clarification/unsupported without similar-capability fallback.",
+      "output": "CapabilityDecision"
+    },
+    {
+      "id": "plan_run",
+      "owner": "PlanRun",
+      "responsibility": "Create the only executable plan from approved semantic goals and capability proofs.",
+      "output": "ExecutionPlan"
+    },
+    {
+      "id": "execution_authority",
+      "owner": "BusinessService+TransactionRepository",
+      "responsibility": "Authorize and execute business reads/writes; own business facts, idempotency, state transitions and receipts.",
+      "output": "ExecutionReceipt"
+    },
+    {
+      "id": "runtime_outcome",
+      "owner": "RuntimeOutcome",
+      "responsibility": "Project one typed outcome from semantic, capability and execution evidence.",
+      "output": "RuntimeOutcome"
+    },
+    {
+      "id": "public_projection",
+      "owner": "ResponseProjector",
+      "responsibility": "Render HTTP, SSE and UI representations without creating new business or semantic facts.",
+      "output": "PublicResponse"
+    }
+  ],
+  "authority_boundaries": {
+    "request_identity": {
+      "owner": "TurnRequestLedger",
+      "must_not_be_owned_by": ["retry handler", "graph node", "client-generated turn state"]
+    },
+    "context_evidence": {
+      "owner": "ContextEvidenceProjection",
+      "must_not_be_owned_by": ["model memory", "free-text history scan", "tool error", "audit log target selection"]
+    },
+    "semantic_meaning": {
+      "owner": "TurnSemanticContract",
+      "must_not_be_owned_by": ["keyword router", "per-intent context parser", "tool selection", "ContextBundle"]
+    },
+    "dialogue_reference": {
+      "owner": "TurnSemanticContract.TypedTargetSet",
+      "must_not_be_owned_by": ["VisibleResultRef recency", "referent-set projection", "latest object guess", "per-tool memory"]
+    },
+    "capability_support": {
+      "owner": "CapabilitySurface+MatchProof",
+      "must_not_be_owned_by": ["model tool choice", "lexical similarity", "legacy intent map"]
+    },
+    "executable_plan": {
+      "owner": "PlanRun",
+      "must_not_be_owned_by": ["grounded_execution_plan", "tool loop scratch plan", "response renderer"]
+    },
+    "business_fact": {
+      "owner": "BusinessService",
+      "must_not_be_owned_by": ["agent checkpoint", "model answer", "UI state"]
+    },
+    "transaction_state": {
+      "owner": "TransactionRepository",
+      "must_not_be_owned_by": ["conversation frame", "pending card", "model memory"]
+    },
+    "public_outcome": {
+      "owner": "RuntimeOutcome",
+      "must_not_be_owned_by": ["HTTP adapter", "SSE adapter", "frontend component"]
+    }
+  },
+  "allowed_terminal_outcomes": [
+    "EXECUTE",
+    "ANSWER_READ_ONLY",
+    "CLARIFY",
+    "UNSUPPORTED",
+    "REJECTED",
+    "FAILED_RETRYABLE",
+    "FAILED_FINAL",
+    "SUBMISSION_UNKNOWN"
+  ],
+  "hard_invariants": [
+    "one_external_request_creates_at_most_one_turn",
+    "context_evidence_is_projected_before_semantic_freeze_and_never_selects_a_target",
+    "one_turn_has_one_frozen_semantic_contract",
+    "semantic_contract_cannot_be_rewritten_by_capability_plan_or_execution_failure",
+    "one_goal_is_executable_only_with_one_match_proof",
+    "no_keyword_or_similarity_fallback_can_create_capability_support",
+    "dialogue_references_are_typed_and_source_bound",
+    "visible_result_refs_and_referent_sets_are_non_dispatchable_evidence",
+    "business_facts_come_only_from_business_service_receipts",
+    "writes_require_transaction_authority_and_idempotency",
+    "runtime_outcome_is_the_only_public_result_authority",
+    "http_sse_and_ui_are_projections_of_the_same_runtime_outcome",
+    "legacy_fields_are_read_only_migration_inputs_never_active_authorities"
+  ],
+  "acceptance": {
+    "architecture": [
+      "all_authority_boundaries_have_exactly_one_owner",
+      "all_runtime_entrypoints_converge_on_the_authoritative_chain",
+      "context_evidence_precedes_semantic_freeze",
+      "no_active_legacy_path_can_bypass_semantic_capability_or_transaction_authority"
+    ],
+    "tests": [
+      "direct_entity_reference",
+      "set_reference_and_difference",
+      "clarification_without_execution_surface",
+      "multi_goal_plan",
+      "unsupported_capability",
+      "correction_and_interrupt_recovery",
+      "idempotent_write_and_unknown_submission_recovery",
+      "http_sse_projection_equivalence"
+    ],
+    "delivery": [
+      "architecture_decisions_recorded",
+      "legacy_retirement_inventory_complete",
+      "codex_work_packages_have_scoped_paths_and_exit_conditions",
+      "skill_multi_agent_static_and_quick_gates_pass"
+    ]
+  }
+}

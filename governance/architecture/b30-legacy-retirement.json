@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "stage": "B30",
+  "status": "PROPOSED",
+  "policy": {
+    "active_authority_count": 1,
+    "compatibility_rule": "Legacy data may be read only by an explicit migration adapter and may never affect a new decision after canonical state exists.",
+    "deletion_rule": "A legacy path is deleted after its replacement has focused, counterexample, negative-path and complete regression evidence.",
+    "fallback_rule": "Silent fallback to a retired semantic, capability, plan or transaction owner is forbidden."
+  },
+  "retirement_targets": [
+    {
+      "id": "legacy_semantic_routers",
+      "target": "keyword, intent-map or tool-first semantic routing",
+      "replacement": "TurnSemanticContract",
+      "discovery": "inventory every runtime entrypoint and graph edge that can select intent/capability before the semantic contract",
+      "deletion_condition": "all request paths use typed SemanticDecision and unsupported/clarify counterexamples pass",
+      "rollback": "revert the work-package commit; do not reactivate the retired router as fallback"
+    },
+    {
+      "id": "per_intent_context_owners",
+      "target": "per-intent pronoun, focus or history resolution",
+      "replacement": "TurnSemanticContract.TypedTargetSet with ContextEvidenceProjection, VisibleResultRef and SourceEffect as non-selecting provenance",
+      "discovery": "inventory slot resolvers and tool adapters that infer targets from untyped history",
+      "deletion_condition": "set, subset, correction, interruption and stale-reference counterexamples pass",
+      "rollback": "revert canonical resolver changes while preserving fail-closed clarification"
+    },
+    {
+      "id": "parallel_plan_authorities",
+      "target": "grounded_execution_plan and tool-loop scratch plans used as executable authority",
+      "replacement": "PlanRun",
+      "discovery": "inventory every field or node that can trigger execution independently of PlanRun",
+      "deletion_condition": "multi-goal, clarification and history-recall tests read only immutable PlanRun authority",
+      "rollback": "revert the migration; never restore dual executable-plan ownership"
+    },
+    {
+      "id": "agent_owned_business_facts",
+      "target": "checkpoint/model/UI state treated as current business fact",
+      "replacement": "BusinessService receipt and versioned query result",
+      "discovery": "inventory decisions that trust cached order/refund/ticket state without authoritative read or receipt",
+      "deletion_condition": "stale version, replay, unauthorized actor, invalid transition and reconciliation tests pass",
+      "rollback": "return FAILED_RETRYABLE or SUBMISSION_UNKNOWN rather than trusting cached state"
+    },
+    {
+      "id": "parallel_public_projection",
+      "target": "HTTP, SSE or frontend logic creating independent answer semantics",
+      "replacement": "RuntimeOutcome followed by pure ResponseProjector adapters",
+      "discovery": "inventory response normalization, stream update and UI card branches that synthesize facts",
+      "deletion_condition": "HTTP/SSE equivalence and presentation-registry tests pass from one RuntimeOutcome",
+      "rollback": "disable the affected projection path; do not duplicate outcome logic"
+    }
+  ],
+  "work_packages": [
+    {
+      "id": "WP-01",
+      "name": "Runtime entrypoint inventory",
+      "allowed_paths": ["docs/architecture/**", "governance/architecture/**", "skill-system/tests/**"],
+      "exit_conditions": ["all HTTP/SSE/interaction entrypoints mapped", "all graph builders and execution gateways mapped", "no unknown write entrypoint"]
+    },
+    {
+      "id": "WP-02",
+      "name": "Request, semantic and target authority convergence",
+      "allowed_paths": [
+        "services/agent-service/app/schemas/**",
+        "services/agent-service/app/api/**",
+        "services/agent-service/app/services/**",
+        "services/agent-service/app/use_cases/**",
+        "services/agent-service/src/agent_core/lifecycle/**",
+        "services/agent-service/src/agent_core/persistence/**",
+        "services/agent-service/src/agent_core/storage/**",
+        "services/agent-service/frontend/src/**",
+        "services/agent-service/tests/context/**",
+        "services/agent-service/tests/persistence/**",
+        "services/agent-service/tests/runtime/**",
+        "services/agent-service/tests/api/**"
+      ],
+      "exit_conditions": [
+        "one durable external request identity creates at most one Turn",
+        "one SemanticDecision owner",
+        "typed target-set counterexamples pass",
+        "no per-intent context owner"
+      ],
+      "sub_work_packages": [
+        {
+          "id": "WP-02A",
+          "parent": "WP-02",
+          "name": "Request identity and TurnRequestLedger",
+          "authority_owner": "TurnRequestLedger",
+          "allowed_paths": [
+            "services/agent-service/app/schemas/chat_schema.py",
+            "services/agent-service/app/api/product_api.py",
+            "services/agent-service/app/services/agent_service.py",
+            "services/agent-service/app/use_cases/conversation_turn.py",
+            "services/agent-service/src/agent_core/persistence/**",
+            "services/agent-service/src/agent_core/storage/**",
+            "services/agent-service/frontend/src/components/ChatPanel.jsx",
+            "services/agent-service/frontend/src/components/ChatPanel.test.jsx",
+            "services/agent-service/tests/persistence/**",
+            "services/agent-service/tests/runtime/**",
+            "services/agent-service/tests/api/**"
+          ],
+          "exit_conditions": [
+            "HTTP and SSE require one transport-neutral client_request_id",
+            "one request creates at most one durable Turn and one user message",
+            "terminal results replay without graph or model invocation",
+            "uncertain requests require reconciliation instead of automatic re-execution"
+          ]
+        },
+        {
+          "id": "WP-02B",
+          "parent": "WP-02",
+          "name": "Semantic, context and typed target authority",
+          "authority_owner": "ContextEvidenceProjection+TurnSemanticContract+TurnSemanticContract.TypedTargetSet",
+          "allowed_paths": [
+            "services/agent-service/src/agent_core/context/**",
+            "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+            "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+            "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py",
+            "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py",
+            "services/agent-service/src/agent_core/lifecycle/goal_blockers.py",
+            "services/agent-service/src/agent_core/lifecycle/clarification_runtime.py",
+            "services/agent-service/src/agent_core/lifecycle/context_runtime.py",
+            "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+            "services/agent-service/tests/context/**",
+            "services/agent-service/tests/runtime/**"
+          ],
+          "exit_conditions": [
+            "context evidence precedes semantic freeze and cannot select a target",
+            "one TurnSemanticContract owns user meaning and typed goals",
+            "pronoun, set, subset, correction and interruption counterexamples pass",
+            "per-intent and per-tool history resolvers cannot become authorities",
+            "ambiguous evidence fails closed to clarification"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "WP-03",
+      "name": "Capability MatchProof",
+      "allowed_paths": ["services/agent-service/src/agent_core/runtime/**", "services/agent-service/tests/capability/**", "services/agent-service/tests/runtime/**"],
+      "exit_conditions": ["unsupported is explicit", "clarification exposes no write capability", "similar-capability fallback rejected"]
+    },
+    {
+      "id": "WP-04",
+      "name": "PlanRun convergence",
+      "allowed_paths": ["services/agent-service/src/agent_core/**", "services/agent-service/tests/planning/**", "services/agent-service/tests/runtime/**"],
+      "exit_conditions": ["one executable plan owner", "legacy plan fields read-only or deleted", "multi-goal plan counterexamples pass"]
+    },
+    {
+      "id": "WP-05",
+      "name": "Transaction authority convergence",
+      "allowed_paths": ["services/agent-service/src/agent_core/transactions/**", "services/business-service/**", "services/agent-service/tests/transactions/**"],
+      "exit_conditions": ["business service owns facts", "transaction repository owns lifecycle", "replay and unknown-submission recovery pass"]
+    },
+    {
+      "id": "WP-06",
+      "name": "RuntimeOutcome projection",
+      "allowed_paths": ["services/agent-service/app/services/**", "services/agent-service/app/use_cases/**", "services/agent-service/frontend/src/**"],
+      "exit_conditions": ["one RuntimeOutcome authority", "HTTP/SSE equivalent", "frontend creates no new business fact"]
+    },
+    {
+      "id": "WP-07",
+      "name": "Legacy deletion and adversarial regression",
+      "allowed_paths": ["services/agent-service/src/**", "services/agent-service/tests/**", "docs/architecture/**", "governance/architecture/**"],
+      "exit_conditions": ["retirement inventory terminal", "forbidden fallback scan clean", "complete regression passes"]
+    },
+    {
+      "id": "WP-08",
+      "name": "Real environment certification",
+      "allowed_paths": ["deployment/**", "scripts/**", "services/agent-service/tests/integration/**", "services/business-service/tests/**"],
+      "exit_conditions": ["PostgreSQL/pgvector", "configured model and RAG", "dual service lifecycle", "browser journey"]
+    }
+  ]
+}

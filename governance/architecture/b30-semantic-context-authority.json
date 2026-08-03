@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "stage": "B30",
+  "work_package": "WP-02B",
+  "parent_work_package": "WP-02",
+  "status": "PROPOSED",
+  "authority": {
+    "semantic_owner": "TurnSemanticContract",
+    "typed_target_owner": "TurnSemanticContract.TypedTargetSet",
+    "context_evidence_owner": "ContextEvidenceProjection",
+    "reference_provenance_owners": ["VisibleResultRef", "SourceEffect"],
+    "model_role": "open_language_semantic_compiler_candidate",
+    "runtime_role": "shape_scope_revision_literal_evidence_and_integrity_validator",
+    "rule": "The model proposes meaning and typed relations; deterministic runtime validates and freezes one contract. Context projections provide evidence but never select a target."
+  },
+  "semantic_compile_order": [
+    "compile_provider_safe_conversation",
+    "build_context_evidence_projection",
+    "model_proposes_semantic_contract",
+    "validate_current_turn_literal_evidence",
+    "validate_goal_and_focus_revisions",
+    "validate_typed_reference_scope_shape_ttl_and_lineage",
+    "freeze_turn_semantic_contract",
+    "derive_goal_declaration_projection",
+    "discover_exact_capability_surface"
+  ],
+  "current_user_authority": {
+    "source": "latest HumanMessage of the current TurnRequest",
+    "literal_span_rule": "Every evidence_span and domain-neutral *_span must be a contiguous literal substring of the current user message.",
+    "history_rule": "Historical assistant text, tool diagnostics, audit summaries and model paraphrases cannot become current-turn literal evidence.",
+    "history_reference_rule": "History may contribute only scoped opaque result references, typed lineage, prior GoalRecords and explicit user-visible answer evidence."
+  },
+  "frozen_semantic_contract": {
+    "version": "frozen-turn-semantic-contract@1",
+    "authority_value": "sole_formal_turn_semantics",
+    "required_fields": [
+      "semantic_contract_id", "semantic_digest", "turn", "user_text", "summary",
+      "goals", "goal_changes", "blocker_resolutions", "focus_change", "alignment_proof"
+    ],
+    "goal_identity_fields": [
+      "goal_id", "description", "evidence_span", "requested_effect",
+      "expected_result_cardinality", "required", "depends_on"
+    ],
+    "requested_effect_fields": ["domain", "operation", "object_type", "raw_description"],
+    "mutation_after_freeze": false,
+    "failure_rule": "Capability absence, tool rejection, plan failure or business failure may update progress/outcomes but may not rewrite requested_effect or user meaning."
+  },
+  "typed_target_set": {
+    "authority_location": "Each Goal target_candidate/input_candidates inside the frozen TurnSemanticContract and its validated GoalRecord revision.",
+    "allowed_relation_kinds": [
+      "EXPLICIT_ENTITY",
+      "VISIBLE_RESULT_REF",
+      "VISIBLE_RESULT_MEMBER",
+      "LATEST_VISIBLE_SCOPE",
+      "SET",
+      "SUBSET",
+      "UNION",
+      "INTERSECTION",
+      "DIFFERENCE",
+      "FILTER",
+      "SORT",
+      "TAKE_POSITION",
+      "CONTINUATION_OF_GOAL"
+    ],
+    "required_properties": [
+      "typed operation or exact opaque handle",
+      "source-bound evidence",
+      "expected shape/cardinality",
+      "scope-valid member handles",
+      "no implicit capability or business-state claim"
+    ],
+    "ambiguity_rule": "When more than one source-bound interpretation remains, the semantic result is CLARIFY; runtime cannot choose the latest or most similar object.",
+    "same_effect_scope_rule": "Multiple latest-visible references produced by the same verified source_effect_id may form one discourse scope; latest references from distinct source_effect_id values remain distinct and a singular reference is ambiguous.",
+    "correction_rule": "A correction must use explicit goal change, supersede or typed target patch with current revision and current-turn literal evidence.",
+    "requested_effect_change_rule": "Changing requested_effect creates a new Goal and supersedes the old Goal; PATCH_GOAL cannot silently change the business effect."
+  },
+  "context_evidence_projection": {
+    "components": [
+      "provider-safe recent conversation exchanges",
+      "verified tool observations",
+      "execution diagnostics isolated from semantic facts",
+      "customer-visible scoped result references",
+      "non-dispatchable visible referent sets",
+      "active transaction projections",
+      "verified fact summaries",
+      "GoalRecord and GoalBlocker projections",
+      "audit index available only for explicit audit inspection"
+    ],
+    "hard_flags": {
+      "runtime_auto_select_target": false,
+      "runtime_auto_switch_target": false,
+      "referent_sets_dispatchable": false,
+      "audit_metadata_target_selector": false,
+      "tool_failures_are_business_facts": false
+    },
+    "rebuild_rule": "The projection may be rebuilt for later model calls, but once the semantic contract is frozen it cannot mutate or replace the contract.",
+    "availability_rule": "Expired, unavailable, out-of-scope or never-released result references are omitted or rejected; they are not repaired through guessing."
+  },
+  "visible_result_ref": {
+    "meaning": "Evidence that a scoped ledger result crossed the customer-visible release boundary.",
+    "not_meaning": ["focus pointer", "automatic target", "business fact owner", "permission to execute"],
+    "validation": ["tenant", "user", "thread", "active status", "TTL", "shape", "version or etag", "customer-visible provenance"],
+    "member_rule": "An exact member handle may be validated only through membership in a released collection; runtime never chooses the member.",
+    "lineage_rule": "Derived collection lineage may support typed set relations, but cannot select an unrelated topic."
+  },
+  "visible_referent_sets": {
+    "authority": "read_only_discourse_projection",
+    "groups": ["latest visible turn", "bounded contiguous recency prefixes"],
+    "dispatchable": false,
+    "selection_policy": "model_proposes_exact_refs_runtime_validates",
+    "prohibition": "A referent-set identifier cannot be passed directly as a business target."
+  },
+  "goal_and_focus_lifecycle": {
+    "goal_record_authority": "semantic goal lifecycle not business fact",
+    "allowed_goal_change_operations": ["SET_GOAL_LIFECYCLE", "PATCH_GOAL", "SUPERSEDE_GOAL"],
+    "allowed_focus_operations": ["SET_GOAL_FOCUS", "SET_INTERACTION_FOCUS", "CLEAR_FOCUS"],
+    "revision_rule": "Every change binds current revision and next revision.",
+    "focus_rule": "focus_state is a revisioned UI/orchestration projection and never semantic or target authority.",
+    "blocker_rule": "Clarification blockers are Goal-scoped and may coexist; one blocker does not force one global turn disposition."
+  },
+  "separation_boundaries": {
+    "wp02a": "WP-02B cannot create, claim, replay or complete client_request_id/TurnRequestLedger records.",
+    "wp03": "WP-02B declares the requested effect even when unsupported; only CapabilitySurface+MatchProof may prove support or absence.",
+    "wp04": "Planning derives from the frozen contract and cannot reinterpret it.",
+    "wp05": "Semantic targets and GoalRecords are not business facts or transaction states.",
+    "wp06": "Response projection cannot synthesize a new semantic decision."
+  },
+  "legacy_policy": {
+    "allowed": [
+      "legacy goal_type retained only inside compatibility metadata",
+      "legacy checkpoints migrated before canonical context projections",
+      "historical plan/category data read only by explicit migration adapters"
+    ],
+    "forbidden": [
+      "keyword routing",
+      "intent-map authority",
+      "tool-first semantic selection",
+      "per-intent pronoun resolution",
+      "per-tool memory target selection",
+      "latest-object automatic target selection",
+      "free-text history scan used as a business target",
+      "capability failure rewriting requested_effect",
+      "legacy goal_type affecting newly frozen semantic identity"
+    ]
+  },
+  "acceptance_tests": [
+    "current_user_span_is_literal_and_contiguous",
+    "historical_text_cannot_masquerade_as_current_span",
+    "direct_explicit_entity_reference",
+    "single_visible_result_continuation",
+    "multiple_latest_refs_same_source_effect_form_one_scope",
+    "multiple_latest_refs_distinct_source_effects_are_ambiguous",
+    "set_reference_preserves_all_members",
+    "subset_and_difference_use_typed_lineage",
+    "position_reference_uses_canonical_order",
+    "correction_supersedes_or_revision_patches_exact_goal",
+    "interruption_pauses_without_cancelling_unmentioned_goal",
+    "resumption_uses_explicit_continuation_relation",
+    "stale_expired_or_out_of_scope_ref_is_rejected",
+    "referent_set_is_non_dispatchable",
+    "focus_state_cannot_select_a_business_target",
+    "tool_failure_cannot_rewrite_requested_effect",
+    "unsupported_goal_is_preserved_for_matchproof_absence",
+    "multi_goal_split_is_by_business_effect_not_tool_count",
+    "clarification_has_no_execution_surface",
+    "goal_projection_is_derived_only_from_frozen_contract",
+    "legacy_goal_type_is_non_authoritative",
+    "wp02b_cannot_create_turn_request_identity"
+  ],
+  "implementation_scope": {
+    "allowed_paths": [
+      "services/agent-service/src/agent_core/context/**",
+      "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+      "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+      "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py",
+      "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py",
+      "services/agent-service/src/agent_core/lifecycle/goal_blockers.py",
+      "services/agent-service/src/agent_core/lifecycle/clarification_runtime.py",
+      "services/agent-service/src/agent_core/lifecycle/context_runtime.py",
+      "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+      "services/agent-service/tests/context/**",
+      "services/agent-service/tests/runtime/**",
+      "governance/architecture/**",
+      "docs/architecture/**"
+    ],
+    "forbidden_paths": [
+      "services/agent-service/src/agent_core/persistence/turn_request_store.py",
+      "services/business-service/**",
+      "skill-system/controller/**",
+      "skill-system/hooks/**",
+      ".github/workflows/**"
+    ]
+  },
+  "exit_conditions": [
+    "one frozen semantic contract owns current-turn meaning and typed goals",
+    "context evidence is projected before freeze and remains non-selecting",
+    "all target/reference operations are typed, source-bound and runtime-validated",
+    "ambiguous references fail closed to Goal-scoped clarification",
+    "no active keyword, intent, latest-object or per-tool context authority remains",
+    "all acceptance tests plus complete regression pass"
+  ]
+}
