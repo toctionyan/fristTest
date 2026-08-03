@@ -679,6 +679,65 @@
       "timeout_seconds": 300
     },
     {
+      "id": "configured-model-browser-conversation",
+      "name": "configured-model-browser-conversation",
+      "modes": [
+        "integration"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_product_browser_journey.py",
+        "--journey",
+        "strong-context",
+        "--model-mode",
+        "configured"
+      ],
+      "owner": "real-model Chromium conversation acceptance",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "按首个失败 turn 的能力面、实体、意图、公开投影或历史一致性证据修复唯一 Owner；必须重放客户报告的三轮原链路，不得删除轮次、放宽语义 Oracle、改用 API 或确定性模型恢复绿灯。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "product-browser-journey",
+        "strong-context-case-catalog"
+      ],
+      "environment": {},
+      "timeout_seconds": 900
+    },
+    {
+      "id": "configured-model-browser-campaign",
+      "name": "configured-model-browser-campaign",
+      "modes": [
+        "integration"
+      ],
+      "kind": "shell",
+      "argv": [
+        "{python}",
+        "-B",
+        "scripts/verify_product_browser_journey.py",
+        "--journey",
+        "strong-context-campaign",
+        "--model-mode",
+        "configured",
+        "--campaign-seed",
+        "20260715",
+        "--campaign-phase",
+        "repair-retest"
+      ],
+      "owner": "seeded real-model Chromium conversation campaign",
+      "category": "integration",
+      "blocking_level": "required",
+      "repair_playbook": "保存20个隔离网页会话各10轮的公开回复与刷新记录，按首个失败边界聚类并修复共同Owner；不得删轮次、改Oracle、用API或确定性模型替代。修复后另以未见种子执行同一Campaign。",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [
+        "configured-model-browser-conversation"
+      ],
+      "environment": {},
+      "timeout_seconds": 7500
+    },
+    {
       "id": "production-certification-bundle",
       "category": "preproduction",
       "modes": [

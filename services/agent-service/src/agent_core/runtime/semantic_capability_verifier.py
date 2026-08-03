@@ -19,12 +19,9 @@ import os
 import re
 from typing import Any, Protocol
 
-from agent_core.model_calls import invoke_model, structured_verifier_messages
-
 from agent_core.context.visible_result_refs import visible_result_refs_from_ledger
 from agent_core.kernel.capability import ToolCapabilityContract
 from agent_core.kernel.semantic_contract import semantic_goals
-from agent_core.kernel.state_schema_contract import legacy_fallback_allowed
 from agent_core.runtime.profile import resolve_verifier_mode
 
 
@@ -125,12 +122,6 @@ def _workflow_step_context(state: dict[str, Any], effect_id: str) -> dict[str, A
     effect = next((row for row in effects if str(row.get("effect_id") or "") == str(effect_id or "")), {})
     goal_ids = [str(value) for value in list(effect.get("goal_ids") or []) if str(value)]
     formal_goals = semantic_goals(state)
-    if not formal_goals and legacy_fallback_allowed(state):
-        formal_goals = [
-            dict(row)
-            for row in list((state.get("turn_goal_plan") or {}).get("goals") or [])
-            if isinstance(row, dict)
-        ]
     declared_goals = [
         dict(row)
         for row in formal_goals
@@ -242,6 +233,7 @@ class ModelSemanticCapabilityVerifier:
         step_context: dict[str, Any] | None = None,
     ) -> SemanticVerdict:
         from agent_core.config import get_model
+        from agent_core.model_calls import invoke_model, structured_verifier_messages
 
         execution_kind = str(contract.execution_kind or "grounding_read")
         instruction = (

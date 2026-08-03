@@ -5,7 +5,7 @@ from agent_core.lifecycle.state import State
 from agent_core.lifecycle.state_schema import RETIRED_TOP_LEVEL_FIELDS
 
 GROUP_TO_KEYS: dict[str, set[str]] = {
-    "identity": {"current_thread_id", "current_user_id", "current_role", "current_tenant_id"},
+    "identity": {"current_thread_id", "current_user_id", "current_role", "current_tenant_id", "current_subject"},
     "messages": {"messages", "summary"},
     "ledger": {"state_schema_version", "state_migration", "legacy_compatibility_metrics", "transaction_contract_version", "turn_index", "current_user_input", "ledger_schema_version", "artifact_ledger", "ledger_snapshot"},
     "context": {"context_bundle", "context_health", "transaction_context_hint", "transaction_context_blocked"},
@@ -16,7 +16,7 @@ GROUP_TO_KEYS: dict[str, set[str]] = {
     "loop": {"current_turn_plan", "loop_plans", "capability_surface", "execution_permits", "turn_match_proofs", "agent_loop_step", "agent_loop_max_steps", "agent_loop_seen_calls", "answer_protocol_retry", "goal_declaration_retry", "clarification_scope_retry", "history_recall_evidence_binding", "deferred_terminal_calls", "execution_dispositions", "latest_execution_disposition", "model_mode_restriction", "model_call_budget", "model_call_trace"},
     "workflow": {"semantic_proposal", "frozen_semantic_contract", "frozen_plan_definition", "plan_run", "grounded_execution_plan", "pretool_shadow_plan", "pretool_shadow_comparisons", "goal_blockers", "goal_records", "focus_state"},
     "task_board": {"task_board", "current_turn_task_ids"},
-    "transaction": {"action_queue", "action_gateway_result", "active_draft_id", "pending_confirmation_id", "pending_confirmation_version", "response_contract", "commit_authority", "approval_result", "offer_execution_result", "transaction_reconciliation"},
+    "transaction": {"action_queue", "action_gateway_result", "focused_draft_id", "active_draft_id", "pending_confirmation_id", "pending_confirmation_version", "response_contract", "commit_authority", "approval_result", "offer_execution_result", "transaction_reconciliation"},
     "audit": {"conversation_event_log", "audit_snapshot"},
     "tool_runtime": {"tool_trace", "tool_error", "sources", "answer_evidence_handles"},
     "answer": {"phase", "status", "current_final_answer", "current_ask_message"},

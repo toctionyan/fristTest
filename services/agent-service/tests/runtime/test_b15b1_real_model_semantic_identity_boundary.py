@@ -79,7 +79,7 @@ def test_semantic_prototype_rejects_local_model_stub_before_invocation(monkeypat
             "depends_on": [],
         }]},
     }])
-    monkeypatch.setattr(script, "_assert_effect_evidence_coverage", lambda **_kwargs: None)
+    monkeypatch.setattr(script, "_match_oracle", lambda **_kwargs: None)
     monkeypatch.setattr(script, "_validate_with_production_goal_contract", lambda **_kwargs: {
         "goals": [{"goal_id": "goal-1"}],
     })
@@ -142,7 +142,7 @@ def _patch_successful_semantic_runtime(monkeypatch, script, tmp_path: Path, *, i
             "depends_on": [],
         }]},
     }])
-    monkeypatch.setattr(script, "_assert_effect_evidence_coverage", lambda **_kwargs: None)
+    monkeypatch.setattr(script, "_match_oracle", lambda **_kwargs: None)
     monkeypatch.setattr(script, "_validate_with_production_goal_contract", lambda **_kwargs: {
         "goals": [{"goal_id": "goal-1"}],
     })
@@ -150,9 +150,6 @@ def _patch_successful_semantic_runtime(monkeypatch, script, tmp_path: Path, *, i
 
 def test_semantic_prototype_missing_key_is_environment_blocked_before_invocation(monkeypatch) -> None:
     script = _load_script()
-    # This test owns an OpenAI missing-key scenario and must not inherit the
-    # protected Release provider (for example DeepSeek) from the parent job.
-    monkeypatch.setenv("REAL_MODEL_CERTIFICATION_PROVIDER", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)

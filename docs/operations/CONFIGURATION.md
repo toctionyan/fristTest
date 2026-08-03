@@ -47,8 +47,8 @@ OPENAI_API_BASE=你的 OpenAI 兼容接口地址  # 官方 OpenAI 时可留空
 | 变量 | 用途 | 本地默认 |
 |---|---|---|
 | `OPENAI_API_KEY` | OpenAI 兼容 API 密钥 | 必填，无默认值 |
-| `OPENAI_MODEL` | 主对话、规划与语义核验模型名 | `deepseek-v4-flash` |
-| `OPENAI_API_BASE` | OpenAI 兼容 Base URL | `https://api.deepseek.com` |
+| `OPENAI_MODEL` | 主对话、RAG、语义核验共享模型名 | `gpt-4o-mini` |
+| `OPENAI_API_BASE` | OpenAI 兼容 Base URL | 空，使用 SDK 默认值 |
 | `MODEL_TEMPERATURE` | 模型温度，范围 `0`–`2` | `0` |
 | `MODEL_TIMEOUT_SECONDS` | 单次模型请求超时，范围 `1`–`600` | `60` |
 | `MODEL_MAX_RETRIES` | SDK 级模型请求重试，范围 `0`–`10` | `2` |

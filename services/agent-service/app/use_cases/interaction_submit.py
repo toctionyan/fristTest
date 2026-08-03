@@ -62,7 +62,7 @@ class InteractionSubmitUseCase:
                         value=repository_outcome,
                         include_debug=include_debug,
                     )
-                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                     service._reconcile_pending_transaction_attempts(
                         graph,
                         thread_id=request.thread_id,
@@ -71,7 +71,18 @@ class InteractionSubmitUseCase:
                     )
                 stale_reason = service._validate_action_authority(graph, request)
                 if stale_reason:
-                    response = service._confirmation_expired_response(request.thread_id, include_debug=include_debug, reason=stale_reason, interaction_id=request.offer_handle)
+                    response = service._confirmation_expired_response(
+                        request.thread_id,
+                        include_debug=include_debug,
+                        reason=stale_reason,
+                        interaction_id=request.offer_handle,
+                        latest_state=service._checkpoint_values(
+                            graph,
+                            thread_id=request.thread_id,
+                            user_id=request.user_id,
+                            tenant_id=request.tenant_id,
+                        ),
+                    )
                     service.trace_logger.log_event(
                         request.thread_id,
                         request.user_id,
@@ -81,7 +92,7 @@ class InteractionSubmitUseCase:
                     )
                     return response
                 config = service._config_for_request(request.thread_id, request.user_id, request.tenant_id)
-                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                     with model_call_scope(scope="structured_interaction"):
                         result = graph.invoke(
                             service._resume_command({
@@ -167,7 +178,18 @@ class InteractionSubmitUseCase:
                     )
                 stale_reason = service._validate_action_input(graph, request)
                 if stale_reason:
-                    response = service._confirmation_expired_response(request.thread_id, include_debug=include_debug, reason=stale_reason, interaction_id=request.offer_handle)
+                    response = service._confirmation_expired_response(
+                        request.thread_id,
+                        include_debug=include_debug,
+                        reason=stale_reason,
+                        interaction_id=request.offer_handle,
+                        latest_state=service._checkpoint_values(
+                            graph,
+                            thread_id=request.thread_id,
+                            user_id=request.user_id,
+                            tenant_id=request.tenant_id,
+                        ),
+                    )
                     service.trace_logger.log_event(
                         request.thread_id,
                         request.user_id,
@@ -176,7 +198,7 @@ class InteractionSubmitUseCase:
                         latency_ms=timer.ms(),
                     )
                     return response
-                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                     with model_call_scope(scope="structured_interaction"):
                         result = graph.invoke(
                             service._resume_command({

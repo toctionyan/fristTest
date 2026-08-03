@@ -1,0 +1,56 @@
+{
+  "contract": "wp08-certification-batches@1",
+  "batches": [
+    {
+      "id": "protected-environment-preflight",
+      "title": "Protected environment and credential preflight",
+      "timeout_seconds": 180,
+      "required": true,
+      "command": [
+        "{agent_python}",
+        "-B",
+        "scripts/protected_environment_preflight.py",
+        "--workspace-root",
+        "{workspace}",
+        "--output",
+        "{evidence_dir}/protected-environment-preflight.json"
+      ]
+    },
+    {
+      "id": "postgres-pgvector-recovery",
+      "title": "PostgreSQL, pgvector, restart and concurrency certification",
+      "timeout_seconds": 2400,
+      "required": true,
+      "command": [
+        "{agent_python}",
+        "-B",
+        "scripts/verify_production_postgres_bundle.py"
+      ],
+      "production_component": "postgres"
+    },
+    {
+      "id": "real-model-rag",
+      "title": "Real model and semantic certification",
+      "timeout_seconds": 2400,
+      "required": true,
+      "command": [
+        "{agent_python}",
+        "-B",
+        "scripts/verify_production_real_model_bundle.py"
+      ],
+      "production_component": "real_model"
+    },
+    {
+      "id": "browser-full-stack",
+      "title": "Protected browser and full-stack certification",
+      "timeout_seconds": 10800,
+      "required": true,
+      "command": [
+        "{agent_python}",
+        "-B",
+        "scripts/verify_production_browser_bundle.py"
+      ],
+      "production_component": "browser"
+    }
+  ]
+}

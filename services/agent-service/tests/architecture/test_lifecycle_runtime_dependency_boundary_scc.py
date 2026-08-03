@@ -47,7 +47,7 @@ def test_runtime_is_lifecycle_neutral_and_dependency_cycle_debt_is_resolved() ->
             MAX_SAME_CALLS_PER_TURN_DEFAULT as kernel_same_calls,
         )
         from agent_core.kernel.semantic_contract import semantic_goals as kernel_semantic_goals
-        from agent_core.kernel.state_schema_contract import legacy_fallback_allowed as kernel_legacy
+        from agent_core.kernel.state_schema_contract import CURRENT_STATE_SCHEMA_VERSION
         from agent_core.lifecycle.protocol import (
             MAX_AGENT_LOOP_STEPS_DEFAULT as lifecycle_loop_steps,
             MAX_SAME_CALLS_PER_TURN_DEFAULT as lifecycle_same_calls,
@@ -56,12 +56,11 @@ def test_runtime_is_lifecycle_neutral_and_dependency_cycle_debt_is_resolved() ->
             freeze_semantic_contract,
             semantic_goals as lifecycle_semantic_goals,
         )
-        from agent_core.lifecycle.state_schema import legacy_fallback_allowed as lifecycle_legacy
 
         assert lifecycle_loop_steps == kernel_loop_steps == 6
         assert lifecycle_same_calls == kernel_same_calls == 1
         assert lifecycle_semantic_goals is kernel_semantic_goals
-        assert lifecycle_legacy is kernel_legacy
+        assert CURRENT_STATE_SCHEMA_VERSION == 2
 
         contract = freeze_semantic_contract(
             turn=1,
@@ -82,8 +81,10 @@ def test_runtime_is_lifecycle_neutral_and_dependency_cycle_debt_is_resolved() ->
         corrupted = dict(contract)
         corrupted["summary"] = "tampered"
         assert kernel_semantic_goals(corrupted) == []
-        assert kernel_legacy({"state_schema_version": 1}) is True
-        assert kernel_legacy({"state_schema_version": 2}) is False
+        kernel_state_schema = __import__("agent_core.kernel.state_schema_contract", fromlist=["legacy_fallback_allowed"])
+        lifecycle_state_schema = __import__("agent_core.lifecycle.state_schema", fromlist=["legacy_fallback_allowed"])
+        assert not hasattr(kernel_state_schema, "legacy_fallback_allowed")
+        assert not hasattr(lifecycle_state_schema, "legacy_fallback_allowed")
     finally:
         sys.path.pop(0)
 

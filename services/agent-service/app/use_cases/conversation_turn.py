@@ -57,7 +57,7 @@ class ConversationTurnService:
                         answer="该会话来自旧状态版本，缺少可安全迁移的结构化语义证据。请新建会话后继续，系统不会猜测恢复旧任务。",
                         state={"migration_error": {"reason": exc.reason, "details": exc.details}} if include_debug else None,
                     )
-                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                     with model_call_scope(scope="chat_turn") as model_calls:
                         result = graph.invoke(
                             {
@@ -65,6 +65,7 @@ class ConversationTurnService:
                                 "current_user_id": request.user_id,
                                 "current_role": role,
                                 "current_tenant_id": request.tenant_id,
+                                "current_subject": request.subject or request.user_id,
                                 "messages": [service._human_message(request.message)],
                             },
                             config=service._config_for_request(request.thread_id, request.user_id, request.tenant_id),
@@ -202,13 +203,14 @@ class ConversationTurnService:
                         )
                         emit("end", {"message": "legacy checkpoint restart required"})
                         return
-                    with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                    with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                         with model_call_scope(scope="chat_stream") as model_calls:
                             for update in graph.stream({
                                 "current_thread_id": request.thread_id,
                                 "current_user_id": request.user_id,
                                 "current_role": role,
                                 "current_tenant_id": request.tenant_id,
+                                "current_subject": request.subject or request.user_id,
                                 "messages": [service._human_message(request.message)],
                             }, config=config, stream_mode="updates"):
                                 if include_debug:

@@ -18,6 +18,7 @@ from hashlib import sha256
 import json
 import re
 from typing import Any
+from agent_core.ledger import execution_scope_for_state
 from uuid import uuid4
 
 from agent_core.kernel.capability import ToolCapabilityContract
@@ -252,11 +253,7 @@ def _target_cardinality_hint(args: dict[str, Any]) -> str:
 
 
 def _scope(state: dict[str, Any]) -> dict[str, str]:
-    return {
-        "tenant_id": str(state.get("current_tenant_id") or "default"),
-        "user_id": str(state.get("current_user_id") or ""),
-        "thread_id": str(state.get("current_thread_id") or ""),
-    }
+    return execution_scope_for_state(state)
 
 
 def _path_value(value: Any, path: str) -> Any:
@@ -402,6 +399,10 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
     binding = args.get("context_binding") if isinstance(args.get("context_binding"), dict) else {}
     binding_kind = str(binding.get("reference_kind") or "")
     binding_span = str(binding.get("source_span") or "").strip()
+    try:
+        binding_group_size = int(binding.get("group_size") or 0)
+    except (TypeError, ValueError):
+        binding_group_size = 0
     user_text = str(state.get("current_user_input") or "")
     selected_latest_lineage = {
         str(lineage_handle)
@@ -450,9 +451,60 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
         and len(selected_visible_handles) >= 2
         and bool(selected_visible_handles.intersection(latest_handles))
         and selected_visible_handles == required_prefix_handles
+        and (
+            binding_kind != "explicit_group_reference"
+            or binding_group_size == len(selected_visible_handles)
+        )
     )
-    if binding_kind == "explicit_group_reference" and not explicit_group_binding:
-        errors.append("explicit_group_reference_must_select_recent_contiguous_visible_group")
+    if binding_kind == "explicit_group_reference":
+        if binding_group_size < 2:
+            errors.append("explicit_group_reference_group_size_required")
+        elif binding_group_size != len(selected_visible_handles):
+            errors.append("explicit_group_reference_group_size_mismatch")
+        if not explicit_group_binding:
+            errors.append("explicit_group_reference_must_select_recent_contiguous_visible_group")
+
+    selected_latest_handles = selected_visible_handles.intersection(latest_handles)
+    if (
+        len(latest_handles) > 1
+        and mode in {"collection", "artifact"}
+        and len(selected_latest_handles) == 1
+        and binding_kind != "explicit_return"
+    ):
+        # Several independent results crossed the release boundary in the same
+        # latest turn.  A bare singular continuation cannot choose one of them.
+        # The model must either bind a literal label to one exact result/member
+        # or explicitly compose the recent group with a set operation.
+        errors.append("latest_visible_scope_ambiguous_requires_explicit_return_or_group")
+
+    if binding_kind == "explicit_return" and selected_visible_handles:
+        if len(selected_visible_handles) != 1:
+            errors.append("explicit_return_must_select_exactly_one_visible_result")
+        selected_handle = next(iter(selected_visible_handles), "")
+        selected_ref = next(
+            (
+                ref for ref in visible_refs
+                if str(ref.get("result_ref") or "") == selected_handle
+            ),
+            {},
+        )
+        labels = [
+            str(value) for value in list(selected_ref.get("member_labels") or [])
+            if str(value)
+        ]
+        own_label = str(selected_ref.get("label") or "").strip()
+        if own_label:
+            labels.append(own_label)
+        binding_key = _literal_key(binding_span)
+        label_keys = [_literal_key(label) for label in labels]
+        if not binding_span or binding_span not in user_text:
+            errors.append("explicit_return_binding_evidence_not_current_turn")
+        if not binding_key or not any(
+            binding_key in label_key or label_key in binding_key
+            for label_key in label_keys
+            if label_key
+        ):
+            errors.append("explicit_return_binding_not_literal_member_label")
     for check in checks:
         ref = check.get("validated_ref") if isinstance(check.get("validated_ref"), dict) else {}
         handle = str(check.get("result_ref") or "")
@@ -502,6 +554,9 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
             "selected_older_visible_result_refs": older_visible_handles,
             "reference_kind": binding_kind or None,
             "source_span": binding_span or None,
+            "group_size": binding_group_size or None,
+            "latest_visible_result_count": len(latest_handles),
+            "latest_visible_scope_ambiguous": len(latest_handles) > 1,
             "group_source_span": group_source_span if explicit_group_binding else None,
             "explicit_group_binding_complete": explicit_group_binding,
         },

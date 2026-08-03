@@ -35,7 +35,7 @@
 
 可选 Environment variable：
 
-- `PRODUCTION_EMBEDDING_API_BASE`：默认阿里百炼北京地域 `https://dashscope.aliyuncs.com/compatible-mode/v1`；新加坡或业务空间专属 Key 必须覆盖为对应地域地址。
+- `PRODUCTION_EMBEDDING_API_BASE`：默认 `https://api.openai.com/v1`。
 
 不要把真实密钥写入 `.env`、仓库文件、Issue、PR、Workflow 输入或聊天记录。
 
@@ -47,8 +47,8 @@
 
 - `provider`: `deepseek`
 - `model`: `deepseek-v4-flash` 或 `deepseek-v4-pro`
-- `embedding_model`: `text-embedding-v4`
-- `embedding_dimension`: `1024`
+- `embedding_model`: `text-embedding-3-small`
+- `embedding_dimension`: `1536`
 
 不要再使用已被工程拒绝的 `deepseek-chat` 或 `deepseek-reasoner` 兼容别名。
 

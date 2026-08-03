@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/customer-agent-task-ledger.schema.json",
+  "title": "Customer Agent Authoritative Task Ledger",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ledger_id",
+    "project",
+    "frozen_at",
+    "active_stage_id",
+    "policy",
+    "stages",
+    "work_packages",
+    "known_issues"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ledger_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "frozen_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "active_stage_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "required_stage_ids",
+        "required_work_package_ids",
+        "terminal_states_require_evidence",
+        "max_loop_iterations_are_not_success"
+      ]
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6
+    },
+    "work_packages": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9
+    },
+    "known_issues": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false
+}

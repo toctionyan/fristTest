@@ -120,6 +120,37 @@ def test_current_turn_permit_backed_observation_can_feed_next_set_operation() ->
     assert check["validated_ref"]["reference_kind"] == "current_turn_verified_observation"
 
 
+def test_execution_permit_scope_remains_actor_thread_bound_when_subject_differs() -> None:
+    ledger, result = _result(turn=9)
+    state = _state(turn=9, ledger=ledger, trace=_verified_trace(result["handle"]))
+    state["current_subject"] = "u002"
+
+    checked, error = validate_runtime_result_ref(
+        state=state,
+        result_ref=result["handle"],
+        expected_shape="collection",
+    )
+
+    assert error is None
+    assert checked and checked["reference_kind"] == "current_turn_verified_observation"
+
+
+def test_execution_permit_scope_mismatch_is_still_rejected() -> None:
+    ledger, result = _result(turn=9)
+    trace = _verified_trace(result["handle"])
+    trace[0]["execution_permit"]["scope"]["tenant_id"] = "tenant-b"
+    trace[0]["result"]["execution_permit"]["scope"]["tenant_id"] = "tenant-b"
+
+    checked, error = validate_runtime_result_ref(
+        state=_state(turn=9, ledger=ledger, trace=trace),
+        result_ref=result["handle"],
+        expected_shape="collection",
+    )
+
+    assert checked is None
+    assert error == "runtime_result_ref_not_verified_current_turn_observation"
+
+
 def test_current_turn_result_member_can_feed_an_exact_artifact_target() -> None:
     ledger, result = _result(turn=9)
     state = _state(turn=9, ledger=ledger, trace=_verified_trace(result["handle"]))
@@ -325,6 +356,7 @@ def test_explicit_group_reference_can_union_the_two_most_recent_visible_results(
             "context_binding": {
                 "reference_kind": "explicit_group_reference",
                 "source_span": "刚才两个",
+                "group_size": 2,
             },
             "query": {"delivery_status": "运输中"},
             "constraint_bindings": [{
@@ -438,6 +470,7 @@ def test_group_reference_cannot_skip_a_more_recent_visible_result() -> None:
             "context_binding": {
                 "reference_kind": "explicit_group_reference",
                 "source_span": "刚才两个",
+                "group_size": 2,
             },
             "query": {},
         },

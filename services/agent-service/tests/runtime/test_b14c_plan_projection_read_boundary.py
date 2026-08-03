@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from agent_core.lifecycle.clarification_runtime import suspend_for_clarification
+from agent_core.lifecycle.clarification_runtime import goal_blockers_for_clarification
 from agent_core.lifecycle.plan_execution import (
     create_plan_run,
     freeze_plan_definition,
@@ -63,10 +63,31 @@ def _plan() -> dict:
 
 
 def _ephemeral_plan(*, accepted: bool) -> dict:
+    contract = freeze_semantic_contract(
+        turn=8,
+        user_text="查一下订单",
+        summary="查询正式订单目标",
+        goals=[{
+            "goal_id": "goal:formal",
+            "description": "查询正式订单目标",
+            "evidence_span": "查一下订单",
+            "requested_effect": {
+                "domain": "ecommerce",
+                "operation": "query",
+                "object_type": "order",
+                "raw_description": "查询订单",
+            },
+            "required": True,
+            "depends_on": [],
+        }],
+        alignment_proof={"verdict": "exact", "authority": "test"},
+    )
     plan = _plan()
+    plan["formal_semantic_contract_id"] = contract["semantic_contract_id"]
+    plan["formal_semantic_digest"] = contract["semantic_digest"]
     plan["authority"] = "validated_execution_plan_not_semantic_or_business_fact"
     plan["immutable_structure"] = True
-    validation = validate_grounded_execution_plan(plan=plan, semantic_contract=None)
+    validation = validate_grounded_execution_plan(plan=plan, semantic_contract=contract)
     if not accepted:
         validation = {
             **validation,
@@ -124,9 +145,9 @@ def test_final_answer_verifier_uses_plan_authorities_not_forged_projection() -> 
     assert "goal:formal" in verification.get("uncovered_goal_ids", []) or "step:formal" in verification.get("pending_step_ids", [])
 
 
-def test_clarification_suspends_authoritative_goal_not_forged_projection_goal() -> None:
+def test_clarification_blocks_authoritative_goal_not_forged_projection_goal() -> None:
     state = _state_with_forged_projection()
-    checkpoint = suspend_for_clarification(
+    blockers = goal_blockers_for_clarification(
         state=state,
         call={
             "id": "call:clarify",
@@ -146,7 +167,7 @@ def test_clarification_suspends_authoritative_goal_not_forged_projection_goal() 
         },
     )
 
-    assert [row["goal_id"] for row in checkpoint["suspended_goals"]] == ["goal:formal"]
+    assert [row["goal_id"] for row in blockers] == ["goal:formal"]
 
 
 def test_projection_cache_is_bound_to_current_plan_run_and_rederived_when_stale() -> None:

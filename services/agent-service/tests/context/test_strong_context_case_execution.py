@@ -57,7 +57,10 @@ def test_catalog_case_executes_declared_runtime_contract(case: dict) -> None:
         assert error is None
         assert ref and len(ref["member_handles"]) == 2
     elif contract == "active_draft_pointer_is_explicit":
-        assert active_draft_patch("draft:replacement") == {"active_draft_id": "draft:replacement"}
+        assert active_draft_patch("draft:replacement") == {
+            "focused_draft_id": "draft:replacement",
+            "active_draft_id": "draft:replacement",
+        }
     elif contract == "draft_state_remains_non_committing_before_authority":
         draft = offer_entry(
             action_id="create_refund", operation="APPLY_REFUND", target_handle="h:order:1", input_values={}, preview={},

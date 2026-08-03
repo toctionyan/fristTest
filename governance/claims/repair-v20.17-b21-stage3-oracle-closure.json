@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b21-stage3-oracle-closure",
+  "claims": [
+    {
+      "id": "V20-17-B21-STAGE3-ORACLE-001",
+      "statement": "Stage-3 aggregate adversarial bridges call current authoritative tests, all non-environment Stage-3 focused and aggregate cases pass, and dependency-bound residuals remain explicitly assigned to WP-08 rather than being weakened or reported as PASS.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "strong-context-case-catalog",
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14a_state_v2_retired_field_quarantine_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_v20_17_b14c_plan_projection_read_boundary_adversarial_bridge",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_b17e_mutable_postgres_image_is_rejected",
+        "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py::test_b17e_cross_container_image_bundle_is_rejected"
+      ],
+      "owner": "Stage-3 aggregate adversarial oracle",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

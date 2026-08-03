@@ -60,5 +60,24 @@
   "runner": "ubuntu-24.04",
   "runner_architecture": "x86_64",
   "schema_version": 1,
-  "uv_version": "0.11.29"
+  "uv_version": "0.11.29",
+  "wp08_certification": {
+    "contract": "wp08-certification-toolchain@1",
+    "cross_run_resume": true,
+    "resume_action": {
+      "name": "actions/download-artifact",
+      "sha": "37930b1c2abaa49bbe596cd826c3c89aef350131",
+      "version": "v7.0.0"
+    },
+    "run_identity": {
+      "event_name": "workflow_dispatch",
+      "job": "certify",
+      "ref": "refs/heads/main",
+      "require_protected_ref": true,
+      "workflow_file": ".github/workflows/wp08-certification.yml",
+      "workflow_name": "wp08-full-stack-certification"
+    },
+    "same_commit": true,
+    "same_repository": true
+  }
 }

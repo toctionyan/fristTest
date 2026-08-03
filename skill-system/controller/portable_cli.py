@@ -13,6 +13,8 @@ CONTRACT_CLI = CONTROLLER / "change_contract_cli.py"
 QUALITY_BRIDGE = CONTROLLER / "product_quality_bridge.py"
 PROFILE_RUNNER = CONTROLLER / "profile_runner.py"
 REPAIR_LOOP = ROOT / "scripts" / "repair_loop.py"
+REPAIR_GOVERNANCE_CLI = CONTROLLER / "repair_governance_cli.py"
+TASK_LEDGER_CLI = CONTROLLER / "task_ledger_cli.py"
 
 
 def _run(argv: Sequence[str]) -> int:
@@ -129,6 +131,7 @@ def cmd_product_init(args: argparse.Namespace) -> int:
         ("--decision-record", args.decision_record),
         ("--architecture-policy-delta", args.architecture_policy_delta),
         ("--baseline-policy-id", args.baseline_policy_id),
+        ("--repair-governance", args.repair_governance),
     ):
         if value:
             argv.extend([flag, value])
@@ -210,6 +213,13 @@ FORWARD_ALIASES = {
     "product-baseline": (QUALITY_BRIDGE, "baseline"),
     "product-verify": (QUALITY_BRIDGE, "verify"),
     "status": (QUALITY_BRIDGE, "status"),
+    "repair-permit": (REPAIR_GOVERNANCE_CLI, "issue-permit"),
+    "repair-governance-validate": (REPAIR_GOVERNANCE_CLI, "validate"),
+    "repair-diff-review": (REPAIR_GOVERNANCE_CLI, "diff-review"),
+    "repair-closure-record": (REPAIR_GOVERNANCE_CLI, "closure-record"),
+    "repair-governance-status": (REPAIR_GOVERNANCE_CLI, "status"),
+    "task-ledger-validate": (TASK_LEDGER_CLI, "validate"),
+    "task-ledger-status": (TASK_LEDGER_CLI, "status"),
 }
 
 
@@ -256,6 +266,7 @@ def main() -> int:
     product_init.add_argument("--variance", action="append", default=[])
     product_init.add_argument("--architecture-policy-delta")
     product_init.add_argument("--baseline-policy-id")
+    product_init.add_argument("--repair-governance")
     product_init.add_argument("--approve", action="store_true")
     product_init.add_argument("--force", action="store_true")
     product_init.set_defaults(func=cmd_product_init)

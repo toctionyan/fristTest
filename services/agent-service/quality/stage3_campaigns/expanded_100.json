@@ -1,0 +1,3407 @@
+{
+  "campaign_version": "stage3-semantic-context-campaign@1",
+  "name": "expanded_100",
+  "locked": true,
+  "case_count": 100,
+  "cases": [
+    {
+      "case_id": "expanded_100:001",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:001",
+        "requested_effect": {
+          "domain": "transaction",
+          "operation": "query_status",
+          "object_type": "transaction",
+          "raw_description": "locked exact expanded_100:001"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "query_transaction_lifecycle"
+        ],
+        "support_tools": [
+          "list_active_offers"
+        ],
+        "candidate_tools": [
+          "list_active_offers",
+          "query_transaction_lifecycle"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:002",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:002",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "list",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:002"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_orders"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_orders"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:003",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:003",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "query_details",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:003"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "get_order_details"
+        ],
+        "support_tools": [
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "list_orders",
+          "get_order_details"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:004",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:004",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "query_logistics",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:004"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "get_order_logistics"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "get_order_logistics"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:005",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:005",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "cancel",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:005"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_cancel_order"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "prepare_cancel_order"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:006",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:006",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "assess_eligibility",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:006"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "evaluate_refund_eligibility"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "evaluate_refund_eligibility"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:007",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:007",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "create",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:007"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_refund",
+          "prepare_refund_from_eligibility"
+        ],
+        "support_tools": [
+          "evaluate_refund_eligibility",
+          "get_order_details",
+          "list_active_eligibilities",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "evaluate_refund_eligibility",
+          "get_order_details",
+          "list_active_eligibilities",
+          "list_orders",
+          "prepare_refund",
+          "prepare_refund_from_eligibility"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:008",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:008",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "query_status",
+          "object_type": "refund",
+          "raw_description": "locked exact expanded_100:008"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_refunds"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_refunds"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:009",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:009",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:009"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_refund_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_refund_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:010",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:010",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "dismiss_eligibility",
+          "object_type": "refund_eligibility",
+          "raw_description": "locked exact expanded_100:010"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "dismiss_eligibility"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "dismiss_eligibility"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:011",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:011",
+        "requested_effect": {
+          "domain": "invoice",
+          "operation": "create",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:011"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_invoice"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "prepare_invoice"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:012",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:012",
+        "requested_effect": {
+          "domain": "invoice",
+          "operation": "query_status",
+          "object_type": "invoice",
+          "raw_description": "locked exact expanded_100:012"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_invoices"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_invoices"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:013",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:013",
+        "requested_effect": {
+          "domain": "invoice",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:013"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_invoice_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_invoice_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:014",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:014",
+        "requested_effect": {
+          "domain": "after_sales",
+          "operation": "create",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:014"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_after_sales_request"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "prepare_after_sales_request"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:015",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:015",
+        "requested_effect": {
+          "domain": "after_sales",
+          "operation": "query_status",
+          "object_type": "after_sales_request",
+          "raw_description": "locked exact expanded_100:015"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_after_sales_requests"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_after_sales_requests"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:016",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:016",
+        "requested_effect": {
+          "domain": "after_sales",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:016"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_after_sales_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_after_sales_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:017",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:017",
+        "requested_effect": {
+          "domain": "warranty",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:017"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_warranty_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_warranty_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:018",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:018",
+        "requested_effect": {
+          "domain": "transaction",
+          "operation": "list_drafts",
+          "object_type": "transaction_draft",
+          "raw_description": "locked exact expanded_100:018"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_active_offers"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_active_offers"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:019",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:019",
+        "requested_effect": {
+          "domain": "transaction",
+          "operation": "cancel_draft",
+          "object_type": "transaction_draft",
+          "raw_description": "locked exact expanded_100:019"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "dismiss_offer"
+        ],
+        "support_tools": [
+          "list_active_offers"
+        ],
+        "candidate_tools": [
+          "list_active_offers",
+          "dismiss_offer"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:020",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:020",
+        "requested_effect": {
+          "domain": "transaction",
+          "operation": "query_status",
+          "object_type": "transaction",
+          "raw_description": "locked exact expanded_100:020"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "query_transaction_lifecycle"
+        ],
+        "support_tools": [
+          "list_active_offers"
+        ],
+        "candidate_tools": [
+          "list_active_offers",
+          "query_transaction_lifecycle"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:021",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:021",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "list",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:021"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_orders"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_orders"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:022",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:022",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "query_details",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:022"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "get_order_details"
+        ],
+        "support_tools": [
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "list_orders",
+          "get_order_details"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:023",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:023",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "query_logistics",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:023"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "get_order_logistics"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "get_order_logistics"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:024",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:024",
+        "requested_effect": {
+          "domain": "order",
+          "operation": "cancel",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:024"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_cancel_order"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "prepare_cancel_order"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:025",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:025",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "assess_eligibility",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:025"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "evaluate_refund_eligibility"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "evaluate_refund_eligibility"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:026",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:026",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "create",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:026"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_refund",
+          "prepare_refund_from_eligibility"
+        ],
+        "support_tools": [
+          "evaluate_refund_eligibility",
+          "get_order_details",
+          "list_active_eligibilities",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "evaluate_refund_eligibility",
+          "get_order_details",
+          "list_active_eligibilities",
+          "list_orders",
+          "prepare_refund",
+          "prepare_refund_from_eligibility"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:027",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:027",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "query_status",
+          "object_type": "refund",
+          "raw_description": "locked exact expanded_100:027"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_refunds"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_refunds"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:028",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:028",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:028"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_refund_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_refund_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:029",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:029",
+        "requested_effect": {
+          "domain": "refund",
+          "operation": "dismiss_eligibility",
+          "object_type": "refund_eligibility",
+          "raw_description": "locked exact expanded_100:029"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "dismiss_eligibility"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "dismiss_eligibility"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:030",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:030",
+        "requested_effect": {
+          "domain": "invoice",
+          "operation": "create",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:030"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_invoice"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "prepare_invoice"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:031",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:031",
+        "requested_effect": {
+          "domain": "invoice",
+          "operation": "query_status",
+          "object_type": "invoice",
+          "raw_description": "locked exact expanded_100:031"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_invoices"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_invoices"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:032",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:032",
+        "requested_effect": {
+          "domain": "invoice",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:032"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_invoice_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_invoice_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:033",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:033",
+        "requested_effect": {
+          "domain": "after_sales",
+          "operation": "create",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:033"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "prepare_after_sales_request"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "prepare_after_sales_request"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:034",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:034",
+        "requested_effect": {
+          "domain": "after_sales",
+          "operation": "query_status",
+          "object_type": "after_sales_request",
+          "raw_description": "locked exact expanded_100:034"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "list_after_sales_requests"
+        ],
+        "support_tools": [],
+        "candidate_tools": [
+          "list_after_sales_requests"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:035",
+      "kind": "exact_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:035",
+        "requested_effect": {
+          "domain": "after_sales",
+          "operation": "consult_policy",
+          "object_type": "order",
+          "raw_description": "locked exact expanded_100:035"
+        }
+      },
+      "expected": {
+        "status": "exact_supported",
+        "completion_tools": [
+          "consult_after_sales_policy"
+        ],
+        "support_tools": [
+          "get_order_details",
+          "list_orders"
+        ],
+        "candidate_tools": [
+          "get_order_details",
+          "list_orders",
+          "consult_after_sales_policy"
+        ],
+        "unsupported": false,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:036",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:036",
+        "requested_effect": {
+          "domain": "courier",
+          "operation": "unregistered_operation_72",
+          "object_type": "driver_phone",
+          "raw_description": "locked absent expanded_100:036"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:037",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:037",
+        "requested_effect": {
+          "domain": "payment",
+          "operation": "unregistered_operation_73",
+          "object_type": "bank_transfer",
+          "raw_description": "locked absent expanded_100:037"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:038",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:038",
+        "requested_effect": {
+          "domain": "identity",
+          "operation": "unregistered_operation_74",
+          "object_type": "identity_record",
+          "raw_description": "locked absent expanded_100:038"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:039",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:039",
+        "requested_effect": {
+          "domain": "warehouse",
+          "operation": "unregistered_operation_75",
+          "object_type": "stock_bin",
+          "raw_description": "locked absent expanded_100:039"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:040",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:040",
+        "requested_effect": {
+          "domain": "loyalty",
+          "operation": "unregistered_operation_76",
+          "object_type": "points",
+          "raw_description": "locked absent expanded_100:040"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:041",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:041",
+        "requested_effect": {
+          "domain": "subscription",
+          "operation": "unregistered_operation_77",
+          "object_type": "membership",
+          "raw_description": "locked absent expanded_100:041"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:042",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:042",
+        "requested_effect": {
+          "domain": "courier",
+          "operation": "unregistered_operation_78",
+          "object_type": "driver_phone",
+          "raw_description": "locked absent expanded_100:042"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:043",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:043",
+        "requested_effect": {
+          "domain": "payment",
+          "operation": "unregistered_operation_79",
+          "object_type": "bank_transfer",
+          "raw_description": "locked absent expanded_100:043"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:044",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:044",
+        "requested_effect": {
+          "domain": "identity",
+          "operation": "unregistered_operation_80",
+          "object_type": "identity_record",
+          "raw_description": "locked absent expanded_100:044"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:045",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:045",
+        "requested_effect": {
+          "domain": "warehouse",
+          "operation": "unregistered_operation_81",
+          "object_type": "stock_bin",
+          "raw_description": "locked absent expanded_100:045"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:046",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:046",
+        "requested_effect": {
+          "domain": "loyalty",
+          "operation": "unregistered_operation_82",
+          "object_type": "points",
+          "raw_description": "locked absent expanded_100:046"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:047",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:047",
+        "requested_effect": {
+          "domain": "subscription",
+          "operation": "unregistered_operation_83",
+          "object_type": "membership",
+          "raw_description": "locked absent expanded_100:047"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:048",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:048",
+        "requested_effect": {
+          "domain": "courier",
+          "operation": "unregistered_operation_84",
+          "object_type": "driver_phone",
+          "raw_description": "locked absent expanded_100:048"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:049",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:049",
+        "requested_effect": {
+          "domain": "payment",
+          "operation": "unregistered_operation_85",
+          "object_type": "bank_transfer",
+          "raw_description": "locked absent expanded_100:049"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:050",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:050",
+        "requested_effect": {
+          "domain": "identity",
+          "operation": "unregistered_operation_86",
+          "object_type": "identity_record",
+          "raw_description": "locked absent expanded_100:050"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:051",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:051",
+        "requested_effect": {
+          "domain": "warehouse",
+          "operation": "unregistered_operation_87",
+          "object_type": "stock_bin",
+          "raw_description": "locked absent expanded_100:051"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:052",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:052",
+        "requested_effect": {
+          "domain": "loyalty",
+          "operation": "unregistered_operation_88",
+          "object_type": "points",
+          "raw_description": "locked absent expanded_100:052"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:053",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:053",
+        "requested_effect": {
+          "domain": "subscription",
+          "operation": "unregistered_operation_89",
+          "object_type": "membership",
+          "raw_description": "locked absent expanded_100:053"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:054",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:054",
+        "requested_effect": {
+          "domain": "courier",
+          "operation": "unregistered_operation_90",
+          "object_type": "driver_phone",
+          "raw_description": "locked absent expanded_100:054"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:055",
+      "kind": "absent_effect",
+      "goal": {
+        "goal_id": "goal:expanded_100:055",
+        "requested_effect": {
+          "domain": "payment",
+          "operation": "unregistered_operation_91",
+          "object_type": "bank_transfer",
+          "raw_description": "locked absent expanded_100:055"
+        }
+      },
+      "expected": {
+        "status": "absent_proven",
+        "completion_tools": [],
+        "support_tools": [],
+        "candidate_tools": [
+          "report_unsupported_request"
+        ],
+        "unsupported": true,
+        "similarity_used": false
+      }
+    },
+    {
+      "case_id": "expanded_100:056",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:056:exact",
+          "requested_effect": {
+            "domain": "transaction",
+            "operation": "list_drafts",
+            "object_type": "transaction_draft",
+            "raw_description": "locked exact expanded_100:056:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:056:absent",
+          "requested_effect": {
+            "domain": "identity",
+            "operation": "unregistered_operation_92",
+            "object_type": "identity_record",
+            "raw_description": "locked absent expanded_100:056:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "list_active_offers"
+          ],
+          "support_tools": [],
+          "candidate_tools": [
+            "list_active_offers"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:057",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:057:exact",
+          "requested_effect": {
+            "domain": "transaction",
+            "operation": "cancel_draft",
+            "object_type": "transaction_draft",
+            "raw_description": "locked exact expanded_100:057:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:057:absent",
+          "requested_effect": {
+            "domain": "warehouse",
+            "operation": "unregistered_operation_93",
+            "object_type": "stock_bin",
+            "raw_description": "locked absent expanded_100:057:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "dismiss_offer"
+          ],
+          "support_tools": [
+            "list_active_offers"
+          ],
+          "candidate_tools": [
+            "list_active_offers",
+            "dismiss_offer"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:058",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:058:exact",
+          "requested_effect": {
+            "domain": "transaction",
+            "operation": "query_status",
+            "object_type": "transaction",
+            "raw_description": "locked exact expanded_100:058:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:058:absent",
+          "requested_effect": {
+            "domain": "loyalty",
+            "operation": "unregistered_operation_94",
+            "object_type": "points",
+            "raw_description": "locked absent expanded_100:058:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "query_transaction_lifecycle"
+          ],
+          "support_tools": [
+            "list_active_offers"
+          ],
+          "candidate_tools": [
+            "list_active_offers",
+            "query_transaction_lifecycle"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:059",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:059:exact",
+          "requested_effect": {
+            "domain": "order",
+            "operation": "list",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:059:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:059:absent",
+          "requested_effect": {
+            "domain": "subscription",
+            "operation": "unregistered_operation_95",
+            "object_type": "membership",
+            "raw_description": "locked absent expanded_100:059:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "list_orders"
+          ],
+          "support_tools": [],
+          "candidate_tools": [
+            "list_orders"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:060",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:060:exact",
+          "requested_effect": {
+            "domain": "order",
+            "operation": "query_details",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:060:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:060:absent",
+          "requested_effect": {
+            "domain": "courier",
+            "operation": "unregistered_operation_96",
+            "object_type": "driver_phone",
+            "raw_description": "locked absent expanded_100:060:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "get_order_details"
+          ],
+          "support_tools": [
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "list_orders",
+            "get_order_details"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:061",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:061:exact",
+          "requested_effect": {
+            "domain": "order",
+            "operation": "query_logistics",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:061:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:061:absent",
+          "requested_effect": {
+            "domain": "payment",
+            "operation": "unregistered_operation_97",
+            "object_type": "bank_transfer",
+            "raw_description": "locked absent expanded_100:061:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "get_order_logistics"
+          ],
+          "support_tools": [
+            "get_order_details",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "get_order_details",
+            "list_orders",
+            "get_order_logistics"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:062",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:062:exact",
+          "requested_effect": {
+            "domain": "order",
+            "operation": "cancel",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:062:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:062:absent",
+          "requested_effect": {
+            "domain": "identity",
+            "operation": "unregistered_operation_98",
+            "object_type": "identity_record",
+            "raw_description": "locked absent expanded_100:062:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "prepare_cancel_order"
+          ],
+          "support_tools": [
+            "get_order_details",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "get_order_details",
+            "list_orders",
+            "prepare_cancel_order"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:063",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:063:exact",
+          "requested_effect": {
+            "domain": "refund",
+            "operation": "assess_eligibility",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:063:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:063:absent",
+          "requested_effect": {
+            "domain": "warehouse",
+            "operation": "unregistered_operation_99",
+            "object_type": "stock_bin",
+            "raw_description": "locked absent expanded_100:063:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "evaluate_refund_eligibility"
+          ],
+          "support_tools": [
+            "get_order_details",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "get_order_details",
+            "list_orders",
+            "evaluate_refund_eligibility"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:064",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:064:exact",
+          "requested_effect": {
+            "domain": "refund",
+            "operation": "create",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:064:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:064:absent",
+          "requested_effect": {
+            "domain": "loyalty",
+            "operation": "unregistered_operation_100",
+            "object_type": "points",
+            "raw_description": "locked absent expanded_100:064:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "prepare_refund",
+            "prepare_refund_from_eligibility"
+          ],
+          "support_tools": [
+            "evaluate_refund_eligibility",
+            "get_order_details",
+            "list_active_eligibilities",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "evaluate_refund_eligibility",
+            "get_order_details",
+            "list_active_eligibilities",
+            "list_orders",
+            "prepare_refund",
+            "prepare_refund_from_eligibility"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:065",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:065:exact",
+          "requested_effect": {
+            "domain": "refund",
+            "operation": "query_status",
+            "object_type": "refund",
+            "raw_description": "locked exact expanded_100:065:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:065:absent",
+          "requested_effect": {
+            "domain": "subscription",
+            "operation": "unregistered_operation_101",
+            "object_type": "membership",
+            "raw_description": "locked absent expanded_100:065:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "list_refunds"
+          ],
+          "support_tools": [],
+          "candidate_tools": [
+            "list_refunds"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:066",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:066:exact",
+          "requested_effect": {
+            "domain": "refund",
+            "operation": "consult_policy",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:066:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:066:absent",
+          "requested_effect": {
+            "domain": "courier",
+            "operation": "unregistered_operation_102",
+            "object_type": "driver_phone",
+            "raw_description": "locked absent expanded_100:066:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "consult_refund_policy"
+          ],
+          "support_tools": [
+            "get_order_details",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "get_order_details",
+            "list_orders",
+            "consult_refund_policy"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:067",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:067:exact",
+          "requested_effect": {
+            "domain": "refund",
+            "operation": "dismiss_eligibility",
+            "object_type": "refund_eligibility",
+            "raw_description": "locked exact expanded_100:067:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:067:absent",
+          "requested_effect": {
+            "domain": "payment",
+            "operation": "unregistered_operation_103",
+            "object_type": "bank_transfer",
+            "raw_description": "locked absent expanded_100:067:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "dismiss_eligibility"
+          ],
+          "support_tools": [],
+          "candidate_tools": [
+            "dismiss_eligibility"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:068",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:068:exact",
+          "requested_effect": {
+            "domain": "invoice",
+            "operation": "create",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:068:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:068:absent",
+          "requested_effect": {
+            "domain": "identity",
+            "operation": "unregistered_operation_104",
+            "object_type": "identity_record",
+            "raw_description": "locked absent expanded_100:068:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "prepare_invoice"
+          ],
+          "support_tools": [
+            "get_order_details",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "get_order_details",
+            "list_orders",
+            "prepare_invoice"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:069",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:069:exact",
+          "requested_effect": {
+            "domain": "invoice",
+            "operation": "query_status",
+            "object_type": "invoice",
+            "raw_description": "locked exact expanded_100:069:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:069:absent",
+          "requested_effect": {
+            "domain": "warehouse",
+            "operation": "unregistered_operation_105",
+            "object_type": "stock_bin",
+            "raw_description": "locked absent expanded_100:069:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "list_invoices"
+          ],
+          "support_tools": [],
+          "candidate_tools": [
+            "list_invoices"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:070",
+      "kind": "mixed_effects",
+      "goals": [
+        {
+          "goal_id": "goal:expanded_100:070:exact",
+          "requested_effect": {
+            "domain": "invoice",
+            "operation": "consult_policy",
+            "object_type": "order",
+            "raw_description": "locked exact expanded_100:070:exact"
+          }
+        },
+        {
+          "goal_id": "goal:expanded_100:070:absent",
+          "requested_effect": {
+            "domain": "loyalty",
+            "operation": "unregistered_operation_106",
+            "object_type": "points",
+            "raw_description": "locked absent expanded_100:070:absent"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "exact_supported",
+          "completion_tools": [
+            "consult_invoice_policy"
+          ],
+          "support_tools": [
+            "get_order_details",
+            "list_orders"
+          ],
+          "candidate_tools": [
+            "get_order_details",
+            "list_orders",
+            "consult_invoice_policy"
+          ],
+          "unsupported": false,
+          "similarity_used": false
+        },
+        {
+          "status": "absent_proven",
+          "completion_tools": [],
+          "support_tools": [],
+          "candidate_tools": [
+            "report_unsupported_request"
+          ],
+          "unsupported": true,
+          "similarity_used": false
+        }
+      ]
+    },
+    {
+      "case_id": "expanded_100:071",
+      "kind": "context_projection",
+      "mode": "unique",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false
+      }
+    },
+    {
+      "case_id": "expanded_100:072",
+      "kind": "context_projection",
+      "mode": "unique",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false
+      }
+    },
+    {
+      "case_id": "expanded_100:073",
+      "kind": "context_projection",
+      "mode": "unique",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false
+      }
+    },
+    {
+      "case_id": "expanded_100:074",
+      "kind": "context_projection",
+      "mode": "unique",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false
+      }
+    },
+    {
+      "case_id": "expanded_100:075",
+      "kind": "context_projection",
+      "mode": "unique",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false
+      }
+    },
+    {
+      "case_id": "expanded_100:076",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2",
+            "artifact:1:3"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2",
+            "对象1-3"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 3,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:077",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2",
+            "artifact:1:3",
+            "artifact:1:4"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2",
+            "对象1-3",
+            "对象1-4"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 4,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:078",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 2,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:079",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2",
+            "artifact:1:3"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2",
+            "对象1-3"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 3,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:080",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2",
+            "artifact:1:3",
+            "artifact:1:4"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2",
+            "对象1-3",
+            "对象1-4"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 4,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:081",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 2,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:082",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2",
+            "artifact:1:3"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2",
+            "对象1-3"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 3,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:083",
+      "kind": "context_projection",
+      "mode": "collection_members",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1",
+            "artifact:1:2",
+            "artifact:1:3",
+            "artifact:1:4"
+          ],
+          "member_labels": [
+            "对象1-1",
+            "对象1-2",
+            "对象1-3",
+            "对象1-4"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 4,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:084",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        }
+      ],
+      "expected": {
+        "latest_result_count": 2,
+        "latest_member_count": 2,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:085",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 3
+        }
+      ],
+      "expected": {
+        "latest_result_count": 3,
+        "latest_member_count": 3,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:086",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 3
+        },
+        {
+          "result_ref": "result:4",
+          "member_handles": [
+            "artifact:4:1"
+          ],
+          "member_labels": [
+            "对象4-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 4
+        }
+      ],
+      "expected": {
+        "latest_result_count": 4,
+        "latest_member_count": 4,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:087",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        }
+      ],
+      "expected": {
+        "latest_result_count": 2,
+        "latest_member_count": 2,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:088",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 3
+        }
+      ],
+      "expected": {
+        "latest_result_count": 3,
+        "latest_member_count": 3,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:089",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 3
+        },
+        {
+          "result_ref": "result:4",
+          "member_handles": [
+            "artifact:4:1"
+          ],
+          "member_labels": [
+            "对象4-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 4
+        }
+      ],
+      "expected": {
+        "latest_result_count": 4,
+        "latest_member_count": 4,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:090",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        }
+      ],
+      "expected": {
+        "latest_result_count": 2,
+        "latest_member_count": 2,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:091",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 3
+        }
+      ],
+      "expected": {
+        "latest_result_count": 3,
+        "latest_member_count": 3,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:092",
+      "kind": "context_projection",
+      "mode": "latest_multi",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 3
+        },
+        {
+          "result_ref": "result:4",
+          "member_handles": [
+            "artifact:4:1"
+          ],
+          "member_labels": [
+            "对象4-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 4
+        }
+      ],
+      "expected": {
+        "latest_result_count": 4,
+        "latest_member_count": 4,
+        "singular_ambiguous": true
+      }
+    },
+    {
+      "case_id": "expanded_100:093",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:094",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 18,
+          "discourse_recency_rank": 3
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:095",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 18,
+          "discourse_recency_rank": 3
+        },
+        {
+          "result_ref": "result:4",
+          "member_handles": [
+            "artifact:4:1"
+          ],
+          "member_labels": [
+            "对象4-1"
+          ],
+          "source_turn": 17,
+          "discourse_recency_rank": 4
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            2,
+            3,
+            4
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:096",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:097",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 18,
+          "discourse_recency_rank": 3
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:098",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 18,
+          "discourse_recency_rank": 3
+        },
+        {
+          "result_ref": "result:4",
+          "member_handles": [
+            "artifact:4:1"
+          ],
+          "member_labels": [
+            "对象4-1"
+          ],
+          "source_turn": 17,
+          "discourse_recency_rank": 4
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            1,
+            2,
+            3,
+            4
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:099",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    },
+    {
+      "case_id": "expanded_100:100",
+      "kind": "context_projection",
+      "mode": "contiguous",
+      "refs": [
+        {
+          "result_ref": "result:1",
+          "member_handles": [
+            "artifact:1:1"
+          ],
+          "member_labels": [
+            "对象1-1"
+          ],
+          "source_turn": 20,
+          "discourse_recency_rank": 1
+        },
+        {
+          "result_ref": "result:2",
+          "member_handles": [
+            "artifact:2:1"
+          ],
+          "member_labels": [
+            "对象2-1"
+          ],
+          "source_turn": 19,
+          "discourse_recency_rank": 2
+        },
+        {
+          "result_ref": "result:3",
+          "member_handles": [
+            "artifact:3:1"
+          ],
+          "member_labels": [
+            "对象3-1"
+          ],
+          "source_turn": 18,
+          "discourse_recency_rank": 3
+        }
+      ],
+      "expected": {
+        "latest_result_count": 1,
+        "latest_member_count": 1,
+        "singular_ambiguous": false,
+        "group_ranks": [
+          [
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            3
+          ]
+        ]
+      }
+    }
+  ]
+}

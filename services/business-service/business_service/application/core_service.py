@@ -206,7 +206,7 @@ class ServiceCore:
         """
         try:
             command = normalize_operation_command(payload.model_dump())
-            verify_actor_scope(command, user_id=actor.user_id, tenant_id=actor.tenant_id)
+            verify_actor_scope(command, user_id=actor.user_id, tenant_id=actor.tenant_id, role=actor.role)
         except OperationCommandError as exc:
             raise BusinessDomainError(400, str(exc), code="INVALID_OPERATION_COMMAND") from exc
 

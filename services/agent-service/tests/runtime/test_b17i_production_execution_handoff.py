@@ -36,22 +36,15 @@ def _valid_env(**overrides: str) -> dict[str, str]:
         "PRODUCTION_RELEASE_EXPECTED_REF": "refs/heads/main",
         "RELEASE_INPUT_PROVIDER": "deepseek",
         "RELEASE_INPUT_MODEL": "deepseek-v4-flash",
-        "RELEASE_INPUT_EMBEDDING_MODEL": "text-embedding-v4",
-        "RELEASE_INPUT_EMBEDDING_DIMENSION": "1024",
+        "RELEASE_INPUT_EMBEDDING_MODEL": "text-embedding-3-small",
+        "RELEASE_INPUT_EMBEDDING_DIMENSION": "1536",
     }
     payload.update(overrides)
     return payload
 
 
 def _run(output: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    merged = {
-        key: value
-        for key, value in os.environ.items()
-        if key != "CI"
-        and not key.startswith("GITHUB_")
-        and not key.startswith("PRODUCTION_RELEASE_")
-        and not key.startswith("RELEASE_INPUT_")
-    }
+    merged = dict(os.environ)
     merged.update(env)
     return subprocess.run(
         [sys.executable, "-B", str(SCRIPT), "--output", str(output)],

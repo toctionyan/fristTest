@@ -7,6 +7,7 @@ from .ledger import (
     authority_entry,
     create_handle,
     eligibility_entry,
+    execution_scope_for_state,
     find_handle,
     ledger_cards,
     normalize_ledger,
@@ -19,6 +20,6 @@ from .ledger import (
 
 __all__ = [
     "LEDGER_SCHEMA_VERSION", "active_entries", "append_entries", "artifact_entry", "authority_entry",
-    "create_handle", "eligibility_entry", "find_handle", "ledger_cards", "normalize_ledger",
+    "create_handle", "eligibility_entry", "execution_scope_for_state", "find_handle", "ledger_cards", "normalize_ledger",
     "offer_entry", "receipt_entry", "result_entry", "scope_for_state", "view_entry",
 ]

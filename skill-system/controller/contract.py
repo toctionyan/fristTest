@@ -22,10 +22,14 @@ SKILL_ONLY_ALLOWED = (
     ".claude/**",
     ".codex/**",
     ".github/workflows/quality.yml",
+    ".github/workflows/integration-diagnostic.yml",
     "AGENTS.md",
     "CLAUDE.md",
     "README.md",
     "CHANGELOG.md",
+    "PHASE_CANDIDATE_NOTICE.md",
+    "PHASE_CANDIDATE_MANIFEST.json",
+    "B18_STAGE_SUMMARY.json",
     "Makefile",
     "skillctl.py",
     "release/**",
@@ -152,6 +156,16 @@ def validate_contract_payload(payload: dict[str, Any]) -> list[str]:
             errors.append("certification_missing_profiles:" + ",".join(sorted(missing_profiles)))
     else:
         errors.append(f"invalid_profile:{profile}")
+
+    repair_governance = payload.get("repair_governance")
+    if repair_governance is not None and (not isinstance(repair_governance, str) or not repair_governance.strip()):
+        errors.append("repair_governance_must_be_relative_path")
+    if target_kind in TRANSITION_TARGETS and payload.get("status") in {"implementing", "review", "verified", "closed"}:
+        if not isinstance(repair_governance, str) or not repair_governance.strip():
+            errors.append("transition_missing_repair_governance")
+    consumed_at = payload.get("repair_governance_consumed_at")
+    if consumed_at is not None and (not isinstance(consumed_at, str) or not consumed_at.strip()):
+        errors.append("repair_governance_consumed_at_must_be_string")
 
     delta = str(payload.get("architecture_policy_delta") or "").strip()
     if delta:

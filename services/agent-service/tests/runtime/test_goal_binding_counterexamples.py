@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.support.test_semantic_state import install_test_semantic_contract, requested_effect_for_tool
 import json
 
 from agent_core.composition import get_runtime_registry
@@ -42,7 +43,7 @@ def _success() -> dict:
 def test_one_same_named_call_cannot_complete_two_different_target_goals() -> None:
     text = "查耳机物流，也查键盘物流"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "turn": 1,
         "goals": [
             {
@@ -50,6 +51,7 @@ def test_one_same_named_call_cannot_complete_two_different_target_goals() -> Non
                 "description": "查耳机物流",
                 "evidence_span": "查耳机物流",
                 "goal_type": "query",
+                "requested_effect": requested_effect_for_tool("get_order_logistics"),
                 "required": True,
                 "depends_on": [],
                 "expected_tools": ["get_order_logistics"],
@@ -59,12 +61,13 @@ def test_one_same_named_call_cannot_complete_two_different_target_goals() -> Non
                 "description": "查键盘物流",
                 "evidence_span": "查键盘物流",
                 "goal_type": "query",
+                "requested_effect": requested_effect_for_tool("get_order_logistics"),
                 "required": True,
                 "depends_on": [],
                 "expected_tools": ["get_order_logistics"],
             },
         ],
-    }
+    })
     plan = _build_loop_plan(
         state,
         text,
@@ -97,7 +100,7 @@ def test_one_same_named_call_cannot_complete_two_different_target_goals() -> Non
 def test_external_call_without_explicit_goal_binding_is_orphan() -> None:
     text = "查我的订单"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "turn": 1,
         "goals": [{
             "goal_id": "orders",
@@ -108,7 +111,7 @@ def test_external_call_without_explicit_goal_binding_is_orphan() -> None:
             "depends_on": [],
             "expected_tools": ["list_orders"],
         }],
-    }
+    })
     plan = _build_loop_plan(
         state,
         text,
@@ -305,13 +308,13 @@ def test_refund_eligibility_contract_is_distinct_from_general_policy_consultatio
 def test_dependency_blocks_dispatch_until_predecessor_really_succeeds() -> None:
     text = "先查订单，再申请退款"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "turn": 1,
         "goals": [
-            {"goal_id": "lookup", "description": "查订单", "evidence_span": "查订单", "goal_type": "query", "required": True, "depends_on": [], "expected_tools": []},
-            {"goal_id": "refund", "description": "申请退款", "evidence_span": "申请退款", "goal_type": "action", "required": True, "depends_on": ["lookup"], "expected_tools": []},
+            {"goal_id": "lookup", "description": "查订单", "evidence_span": "查订单", "goal_type": "query", "requested_effect": requested_effect_for_tool("list_orders"), "required": True, "depends_on": [], "expected_tools": []},
+            {"goal_id": "refund", "description": "申请退款", "evidence_span": "申请退款", "goal_type": "action", "requested_effect": requested_effect_for_tool("prepare_refund"), "required": True, "depends_on": ["lookup"], "expected_tools": []},
         ],
-    }
+    })
     plan = _build_loop_plan(
         state,
         text,
@@ -326,7 +329,12 @@ def test_dependency_blocks_dispatch_until_predecessor_really_succeeds() -> None:
     lookup_effect = plan["effects"][0]["effect_id"]
     refund_effect = plan["effects"][1]["effect_id"]
 
-    blocked = validate_step_dispatch(workflow_plan=workflow, effect_id=refund_effect)
+    semantic_contract = state["frozen_semantic_contract"]
+    blocked = validate_step_dispatch(
+        workflow_plan=workflow,
+        effect_id=refund_effect,
+        semantic_contract=semantic_contract,
+    )
     assert blocked["code"] == "WORKFLOW_DEPENDENCY_UNSATISFIED"
 
     failed = mark_step_result(
@@ -334,19 +342,27 @@ def test_dependency_blocks_dispatch_until_predecessor_really_succeeds() -> None:
         effect_id=lookup_effect,
         result={"ok": False, "code": "NOT_FOUND", "message": "没有查到"},
     )
-    assert validate_step_dispatch(workflow_plan=failed, effect_id=refund_effect)["code"] == "WORKFLOW_DEPENDENCY_UNSATISFIED"
+    assert validate_step_dispatch(
+        workflow_plan=failed,
+        effect_id=refund_effect,
+        semantic_contract=semantic_contract,
+    )["code"] == "WORKFLOW_DEPENDENCY_UNSATISFIED"
 
     succeeded = mark_step_result(workflow_plan=workflow, effect_id=lookup_effect, result=_success())
-    assert validate_step_dispatch(workflow_plan=succeeded, effect_id=refund_effect)["ok"] is True
+    assert validate_step_dispatch(
+        workflow_plan=succeeded,
+        effect_id=refund_effect,
+        semantic_contract=semantic_contract,
+    )["ok"] is True
 
 
 def test_unbound_call_is_not_dispatchable_even_when_tool_matches_old_hint() -> None:
     text = "查订单"
     state = _state(text)
-    state["turn_goal_plan"] = {"turn": 1, "goals": [{
+    install_test_semantic_contract(state, {"turn": 1, "goals": [{
         "goal_id": "lookup", "description": text, "evidence_span": text,
         "goal_type": "query", "required": True, "depends_on": [], "expected_tools": ["list_orders"],
-    }]}
+    }]})
     plan = _build_loop_plan(
         state,
         text,
@@ -364,11 +380,11 @@ def test_unbound_call_is_not_dispatchable_even_when_tool_matches_old_hint() -> N
 def test_corrected_candidate_supersedes_retryable_protocol_failure_for_same_goal() -> None:
     text = "查询无线鼠标物流"
     state = _state(text)
-    state["turn_goal_plan"] = {"turn": 1, "goals": [{
+    install_test_semantic_contract(state, {"turn": 1, "goals": [{
         "goal_id": "logistics", "description": text, "evidence_span": text,
-        "goal_type": "query", "required": True, "depends_on": [],
+        "goal_type": "query", "requested_effect": requested_effect_for_tool("get_order_logistics"), "required": True, "depends_on": [],
         "expected_tools": ["get_order_logistics"],
-    }]}
+    }]})
     first = _build_loop_plan(
         state,
         text,
@@ -393,7 +409,7 @@ def test_corrected_candidate_supersedes_retryable_protocol_failure_for_same_goal
     )
     assert workflow["steps"][0]["status"] == "FAILED_RETRYABLE"
 
-    repaired_state = {**state, "current_turn_plan": first, "workflow_plan": workflow}
+    repaired_state = {**state, "current_turn_plan": first, "grounded_execution_plan": workflow}
     second = _build_loop_plan(
         repaired_state,
         text,
@@ -571,10 +587,10 @@ def test_v20_16_legacy_authority_cutover_adversarial_bridge() -> None:
 # same-turn field before clarification runtime derives suspended Goal context.
 def test_v20_17_b14a_state_v2_retired_field_quarantine_adversarial_bridge() -> None:
     from tests.runtime.test_state_v2_retired_field_quarantine import (
-        test_state_v2_ignores_forged_retired_goal_and_workflow_fields,
+        test_schema_v2_forged_retired_fields_cannot_create_semantics_or_plan,
     )
 
-    test_state_v2_ignores_forged_retired_goal_and_workflow_fields()
+    test_schema_v2_forged_retired_fields_cannot_create_semantics_or_plan()
 
 # V20.17 B14b repair bridge: a persisted grounded_execution_plan is a derived
 # compatibility view and must never outrank frozen_plan_definition + plan_run.
@@ -592,7 +608,7 @@ def test_v20_17_b14b_grounded_projection_quarantine_adversarial_bridge() -> None
 # the compatibility view through the Definition/Run-bound Kernel read boundary.
 def test_v20_17_b14c_plan_projection_read_boundary_adversarial_bridge() -> None:
     from tests.runtime.test_b14c_plan_projection_read_boundary import (
-        test_clarification_suspends_authoritative_goal_not_forged_projection_goal,
+        test_clarification_blocks_authoritative_goal_not_forged_projection_goal,
         test_final_answer_verifier_uses_plan_authorities_not_forged_projection,
         test_projection_cache_is_bound_to_current_plan_run_and_rederived_when_stale,
         test_runtime_source_has_single_grounded_projection_read_boundary,
@@ -601,7 +617,7 @@ def test_v20_17_b14c_plan_projection_read_boundary_adversarial_bridge() -> None:
     )
 
     test_final_answer_verifier_uses_plan_authorities_not_forged_projection()
-    test_clarification_suspends_authoritative_goal_not_forged_projection_goal()
+    test_clarification_blocks_authoritative_goal_not_forged_projection_goal()
     test_projection_cache_is_bound_to_current_plan_run_and_rederived_when_stale()
     test_same_turn_accepted_plan_remains_readable_before_materialization()
     test_same_turn_rejected_plan_is_visible_for_repair_but_cannot_finalize()

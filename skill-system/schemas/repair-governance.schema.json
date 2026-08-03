@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Governed Repair Evidence Chain",
+  "description": "Schemas for FailureCase, RootCauseProof, RepairPlan, PlanReview, BaselineManifest, ChangePermit, DiffReview and ClosureMatrix.",
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "record_type",
+        "change_id"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "change_id": {
+          "type": "string",
+          "minLength": 3
+        }
+      }
+    },
+    "failureCase": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "classification",
+            "reproduction",
+            "violated_invariants",
+            "affected_boundaries"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "failure-case"
+            },
+            "classification": {
+              "enum": [
+                "implementation-defect",
+                "architecture-defect",
+                "skill-gap",
+                "test-oracle-defect",
+                "environment"
+              ]
+            },
+            "reproduction": {
+              "type": "object",
+              "required": [
+                "status",
+                "evidence_refs"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "REPRODUCED",
+                    "BLOCKED_BY_ENVIRONMENT"
+                  ]
+                },
+                "expected": {
+                  "type": "string"
+                },
+                "actual": {
+                  "type": "string"
+                },
+                "evidence_refs": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "violated_invariants": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "affected_boundaries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "rootCauseProof": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "failure_case_sha256",
+            "decision",
+            "root_cause",
+            "causal_chain",
+            "evidence_refs",
+            "rejected_hypotheses",
+            "affected_boundaries"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "root-cause-proof"
+            },
+            "failure_case_sha256": {
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "decision": {
+              "enum": [
+                "PROVEN",
+                "UNPROVEN",
+                "ORACLE_REVIEW_REQUIRED",
+                "ENVIRONMENT_BLOCKED"
+              ]
+            },
+            "root_cause": {
+              "type": "string",
+              "minLength": 8
+            },
+            "causal_chain": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence_refs": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "rejected_hypotheses": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            },
+            "affected_boundaries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repairPlan": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "root_cause_proof_sha256",
+            "status",
+            "strategy",
+            "changes",
+            "unchanged_boundaries",
+            "forbidden_repairs",
+            "required_invariants",
+            "required_tests",
+            "rollback_plan",
+            "risks"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "repair-plan"
+            },
+            "root_cause_proof_sha256": {
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "status": {
+              "enum": [
+                "PROPOSED",
+                "APPROVED",
+                "REJECTED"
+              ]
+            },
+            "strategy": {
+              "type": "string",
+              "minLength": 8
+            },
+            "changes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "responsibility",
+                  "reason"
+                ]
+              }
+            },
+            "unchanged_boundaries": {
+              "type": "array",
+              "minItems": 1
+            },
+            "forbidden_repairs": {
+              "type": "array",
+              "minItems": 1
+            },
+            "required_invariants": {
+              "type": "array",
+              "minItems": 1
+            },
+            "required_tests": {
+              "type": "object",
+              "required": [
+                "focused",
+                "counterexamples",
+                "regression",
+                "negative_path"
+              ]
+            },
+            "rollback_plan": {
+              "type": "string",
+              "minLength": 8
+            },
+            "risks": {
+              "type": "array",
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "planReview": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "repair_plan_sha256",
+            "reviewer_role",
+            "decision",
+            "skill_rule_mappings",
+            "approved_paths"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "plan-review"
+            },
+            "reviewer_role": {
+              "const": "repair-plan-reviewer"
+            },
+            "decision": {
+              "type": "string"
+            },
+            "skill_rule_mappings": {
+              "type": "array",
+              "minItems": 1
+            },
+            "approved_paths": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "changePermit": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "repair_plan_sha256",
+            "plan_review_sha256",
+            "baseline_manifest_sha256",
+            "allowed_paths",
+            "forbidden_paths",
+            "required_tests",
+            "baseline_source_fingerprint",
+            "baseline_workspace_fingerprint",
+            "issued_by",
+            "expires_after",
+            "status",
+            "permit_digest"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "change-permit"
+            },
+            "issued_by": {
+              "const": "repair-plan-reviewer"
+            },
+            "expires_after": {
+              "const": "single-verification"
+            },
+            "status": {
+              "const": "ACTIVE"
+            },
+            "permit_digest": {
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "diffReview": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "permit_digest",
+            "reviewer_role",
+            "decision",
+            "candidate_source_fingerprint",
+            "changed_paths",
+            "out_of_scope_paths",
+            "deterministic_findings"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "diff-review"
+            },
+            "reviewer_role": {
+              "const": "diff-integrity-reviewer"
+            },
+            "decision": {
+              "enum": [
+                "PASS",
+                "REJECT"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "closureMatrix": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "permit_digest",
+            "diff_review_sha256",
+            "reviewer_role",
+            "result",
+            "final_decision",
+            "loop_outcome",
+            "candidate_source_fingerprint",
+            "evidence"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "closure-matrix"
+            },
+            "reviewer_role": {
+              "const": "closure-arbiter"
+            },
+            "result": {
+              "type": "string"
+            },
+            "final_decision": {
+              "enum": [
+                "CLOSED_VERIFIED",
+                "BLOCKED",
+                "NOT_CLOSED"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "dimension",
+                  "status",
+                  "evidence",
+                  "evidence_sha256"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "baselineManifest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "required": [
+            "workspace_files",
+            "allowed_files",
+            "source_fingerprint",
+            "workspace_fingerprint"
+          ],
+          "properties": {
+            "record_type": {
+              "const": "baseline-manifest"
+            },
+            "workspace_files": {
+              "type": "object"
+            },
+            "allowed_files": {
+              "type": "object"
+            },
+            "source_fingerprint": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "workspace_fingerprint": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/failureCase"
+    },
+    {
+      "$ref": "#/$defs/rootCauseProof"
+    },
+    {
+      "$ref": "#/$defs/repairPlan"
+    },
+    {
+      "$ref": "#/$defs/planReview"
+    },
+    {
+      "$ref": "#/$defs/baselineManifest"
+    },
+    {
+      "$ref": "#/$defs/changePermit"
+    },
+    {
+      "$ref": "#/$defs/diffReview"
+    },
+    {
+      "$ref": "#/$defs/closureMatrix"
+    }
+  ]
+}

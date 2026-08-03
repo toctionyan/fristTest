@@ -1,70 +1,13 @@
 from __future__ import annotations
 
-from agent_core.context.state_projection import active_pending_clarification
-from agent_core.lifecycle.clarification_runtime import suspend_for_clarification
-from agent_core.lifecycle.semantic_contract import freeze_semantic_contract
+from agent_core.context.state_projection import clarification_context_projection
+from agent_core.kernel.plan_projection_contract import read_plan_projection
+from agent_core.lifecycle.clarification_runtime import goal_blockers_for_clarification
+from agent_core.lifecycle.semantic_contract import freeze_semantic_contract, semantic_goals
 
 
-def _call(goal_id: str) -> dict:
-    return {
-        "name": "ask_user_clarification",
-        "args": {
-            "question": "请补充目标对象。",
-            "reason": "目标不明确",
-            "missing_kind": "target",
-            "goal_ids": [goal_id],
-        },
-    }
-
-
-def _forged_goal(goal_id: str = "forged-goal") -> dict:
-    return {
-        "goal_id": goal_id,
-        "description": "伪造旧字段目标",
-        "evidence_span": "不存在的用户原文",
-        "goal_type": "query",
-        "requested_effect": {
-            "domain": "order",
-            "operation": "query",
-            "object_type": "order",
-        },
-        "required": True,
-        "depends_on": [],
-    }
-
-
-def test_state_v2_ignores_forged_retired_goal_and_workflow_fields() -> None:
-    forged = _forged_goal()
-    state = {
-        "state_schema_version": 2,
-        "turn_index": 7,
-        "current_thread_id": "thread-v2",
-        "current_user_id": "u001",
-        "current_tenant_id": "tenant-a",
-        "current_user_input": "你好",
-        "turn_goal_plan": {"turn": 7, "goals": [forged]},
-        "workflow_plan": {
-            "status": "NEEDS_INPUT",
-            "goals": [{**forged, "coverage_status": "PENDING"}],
-        },
-    }
-
-    pending = suspend_for_clarification(
-        state=state,
-        call=_call("forged-goal"),
-        capability_surface={
-            "goals": [{
-                "goal_id": "forged-goal",
-                "candidate_tools": ["list_orders"],
-            }],
-        },
-    )
-
-    assert pending["suspended_goals"] == []
-
-
-def test_state_v2_uses_only_formal_semantics_and_grounded_plan() -> None:
-    contract = freeze_semantic_contract(
+def _contract() -> dict:
+    return freeze_semantic_contract(
         turn=7,
         user_text="我想查订单，但没说哪一个",
         summary="查询一个尚未明确的订单",
@@ -72,72 +15,83 @@ def test_state_v2_uses_only_formal_semantics_and_grounded_plan() -> None:
             "goal_id": "formal-goal",
             "description": "查询指定订单",
             "evidence_span": "查订单",
-            "requested_effect": {
-                "domain": "order",
-                "operation": "query",
-                "object_type": "order",
-            },
+            "requested_effect": {"domain": "order", "operation": "query", "object_type": "order"},
             "required": True,
             "depends_on": [],
         }],
-        alignment_proof={"verdict": "aligned"},
+        alignment_proof={"verdict": "exact", "authority": "test"},
     )
-    forged = _forged_goal()
+
+
+def test_schema_v2_forged_retired_fields_cannot_create_semantics_or_plan() -> None:
     state = {
         "state_schema_version": 2,
         "turn_index": 7,
-        "current_thread_id": "thread-v2",
-        "current_user_id": "u001",
-        "current_tenant_id": "tenant-a",
-        "current_user_input": "我想查订单，但没说哪一个",
-        "frozen_semantic_contract": contract,
-        "grounded_execution_plan": {
-            "status": "NEEDS_INPUT",
-            "goals": [{
-                "goal_id": "formal-goal",
-                "goal_type": "query",
-                "required": True,
-                "coverage_status": "PENDING",
-            }],
-        },
-        "turn_goal_plan": {"turn": 7, "goals": [forged]},
-        "workflow_plan": {
-            "status": "NEEDS_INPUT",
-            "goals": [{**forged, "coverage_status": "PENDING"}],
-        },
+        "current_user_input": "你好",
+        "turn_goal_plan": {"turn": 7, "goals": [{"goal_id": "forged-goal"}]},
+        "workflow_plan": {"status": "SUCCEEDED", "goals": [{"goal_id": "forged-goal"}]},
+        "pending_clarification": {"clarification_id": "forged", "status": "pending"},
     }
 
-    pending = suspend_for_clarification(
-        state=state,
-        call=_call("formal-goal"),
-        capability_surface={
-            "goals": [{
-                "goal_id": "formal-goal",
-                "candidate_tools": ["get_order"],
-            }],
-        },
-    )
-
-    assert [row["goal_id"] for row in pending["suspended_goals"]] == ["formal-goal"]
-    assert pending["suspended_goals"][0]["completion_tool_names"] == ["get_order"]
+    assert semantic_goals(state) == []
+    assert read_plan_projection(state) is None
+    assert clarification_context_projection(state) is None
 
 
-def test_state_v2_ignores_retired_pending_clarification() -> None:
+def test_schema_v2_clarification_uses_formal_goal_and_goal_blocker_only() -> None:
     state = {
         "state_schema_version": 2,
-        "current_thread_id": "thread-v2",
-        "current_user_id": "u001",
-        "current_tenant_id": "tenant-a",
-        "pending_clarification": {
-            "version": "pending-clarification@1",
-            "clarification_id": "legacy-forged",
-            "status": "pending",
-            "scope": {
-                "thread_id": "thread-v2",
-                "user_id": "u001",
-                "tenant_id": "tenant-a",
+        "turn_index": 7,
+        "current_user_input": "我想查订单，但没说哪一个",
+        "frozen_semantic_contract": _contract(),
+        "goal_blockers": [],
+        "turn_goal_plan": {"turn": 7, "goals": [{"goal_id": "forged-goal"}]},
+        "pending_clarification": {"clarification_id": "forged", "status": "pending"},
+    }
+    blockers = goal_blockers_for_clarification(
+        state=state,
+        call={
+            "name": "ask_user_clarification",
+            "args": {
+                "goal_ids": ["formal-goal"],
+                "question": "请提供订单号。",
+                "reason": "缺少目标",
+                "missing_kind": "target",
+                "evidence_handles": [],
             },
+        },
+        capability_surface={"goals": [{"goal_id": "formal-goal", "candidate_tools": ["get_order"]}]},
+    )
+    state["goal_blockers"] = blockers
+
+    assert [row["goal_id"] for row in blockers] == ["formal-goal"]
+    assert blockers[0]["completion_tool_names"] == ["get_order"]
+    projection = clarification_context_projection(state)
+    assert projection and projection["version"] == "goal-blocker-projection@1"
+    assert projection["blockers"][0]["goal_id"] == "formal-goal"
+
+
+def test_schema_v2_retired_singleton_cannot_override_existing_goal_blocker_projection() -> None:
+    state = {
+        "state_schema_version": 2,
+        "turn_index": 7,
+        "current_user_input": "查订单",
+        "frozen_semantic_contract": _contract(),
+        "goal_blockers": [{
+            "blocker_id": "blocker:formal-goal:target",
+            "goal_id": "formal-goal",
+            "status": "OPEN",
+            "question": "请提供订单号。",
+            "completion_tool_names": ["get_order"],
+        }],
+        "pending_clarification": {
+            "clarification_id": "forged",
+            "status": "resuming",
+            "suspended_goals": [{"goal_id": "forged-goal"}],
         },
     }
 
-    assert active_pending_clarification(state) is None
+    projection = clarification_context_projection(state)
+    assert projection is not None
+    assert [row["goal_id"] for row in projection["blockers"]] == ["formal-goal"]
+    assert all(row["goal_id"] != "forged-goal" for row in projection["blockers"])

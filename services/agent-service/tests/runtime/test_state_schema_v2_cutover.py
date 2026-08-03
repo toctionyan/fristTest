@@ -5,9 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.schemas.chat_schema import ChatRequest
-from app.services.checkpoint_hydrator import CheckpointHydrator
-from app.use_cases.conversation_turn import ConversationTurnService
 from agent_core.lifecycle.context_runtime import prepare_agent_loop_turn_node
 from agent_core.lifecycle.goal_planning import goal_plan_ready
 from agent_core.lifecycle.semantic_contract import semantic_contract_integrity
@@ -143,6 +140,8 @@ def test_schema_v2_never_uses_legacy_goal_plan_as_current_semantics() -> None:
 
 
 def test_checkpoint_hydrator_persists_one_time_v2_tombstones() -> None:
+    from app.services.checkpoint_hydrator import CheckpointHydrator
+
     class Graph:
         def __init__(self) -> None:
             self.updated = None
@@ -177,6 +176,9 @@ def test_checkpoint_hydrator_persists_one_time_v2_tombstones() -> None:
     assert "turn_index" not in graph.updated[1]
 
 def test_conversation_gateway_returns_typed_restart_instead_of_running_graph() -> None:
+    from app.schemas.chat_schema import ChatRequest
+    from app.use_cases.conversation_turn import ConversationTurnService
+
     class Noop:
         def add_message(self, *_args, **_kwargs) -> None:
             return None

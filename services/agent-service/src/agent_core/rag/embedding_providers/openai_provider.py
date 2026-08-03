@@ -16,9 +16,9 @@ class OpenAIEmbeddingProvider:
     name = "openai"
 
     def __init__(self, model: str | None = None, dimension: int | None = None):
-        self.model = model or os.getenv("EMBEDDING_MODEL") or "text-embedding-v4"
+        self.model = model or os.getenv("EMBEDDING_MODEL") or "text-embedding-3-small"
         self.dimension = dimension or (int(os.getenv("EMBEDDING_DIM")) if os.getenv("EMBEDDING_DIM") else None)
-        self.batch_size = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "10")))
+        self.batch_size = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "100")))
         if "EMBEDDING_API_KEY" in os.environ:
             api_key = os.getenv("EMBEDDING_API_KEY") or None
         else:

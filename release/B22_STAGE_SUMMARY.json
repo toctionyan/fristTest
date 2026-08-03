@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "phase": "V20.17 B22",
+  "workspace_version": "20.6.1",
+  "skill_version": "6.7.0",
+  "status": "PHASE_CANDIDATE_TRANSACTION_IDENTITY_VERIFIED",
+  "production_closed": false,
+  "closed_stage": "STAGE-4",
+  "closed_work_packages": [
+    "WP-06",
+    "WP-07"
+  ],
+  "next_stage": "STAGE-5",
+  "task_ledger": "governance/task-ledger.json",
+  "product_repair": {
+    "change_id": "repair-v20.17-b22-transaction-identity-closure",
+    "repair_governance": "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/closure-matrix.json",
+    "diff_review": "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/diff-review.json",
+    "standard_product_quick": "BLOCKED_BY_ENVIRONMENT",
+    "blocked_evidence": ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json"
+  },
+  "verified_results": {
+    "agent_non_environment": "63 passed, 1 PostgreSQL integration deselected",
+    "business_service": "38 passed",
+    "python_compileall": "PASS",
+    "diff_review": "PASS"
+  },
+  "implemented": [
+    "canonical focused_draft_id with active_draft_id compatibility projection only",
+    "multiple durable open drafts with ambiguity-safe focus selection",
+    "stale interaction response returns latest focus/current interaction/pending transactions",
+    "pure transaction failure and stale projection boundaries independent of LangGraph",
+    "authenticated subject propagated separately from actor",
+    "actor/subject/resource/role/tenant/version assertions verified before domain execution",
+    "Business Service domain ownership/state/version remains final authority"
+  ],
+  "environment_boundary": [
+    "Python 3.12.13 locked environment unavailable",
+    "langgraph/langchain_core unavailable",
+    "AGENT_TEST_POSTGRES_URL unavailable",
+    "frontend node_modules and Playwright unavailable",
+    "real model/embedding credentials and protected GitHub environment unavailable"
+  ],
+  "source_package_claim": "B22 is a non-production phase candidate; production_closed remains false."
+}

@@ -41,10 +41,7 @@ def _resolve_python(env_name: str, locked_path: Path) -> Path:
     candidates.extend([locked_path, Path(sys.executable)])
     for candidate in candidates:
         if candidate.is_file():
-            # Preserve the selected virtual-environment entrypoint. Resolving
-            # ``.venv/bin/python`` dereferences its symlink to the base Python
-            # executable and silently drops the venv's installed packages.
-            return candidate.absolute()
+            return candidate.resolve()
     raise RuntimeError(
         f"no usable Python interpreter for {env_name}; checked: "
         + ", ".join(str(candidate) for candidate in candidates)
@@ -265,28 +262,11 @@ class ProductRuntimeHarness:
                 for retired_local_path in ("SQLITE_DB_PATH", "CHECKPOINT_DB_PATH", "BUSINESS_DB_PATH"):
                     env.pop(retired_local_path, None)
             else:
-                # A nested canary may be launched by a controller that owns a
-                # PostgreSQL runtime.  Local SQLite mode must not inherit those
-                # URLs: backend=sqlite plus a PostgreSQL URL is an invalid mixed
-                # authority and prevents the Agent process from starting.
-                for inherited_database_setting in (
-                    "AGENT_DATABASE_URL",
-                    "DATABASE_URL",
-                    "CHECKPOINT_DATABASE_URL",
-                    "BUSINESS_DATABASE_URL",
-                    "RAG_DATABASE_URL",
-                    "DOCUMENT_JOB_DATABASE_URL",
-                ):
-                    env.pop(inherited_database_setting, None)
                 env.update({
                     "BUSINESS_DB_BACKEND": "sqlite",
                     "BUSINESS_DB_PATH": str(self.runtime_dir / "business.db"),
                     "AGENT_DB_BACKEND": "sqlite",
-                    "DATABASE_BACKEND": "sqlite",
-                    "AGENT_DB_CREATE_SCHEMA": "true",
                     "CHECKPOINT_BACKEND": "sqlite",
-                    "CHECKPOINT_SETUP": "true",
-                    "STRICT_PERSISTENCE": "false",
                     "SQLITE_DB_PATH": str(self.runtime_dir / "agent.db"),
                     "CHECKPOINT_DB_PATH": str(self.runtime_dir / "checkpoints.db"),
                 })

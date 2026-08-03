@@ -12,11 +12,11 @@ from agent_core.storage.repositories.base import TraceRepository
 from agent_core.utils.llm_debug import message_to_debug
 
 STATE_KEYS = [
-    "current_thread_id", "current_user_id", "current_role", "current_tenant_id",
+    "current_thread_id", "current_user_id", "current_role", "current_tenant_id", "current_subject",
     "turn_index", "current_user_input", "ledger_schema_version", "artifact_ledger", "ledger_snapshot",
     "current_turn_plan", "loop_plans", "pretool_shadow_plan", "pretool_shadow_comparisons", "execution_permits", "turn_match_proofs", "agent_loop_step", "agent_loop_max_steps", "agent_loop_seen_calls", "answer_protocol_retry", "deferred_terminal_calls", "execution_dispositions", "latest_execution_disposition", "model_mode_restriction", "model_call_budget", "model_call_trace",
     "task_board", "current_turn_task_ids", "action_queue", "action_gateway_result",
-    "tool_trace", "tool_error", "active_draft_id", "transaction_reconciliation", "context_bundle", "context_health", "pending_confirmation_id", "pending_confirmation_version", "response_contract", "commit_authority", "approval_result", "offer_execution_result",
+    "tool_trace", "tool_error", "focused_draft_id", "active_draft_id", "transaction_reconciliation", "context_bundle", "context_health", "pending_confirmation_id", "pending_confirmation_version", "response_contract", "commit_authority", "approval_result", "offer_execution_result",
     "phase", "status", "current_final_answer", "current_ask_message", "sources", "summary", "answer_evidence_handles",
     "debug_current_run_id", "debug_llm_calls", "decision_chain", "state_contract_violations",
 ]

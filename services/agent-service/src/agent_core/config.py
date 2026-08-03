@@ -3,7 +3,6 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
-from agent_core.runtime.turn_fencing import AtomicallyFencedPostgresSaver, FencedCheckpointer
 from agent_core.runtime.profile import (
     RuntimeProfile,
     get_runtime_profile,
@@ -464,6 +463,10 @@ def clear_checkpointer_cache() -> None:
 
 def build_checkpointer():
     global _CHECKPOINTER_CACHE, _CHECKPOINTER_CONNECTION, _CHECKPOINTER_CONTEXT
+    # Import checkpoint fencing only when a graph checkpointer is requested.
+    # Configuration, security and transaction metadata must remain importable
+    # in recovery/validation processes that do not install LangGraph.
+    from agent_core.runtime.turn_fencing import AtomicallyFencedPostgresSaver, FencedCheckpointer
     if _CHECKPOINTER_CACHE is not None:
         return _CHECKPOINTER_CACHE
 
@@ -489,16 +492,6 @@ def build_checkpointer():
         ).strip()
         if not database_url:
             raise RuntimeError("CHECKPOINT_BACKEND=postgres requires CHECKPOINT_DATABASE_URL or AGENT_DATABASE_URL")
-        # Agent/Business repositories use SQLAlchemy URLs, while psycopg and
-        # LangGraph's PostgresSaver require a native PostgreSQL connection URI.
-        # Normalize before both setup and the long-lived connection; otherwise
-        # a managed ``postgresql+psycopg://`` authority makes graph compilation
-        # fail even though the database itself is healthy.
-        psycopg_url = database_url
-        for sqlalchemy_scheme in ("postgresql+psycopg://", "postgresql+psycopg2://"):
-            if psycopg_url.lower().startswith(sqlalchemy_scheme):
-                psycopg_url = "postgresql://" + psycopg_url[len(sqlalchemy_scheme):]
-                break
         try:
             from langgraph.checkpoint.postgres import PostgresSaver
             import psycopg
@@ -510,8 +503,11 @@ def build_checkpointer():
         if os.getenv("CHECKPOINT_SETUP", "true").lower() in {"1", "true", "yes", "on"}:
             # Setup contains PostgreSQL operations (including concurrent index
             # creation) that intentionally run outside turn transactions.
-            with PostgresSaver.from_conn_string(psycopg_url) as setup_saver:
+            with PostgresSaver.from_conn_string(database_url) as setup_saver:
                 setup_saver.setup()
+        psycopg_url = database_url.replace(
+            "postgresql+psycopg://", "postgresql://", 1
+        )
         conn = psycopg.connect(
             psycopg_url,
             autocommit=True,

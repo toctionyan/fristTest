@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from tests.support.test_semantic_state import (
+    install_test_plan_authority,
+    install_test_semantic_contract,
+    requested_effect_for_tool,
+)
 from agent_core.composition import get_runtime_registry
 from agent_core.lifecycle.budget import compute_loop_budget
 from agent_core.lifecycle.dialogue_runtime import _build_loop_plan
@@ -39,25 +44,28 @@ def _success(message: str = "ok") -> dict:
 def test_missing_declared_goal_blocks_final_answer_even_when_existing_step_succeeds():
     text = "查一下订单，再查物流"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.0",
         "turn": 1,
         "user_text": text,
         "goals": [
-            {"goal_id": "g1", "description": "查订单", "evidence_span": "查一下订单", "goal_type": "query", "required": True, "depends_on": [], "expected_tools": ["list_orders"]},
-            {"goal_id": "g2", "description": "查物流", "evidence_span": "查物流", "goal_type": "query", "required": True, "depends_on": ["g1"], "expected_tools": ["get_order_logistics"]},
+            {"goal_id": "g1", "description": "查订单", "evidence_span": "查一下订单", "goal_type": "query", "requested_effect": requested_effect_for_tool("list_orders"), "required": True, "depends_on": [], "expected_tools": ["list_orders"]},
+            {"goal_id": "g2", "description": "查物流", "evidence_span": "查物流", "goal_type": "query", "requested_effect": requested_effect_for_tool("get_order_logistics"), "required": True, "depends_on": ["g1"], "expected_tools": ["get_order_logistics"]},
         ],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
-        [{"id": "orders", "name": "list_orders", "args": {"goal_ids": ["g1"], "target": {"mode": "all_orders"}, "expected_shape": "collection", "reference_span": "查一下订单"}}],
+        [
+            {"id": "orders", "name": "list_orders", "args": {"goal_ids": ["g1"], "target": {"mode": "all_orders"}, "expected_shape": "collection", "reference_span": "查一下订单"}},
+            {"id": "logistics", "name": "get_order_logistics", "args": {"goal_ids": ["g2"], "target": {"mode": "collection", "left_handle": "result:orders"}, "expected_shape": "collection", "reference_span": "查物流"}},
+        ],
         "",
         capability_registry=get_runtime_registry().capabilities,
     )
     workflow = build_workflow_plan(state=state, turn_plan=turn_plan, user_text=text)
     workflow = mark_step_result(workflow_plan=workflow, effect_id=turn_plan["effects"][0]["effect_id"], result=_success())
-    verification = verify_workflow_for_final_answer({**state, "workflow_plan": workflow})
+    verification = verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})
     assert verification["ok"] is False
     assert verification["uncovered_goal_ids"] == ["g2"]
     assert workflow["goal_coverage_complete"] is False
@@ -66,14 +74,14 @@ def test_missing_declared_goal_blocks_final_answer_even_when_existing_step_succe
 def test_unplanned_extra_tool_is_retained_as_orphan_and_blocks_finalization():
     text = "查一下订单"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.0",
         "turn": 1,
         "user_text": text,
         "goals": [
-            {"goal_id": "g1", "description": "查订单", "evidence_span": text, "goal_type": "query", "required": True, "depends_on": [], "expected_tools": ["list_orders"]},
+            {"goal_id": "g1", "description": "查订单", "evidence_span": text, "goal_type": "query", "requested_effect": requested_effect_for_tool("list_orders"), "required": True, "depends_on": [], "expected_tools": ["list_orders"]},
         ],
-    }
+    })
     calls = [
         {"id": "orders", "name": "list_orders", "args": {"goal_ids": ["g1"], "target": {"mode": "all_orders"}, "expected_shape": "collection", "reference_span": text}},
         {"id": "logistics", "name": "get_order_logistics", "args": {"target": {"mode": "collection", "left_handle": "result:visible"}, "expected_shape": "collection", "reference_span": text}},
@@ -82,18 +90,22 @@ def test_unplanned_extra_tool_is_retained_as_orphan_and_blocks_finalization():
     workflow = build_workflow_plan(state=state, turn_plan=turn_plan, user_text=text)
     for effect in turn_plan["effects"]:
         workflow = mark_step_result(workflow_plan=workflow, effect_id=effect["effect_id"], result=_success())
-    verification = verify_workflow_for_final_answer({**state, "workflow_plan": workflow})
+    verification = verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})
     assert verification["ok"] is False
-    assert verification["unmapped_step_ids"]
+    assert verification["reason"] == "plan_validation_rejected"
+    assert {row["code"] for row in verification["errors"]} >= {
+        "PLAN_EXACT_GOAL_BINDING_REQUIRED",
+        "PLAN_EXACT_CAPABILITY_ROLE_REQUIRED",
+    }
     assert any(task["task_id"].startswith("task:orphan:") for task in workflow["tasks"])
 
 
 def test_loop_budget_stays_open_while_a_required_goal_is_uncovered():
     state = _state("查订单和物流")
-    state["workflow_plan"] = {
-        "goals": [{"goal_id": "g2", "required": True, "coverage_status": "PENDING"}],
-        "steps": [{"step_id": "step:1", "required": True, "status": "SUCCEEDED"}],
-    }
+    install_test_plan_authority(
+        state,
+        goals=[{"goal_id": "g2", "required": True}],
+    )
     state["tool_trace"] = [{
         "name": "list_orders",
         "classification": "observation",
@@ -106,10 +118,10 @@ def test_loop_budget_stays_open_while_a_required_goal_is_uncovered():
 
 def test_verified_audit_result_closes_business_requery_and_requires_history_response():
     state = _state("刚才我要给哪个订单开票？")
-    state["workflow_plan"] = {
-        "goals": [{"goal_id": "recall", "required": True, "coverage_status": "PENDING"}],
-        "steps": [],
-    }
+    install_test_plan_authority(
+        state,
+        goals=[{"goal_id": "recall", "required": True}],
+    )
     state["tool_trace"] = [
         {"name": "declare_turn_goals", "classification": "internal", "result": {"ok": True}},
         {
@@ -134,10 +146,10 @@ def test_verified_audit_result_closes_business_requery_and_requires_history_resp
 
 def test_partial_multi_history_audit_does_not_prematurely_force_terminal_response():
     state = _state("比较键盘和杯子的退款结论")
-    state["workflow_plan"] = {
-        "goals": [{"goal_id": "compare", "required": True, "coverage_status": "PENDING"}],
-        "steps": [],
-    }
+    install_test_plan_authority(
+        state,
+        goals=[{"goal_id": "compare", "required": True}],
+    )
     state["tool_trace"] = [
         {
             "name": "inspect_audit_event",
@@ -168,10 +180,10 @@ def test_repaired_multi_history_audits_bind_all_released_evidence() -> None:
     from agent_core.lifecycle.dialogue_runtime import _bind_verified_history_recall_evidence
 
     state = _state("比较键盘和杯子的退款结论")
-    state["workflow_plan"] = {
-        "goals": [{"goal_id": "compare", "required": True, "coverage_status": "PENDING"}],
-        "steps": [],
-    }
+    install_test_plan_authority(
+        state,
+        goals=[{"goal_id": "compare", "required": True}],
+    )
     state["tool_trace"] = [
         {
             "name": "inspect_audit_event",
@@ -269,21 +281,8 @@ def test_verified_history_recall_binds_only_the_response_protocol():
         ],
         "task_board": [],
         "loop_plans": [],
-        "turn_goal_plan": {
-            "version": "turn-goal-plan@1.0",
-            "turn": 1,
-            "user_text": text,
-            "goals": [{
-                "goal_id": "recall",
-                "description": "确认刚才开票的订单",
-                "evidence_span": text,
-                "goal_type": "query",
-                "required": True,
-                "depends_on": [],
-                "expected_tools": [],
-            }],
-        },
-        "workflow_plan": {
+
+        "grounded_execution_plan": {
             "status": "RUNNING",
             "goals": [{
                 "goal_id": "recall",
@@ -296,6 +295,20 @@ def test_verified_history_recall_binds_only_the_response_protocol():
             "steps": [],
         },
     })
+    install_test_semantic_contract(state, {
+            "version": "turn-goal-plan@1.0",
+            "turn": 1,
+            "user_text": text,
+            "goals": [{
+                "goal_id": "recall",
+                "description": "确认刚才开票的订单",
+                "evidence_span": text,
+                "goal_type": "query",
+                "required": True,
+                "depends_on": [],
+                "expected_tools": [],
+            }],
+        })
     model = ScriptedChatModel([{
         "tool_calls": [{
             "id": "recall-answer",
@@ -363,20 +376,21 @@ def test_successful_prerequisite_read_does_not_complete_a_consultation_goal():
     """
     text = "订单10004能开发票吗？我只问发票，不要退款，也不要售后。"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.0",
         "turn": 1,
         "user_text": text,
         "goals": [{
             "goal_id": "invoice-consult",
             "description": "咨询订单10004的发票政策",
+            "requested_effect": requested_effect_for_tool("consult_invoice_policy"),
             "evidence_span": "订单10004能开发票吗",
             "goal_type": "consult",
             "required": True,
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -403,11 +417,11 @@ def test_successful_prerequisite_read_does_not_complete_a_consultation_goal():
     assert goal["coverage_status"] == "PENDING"
     assert goal["covered_by_step_ids"] == []
     assert workflow["steps"][0]["verification"]["goal_completion_eligible"] is False
-    assert verify_workflow_for_final_answer({**state, "workflow_plan": workflow})["ok"] is False
+    assert verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})["ok"] is False
 
     budget = compute_loop_budget({
         **state,
-        "workflow_plan": workflow,
+        "grounded_execution_plan": workflow,
         "tool_trace": [{
             "name": "get_order_details",
             "classification": "observation",
@@ -421,20 +435,21 @@ def test_successful_prerequisite_read_does_not_complete_a_consultation_goal():
 def test_declared_consultation_capability_completes_the_consultation_goal():
     text = "订单10004能开发票吗？"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.0",
         "turn": 1,
         "user_text": text,
         "goals": [{
             "goal_id": "invoice-consult",
             "description": "咨询订单10004的发票政策",
+            "requested_effect": requested_effect_for_tool("consult_invoice_policy"),
             "evidence_span": text,
             "goal_type": "consult",
             "required": True,
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -462,13 +477,13 @@ def test_declared_consultation_capability_completes_the_consultation_goal():
     assert workflow["goals"][0]["coverage_status"] == "COVERED"
     assert workflow["goals"][0]["covered_by_step_ids"] == ["step:1"]
     assert workflow["steps"][0]["verification"]["goal_completion_eligible"] is True
-    assert verify_workflow_for_final_answer({**state, "workflow_plan": workflow})["ok"] is True
+    assert verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})["ok"] is True
 
 
 def test_single_result_goal_is_not_completed_by_sorting_a_multi_member_collection():
     text = "这两个里面最贵的是哪个？"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.1",
         "turn": 1,
         "user_text": text,
@@ -482,7 +497,7 @@ def test_single_result_goal_is_not_completed_by_sorting_a_multi_member_collectio
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -519,19 +534,20 @@ def test_single_result_goal_is_not_completed_by_sorting_a_multi_member_collectio
     assert verification["goal_cardinality_eligible"] is False
     assert verification["goal_completion_eligible"] is False
     assert workflow["goals"][0]["coverage_status"] == "PENDING"
-    assert verify_workflow_for_final_answer({**state, "workflow_plan": workflow})["ok"] is False
+    assert verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})["ok"] is False
 
 
 def test_single_result_goal_accepts_verified_singleton_collection_population():
     text = "剩下这个订单现在什么状态？"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.1",
         "turn": 1,
         "user_text": text,
         "goals": [{
             "goal_id": "remaining-order",
             "description": "查询剩下这一个订单的状态",
+            "requested_effect": requested_effect_for_tool("list_orders"),
             "evidence_span": "剩下这个订单",
             "goal_type": "query",
             "expected_result_cardinality": "single",
@@ -539,7 +555,7 @@ def test_single_result_goal_accepts_verified_singleton_collection_population():
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -573,13 +589,14 @@ def test_single_result_goal_accepts_verified_singleton_collection_population():
 def test_single_conclusion_accepts_one_member_target_proved_by_match_proof():
     text = "现在改成查退款资格"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.1",
         "turn": 1,
         "user_text": text,
         "goals": [{
             "goal_id": "refund-eligibility",
             "description": "查询上一订单的退款资格",
+            "requested_effect": requested_effect_for_tool("evaluate_refund_eligibility"),
             "evidence_span": "查退款资格",
             "goal_type": "consult",
             "expected_result_cardinality": "single",
@@ -587,7 +604,7 @@ def test_single_conclusion_accepts_one_member_target_proved_by_match_proof():
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -638,13 +655,14 @@ def test_existential_record_goal_accepts_verified_empty_collection_population():
     """A conclusive empty record lookup is not an incomplete single selection."""
     text = "它有没有发票记录？"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.1",
         "turn": 1,
         "user_text": text,
         "goals": [{
             "goal_id": "invoice-records",
             "description": "核验上一订单是否存在发票记录",
+            "requested_effect": requested_effect_for_tool("list_invoices"),
             "evidence_span": "它有没有发票记录",
             "goal_type": "query",
             "expected_result_cardinality": "collection",
@@ -652,7 +670,7 @@ def test_existential_record_goal_accepts_verified_empty_collection_population():
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -681,7 +699,7 @@ def test_existential_record_goal_accepts_verified_empty_collection_population():
     assert verification["goal_cardinality_eligible"] is True
     assert verification["goal_completion_eligible"] is True
     assert workflow["goals"][0]["coverage_status"] == "COVERED"
-    assert verify_workflow_for_final_answer({**state, "workflow_plan": workflow})["ok"] is True
+    assert verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})["ok"] is True
 
 
 def test_verified_clarification_blocks_the_bound_goal_without_marking_it_complete():
@@ -746,7 +764,7 @@ def test_clarification_can_pause_the_bound_consult_goal_without_a_fake_user_goal
     """
     text = "可以退货退款吗？"
     state = _state(text)
-    state["turn_goal_plan"] = {
+    install_test_semantic_contract(state, {
         "version": "turn-goal-plan@1.0",
         "turn": 1,
         "user_text": text,
@@ -759,7 +777,7 @@ def test_clarification_can_pause_the_bound_consult_goal_without_a_fake_user_goal
             "depends_on": [],
             "expected_tools": [],
         }],
-    }
+    })
     turn_plan = _build_loop_plan(
         state,
         text,
@@ -784,7 +802,7 @@ def test_clarification_can_pause_the_bound_consult_goal_without_a_fake_user_goal
     assert goal["satisfaction_proof"]["kind"] == "clarification_pause"
     assert workflow["status"] == "NEEDS_INPUT"
 
-    verification = verify_workflow_for_final_answer({**state, "workflow_plan": workflow})
+    verification = verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})
     assert verification["ok"] is True
     assert verification["reason"] == "clarification_pause"
     assert verification["suspended_goal_ids"] == ["refund-consult"]
@@ -883,7 +901,6 @@ def test_goal_declaration_phase_requires_provider_tool_call():
         "agent_loop_max_steps": 6,
         "task_board": [],
         "loop_plans": [],
-        "turn_goal_plan": None,
     })
     model = ScriptedChatModel([{
         "tool_calls": [{
@@ -935,7 +952,6 @@ def test_goal_declaration_protocol_is_exactly_forced_and_bounded() -> None:
         "agent_loop_step": 0,
         "agent_loop_max_steps": 6,
         "goal_declaration_retry": 0,
-        "turn_goal_plan": None,
     })
     model = ScriptedChatModel([
         {"content": "刚才要开票的是订单10004。"},
@@ -1065,7 +1081,9 @@ def test_plain_content_protocol_retry_forces_a_bound_terminal_tool_call():
         "tool_trace": [{"name": "declare_turn_goals", "result": {"ok": True}}],
         "task_board": [],
         "loop_plans": [],
-        "turn_goal_plan": {
+
+    })
+    install_test_semantic_contract(state, {
             "version": "turn-goal-plan@1.0",
             "turn": 1,
             "user_text": text,
@@ -1078,8 +1096,7 @@ def test_plain_content_protocol_retry_forces_a_bound_terminal_tool_call():
                 "depends_on": [],
                 "expected_tools": [],
             }],
-        },
-    })
+        })
     model = ScriptedChatModel([
         {"content": "请问您具体想咨询哪一笔订单？"},
         {"tool_calls": [{
@@ -1140,7 +1157,9 @@ def test_plain_prose_with_pending_query_reopens_only_goal_completion_capability(
         "tool_trace": [{"name": "declare_turn_goals", "classification": "internal", "result": {"ok": True}}],
         "task_board": [],
         "loop_plans": [],
-        "turn_goal_plan": {
+
+    })
+    install_test_semantic_contract(state, {
             "version": "turn-goal-plan@1.0",
             "turn": 1,
             "user_text": text,
@@ -1153,8 +1172,7 @@ def test_plain_prose_with_pending_query_reopens_only_goal_completion_capability(
                 "depends_on": [],
                 "expected_tools": [],
             }],
-        },
-    })
+        })
     model = ScriptedChatModel([
         {"content": "我先分析一下应该查看哪个集合。"},
         {"tool_calls": [{
@@ -1301,21 +1319,8 @@ def test_workflow_repair_rejects_provider_call_to_unexposed_terminal_tool():
             "name": "get_order_details",
             "result": _success("订单详情读取成功"),
         }],
-        "turn_goal_plan": {
-            "version": "turn-goal-plan@1.0",
-            "turn": 1,
-            "user_text": text,
-            "goals": [{
-                "goal_id": "invoice-consult",
-                "description": "咨询订单10004发票政策",
-                "evidence_span": text,
-                "goal_type": "consult",
-                "required": True,
-                "depends_on": [],
-                "expected_tools": [],
-            }],
-        },
-        "workflow_plan": {
+
+        "grounded_execution_plan": {
             "status": "RUNNING",
             "goals": [{
                 "goal_id": "invoice-consult",
@@ -1328,6 +1333,20 @@ def test_workflow_repair_rejects_provider_call_to_unexposed_terminal_tool():
             "steps": [{"step_id": "step:1", "required": True, "status": "SUCCEEDED"}],
         },
     })
+    install_test_semantic_contract(state, {
+            "version": "turn-goal-plan@1.0",
+            "turn": 1,
+            "user_text": text,
+            "goals": [{
+                "goal_id": "invoice-consult",
+                "description": "咨询订单10004发票政策",
+                "evidence_span": text,
+                "goal_type": "consult",
+                "required": True,
+                "depends_on": [],
+                "expected_tools": [],
+            }],
+        })
     model = ScriptedChatModel([{
         # Simulate a provider repeating a historical function that is no
         # longer present in the dynamically narrowed repair tool surface.

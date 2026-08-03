@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-"""Closed State Schema version values and a read-only compatibility predicate."""
+"""Closed State Schema version values.
 
-from typing import Any
+Legacy checkpoint interpretation is owned exclusively by
+``agent_core.lifecycle.state_schema``. Runtime modules must not branch on a
+legacy schema version after the prepare-turn migration boundary.
+"""
 
 CURRENT_STATE_SCHEMA_VERSION = 2
 LEGACY_STATE_SCHEMA_VERSION = 1
 
-
-def legacy_fallback_allowed(state: dict[str, Any]) -> bool:
-    return int(state.get("state_schema_version") or LEGACY_STATE_SCHEMA_VERSION) < CURRENT_STATE_SCHEMA_VERSION
-
-
 __all__ = [
     "CURRENT_STATE_SCHEMA_VERSION",
     "LEGACY_STATE_SCHEMA_VERSION",
-    "legacy_fallback_allowed",
 ]

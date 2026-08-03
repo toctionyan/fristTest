@@ -1,12 +1,12 @@
 ---
 name: customer-agent-architecture
-version: 6.3.1
+version: 6.7.0
 description: 客服 Agent 领域架构 Skill。约束开放语义、上下文、多任务规划、能力落地、事务与业务权威边界；不规定最终类名、目录层级、节点数量或框架形状。
 ---
 
 # 客服 Agent 领域架构
 
-Skill 版本：6.3.1
+Skill 版本：6.7.0
 
 ## 定位
 
@@ -24,7 +24,9 @@ Skill 版本：6.3.1
 6. **派生数据只读**：缓存、索引、摘要、Task Board、UI 焦点和 Projection 不得反向覆盖权威状态。
 7. **证据不可降级**：不得通过放宽 Oracle、删除反例、降低 Profile、修改 Judge 或复用陈旧 Evidence 获得通过。
 8. **架构债务只减不增**：已登记的依赖环必须通过可审计棘轮逐步缩小；新增、扩大或合并循环依赖必须失败，功能全绿不得被表述为架构已收敛。
-9. **内部表示非唯一性**：开放语义以用户可观察业务效果、对象、条件和安全边界为验收对象；Oracle 不得绑定唯一内部表示，不得把精确 Goal 数量、Goal ID、depends_on 图、Tool 顺序或词面分类作为通用生产真理。程序只验证结构、来源、权限、数据依赖和事务不变量。
+9. **受治理修复闭环**：Repair、Migration、Revert 在进入写入态前，必须以同一 change_id 串联 FailureCase、RootCauseProof、RepairPlan、只读 PlanReview、baseline-bound ChangePermit；实现后必须通过独立 DiffReview 和八维 ClosureMatrix。达到最大循环次数、环境阻塞或缺少证据均不得映射为 CONVERGED。
+10. **当前轮语义唯一权威**：新 Turn 只能消费冻结的语义合同、正式 Plan Definition/Run、Goal/Blocker 与派生投影。退休字段只能在单点 checkpoint 迁移器中一次性读取；Runtime、Capability、Clarification、Tool execution 和 Answer release 不得再读取、写入或静默回退到旧语义链。
+11. **上下文投影不代替目标裁决**：历史 ResultRef、集合、焦点和最近分组只能形成只读、带来源的 ReferentSet；不得自动选择目标。多结果后的单数续问必须 fail closed，显式返回或分组必须验证原文字面证据、成员数和连续性；Capability 只能按结构化 requested effect 精确匹配，缺失时必须 unsupported。
 
 ## STRONG_DEFAULT
 
@@ -78,9 +80,32 @@ Skill 版本：6.3.1
 4. Plan Closure：输入输出来源、依赖、用户顺序、事务顺序和并发安全；
 5. Real-model Smoke：真实模型在只读语义/规划模式中的表现；
 6. Product Journey：真实网页、服务、数据库、授权和 Receipt 闭环。
-7. Semantic Representation Independence：同一用户效果允许多种合法 Goal 分解和依赖表达；硬 Gate 只拒绝效果遗漏、效果捏造、对象错误、越权或执行不变量破坏。
 
 这些证据不能互相替代。质量结果必须分别公开功能状态、架构状态与真实模型认证状态；确定性 Runtime 全绿不能自动升级为 Real-model Certified。
+
+
+## 受治理修复状态机
+
+```text
+FailureCase(REPRODUCED)
+→ RootCauseProof(PROVEN)
+→ RepairPlan
+→ RepairPlanReviewer(APPROVED)
+→ ChangePermit(ACTIVE, single-verification)
+→ implementing（唯一写入者）
+→ DiffIntegrityReviewer(PASS)
+→ ClosureMatrix（8 个证据维度）
+→ contract-verify
+→ contract-close(CLOSED_VERIFIED)
+```
+
+硬性边界：
+
+- `contract-begin` 不再仅依赖普通合同批准；可写 transition 必须校验当前治理链和 Permit digest。
+- Host 写入 Hook 同时校验 Change Contract 与 ChangePermit，且仅允许 `implementing` 状态写入。
+- DiffReview 从 baseline manifest 重新计算真实 changed paths，拒绝越权、删除测试、减少测试/断言、增加 skip、增加未批准 Mock、禁止模式和无实际变更。
+- ClosureMatrix 必须具有 `original_failure`、`focused_tests`、`counterexamples`、`regression`、`negative_paths`、`runtime_trace`、`authority_boundary`、`diff_review` 八类 PASS 证据。
+- Reviewer 只读且有否决权；实现者不能签发 Permit、改写 DiffReview 或自行关闭问题。
 
 ## 完成边界
 

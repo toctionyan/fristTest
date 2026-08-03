@@ -1,0 +1,7 @@
+name = "diff_integrity_reviewer"
+description = "Read-only reviewer of the real candidate diff against the active ChangePermit."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/diff-integrity-reviewer.md. Stay read-only. Derive findings from baseline and candidate evidence, not implementer claims.
+"""

@@ -30,9 +30,6 @@ FINGERPRINT_ENV = "PRODUCTION_CERTIFICATION_TOOLCHAIN_FINGERPRINT"
 EVIDENCE_ENV = "PRODUCTION_CERTIFICATION_TOOLCHAIN_EVIDENCE"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ACTION_RE = re.compile(r"^\s*(?:-\s+)?uses:\s+([^\s@]+)@([^\s#]+)(?:\s+#\s*(.*))?\s*$")
-_UV_VERSION_OUTPUT_RE = re.compile(
-    r"^uv\s+(?P<version>[0-9]+(?:\.[0-9]+){2})(?:\s+\([A-Za-z0-9_.-]+\))?$"
-)
 
 
 class ReleaseToolchainError(RuntimeError):
@@ -311,18 +308,6 @@ def validate_static_contract(workspace_root: Path) -> dict[str, Any]:
     }
 
 
-def _normalize_uv_version_output(value: str) -> str:
-    raw = str(value or "").strip()
-    match = _UV_VERSION_OUTPUT_RE.fullmatch(raw)
-    if match is None:
-        raise ReleaseToolchainError(
-            "release_uv_version_output_invalid",
-            f"unexpected uv --version output: {raw!r}",
-            environment_blocked=True,
-        )
-    return str(match.group("version"))
-
-
 def _run(command: Sequence[str], *, cwd: Path) -> str:
     try:
         completed = subprocess.run(list(command), cwd=cwd, text=True, capture_output=True, timeout=180, check=False)
@@ -388,51 +373,6 @@ def _tree_digest(root: Path) -> dict[str, Any]:
     }
 
 
-def _npm_installation_identity(npm: Path) -> dict[str, Any]:
-    """Read npm identity from its installed package instead of executing npm.
-
-    The release already hashes the resolved launcher.  Reading and hashing the
-    npm package metadata and installation tree avoids making provenance depend
-    on npm's environment-sensitive startup diagnostics while strengthening the
-    proof to cover the implementation behind that launcher.
-    """
-
-    resolved = Path(npm).resolve()
-    package_json: Path | None = None
-    payload: dict[str, Any] | None = None
-    for parent in resolved.parents[:6]:
-        candidate = parent / "package.json"
-        if not candidate.is_file():
-            continue
-        try:
-            candidate_payload = json.loads(candidate.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(candidate_payload, dict) and str(candidate_payload.get("name") or "") == "npm":
-            package_json = candidate
-            payload = candidate_payload
-            break
-    if package_json is None or payload is None:
-        raise ReleaseToolchainError(
-            "release_npm_installation_metadata_missing",
-            f"resolved npm installation has no valid npm package.json: {resolved}",
-            environment_blocked=True,
-        )
-    version = str(payload.get("version") or "").strip()
-    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?", version):
-        raise ReleaseToolchainError(
-            "release_npm_installation_version_invalid",
-            f"resolved npm package has an invalid version: {version!r}",
-            environment_blocked=True,
-        )
-    package_root = package_json.parent
-    return {
-        "version": version,
-        "package_json_sha256": _sha256_file(package_json),
-        **_tree_digest(package_root),
-    }
-
-
 def _python_environment_digest(python: Path, *, cwd: Path) -> dict[str, Any]:
     code = (
         "import hashlib,json,importlib.metadata as m;"
@@ -446,95 +386,12 @@ def _python_environment_digest(python: Path, *, cwd: Path) -> dict[str, Any]:
     return {"distribution_count": int(payload.get("count") or 0), "distribution_set_sha256": str(payload["sha256"])}
 
 
-def _canonical_npm_dependency_tree(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep dependency identity while discarding npm diagnostic noise.
-
-    ``npm ls`` may return exit code 1 and add fields such as ``problems`` or
-    ``error`` for peer/optional dependency diagnostics even when the installed
-    tree is executable.  The byte-level ``node_modules`` digest remains the
-    authoritative mutation proof; this semantic tree records package names,
-    versions and dependency edges only.
-    """
-
-    def normalize_node(name: str, node: Any) -> dict[str, Any]:
-        if not isinstance(node, Mapping):
-            raise ReleaseToolchainError(
-                "release_npm_environment_invalid",
-                f"npm dependency node is invalid: {name}",
-            )
-        dependencies = node.get("dependencies") or {}
-        if not isinstance(dependencies, Mapping):
-            raise ReleaseToolchainError(
-                "release_npm_environment_invalid",
-                f"npm dependency children are invalid: {name}",
-            )
-        return {
-            "name": str(name),
-            "version": str(node.get("version") or ""),
-            "dependencies": [
-                normalize_node(str(child_name), child_node)
-                for child_name, child_node in sorted(
-                    dependencies.items(), key=lambda item: str(item[0])
-                )
-            ],
-        }
-
-    root_name = str(payload.get("name") or "").strip()
-    if not root_name:
-        raise ReleaseToolchainError(
-            "release_npm_environment_invalid",
-            "npm dependency tree has no root package name",
-        )
-    return normalize_node(root_name, payload)
-
-
 def _npm_tree_digest(frontend: Path) -> dict[str, Any]:
-    npm = _resolved_executable("npm")
-    try:
-        completed = subprocess.run(
-            [str(npm), "ls", "--all", "--offline", "--json"],
-            cwd=frontend,
-            text=True,
-            capture_output=True,
-            timeout=180,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ReleaseToolchainError(
-            "release_toolchain_command_unavailable",
-            f"toolchain command failed: {npm}",
-            environment_blocked=True,
-        ) from exc
-
-    try:
-        payload = json.loads(completed.stdout)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise ReleaseToolchainError(
-            "release_npm_environment_invalid",
-            "npm dependency tree did not emit valid JSON",
-            environment_blocked=True,
-        ) from exc
-    if completed.returncode not in (0, 1):
-        raise ReleaseToolchainError(
-            "release_toolchain_command_failed",
-            f"toolchain command returned {completed.returncode}: {npm}",
-            environment_blocked=True,
-        )
+    stdout = _run(["npm", "ls", "--all", "--json"], cwd=frontend)
+    payload = json.loads(stdout)
     if not isinstance(payload, dict):
-        raise ReleaseToolchainError(
-            "release_npm_environment_invalid",
-            "npm dependency tree is invalid",
-            environment_blocked=True,
-        )
-
-    canonical = _canonical_npm_dependency_tree(payload)
-    encoded = json.dumps(
-        canonical,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return {"dependency_tree_sha256": hashlib.sha256(encoded).hexdigest()}
+        raise ReleaseToolchainError("release_npm_environment_invalid", "npm dependency tree is invalid")
+    return {"dependency_tree_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
 
 
 def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
@@ -578,9 +435,8 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
     uv = _resolved_executable("uv")
     docker = _resolved_executable("docker")
     actual_node = _run([str(node), "--version"], cwd=workspace).lstrip("v")
-    npm_installation = _npm_installation_identity(npm)
-    actual_npm = str(npm_installation["version"])
-    actual_uv = _normalize_uv_version_output(_run([str(uv), "--version"], cwd=workspace))
+    actual_npm = _run([str(npm), "--version"], cwd=workspace)
+    actual_uv = _run([str(uv), "--version"], cwd=workspace).removeprefix("uv ").strip()
     docker_client_version = _run([str(docker), "version", "--format", "{{.Client.Version}}"], cwd=workspace)
     docker_server_version = _run([str(docker), "version", "--format", "{{.Server.Version}}"], cwd=workspace)
     expected = {
@@ -611,7 +467,6 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
             "uv_sha256": _sha256_file(uv),
             "docker_sha256": _sha256_file(docker),
         },
-        "npm_installation": npm_installation,
         "docker": {
             "client_version": docker_client_version,
             "server_version": docker_server_version,

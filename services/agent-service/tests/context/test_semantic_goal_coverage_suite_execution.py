@@ -59,7 +59,7 @@ def test_semantic_goal_oracle_and_runtime_are_both_satisfied(case: dict) -> None
     executed = run_conversation_case(case)
     workflow = (
         executed.final.result.get("grounded_execution_plan")
-        or executed.final.result.get("workflow_plan")
+        or executed.final.result.get("grounded_execution_plan")
         or {}
     )
     assert workflow.get("goal_coverage_complete") is True

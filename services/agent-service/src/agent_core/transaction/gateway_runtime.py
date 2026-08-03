@@ -23,6 +23,7 @@ def _actor_context_from_state(state: dict[str, Any]) -> ActorContext:
         user_id=str(state.get("current_user_id") or ""),
         role=str(state.get("current_role") or "customer"),
         tenant_id=str(state.get("current_tenant_id") or "") or None,
+        subject_user_id=str(state.get("current_subject") or state.get("current_user_id") or "") or None,
         subject=str(state.get("current_subject") or "") or None,
         permissions=permissions,
     )

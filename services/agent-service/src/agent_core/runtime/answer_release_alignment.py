@@ -19,7 +19,6 @@ from agent_core.context.visible_result_refs import validate_visible_result_ref, 
 from agent_core.ledger import find_handle, scope_for_state
 from agent_core.kernel.semantic_contract import semantic_goals
 from agent_core.kernel.plan_projection_contract import read_plan_projection
-from agent_core.kernel.state_schema_contract import legacy_fallback_allowed
 from agent_core.runtime.profile import resolve_verifier_mode
 
 
@@ -227,15 +226,7 @@ def _runtime_evidence(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _formal_goals(result: dict[str, Any]) -> list[dict[str, Any]]:
     goals = semantic_goals(result)
-    if goals:
-        return goals
-    if not legacy_fallback_allowed(result):
-        return []
-    return [
-        dict(row)
-        for row in list((result.get("turn_goal_plan") or {}).get("goals") or [])
-        if isinstance(row, dict)
-    ]
+    return goals
 
 
 def _execution_plan(result: dict[str, Any]) -> dict[str, Any]:
@@ -444,7 +435,7 @@ def _deterministic_release_authority(result: dict[str, Any]) -> AnswerAlignmentV
     contextual_history = bool(result.get("conversation_event_log"))
     if (
         goals
-        and all(str(goal.get("goal_type") or "") in {"narrative", "clarification"} for goal in goals)
+        and all(_formal_goal_type(goal) in {"narrative", "clarification"} for goal in goals)
         and not successful_business
         and not contextual_history
     ):
@@ -456,6 +447,17 @@ def _deterministic_release_authority(result: dict[str, Any]) -> AnswerAlignmentV
             {"model_verifier_skipped": True},
         )
     return None
+
+
+def _formal_goal_type(goal: dict[str, Any]) -> str:
+    """Read the goal type from the frozen semantic contract projection.
+
+    B20 removed the retired top-level runtime authority and preserves the old
+    goal type only as an explicit compatibility field for readers that still
+    need the coarse narrative/action distinction.
+    """
+    compatibility = goal.get("compatibility") if isinstance(goal.get("compatibility"), dict) else {}
+    return str(compatibility.get("legacy_goal_type") or goal.get("goal_type") or "open")
 
 
 class CandidateOnlyAnswerAlignmentVerifier:

@@ -14,8 +14,6 @@ from hashlib import sha256
 import json
 from typing import Any
 
-from agent_core.kernel.state_schema_contract import legacy_fallback_allowed
-
 FROZEN_PLAN_DEFINITION_VERSION = "frozen-plan-definition@1"
 PLAN_RUN_VERSION = "plan-run@1"
 PLAN_PROJECTION_CACHE_VERSION = "plan-projection-cache@1"
@@ -592,25 +590,6 @@ def resolve_plan_projection(state: dict[str, Any] | None) -> dict[str, Any]:
             "source": "same_turn_validated_plan",
             "integrity": ephemeral,
         }
-
-    if legacy_fallback_allowed(source):
-        if persisted is not None:
-            return {
-                "ok": True,
-                "present": True,
-                "plan": deepcopy(persisted),
-                "code": "LEGACY_GROUNDED_PROJECTION",
-                "source": "legacy_checkpoint",
-            }
-        legacy = source.get("workflow_plan")
-        if isinstance(legacy, dict):
-            return {
-                "ok": True,
-                "present": True,
-                "plan": deepcopy(legacy),
-                "code": "LEGACY_WORKFLOW_PLAN",
-                "source": "legacy_checkpoint",
-            }
 
     return {
         "ok": True,

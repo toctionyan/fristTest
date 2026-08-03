@@ -12,7 +12,7 @@ Capability can consume it.
 from copy import deepcopy
 from typing import Any
 
-from agent_core.ledger import append_entries, find_handle, normalize_ledger, scope_for_state
+from agent_core.ledger import append_entries, execution_scope_for_state, find_handle, normalize_ledger, scope_for_state
 
 _VISIBLE_KINDS = {"artifact", "view", "result", "eligibility", "offer", "receipt"}
 
@@ -376,6 +376,7 @@ def _successful_observation_for_handle(
     """
     current_turn = int(state.get("turn_index") or 0)
     expected_scope = scope_for_state(state)
+    expected_permit_scope = execution_scope_for_state(state)
     for row in reversed(list(state.get("tool_trace") or [])):
         if not isinstance(row, dict) or str(row.get("classification") or "") != "observation":
             continue
@@ -426,7 +427,7 @@ def _successful_observation_for_handle(
             continue
         if int(permit.get("turn") or -1) != current_turn:
             continue
-        if dict(permit.get("scope") or {}) != expected_scope:
+        if dict(permit.get("scope") or {}) != expected_permit_scope:
             continue
         if not str(permit.get("permit_id") or "") or not str(permit.get("capability_id") or ""):
             continue

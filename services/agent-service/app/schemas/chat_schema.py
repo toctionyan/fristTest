@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     message: str
     tenant_id: str | None = Field(None, description="租户 ID；生产环境由 token/session 解析，客户端传入会被覆盖")
     actor_permissions: list[str] = Field(default_factory=list, description="认证后的权限集合；由服务端覆盖", exclude=True)
+    subject: str | None = Field(default=None, description="可信业务主体；由认证 Actor 覆盖", exclude=True)
 
 
 class ActionAuthorityRequest(BaseModel):
@@ -32,6 +33,7 @@ class ActionAuthorityRequest(BaseModel):
     comment: str = ""
     tenant_id: str | None = Field(None, description="租户 ID；生产环境由 token/session 解析，客户端传入会被覆盖")
     actor_permissions: list[str] = Field(default_factory=list, description="认证后的权限集合；由服务端覆盖", exclude=True)
+    subject: str | None = Field(default=None, description="可信业务主体；由认证 Actor 覆盖", exclude=True)
 
     @model_validator(mode="after")
     def validate_decision_authority_pair(self):
@@ -64,6 +66,7 @@ class ActionInputRequest(BaseModel):
     input_values: dict[str, Any] = Field(default_factory=dict)
     tenant_id: str | None = Field(None, description="租户 ID；生产环境由 token/session 解析，客户端传入会被覆盖")
     actor_permissions: list[str] = Field(default_factory=list, description="认证后的权限集合；由服务端覆盖", exclude=True)
+    subject: str | None = Field(default=None, description="可信业务主体；由认证 Actor 覆盖", exclude=True)
 
     @model_validator(mode="after")
     def validate_input_mode(self):
@@ -87,6 +90,7 @@ class TransactionStartRequest(BaseModel):
     client_request_id: str = Field(..., min_length=1)
     tenant_id: str | None = Field(None, description="租户 ID；生产环境由 token/session 解析，客户端传入会被覆盖")
     actor_permissions: list[str] = Field(default_factory=list, description="认证后的权限集合；由服务端覆盖", exclude=True)
+    subject: str | None = Field(default=None, description="可信业务主体；由认证 Actor 覆盖", exclude=True)
 
 
 class ChatResponse(BaseModel):

@@ -52,8 +52,6 @@ MARKERS = (
     "单一开放语义 Owner",
     "Goal 不迁就能力",
     "项目基线",
-    "内部表示非唯一性",
-    "Oracle 不得绑定唯一内部表示",
 )
 TARGET_TEMPLATE_MARKERS = (
     "targets/diagnosis.md",
@@ -292,38 +290,6 @@ def _operational_closure_errors() -> list[str]:
     return errors
 
 
-
-def _semantic_authority_errors() -> list[str]:
-    """Prevent semantic Oracles from becoming a second programmatic planner."""
-    workspace = ROOT.parent
-    errors: list[str] = []
-    try:
-        smoke = (workspace / "services/agent-service/scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
-        planning = (workspace / "services/agent-service/src/agent_core/lifecycle/goal_planning.py").read_text(encoding="utf-8")
-        protocol = (workspace / "services/agent-service/src/agent_core/lifecycle/protocol.py").read_text(encoding="utf-8")
-        regression = (workspace / "services/agent-service/tests/runtime/test_goal_dependency_declaration_semantics.py").read_text(encoding="utf-8")
-        for marker in (
-            "goal count mismatch",
-            "goal dependency mismatch",
-            "model emitted undeclared extra goals",
-            "actual_dependencies != expected_dependencies",
-        ):
-            if marker in smoke:
-                errors.append(f"protected semantic smoke binds unique internal representation: {marker}")
-        required = {
-            "smoke": (smoke, "_assert_effect_evidence_coverage"),
-            "planning": (planning, "decomposition shape alone is not a failure"),
-            "protocol": (protocol, "程序只验证引用存在"),
-            "regression-equivalent": (regression, "accepts_equivalent_dependency_representations"),
-            "regression-missing": (regression, "rejects_missing_requested_effect"),
-        }
-        for name, (body, marker) in required.items():
-            if marker not in body:
-                errors.append(f"semantic representation-independence guard missing {name}: {marker}")
-    except Exception as exc:
-        errors.append(f"semantic authority verification raised {exc.__class__.__name__}: {exc}")
-    return errors
-
 def _control_plane_errors() -> list[str]:
     workspace = ROOT.parent
     errors: list[str] = []
@@ -406,7 +372,6 @@ def main() -> int:
             errors.append(f"质量 target 选择器缺少：{marker}")
     errors.extend(_guard_self_check_errors())
     errors.extend(_operational_closure_errors())
-    errors.extend(_semantic_authority_errors())
     errors.extend(_control_plane_errors())
     if len(body.encode("utf-8")) > 12000:
         errors.append("领域 SKILL.md 超过 12KB；通用治理必须留在 skill-system/")

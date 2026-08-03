@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "phase": "V20.17 B20",
+  "skill_version": "6.6.0",
+  "workspace_version": "20.6.1",
+  "goal": "Close Stage 2/WP-03: make State Schema v2 formal objects the sole current-turn semantic authority and remove legacy runtime readers/writers",
+  "status": "CLOSED_VERIFIED",
+  "production_closed": false,
+  "product_behavior_changed": true,
+  "closed_stage": "STAGE-2",
+  "closed_work_packages": [
+    "WP-03"
+  ],
+  "next_stage": "STAGE-3",
+  "authority_boundary": {
+    "current_turn": [
+      "frozen_semantic_contract",
+      "frozen_plan_definition",
+      "plan_run",
+      "goal_records",
+      "goal_blockers",
+      "focus_state",
+      "validated derived projections"
+    ],
+    "legacy_checkpoint_only": [
+      "turn_goal_plan",
+      "workflow_plan",
+      "pending_clarification"
+    ],
+    "legacy_migration_owner": "services/agent-service/src/agent_core/lifecycle/state_schema.py",
+    "runtime_legacy_direct_access_hits": 0
+  },
+  "tests": {
+    "focused_dependency_light": {
+      "passed": 81,
+      "deselected": 10
+    },
+    "compatibility_projection": {
+      "passed": 4
+    },
+    "goal_coverage_environment_limited": {
+      "passed": 29,
+      "blocked": 10,
+      "reason": "langchain_core unavailable"
+    },
+    "resource_lifecycle_environment_limited": {
+      "passed": 14,
+      "blocked": 4,
+      "reason": "langgraph unavailable"
+    }
+  },
+  "profiles": {
+    "skill-static": "PASS",
+    "skill-unit": "PASS",
+    "skill-host-integration": "PASS",
+    "skill-security": "PASS",
+    "project-compatibility-smoke": "PASS"
+  },
+  "wp03_permit_digest": "7f2fbb1c4804cbcac1ba5b66876e8ac1f037cbb9025e49abdff975394e8774bc",
+  "wp03_candidate_fingerprint": "2b171710873a77ff0dbeba3c280a7bf9bef17df8715a4f76480d75526578c1e9",
+  "wp03_closure": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/closure-matrix.json",
+  "known_open_issues": [
+    "ISSUE-REL-001",
+    "ISSUE-ENV-001"
+  ],
+  "environment_boundary": "Full locked product profiles, real model, PostgreSQL/pgvector, frontend/browser and protected release were not executed in this environment.",
+  "stage_closure_skill_unit": 81,
+  "stage_closure_skill_security": 7,
+  "project_compatibility_protected_files": 520,
+  "stage_closure_permit_digest": "706d6c61f764aa94a1ca10fba2075d92afaa97f15b9ab55e8675e53913a0f14b"
+}

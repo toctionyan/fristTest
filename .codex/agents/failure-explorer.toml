@@ -1,0 +1,7 @@
+name = "failure_explorer"
+description = "Read-only failure reproducer and root-cause evidence collector."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/failure-explorer.md. Reproduce before diagnosing. Stay read-only and cite concrete execution evidence.
+"""

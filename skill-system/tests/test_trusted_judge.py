@@ -7,11 +7,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
 CONTROLLER = Path(__file__).resolve().parents[1] / "controller"
 if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
-from trusted_judge import MANIFEST_REL, verify_candidate, verify_root  # type: ignore
+from trusted_judge import MANIFEST_REL, build_manifest, verify_candidate, verify_root  # type: ignore
 
 
 class TrustedJudgeTest(unittest.TestCase):
@@ -38,6 +39,11 @@ class TrustedJudgeTest(unittest.TestCase):
                 verify_candidate(candidate, judge),
                 ["candidate_trust_root_changed:scripts/quality_loop.py"],
             )
+
+    def test_extracted_quality_control_module_is_trusted(self) -> None:
+        manifest = build_manifest(ROOT)
+        self.assertIn("scripts/quality_control/dimensions.py", manifest["files"])
+        self.assertIn("scripts/quality_control/contracts.py", manifest["files"])
 
 
 if __name__ == "__main__":

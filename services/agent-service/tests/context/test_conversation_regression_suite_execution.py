@@ -85,6 +85,6 @@ def test_conversation_case_executes_real_lifecycle_contract(case: dict) -> None:
     # concise final guard here so a refactor cannot turn this back into a JSON
     # replay test that never invokes the lifecycle graph.
     assert all(
-        turn.result.get("grounded_execution_plan") or turn.result.get("workflow_plan")
+        turn.result.get("grounded_execution_plan") or turn.result.get("grounded_execution_plan")
         for turn in executed.turns
     )

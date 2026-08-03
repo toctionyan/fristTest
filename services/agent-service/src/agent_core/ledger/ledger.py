@@ -23,11 +23,32 @@ RESULT_SECONDS = 2 * 60 * 60
 ARTIFACT_SECONDS = 2 * 60 * 60
 
 
-def scope_for_state(state: dict[str, Any]) -> dict[str, str]:
+def execution_scope_for_state(state: dict[str, Any]) -> dict[str, str]:
+    """Return the immutable tenant/actor/thread scope bound to ExecutionPermit.
+
+    Business subject identity is intentionally not part of this scope: a single
+    authenticated actor may operate on behalf of a separately authorized subject,
+    while the permit remains bound to the same tenant, actor and conversation.
+    Resource/subject authorization is enforced by the Business Service command
+    envelope rather than by silently changing an already issued execution scope.
+    """
     return {
         "tenant_id": str(state.get("current_tenant_id") or "default"),
         "user_id": str(state.get("current_user_id") or ""),
         "thread_id": str(state.get("current_thread_id") or ""),
+    }
+
+
+def scope_for_state(state: dict[str, Any]) -> dict[str, str]:
+    actor_user_id = str(state.get("current_user_id") or "")
+    subject_user_id = str(state.get("current_subject") or actor_user_id)
+    return {
+        **execution_scope_for_state(state),
+        # Existing persistence ownership remains actor/thread scoped. Explicit
+        # actor/subject fields prevent that owner key from being mistaken for
+        # business-resource ownership during on-behalf-of operations.
+        "actor_user_id": actor_user_id,
+        "subject_user_id": subject_user_id,
     }
 
 

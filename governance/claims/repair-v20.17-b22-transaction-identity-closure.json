@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b22-transaction-identity-closure",
+  "claims": [
+    {
+      "id": "V20-17-B22-STAGE4-001",
+      "statement": "Multiple durable drafts remain independent while a single canonical focused draft controls interaction projection; actor, subject and resource assertions are independently validated at both Agent and Business Service boundaries.",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/business-service/tests/test_stage4_identity_security.py::test_actor_subject_and_resource_scopes_are_independent_and_consistent"
+      ],
+      "owner": "Stage-4 transaction and identity authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}
