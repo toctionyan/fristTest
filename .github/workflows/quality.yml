@@ -1,5 +1,5 @@
 name: quality
-run-name: Apply verified B28 workspace snapshot
+run-name: Verify B28 PR comment transport
 
 "on":
   pull_request:
@@ -12,96 +12,56 @@ run-name: Apply verified B28 workspace snapshot
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
-  b28-bootstrap:
+  verify-comment-transport:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'agent/b28-bootstrap'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: agent/b28-bootstrap
-          fetch-depth: 0
-          clean: true
-          persist-credentials: true
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-
-      - name: Verify and install B28 stable snapshot
+      - name: Fetch and verify exact PR comment payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: '5161729797'
+          EXPECTED_LENGTH: '8192'
+          EXPECTED_SHA256: '32080320a732136731905661d4ca4e9f6cec21726650b34557591bd0331e917c'
         shell: bash
         run: |
           set -euo pipefail
-          echo 'a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4  .github/b28-upgrade.zip' | sha256sum -c -
-          rm -rf "$RUNNER_TEMP/b28-upgrade"
-          mkdir -p "$RUNNER_TEMP/b28-upgrade"
-          unzip -q .github/b28-upgrade.zip -d "$RUNNER_TEMP/b28-upgrade"
-          SRC="$RUNNER_TEMP/b28-upgrade/customer_agent_workspace_v20_17_b28_repository_onboarding_phase_candidate_20260803"
-          test -f "$SRC/PHASE_CANDIDATE_MANIFEST.json"
-          export SRC
-          python - <<'PY'
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
+            > "$RUNNER_TEMP/comment.json"
+          python3 - <<'PY'
           import hashlib
           import json
           import os
-          import pathlib
-          import shutil
+          from pathlib import Path
 
-          workspace = pathlib.Path.cwd()
-          source = pathlib.Path(os.environ['SRC'])
-          manifest_path = source / 'PHASE_CANDIDATE_MANIFEST.json'
-          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-          records = manifest.get('files', [])
-          if len(records) != manifest.get('file_count'):
-              raise SystemExit('manifest_file_count_mismatch')
-
-          for record in records:
-              relative = pathlib.PurePosixPath(record['path'])
-              if relative.is_absolute() or '..' in relative.parts:
-                  raise SystemExit(f'unsafe_manifest_path:{relative}')
-              candidate = source / pathlib.Path(*relative.parts)
-              if not candidate.is_file() or candidate.is_symlink():
-                  raise SystemExit(f'manifest_file_missing_or_unsafe:{relative}')
-              payload = candidate.read_bytes()
-              if len(payload) != record['size']:
-                  raise SystemExit(f'manifest_size_mismatch:{relative}')
-              if hashlib.sha256(payload).hexdigest() != record['sha256']:
-                  raise SystemExit(f'manifest_sha256_mismatch:{relative}')
-
-          for child in list(workspace.iterdir()):
-              if child.name == '.git':
-                  continue
-              if child.is_dir() and not child.is_symlink():
-                  shutil.rmtree(child)
-              else:
-                  child.unlink()
-
-          for record in records:
-              relative = pathlib.PurePosixPath(record['path'])
-              src = source / pathlib.Path(*relative.parts)
-              dst = workspace / pathlib.Path(*relative.parts)
-              dst.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copy2(src, dst)
-
-          shutil.copy2(manifest_path, workspace / 'PHASE_CANDIDATE_MANIFEST.json')
+          body = json.loads(Path(os.environ['RUNNER_TEMP']).joinpath('comment.json').read_text(encoding='utf-8'))['body']
+          marker = '\n\n'
+          if marker not in body:
+              raise SystemExit('comment_payload_separator_missing')
+          header, payload = body.split(marker, 1)
+          expected_length = int(os.environ['EXPECTED_LENGTH'])
+          expected_sha = os.environ['EXPECTED_SHA256']
+          actual_sha = hashlib.sha256(payload.encode('utf-8')).hexdigest()
+          print(f'body_length={len(body)}')
+          print(f'payload_length={len(payload)}')
+          print(f'payload_sha256={actual_sha}')
+          if header != f'B28-TRANSFER-TEST\nlength:{expected_length}\nsha256:{expected_sha}':
+              raise SystemExit('comment_header_mismatch')
+          if len(payload) != expected_length:
+              raise SystemExit('comment_payload_length_mismatch')
+          if actual_sha != expected_sha:
+              raise SystemExit('comment_payload_sha256_mismatch')
+          print('comment_transport=PASS')
           PY
-
-          python -B scripts/verify_task_ledger.py --workspace-root .
-          python -B scripts/verify_version_consistency.py --workspace-root .
-          git diff --check
-
-      - name: Commit verified B28 snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          git commit -m 'Upgrade workspace governance to B28 repository onboarding'
-          git push origin HEAD:agent/b28-bootstrap
