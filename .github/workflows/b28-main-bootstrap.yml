@@ -1,0 +1,79 @@
+name: B28 Main-Context Bootstrap
+
+"on":
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/b28-main-bootstrap.yml
+
+permissions:
+  contents: write
+
+env:
+  B28_UPGRADE_BRANCH: agent/b28-repository-onboarding
+  B28_EXPECTED_HEAD: 08399348d2016540dfae652bcb1067f6bf4f59ac
+  B28_MAIN_BASE: b33e876eb0f9a6df3a9222dd4696c24230e0f8d9
+
+jobs:
+  publish-verified-tree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable governed upgrade head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.B28_EXPECTED_HEAD }}
+          fetch-depth: 8
+          clean: true
+          persist-credentials: true
+
+      - name: Verify branch ancestry and transport identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
+          git merge-base --is-ancestor "$B28_MAIN_BASE" HEAD
+          test "$(find .b28-bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "16"
+          echo "80770a9c0ff833b576e00be58b9535702bb87b0fc7cb09208ebfe62212e527f6  .github/workflows/source-snapshot.yml" | sha256sum -c -
+
+          find . -path './.git' -prune -o -type d -exec chmod 0755 {} +
+          find . -path './.git' -prune -o -type f -exec chmod 0644 {} +
+
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --format=gnu \
+            --exclude='./.git' \
+            --exclude='./.b28-bootstrap' \
+            --exclude='./.github/workflows/b28-bootstrap.yml' \
+            -cf /tmp/b17j-source.tar .
+          echo "526e44071fe3e78f42af33baef52a2769daa59a1deb5bf1bdd5ec220bf2598ff  /tmp/b17j-source.tar" | sha256sum -c -
+
+          cat .b28-bootstrap/part-* > /tmp/b28.patch.zst
+          echo "f46344723a6fe12993bb07c81bc14d24be4ab0400508668cdda4d180bf136563  /tmp/b28.patch.zst" | sha256sum -c -
+
+          zstd -q -d --patch-from=/tmp/b17j-source.tar /tmp/b28.patch.zst -o /tmp/b28-new.tar
+          echo "f09d5e914e9f1c6bf90f663292b2503fc47a42a6dd3764aece67ec4472a740f0  /tmp/b28-new.tar" | sha256sum -c -
+
+      - name: Commit and publish exact B28 stable workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -rf .
+          git clean -fdx
+          tar -xf /tmp/b28-new.tar -C .
+
+          if find . -type f -name '.env' -print -quit | grep -q .; then
+            echo 'A real .env file was found in the governed snapshot.' >&2
+            exit 1
+          fi
+          if find . -type d \( -name '.pytest_cache' -o -name '__pycache__' -o -name '.venv' -o -name 'venv' -o -name 'node_modules' \) -print -quit | grep -q .; then
+            echo 'A generated dependency or cache directory was found.' >&2
+            exit 1
+          fi
+
+          git add -A
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git commit -m 'Upgrade workspace to V20.17 B28'
+          test "$(git rev-parse HEAD^{tree})" = "a43068fb9d2d5e4aa9bbca8d1a3d97d8c0885bd2"
+          git push --force-with-lease=refs/heads/${B28_UPGRADE_BRANCH}:$B28_EXPECTED_HEAD \
+            origin HEAD:${B28_UPGRADE_BRANCH}
