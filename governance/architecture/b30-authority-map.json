@@ -12,16 +12,16 @@
       "output": "TurnRequest"
     },
     {
-      "id": "semantic_contract",
-      "owner": "TurnSemanticContract",
-      "responsibility": "Resolve current user meaning, typed goals, typed targets and explicit references.",
-      "output": "SemanticDecision"
+      "id": "context_evidence",
+      "owner": "ContextEvidenceProjection",
+      "responsibility": "Project bounded, scoped and source-bound evidence for semantic compilation without selecting a target or creating meaning.",
+      "output": "ContextEvidenceBundle"
     },
     {
-      "id": "context_pack",
-      "owner": "ContextPackBuilder",
-      "responsibility": "Select only typed, source-bound history evidence needed by the current semantic decision.",
-      "output": "ContextPack"
+      "id": "semantic_contract",
+      "owner": "TurnSemanticContract",
+      "responsibility": "Freeze current user meaning, business-effect goals, typed target sets, corrections and explicit reference relations.",
+      "output": "SemanticDecision"
     },
     {
       "id": "capability_match",
@@ -59,13 +59,17 @@
       "owner": "TurnRequestLedger",
       "must_not_be_owned_by": ["retry handler", "graph node", "client-generated turn state"]
     },
+    "context_evidence": {
+      "owner": "ContextEvidenceProjection",
+      "must_not_be_owned_by": ["model memory", "free-text history scan", "tool error", "audit log target selection"]
+    },
     "semantic_meaning": {
       "owner": "TurnSemanticContract",
-      "must_not_be_owned_by": ["keyword router", "per-intent context parser", "tool selection"]
+      "must_not_be_owned_by": ["keyword router", "per-intent context parser", "tool selection", "ContextBundle"]
     },
     "dialogue_reference": {
-      "owner": "TypedTargetSet+VisibleResultRef+SourceEffect",
-      "must_not_be_owned_by": ["free-text history scan", "latest object guess", "per-tool memory"]
+      "owner": "TurnSemanticContract.TypedTargetSet",
+      "must_not_be_owned_by": ["VisibleResultRef recency", "referent-set projection", "latest object guess", "per-tool memory"]
     },
     "capability_support": {
       "owner": "CapabilitySurface+MatchProof",
@@ -100,10 +104,13 @@
   ],
   "hard_invariants": [
     "one_external_request_creates_at_most_one_turn",
-    "one_turn_has_one_semantic_contract",
+    "context_evidence_is_projected_before_semantic_freeze_and_never_selects_a_target",
+    "one_turn_has_one_frozen_semantic_contract",
+    "semantic_contract_cannot_be_rewritten_by_capability_plan_or_execution_failure",
     "one_goal_is_executable_only_with_one_match_proof",
     "no_keyword_or_similarity_fallback_can_create_capability_support",
     "dialogue_references_are_typed_and_source_bound",
+    "visible_result_refs_and_referent_sets_are_non_dispatchable_evidence",
     "business_facts_come_only_from_business_service_receipts",
     "writes_require_transaction_authority_and_idempotency",
     "runtime_outcome_is_the_only_public_result_authority",
@@ -114,6 +121,7 @@
     "architecture": [
       "all_authority_boundaries_have_exactly_one_owner",
       "all_runtime_entrypoints_converge_on_the_authoritative_chain",
+      "context_evidence_precedes_semantic_freeze",
       "no_active_legacy_path_can_bypass_semantic_capability_or_transaction_authority"
     ],
     "tests": [
