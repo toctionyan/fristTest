@@ -1,0 +1,31 @@
+name: B29 Part03 Diagnostic
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [agent/b28-repository-onboarding]
+    paths:
+      - .github/workflows/b29-part03-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  hashes:
+    if: github.event.pull_request.head.ref == 'agent/b29-codex-multi-agent-governance'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Print bounded part03 block hashes
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          text = Path('.github/scripts/b29-upgrade.part03').read_text(encoding='utf-8')
+          print('length', len(text))
+          for start in range(0, len(text), 500):
+              print(start, hashlib.sha256(text[start:start+500].encode()).hexdigest())
+          PY
