@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "stage": "B30",
+  "work_package": "WP-02",
+  "status": "PROPOSED_FOR_REVIEW",
+  "baseline_commit": "e7e902c3363d867b8bea18ab2c76c0739252daad",
+  "contract_binding": {
+    "path": "governance/architecture/b30-turn-request-ledger.json",
+    "merged_commit": "e7e902c3363d867b8bea18ab2c76c0739252daad",
+    "git_blob_sha": "bcc9f2847de265fe207a6635647da2c492620eaa",
+    "rule": "Any contract or baseline movement invalidates this plan and requires a new review."
+  },
+  "root_cause": {
+    "failure": "Chat HTTP and SSE append a user message and invoke the lifecycle graph without a durable external request identity.",
+    "evidence_paths": [
+      "services/agent-service/app/schemas/chat_schema.py",
+      "services/agent-service/app/use_cases/conversation_turn.py",
+      "services/agent-service/src/agent_core/persistence/message_store.py",
+      "services/agent-service/src/agent_core/storage/repositories/base.py",
+      "services/agent-service/src/agent_core/persistence/store_provider.py",
+      "services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py",
+      "services/agent-service/frontend/src/components/ChatPanel.jsx"
+    ],
+    "proof": [
+      "ChatRequest has no client_request_id while structured transaction requests already require one.",
+      "ConversationTurnService appends the user message before any durable request claim in both chat and stream paths.",
+      "StoreProvider has no TurnRequestRepository and MessageRepository has no stable message_id argument.",
+      "The frontend creates a request ID for the optimistic user row but does not send that ID to /chat/turn."
+    ]
+  },
+  "scope_amendment": {
+    "reason": "The frozen contract requires the user message to carry TurnRequestLedger.message_id, but its initial implementation_scope omitted the concrete SQLite message store and AgentService composition seam.",
+    "added_paths_requiring_review": [
+      "services/agent-service/app/services/agent_service.py",
+      "services/agent-service/src/agent_core/persistence/message_store.py"
+    ],
+    "rule": "These paths are not writable until the implementation plan review explicitly approves this amendment."
+  },
+  "implementation_paths": [
+    "services/agent-service/app/schemas/chat_schema.py",
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/app/use_cases/conversation_turn.py",
+    "services/agent-service/src/agent_core/storage/repositories/base.py",
+    "services/agent-service/src/agent_core/persistence/turn_request_store.py",
+    "services/agent-service/src/agent_core/persistence/message_store.py",
+    "services/agent-service/src/agent_core/persistence/store_provider.py",
+    "services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py",
+    "services/agent-service/frontend/src/components/ChatPanel.jsx",
+    "services/agent-service/frontend/src/components/ChatPanel.test.jsx",
+    "services/agent-service/tests/persistence/test_turn_request_store.py",
+    "services/agent-service/tests/runtime/test_turn_request_ledger.py",
+    "services/agent-service/tests/api/test_chat_request_ledger.py",
+    "services/agent-service/tests/runtime/test_turn_request_ledger_crash_recovery.py"
+  ],
+  "review_only_paths": [
+    "governance/architecture/b30-turn-request-ledger.json",
+    "governance/architecture/b30-wp02-implementation-plan.json",
+    "docs/architecture/B30_TURN_REQUEST_LEDGER.md",
+    "docs/architecture/B30_WP02_IMPLEMENTATION_PLAN.md"
+  ],
+  "separately_governed_paths": [
+    "skill-system/registry/product-source-baseline.json"
+  ],
+  "forbidden_paths": [
+    "services/business-service/**",
+    "skill-system/controller/**",
+    "skill-system/hooks/**",
+    ".github/workflows/**"
+  ],
+  "phases": [
+    {
+      "id": "P1",
+      "name": "Repository types and deterministic digest",
+      "writes": [
+        "services/agent-service/src/agent_core/storage/repositories/base.py",
+        "services/agent-service/src/agent_core/persistence/turn_request_store.py",
+        "services/agent-service/tests/persistence/test_turn_request_store.py"
+      ],
+      "requirements": [
+        "Define immutable TurnRequestScope, TurnRequestClaim and claim-decision types.",
+        "Canonicalize request digest from normalized message, trusted actor context and response profile; exclude transport.",
+        "Do not import LangGraph, model clients or API schemas into the repository layer."
+      ],
+      "tests": [
+        "first claim creates one turn_id and message_id",
+        "same key and digest replays",
+        "same key and different digest conflicts"
+      ],
+      "rollback": "Remove the new repository module and protocol additions; no existing storage behavior changes in this phase."
+    },
+    {
+      "id": "P2",
+      "name": "SQLite atomic claim and fenced completion",
+      "writes": [
+        "services/agent-service/src/agent_core/persistence/turn_request_store.py",
+        "services/agent-service/src/agent_core/persistence/store_provider.py",
+        "services/agent-service/tests/persistence/test_turn_request_store.py"
+      ],
+      "requirements": [
+        "Use one composite unique key for tenant, user, thread and client_request_id.",
+        "Claim with BEGIN IMMEDIATE or an equivalent atomic transaction.",
+        "Use monotonically increasing fencing tokens and owner-bound compare-and-set transitions.",
+        "Expired RUNNING returns recovery-required; it never silently becomes a new execution."
+      ],
+      "tests": [
+        "simultaneous claims produce one winner",
+        "stale owner cannot complete",
+        "expired RUNNING does not reexecute",
+        "scope isolation across tenant/user/thread"
+      ],
+      "rollback": "Stop wiring the repository in StoreProvider; retain an unused table rather than destructive rollback."
+    },
+    {
+      "id": "P3",
+      "name": "SQLAlchemy and PostgreSQL parity",
+      "writes": [
+        "services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py",
+        "services/agent-service/tests/persistence/test_turn_request_store.py"
+      ],
+      "requirements": [
+        "Define the same composite uniqueness and record fields as SQLite.",
+        "Implement transactional insert-or-read claim and fenced compare-and-set completion.",
+        "Schema-present mode must fail clearly when the required table/columns are absent; it may not create production schema implicitly."
+      ],
+      "tests": [
+        "SQLite and SQLAlchemy contract parity",
+        "schema-present validation catches missing ledger table",
+        "concurrent insert-or-read yields one authoritative record"
+      ],
+      "rollback": "Disable provider exposure of turn_requests; do not weaken production schema validation."
+    },
+    {
+      "id": "P4",
+      "name": "Stable message identity",
+      "writes": [
+        "services/agent-service/src/agent_core/storage/repositories/base.py",
+        "services/agent-service/src/agent_core/persistence/message_store.py",
+        "services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py",
+        "services/agent-service/tests/persistence/test_turn_request_store.py"
+      ],
+      "requirements": [
+        "MessageRepository.add_message accepts an optional stable message_id.",
+        "User-message insert is idempotent under tenant/user/thread/message identity.",
+        "Existing historical rows remain readable and assistant-message persistence remains backward compatible.",
+        "A duplicate message_id with different public content fails closed."
+      ],
+      "tests": [
+        "same ledger message_id inserts once",
+        "different content under same identity conflicts",
+        "legacy messages without stable ID remain readable"
+      ],
+      "rollback": "Callers stop passing message_id; optional columns remain non-authoritative and backward compatible."
+    },
+    {
+      "id": "P5",
+      "name": "Chat API and service composition",
+      "writes": [
+        "services/agent-service/app/schemas/chat_schema.py",
+        "services/agent-service/app/services/agent_service.py",
+        "services/agent-service/frontend/src/components/ChatPanel.jsx",
+        "services/agent-service/frontend/src/components/ChatPanel.test.jsx",
+        "services/agent-service/tests/api/test_chat_request_ledger.py"
+      ],
+      "requirements": [
+        "ChatRequest.client_request_id is required and non-empty.",
+        "AgentService receives TurnRequestRepository from StoreProvider; it does not construct a second repository.",
+        "ChatPanel generates one request ID, uses it for the optimistic user row and sends the same value as client_request_id.",
+        "The server does not generate a public chat request ID fallback."
+      ],
+      "tests": [
+        "missing ID is rejected at API boundary",
+        "frontend sends optimistic-row ID as client_request_id",
+        "transaction request IDs remain unchanged"
+      ],
+      "rollback": "Revert the API/frontend phase together; do not make the field optional as compatibility fallback."
+    },
+    {
+      "id": "P6",
+      "name": "HTTP and SSE orchestration integration",
+      "writes": [
+        "services/agent-service/app/use_cases/conversation_turn.py",
+        "services/agent-service/tests/runtime/test_turn_request_ledger.py",
+        "services/agent-service/tests/api/test_chat_request_ledger.py"
+      ],
+      "requirements": [
+        "Claim after authenticated scope and conversation lease, before message append or graph access.",
+        "NEW_CLAIM alone may append the user message and invoke the graph.",
+        "REPLAY_SUCCEEDED returns or emits the stored canonical ChatResponse without graph/model invocation.",
+        "PAYLOAD_CONFLICT, REQUEST_IN_PROGRESS and RECOVERY_REQUIRED are typed fail-closed responses.",
+        "Both HTTP and SSE pass ledger turn_id/message_id into trace and graph input without creating a second semantic authority."
+      ],
+      "tests": [
+        "same ID HTTP retry invokes graph once",
+        "HTTP then SSE with same ID uses one turn",
+        "SSE disconnect retry replays terminal response",
+        "user message appended once",
+        "same ID different payload rejected"
+      ],
+      "rollback": "Revert orchestration and API/frontend phases together; leave repositories unused rather than bypassing the ledger."
+    },
+    {
+      "id": "P7",
+      "name": "Crash boundary and response durability",
+      "writes": [
+        "services/agent-service/app/use_cases/conversation_turn.py",
+        "services/agent-service/tests/runtime/test_turn_request_ledger_crash_recovery.py"
+      ],
+      "requirements": [
+        "Persist canonical public response before SUCCEEDED transition and successful return.",
+        "Complete with owner, fencing token, digest and expected state compare-and-set.",
+        "A crash after claim, message append, graph completion or response persistence has a separately tested recovery decision.",
+        "Unknown completion never automatically invokes the graph again."
+      ],
+      "tests": [
+        "crash after claim requires recovery",
+        "crash after message append does not append twice",
+        "crash after graph completion reconciles authoritative checkpoint/response",
+        "stale worker cannot overwrite recovered success"
+      ],
+      "rollback": "Disable the chat endpoint rather than allowing uncertain automatic re-execution."
+    },
+    {
+      "id": "P8",
+      "name": "Regression, diff review and baseline refresh",
+      "writes": [],
+      "requirements": [
+        "Run focused repository, concurrency, API, HTTP/SSE and crash tests.",
+        "Run full Agent, Business, frontend and lifecycle canary quick profile.",
+        "Independent Diff Integrity Reviewer verifies no message/graph path bypasses the ledger.",
+        "Only after diff approval, a separate control-plane operation refreshes product-source-baseline.json.",
+        "Closure Arbiter requires all 13 contract acceptance tests plus complete regression evidence."
+      ],
+      "tests": [
+        "contract validator",
+        "focused WP-02 test suite",
+        "full quick quality profile",
+        "forbidden-path and test-weakening scan"
+      ],
+      "rollback": "Revert the complete WP-02 implementation commit set and restore the previously validated B30 tree."
+    }
+  ],
+  "mandatory_test_dimensions": [
+    "focused",
+    "counterexample",
+    "negative_path",
+    "concurrency",
+    "crash_recovery",
+    "http_sse_equivalence",
+    "backend_parity",
+    "complete_regression"
+  ],
+  "review_questions": [
+    "Does the scope amendment for AgentService and MessageStore follow necessarily from the frozen message identity invariant?",
+    "Can any path append a user message or invoke the graph before a successful ledger claim?",
+    "Can an expired or uncertain record cause automatic re-execution?",
+    "Are HTTP and SSE using one transport-neutral identity and stored result?",
+    "Can a stale worker complete with an obsolete fencing token?",
+    "Does any implementation phase reuse action IdempotencyStore as conversational authority?",
+    "Is product-source baseline refresh performed by a separate control-plane actor after diff approval?"
+  ],
+  "permit_preconditions": [
+    "plan review decision APPROVED",
+    "contract commit and blob unchanged",
+    "B30 baseline commit unchanged",
+    "scope amendment explicitly approved",
+    "implementation paths hash-bound in ChangePermit",
+    "tests and rollback bound in ChangePermit"
+  ]
+}
