@@ -1,0 +1,124 @@
+name: B29 Multi-Agent Governance Upgrade
+run-name: Apply and verify Codex multi-agent governance
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [agent/b28-repository-onboarding]
+    paths:
+      - .b29-multi-agent-upgrade-trigger
+      - .github/scripts/b29-upgrade.part00
+      - .github/scripts/b29-upgrade.part01
+      - .github/scripts/b29-upgrade.part02
+      - .github/scripts/b29-upgrade.part03
+      - .github/scripts/b29-upgrade.part04
+      - .github/workflows/b29-multi-agent-governance-upgrade.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b29-codex-multi-agent-governance'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact B29 head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify and reconstruct upgrade script
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'e5c719e7dc0139af01908f53150483c0ad2f937db5e6dec098fc21660b61fe45  .github/scripts/b29-upgrade.part00' | sha256sum -c -
+          echo '026fe61970d3a91c318150e22ea5399f4367185e2c57015c4bd8461fc714ad9b  .github/scripts/b29-upgrade.part01' | sha256sum -c -
+          echo '0e482676cc66a0fb6abd33632ffae09930becc35fbf8af1cde5e21616b1970d1  .github/scripts/b29-upgrade.part02' | sha256sum -c -
+          echo 'c54eafb2a72a14a829eecdb6c293b5370b6a9aa9503762c5881e11300decf3ff  .github/scripts/b29-upgrade.part03' | sha256sum -c -
+          echo '278832d71e5a16954c19e2e2f07949b5f067b5acba992a705e9f83162883202f  .github/scripts/b29-upgrade.part04' | sha256sum -c -
+          cat .github/scripts/b29-upgrade.part0{0,1,2,3,4} > "${RUNNER_TEMP}/b29-upgrade.b64"
+          "${pythonLocation}/bin/python" - <<'PY'
+          import base64
+          import pathlib
+          import zlib
+          source = pathlib.Path("${RUNNER_TEMP}/b29-upgrade.b64")
+          target = pathlib.Path("${RUNNER_TEMP}/b29-upgrade.py")
+          target.write_bytes(zlib.decompress(base64.b64decode(source.read_text(encoding="utf-8"))))
+          PY
+          echo 'f23b93f3391046fd4dd560bed2e52d6ca52ac4ab769f8d9553ae0ea10a239989  '"${RUNNER_TEMP}"'/b29-upgrade.py' | sha256sum -c -
+
+      - name: Apply multi-agent governance upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" != ''
+          "${pythonLocation}/bin/python" -B "${RUNNER_TEMP}/b29-upgrade.py"
+
+      - name: Compile governance controllers and hooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B -m py_compile \
+            skill-system/controller/agent_attestation.py \
+            skill-system/controller/candidate_freeze.py \
+            skill-system/controller/candidate_freeze_cli.py \
+            skill-system/controller/multi_agent_governance.py \
+            skill-system/controller/review_import_cli.py \
+            skill-system/controller/host_conformance.py \
+            skill-system/controller/scope_guard.py \
+            skill-system/hooks/pre_tool_use.py \
+            skill-system/hooks/post_tool_use.py \
+            skill-system/hooks/stop_guard.py
+
+      - name: Run governance registry and host checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B skill-system/controller/registry.py --verify
+          "${pythonLocation}/bin/python" -B skill-system/controller/host_conformance.py --strict
+
+      - name: Run multi-agent and compatibility regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B skill-system/tests/test_multi_agent_governance.py
+          "${pythonLocation}/bin/python" -B skill-system/tests/test_repair_governance.py
+          "${pythonLocation}/bin/python" -B skill-system/tests/test_contract.py
+          "${pythonLocation}/bin/python" -B skill-system/tests/test_product_portability.py
+
+      - name: Publish only verified permanent files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f \
+            .b29-multi-agent-upgrade-trigger \
+            .github/scripts/b29-upgrade.part00 \
+            .github/scripts/b29-upgrade.part01 \
+            .github/scripts/b29-upgrade.part02 \
+            .github/scripts/b29-upgrade.part03 \
+            .github/scripts/b29-upgrade.part04 \
+            .github/workflows/b29-multi-agent-governance-upgrade.yml
+          git diff --check
+          test ! -e .b29-multi-agent-upgrade-trigger
+          test ! -e .github/workflows/b29-multi-agent-governance-upgrade.yml
+          test -z "$(find .github/scripts -maxdepth 1 -name 'b29-upgrade.part*' -print -quit)"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Implement Codex multi-agent repair governance'
+          echo "B29_COMMIT=$(git rev-parse HEAD)"
+          echo "B29_TREE=$(git rev-parse HEAD^{tree})"
+          git push origin HEAD:agent/b29-codex-multi-agent-governance
