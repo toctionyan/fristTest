@@ -1,11 +1,101 @@
-# V20.17 B17j — CI profile boundary and Harness isolation repair
+# Changelog
 
-- 第 4 轮修复生命周期 Harness 将 `.venv/bin/python` 解引用成系统基础解释器的问题，并增加虚拟环境符号链接身份反例。
-- 真实 GitHub CI 将通用项目 `quality` Workflow 与 Skill-only 产品树兼容性 Gate 解耦；Skill-only release 仍保留 `project-compatibility-smoke`。
-- 修复 B17e 反例桥接和受保护运行时职责断言，使反例继续指向当前唯一权威实现，而不是不存在的测试助手或已退休 Workflow 步骤。
-- 修复 B17h/B17i 子进程测试继承 GitHub Runner 环境变量造成的场景污染；“无 CI 上下文”反例现在使用显式隔离环境。
-- 产品 static/quick/integration/release Gate 未减少，客服语义、Prompt、Capability、事务、数据库与 RAG 行为未修改。
-- 当前仍为 `PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING`，尚未执行受保护生产认证，也未生成 `production_closed`。
+## V20.17 B28 — Repository onboarding authority
+
+- Added fail-closed repository onboarding preflight.
+- Locked `integration-diagnostic.yml` to the release toolchain authority.
+- Explicitly admitted that workflow under skill-only governance.
+- Kept WP-08/WP-09 open and `production_closed=false`.
+
+## V20.17 B27 — Stage-6 host and production-closure readiness
+
+- Added fail-closed real Codex/Claude host preflight with WP-08, clean-main, strict adapter and protected-CI checks.
+- Added independent production artifact consumer bound to signed toolchain/run identity, exact hashes and safe ZIP contents.
+- Closed stale release test-oracle issue without renaming the workflow to satisfy the test.
+- Focused 8/8, full Skill 115/115 and protected release authority 90/90 passed.
+- Real hosts, WP-08 and production artifacts remain external blockers; `production_closed=false`.
+
+## V20.17 B26 — WP-08 cross-run resume authority
+
+- Connected the resumable WP-08 runner to explicit prior GitHub workflow artifacts.
+- Added fail-closed prior-artifact validation for repository/run/attempt/commit, signed release toolchain evidence, source/workspace fingerprints, symlinks and path escapes.
+- Added WP-08-specific protected-main run identity while preserving `release.yml` defaults.
+- Pinned `actions/download-artifact` v7 by commit SHA without widening unrelated workflow allowlists.
+- Added success, retry, wrong-run, source-drift, symlink, tampered-toolchain and wrong-workflow counterexamples.
+- Cross-run repair is `CLOSED_VERIFIED`; WP-08 and production remain environment/repository blocked.
+
+# V20.17 B25 — WP-08 resumable certification orchestration
+
+- Added `wp08-resumable-certification@1`: bounded component timeouts, process-group termination, atomic checkpoints and same-source resume.
+- Added protected, SHA-pinned `wp08-full-stack-certification` workflow with four required batches and always-uploaded evidence.
+- Added deterministic workflow/config contract and negative tests for mutable Actions, unbounded timeouts, stale resume and forbidden production-close claims.
+- Verified 11 focused/counterexample tests, 97 Skill tests and 51 production-authority/supply-chain regressions.
+- Current container records all four batches as `BLOCKED_BY_ENVIRONMENT`; WP-08 remains open and `production_closed=false`.
+
+# V20.17 B24 — Stage-5 quality toolchain authority closure
+
+- Bound quality CI to `release-toolchain-lock.json`: Ubuntu 24.04, Python 3.12.13, Node 24.18.0, npm 11.16.0, uv 0.11.29, pinned Action SHAs and pgvector digest.
+- Added `quality-toolchain-contract@1` with static and runtime fail-closed validation before project dependency synchronization.
+- Added positive and negative controls: 5 focused tests and 31 supply-chain/protected-environment regression tests passed.
+- Current container is accurately rejected as `BLOCKED_BY_ENVIRONMENT`; WP-08 and `production_closed=false` remain unchanged.
+
+# V20.17 B23 — Stage-5 non-environment regression closure
+
+- Closed two runtime authority defects and migrated stale B20/B22 test oracles under ChangePermit.
+- Focused 19/19, ResultRef 24/24, changed-file non-environment 123/123, Business 38/38.
+- Standard Quick remains `BLOCKED_BY_ENVIRONMENT`; WP-08 and `production_closed=false` are unchanged.
+
+# V20.17 B22 / Skill 6.7.0 — Transaction, Multi-Draft and Identity Security Closure
+
+- WP-06：新增 canonical `focused_draft_id`，`active_draft_id` 仅保留兼容投影；多个持久 Draft、焦点选择、终态迁移、过期卡片和恢复行为形成独立合同。
+- WP-07：Actor、Subject、Resource、Role、Tenant 与 Expected Version 在认证、传输和 Business Service 中独立验证；领域所有权仍由 Business Service 最终裁决。
+- 受治理非环境回归：Agent 63 passed（1 PostgreSQL integration deselected），Business Service 38 passed，compileall PASS，独立 DiffReview PASS。
+- 标准 product-quality-quick 因缺少 LangGraph/前端依赖保持 `BLOCKED_BY_ENVIRONMENT`，真实 PostgreSQL、模型、RAG、浏览器与生产认证进入 WP-08；`production_closed=false`。
+
+# V20.17 B21 / Skill 6.7.0 — Context, Multi-Goal and Exact Capability Closure
+
+- 完成 STAGE-3 / WP-04 / WP-05：新增只读 ReferentSet，不允许历史集合投影自动成为目标。
+- 同轮多结果后的单数续问 fail closed；显式返回和显式分组验证原文字面证据、成员数与连续性。
+- Task 依赖合并 Goal 依赖与执行步骤依赖，修复查询→写操作在多 Goal 中丢失顺序的问题。
+- Capability 只按结构化 requested effect 精确匹配；缺失能力明确 unsupported，550 个锁定/holdout 案例均未使用相似能力替代。
+- 定向测试 620 passed、1 deselected；Campaign 50+100+200+200 = 550/550 PASS，`real_model_claimed=false`。
+- 第一次独立 DiffReview 正确拒绝错误的测试资产目录；恢复基线、修订方案、重新签发 Permit 后第二次 PASS。
+- 未触碰回归在 B20 与候选中保持相同的 12 个依赖型收集错误，候选新增错误为 0；这些错误和真实模型/全栈认证继续归 WP-08。
+- WP-04/WP-05 ClosureMatrix 为 `CLOSED_VERIFIED`，任务总账推进到 STAGE-4；产品版本保持 20.6.1，`production_closed=false`。
+
+# V20.17 B20 / Skill 6.6.0 — Semantic Authority Cutover and Legacy Runtime Exit
+
+- 完成 STAGE-2 / WP-03：State Schema v2 正式对象成为新 Turn 唯一语义权威。
+- Runtime、Capability verifier、Clarification、Tool execution 与 Answer release 不再读取或写入 `turn_goal_plan`、`workflow_plan`、`pending_clarification`。
+- 退休字段只保留在 `lifecycle/state_schema.py` 的一次性 checkpoint 迁移器中；旧 checkpoint 可迁移，非法状态 fail closed。
+- 删除模糊旧能力修复和静默 legacy fallback；工具与目标必须绑定精确 `requested_effect`。
+- 正常测试夹具迁移到正式 Frozen Semantic Contract 与 Plan Definition/Run；迁移/负例测试继续保留旧状态构造。
+- 依赖较轻的最终定向集 `81 passed, 10 deselected`，兼容投影 `4 passed`；缺少 `langchain_core/langgraph` 的锁定全栈测试明确归属 WP-08，未冒充通过。
+- 独立 DiffReview 前两次分别拒绝漏列文件和测试完整性下降；恢复基线、重新审批、重放后第三次 PASS，拒绝证据未覆盖。
+- WP-03 ClosureMatrix 为 `CLOSED_VERIFIED`，任务总账推进到 STAGE-3；产品版本保持 20.6.1，`production_closed=false`。
+
+# V20.17 B19 / Skill 6.5.0 — Authoritative Task Ledger and Modular Quality Controller
+
+- 新增机器校验的 `governance/task-ledger.json`：固定 6 个阶段、9 个必做工作包、依赖、Owner、阻塞项、Known Issues 与 Scope Decisions。
+- 新增 `task-ledger-validate` / `task-ledger-status`，拒绝重复 ID、依赖环、无证据关单、必做项延期和无 Decision Record 的取消。
+- `scripts/quality_loop.py` 从 3181 行缩减为 978 行兼容入口；职责拆分为 `scripts/quality_control/` 下 8 个 focused modules。
+- `migration` Change Contract 现在在 `contract-begin` 前强制校验三方案架构决策，避免实现和测试结束后才发现缺少决策记录。
+- 保留 `repair_loop.py` 和历史私有 helper 的导入兼容；新增模块边界测试，禁止把原实现重复留在入口形成双权威。
+- Trusted Judge 覆盖全部提取的质量裁判模块；修改任一内部模块都会使候选指纹失败。
+- 记录既存 `ISSUE-REL-001`（发布 Workflow 测试步骤名漂移）和 `ISSUE-ENV-001`（锁定运行环境/凭证缺失），未跨范围偷修。
+- 客服语义、Capability、事务、业务服务、前端、RAG 和业务合同未修改。
+
+# V20.17 B18 / Skill 6.4.0 — Governed Repair Closure
+
+- 新增 `FailureCase -> RootCauseProof -> RepairPlan -> PlanReview -> ChangePermit -> DiffReview -> ClosureMatrix` 强制证据链。
+- `contract-begin`、`contract-verify`、`contract-close` 现在分别验证修改许可、当前 Diff 和闭环证据；缺失或陈旧记录会明确失败。
+- PreToolUse Hook 只允许 `implementing` 状态的唯一写入者，并同时执行 Change Contract 与 ChangePermit 双重路径授权。
+- Stop Hook 对可写 transition 重新验证当前治理链，防止修改后未审查或证据失效仍宣布完成。
+- 新增只读 Failure Explorer、Repair Plan Reviewer、Diff Integrity Reviewer、Closure Arbiter，并同步到当前环境、Codex 和 Claude Code。
+- Diff Review 从 baseline manifest 重算真实 changed paths，拒绝越权、测试删除/弱化、skip 增加、未批准 Mock、禁止模式和无实际候选变更。
+- Closure Matrix 强制八类证据；最大循环耗尽和环境阻塞不能映射为 `CONVERGED`。
+- 新增定向、反例和负路径测试；客服语义、Prompt、Capability、事务、业务服务、数据库、RAG 和前端行为均未修改。
+- B17i 的真实受保护生产执行仍保持环境阻塞，B18 不把代码治理测试冒充生产认证。
 
 # V20.17 B17i — Production execution handoff
 
@@ -259,3 +349,4 @@
 - 删除未被正式路径使用的 Core 合同和演示评价目录。
 - Skill 从追加式规则集收敛为 V5.0 的五条硬规则与一个统一验收器。
 - 删除多代治理配置与平行 Guard；发布只保留当前 `architecture-policy.json` 和当前证据。
+

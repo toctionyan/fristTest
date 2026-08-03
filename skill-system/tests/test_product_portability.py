@@ -28,6 +28,9 @@ class ProductPortabilityTest(unittest.TestCase):
         self.assertTrue(bootstrap_command_allowed("python3 -B skillctl.py product-init --change-id x"))
         self.assertTrue(bootstrap_command_allowed("python3 -B skillctl.py product-baseline"))
         self.assertTrue(bootstrap_command_allowed("python3 -B skillctl.py contract-verify --result CONVERGED"))
+        self.assertTrue(bootstrap_command_allowed("python3 -B skillctl.py repair-permit"))
+        self.assertTrue(bootstrap_command_allowed("python3 -B skillctl.py repair-diff-review --decision PASS"))
+        self.assertTrue(bootstrap_command_allowed("python3 -B skillctl.py task-ledger-validate"))
 
     def test_portable_host_files_and_commands_exist(self) -> None:
         self.assertEqual(verify_portable(), [])

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "phase": "V20.17 B27",
+  "workspace_version": "20.6.1",
+  "architecture_skill_version": "6.7.0",
+  "production_closed": false,
+  "active_stage_id": "STAGE-5",
+  "stage6_status": "OPEN_BLOCKED_BY_STAGE5_AND_HOST_ENVIRONMENT",
+  "closed_scope": [
+    "fail-closed real Codex/Claude host execution preflight",
+    "independent same-run production release artifact consumer",
+    "ISSUE-REL-001 stale release test-oracle debt"
+  ],
+  "verified": {
+    "focused_tests": "8 passed",
+    "full_skill_pytest": "115 passed",
+    "release_authority_regression": "90 passed"
+  },
+  "remaining_boundary": "WP-08 is still blocked; real Codex/Claude CLI tasks and protected production artifacts have not executed.",
+  "next_action": "Import the package into the correct protected GitHub repository, close WP-08, run real Codex and Claude host canaries, then consume the exact production release result/toolchain/artifacts with scripts/verify_production_closure_artifact.py."
+}

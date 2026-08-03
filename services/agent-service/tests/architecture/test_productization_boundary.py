@@ -89,7 +89,19 @@ def test_order_action_plugin_builds_payload_and_commits_through_adapter():
     assert result["success"] is True
     assert calls[0]["command"]["action_id"] == "create_invoice"
     assert calls[0]["command"]["input"]["expected_version"] == 7
-    assert calls[0]["command"]["actor_scope"]["user_id"] == "u001"
+    command = calls[0]["command"]
+    assert command["actor_scope"] == {
+        "actor_user_id": "u001",
+        "actor_role": "customer",
+        "tenant_id": "tenant-a",
+    }
+    assert command["subject_scope"] == {"subject_user_id": "u001", "tenant_id": "tenant-a"}
+    assert command["resource_scope"] == {
+        "resource_type": "order",
+        "resource_id": "10001",
+        "expected_version": 7,
+        "subject_user_id": "u001",
+    }
     assert calls[0]["idempotency_key"] == "idem-1"
 
 

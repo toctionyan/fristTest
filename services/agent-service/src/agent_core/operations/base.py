@@ -125,7 +125,7 @@ class DeclarativeOperationPlugin:
         values = dict(input_values or {})
         if self.requires_expected_version and "expected_version" not in values and snapshot.get("version") is not None:
             values["expected_version"] = int(snapshot.get("version") or 1)
-        values.setdefault("subject_user_id", actor.user_id)
+        values.setdefault("subject_user_id", actor.resolved_subject_user_id)
         if self.payload_transformer:
             values = self.payload_transformer(values)
         required_by_preview = {
@@ -146,13 +146,29 @@ class DeclarativeOperationPlugin:
     def build_business_command_envelope(self, *, actor: ActorContext, target: dict[str, Any], input_values: dict[str, Any], preview: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = self.build_commit_payload(actor=actor, target=target, input_values=input_values, preview=preview)
         resource_id = self._resource_id(target)
+        expected_version = payload.get("expected_version")
+        subject_user_id = actor.resolved_subject_user_id
         return {
             "contract": "business.operation.command@1",
             "action_id": self.action_id,
             "operation": self.business_operation,
             "target": {"resource_type": self.target_resource_type, "resource_id": resource_id},
             "input": payload,
-            "actor_scope": {"tenant_id": actor.tenant_id, "user_id": actor.user_id, "subject": actor.subject or actor.user_id},
+            "actor_scope": {
+                "actor_user_id": actor.user_id,
+                "actor_role": actor.role,
+                "tenant_id": actor.tenant_id,
+            },
+            "subject_scope": {
+                "subject_user_id": subject_user_id,
+                "tenant_id": actor.tenant_id,
+            },
+            "resource_scope": {
+                "resource_type": self.target_resource_type,
+                "resource_id": resource_id,
+                "expected_version": expected_version,
+                "subject_user_id": subject_user_id,
+            },
         }
 
     def commit_envelope(self, adapter: BusinessPort, actor: ActorContext, *, envelope: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
@@ -171,13 +187,23 @@ class DeclarativeOperationPlugin:
         )
 
     def commit(self, adapter: BusinessPort, actor: ActorContext, *, target: dict[str, Any], payload: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
+        resource_id = self._resource_id(target)
+        values = dict(payload or {})
+        subject_user_id = str(values.get("subject_user_id") or actor.resolved_subject_user_id)
         envelope = {
             "contract": "business.operation.command@1",
             "action_id": self.action_id,
             "operation": self.business_operation,
-            "target": {"resource_type": self.target_resource_type, "resource_id": self._resource_id(target)},
-            "input": dict(payload or {}),
-            "actor_scope": {"tenant_id": actor.tenant_id, "user_id": actor.user_id, "subject": actor.subject or actor.user_id},
+            "target": {"resource_type": self.target_resource_type, "resource_id": resource_id},
+            "input": values,
+            "actor_scope": {"actor_user_id": actor.user_id, "actor_role": actor.role, "tenant_id": actor.tenant_id},
+            "subject_scope": {"subject_user_id": subject_user_id, "tenant_id": actor.tenant_id},
+            "resource_scope": {
+                "resource_type": self.target_resource_type,
+                "resource_id": resource_id,
+                "expected_version": values.get("expected_version"),
+                "subject_user_id": subject_user_id,
+            },
         }
         return self.commit_envelope(adapter, actor, envelope=envelope, idempotency_key=idempotency_key)
 

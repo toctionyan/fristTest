@@ -18,6 +18,11 @@
       "-B",
       "skill-system/controller/registry.py",
       "--verify"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_task_ledger.py"
     ]
   ]
 }

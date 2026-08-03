@@ -41,13 +41,11 @@ def test_context_exits_main_scc_with_canonical_read_only_state_projections():
     try:
         from agent_core.context.state_projection import (
             active_goal_blockers as context_blockers,
-            active_pending_clarification as context_pending,
             clarification_context_projection as context_clarification,
             goal_records_context_projection as context_goals,
         )
         from agent_core.lifecycle.goal_blockers import active_goal_blockers as lifecycle_blockers
         from agent_core.lifecycle.clarification_runtime import (
-            active_pending_clarification as lifecycle_pending,
             clarification_context_projection as lifecycle_clarification,
         )
         from agent_core.lifecycle.goal_lifecycle import goal_records_context_projection as lifecycle_goals
@@ -55,9 +53,9 @@ def test_context_exits_main_scc_with_canonical_read_only_state_projections():
         sys.path.pop(0)
 
     assert lifecycle_blockers is context_blockers
-    assert lifecycle_pending is context_pending
     assert lifecycle_clarification is context_clarification
     assert lifecycle_goals is context_goals
+    assert not hasattr(__import__("agent_core.context.state_projection", fromlist=["active_pending_clarification"]), "active_pending_clarification")
 
     state = {
         "state_schema_version": 2,

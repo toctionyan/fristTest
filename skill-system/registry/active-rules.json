@@ -290,28 +290,28 @@
       "status": "active"
     },
     {
-      "id": "SEMANTIC_OUTCOME_OVER_INTERNAL_REPRESENTATION",
+      "id": "INDEPENDENT_AGENT_ATTESTATION",
       "level": "HARD_INVARIANT",
       "scope": {
         "applies_to": [
-          "customer-agent-open-language-semantics",
-          "semantic-evaluation"
+          "repair",
+          "migration",
+          "revert"
         ],
         "excludes": [
-          "deterministic-structure-validation",
-          "authorization-invariants",
-          "transaction-invariants"
+          "legacy-immutable-contract"
         ]
       },
-      "rationale": "开放语义按用户可观察效果验收；Oracle 不得把一种 Goal AST、依赖图或工具顺序升级为唯一语义真理。",
+      "rationale": "实现者不得通过角色字符串自审；方案、冻结候选、真实 Diff 与闭环必须由隔离任务和 worktree 的独立只读 Agent 审核。",
       "verification": [
-        "oracle-review",
-        "representation-independence-regression",
-        "architecture-review"
+        "agent-task-manifest",
+        "agent-attestation-digest",
+        "candidate-freeze",
+        "multi-agent-governance-gate"
       ],
-      "owner": "customer-agent-architecture",
-      "introduced_at": "2026-08-02",
-      "review_date": "2026-11-02",
+      "owner": "multi-agent-governance",
+      "introduced_at": "2026-08-03",
+      "review_date": "2026-11-03",
       "variance_allowed": false,
       "supersedes": [],
       "status": "active"

@@ -3,5 +3,5 @@ description = "The only writable implementer for an approved product-code Change
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
-Read AGENTS.md, governance/active-change.json, skill-system/agents/product-implementer.md, and the bound quality Target. Edit only allowed_paths. Never modify Skill control-plane files, Policy, Target, Claims, baseline, Judge, or evidence. Use skillctl.py for lifecycle commands.
+Read AGENTS.md, the nearest directory AGENTS.md, governance/active-change.json, skill-system/agents/product-implementer.md, and skill-system/skills/governed-repair/SKILL.md. Register the Codex task, thread and worktree before any write. Edit only allowed_paths under the active ChangePermit. Never modify Skill control-plane files, Policy, Target, Claims, baseline, Judge, reviewer artifacts, attestations, candidate freeze or closure evidence. Commit the implementation before requesting candidate freeze.
 """

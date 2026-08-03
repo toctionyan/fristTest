@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "phase": "V20.17 B21",
+  "skill_version": "6.7.0",
+  "workspace_version": "20.6.1",
+  "goal": "Close Stage 3/WP-04/WP-05 with ambiguity-safe context, preserved multi-Goal dependencies and exact capability/unsupported proof",
+  "status": "CLOSED_VERIFIED",
+  "production_closed": false,
+  "product_behavior_changed": true,
+  "closed_stage": "STAGE-3",
+  "closed_work_packages": [
+    "WP-04",
+    "WP-05"
+  ],
+  "next_stage": "STAGE-4",
+  "implementation": {
+    "referent_sets": "read-only, provenance-bound, dispatchable=false",
+    "ambiguity": "same-turn multi-result singular continuation fails closed",
+    "explicit_group": "literal/provenance/cardinality/contiguous-recency validated",
+    "multi_goal": "Goal and execution-step dependencies merged into Tasks",
+    "capability": "structured requested-effect exact-only; absent effect => unsupported"
+  },
+  "tests": {
+    "focused": {
+      "passed": 620,
+      "deselected": 1,
+      "reason": "one LangGraph-dependent case belongs to WP-08"
+    },
+    "campaigns": {
+      "locked_50": 50,
+      "expanded_100": 100,
+      "strong_context_200": 200,
+      "holdout_200": 200,
+      "total_passed": 550,
+      "total_failed": 0,
+      "real_model_claimed": false
+    },
+    "untouched_regression": {
+      "baseline_collection_errors": 12,
+      "candidate_collection_errors": 12,
+      "candidate_only_errors": 0
+    }
+  },
+  "product_permit_digest": "f3055a72d3aeb8dc689a745ff09397c6a629d014e5d513c355413b43b01d038f",
+  "product_candidate_fingerprint": "766deb2b1a332b8400469a3a9c5dc023cf0b008a349fd6d0ff409458765d8221",
+  "product_closure": "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/closure-matrix.json",
+  "known_open_boundaries": [
+    "WP-06/WP-07 transaction and identity closure",
+    "WP-08 locked Python/LangGraph, real-provider and full-stack certification",
+    "WP-09 host and protected production closure"
+  ],
+  "environment_boundary": "Five dependency-bound tests plus frontend/full-stack/real-provider certification remain unavailable and are not represented as PASS; production_closed=false.",
+  "validation_identity": {
+    "workspace_version": "20.6.1",
+    "skill_version": "6.7.0",
+    "governance_phase": "V20.17 B21"
+  },
+  "post_closure_oracle_repair": {
+    "status": "CLOSED_VERIFIED",
+    "change_id": "repair-v20.17-b21-stage3-oracle-closure",
+    "changed_product_paths": [
+      "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py"
+    ],
+    "runtime_product_source_changed": false,
+    "direct_repaired_bridges": {
+      "passed": 4,
+      "failed": 0
+    },
+    "aggregate_non_environment": {
+      "passed": 58,
+      "environment_deselected": 4
+    },
+    "stage3_focused_non_environment": {
+      "passed": 583,
+      "environment_deselected": 1
+    },
+    "strong_context_oracle_passed": 107,
+    "deterministic_campaign_passed": 550,
+    "standard_product_quality_quick": "BLOCKED_BY_ENVIRONMENT",
+    "environment_owner": "WP-08"
+  }
+}

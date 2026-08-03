@@ -207,7 +207,7 @@ def test_pending_action_goal_re_presents_card_without_second_model_call():
         def __call__(self):
             raise AssertionError("pending action goal must not spend another model call")
 
-    from agent_core.lifecycle.semantic_contract import freeze_semantic_contract, legacy_turn_goal_plan_from_contract
+    from agent_core.lifecycle.semantic_contract import freeze_semantic_contract, goal_declaration_projection_from_contract
 
     contract = freeze_semantic_contract(
         turn=5,
@@ -230,7 +230,6 @@ def test_pending_action_goal_re_presents_card_without_second_model_call():
         "current_user_input": "停下来，不要提交。",
         "turn_index": 5,
         "frozen_semantic_contract": contract,
-        "turn_goal_plan": legacy_turn_goal_plan_from_contract(contract),
     }
     deps = runtime_deps()
 
@@ -248,9 +247,12 @@ def test_pending_action_goal_re_presents_card_without_second_model_call():
 
 
 def test_answer_release_rejects_pending_action_claim_without_structured_card():
+    from agent_core.composition import get_runtime_registry
     from agent_core.runtime.answer_release_alignment import _deterministic_verdict
 
-    from agent_core.lifecycle.semantic_contract import freeze_semantic_contract, legacy_turn_goal_plan_from_contract
+    get_runtime_registry()  # Explicit Composition Root initialization for capability snapshots.
+
+    from agent_core.lifecycle.semantic_contract import freeze_semantic_contract, goal_declaration_projection_from_contract
 
     contract = freeze_semantic_contract(
         turn=5,
@@ -271,17 +273,20 @@ def test_answer_release_rejects_pending_action_claim_without_structured_card():
     state = {
         **_pending_form_state(),
         "frozen_semantic_contract": contract,
-        "turn_goal_plan": legacy_turn_goal_plan_from_contract(contract),
-        "grounded_execution_plan": {
-            "steps": [{
-                "step_id": "step:stop",
-                "goal_ids": ["stop"],
-                "kind": "action_draft",
-                "verification": {"goal_effect_role": "completion"},
-            }],
-        },
         "response_contract": None,
     }
+    from tests.support.test_semantic_state import install_test_plan_authority
+    install_test_plan_authority(
+        state,
+        goals=[{"goal_id": "stop", "required": True}],
+        steps=[{
+            "step_id": "step:stop",
+            "effect_id": "effect:stop",
+            "goal_ids": ["stop"],
+            "kind": "action_draft",
+            "verification": {"goal_effect_role": "completion"},
+        }],
+    )
 
     verdict = _deterministic_verdict(result=state, blocks=[])
 

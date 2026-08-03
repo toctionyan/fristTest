@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-v20.17-b23-stage5-nonenvironment-regression",
+  "target_kind": "repair",
+  "goal": "Close Stage-5 non-environment authority and oracle regressions without weakening environment certification.",
+  "profile": "product-repair",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/runtime/answer_release_alignment.py",
+    "services/agent-service/src/agent_core/ledger/ledger.py",
+    "services/agent-service/src/agent_core/ledger/__init__.py",
+    "services/agent-service/src/agent_core/runtime/capability_gate.py",
+    "services/agent-service/src/agent_core/context/visible_result_refs.py",
+    "services/agent-service/tests/architecture/test_command_and_model_governance.py",
+    "services/agent-service/tests/architecture/test_productization_boundary.py",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+    "services/agent-service/tests/context/test_context_bundle_runtime.py",
+    "services/agent-service/tests/context/test_dialogue_counterexamples.py",
+    "services/agent-service/tests/context/test_parameterized_capability_alignment.py",
+    "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py",
+    "services/agent-service/tests/context/test_strong_context_case_execution.py",
+    "services/agent-service/tests/runtime/test_semantic_grounding_read.py",
+    "services/agent-service/tests/runtime/test_workflow_runtime.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "services/business-service/**",
+    "services/agent-service/frontend/**",
+    "governance/task-ledger/**"
+  ],
+  "invariants": [
+    "current formal semantic and plan authorities remain exclusive",
+    "execution permit scope is identical at issue and validation",
+    "environment blockers are not converted to product pass"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "scope-planner",
+      "decision": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b23-stage5-nonenvironment-regression/plan-review.json",
+      "evidence_sha256": "e4e9ec83fe7cee2eab7b5888c90e4735f25b6ffc641766d20d945d7468fff553",
+      "recorded_at": "2026-08-02T13:00:49.591128+00:00"
+    },
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b23-stage5-nonenvironment-regression/diff-review.json",
+      "evidence_sha256": "cd8d13cb3475766011773b24acb13d6f9b3272bd334efd11c7c72a17b6a1a875",
+      "recorded_at": "2026-08-02T13:00:50.777473+00:00"
+    }
+  ],
+  "affected_modules": [
+    "agent-runtime-authority",
+    "agent-test-oracles"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/repair-v20.17-b23-stage5-nonenvironment-regression.md",
+  "baseline_evidence": "governance/repair-cases/repair-v20.17-b23-stage5-nonenvironment-regression/reconstructed-baseline",
+  "initial_source_fingerprint": "93b1d23f9ee2e620c8982c5d3c05b76cf235bdee6ce2b09cc92d867daac3a9fe",
+  "initial_source_file_count": 15,
+  "product_validation": {
+    "baseline": "governance/repair-cases/repair-v20.17-b23-stage5-nonenvironment-regression/reconstructed-baseline",
+    "baseline_mode": "targeted-non-environment-regression-set",
+    "standard_quick": "BLOCKED_BY_ENVIRONMENT",
+    "blocked_evidence": ".quality/product-control-plane/repair-v20.17-b23-stage5-nonenvironment-regression/blocked-by-environment.json"
+  },
+  "decision_record": null,
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": null,
+  "repair_governance": "governance/repair-cases/repair-v20.17-b23-stage5-nonenvironment-regression",
+  "repair_governance_consumed_at": null,
+  "created_at": "2026-08-02T12:59:32.712802+00:00",
+  "status": "closed",
+  "result": "BLOCKED_BY_ENVIRONMENT",
+  "repair_governance_permit_digest": "1c974b58f1fafe202b562b726a20276435fc37c05bb57497c5bad1c58ce1d8ff",
+  "closed_at": "2026-08-02T13:02:23.577826+00:00",
+  "blocked_evidence": ".quality/product-control-plane/repair-v20.17-b23-stage5-nonenvironment-regression/blocked-by-environment.json"
+}

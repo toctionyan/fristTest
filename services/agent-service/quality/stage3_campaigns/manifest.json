@@ -1,0 +1,25 @@
+{
+  "version": "stage3-campaign-manifest@1",
+  "campaigns": [
+    {
+      "name": "locked_50",
+      "case_count": 50,
+      "file": "locked_50.json"
+    },
+    {
+      "name": "expanded_100",
+      "case_count": 100,
+      "file": "expanded_100.json"
+    },
+    {
+      "name": "strong_context_200",
+      "case_count": 200,
+      "file": "strong_context_200.json"
+    },
+    {
+      "name": "holdout_200",
+      "case_count": 200,
+      "file": "holdout_200.json"
+    }
+  ]
+}

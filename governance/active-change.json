@@ -1,9 +1,0 @@
-{
-  "schema_version": 1,
-  "status": "active",
-  "target_id": "repair-v20.17-b17j-ci-profile-boundary",
-  "target_path": "governance/targets/repair-v20.17-b17j-ci-profile-boundary.md",
-  "claim_manifest": "governance/claims/repair-v20.17-b17j-ci-profile-boundary.json",
-  "phase": "B17j",
-  "closure": "phase-candidate-environment-execution-pending"
-}

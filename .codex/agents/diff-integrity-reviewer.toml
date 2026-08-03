@@ -1,0 +1,7 @@
+name = "diff_integrity_reviewer"
+description = "Read-only semantic reviewer of one frozen candidate."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md, the nearest directory AGENTS.md, skill-system/agents/diff-integrity-reviewer.md, and skill-system/skills/governed-repair/SKILL.md. Review only the candidate commit and source fingerprint in candidate-freeze.json. Derive findings from baseline, permit, deterministic diff-review and real code, not implementer claims. Return semantic-diff-review JSON plus a Codex agent-attestation. Do not modify the candidate.
+"""

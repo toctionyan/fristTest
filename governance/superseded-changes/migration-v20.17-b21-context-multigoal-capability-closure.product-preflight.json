@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b21-context-multigoal-capability-closure",
+  "target_kind": "migration",
+  "goal": "Close Stage 3 WP-04/WP-05 with ambiguity-safe context, multi-Goal dependencies and exact capability/unsupported proof",
+  "profile": "product-migration",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/context/__init__.py",
+    "services/agent-service/src/agent_core/context/context_bundle.py",
+    "services/agent-service/src/agent_core/context/referent_sets.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/workflow_runtime.py",
+    "services/agent-service/src/agent_core/runtime/capability_gate.py",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/schema_common.py",
+    "services/agent-service/quality/__init__.py",
+    "services/agent-service/quality/stage3_campaign_verifier.py",
+    "services/agent-service/quality/stage3_campaigns/expanded_100.json",
+    "services/agent-service/quality/stage3_campaigns/holdout_200.json",
+    "services/agent-service/quality/stage3_campaigns/locked_50.json",
+    "services/agent-service/quality/stage3_campaigns/manifest.json",
+    "services/agent-service/quality/stage3_campaigns/strong_context_200.json",
+    "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py",
+    "services/agent-service/tests/context/test_stage3_referent_sets.py",
+    "services/agent-service/tests/context/test_stage3_semantic_campaign.py",
+    "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py",
+    "services/agent-service/tests/runtime/test_multi_intent_runtime.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/task-ledger.json",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "services/business-service/**",
+    "services/agent-service/frontend/**",
+    "contracts/**",
+    "deployment/**",
+    "governance/evidence/**",
+    ".quality/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "invariants": [
+    "no keyword routing",
+    "no runtime auto target selection",
+    "no similar capability substitution",
+    "Stage-2 semantic authority remains sole current-turn authority"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [],
+  "affected_modules": [
+    "agent_core context, workflow and capability runtime",
+    "Stage-3 deterministic quality campaigns and tests"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "620 focused tests and 550 locked/holdout campaign cases pass with zero Stage-3 P0/P1 errors",
+  "baseline_evidence": "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/original-failure.json",
+  "initial_source_fingerprint": null,
+  "initial_source_file_count": 0,
+  "product_validation": null,
+  "decision_record": "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/architecture-decision.json",
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": null,
+  "repair_governance": "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure",
+  "repair_governance_consumed_at": null,
+  "created_at": "2026-08-02T11:20:00+00:00",
+  "status": "implementing",
+  "result": "PENDING",
+  "repair_governance_permit_digest": "f3055a72d3aeb8dc689a745ff09397c6a629d014e5d513c355413b43b01d038f",
+  "archive_record": {
+    "archived_at": "2026-08-02T12:35:00+00:00",
+    "archive_status": "PREFLIGHT_PROFILE_BLOCKED_AFTER_FOCUSED_REPAIR_CLOSURE",
+    "reason": "WP-04/WP-05 focused repair governance is CLOSED_VERIFIED, but locked LangGraph/real-provider/full-stack product profiles cannot run in the current environment and the product contract must not be represented as verified or closed.",
+    "focused_closure": "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/closure-matrix.json",
+    "environment_record": "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/environment-scope.json",
+    "superseded_by": "repair-v20.17-b21-context-capability-stage-closure"
+  }
+}

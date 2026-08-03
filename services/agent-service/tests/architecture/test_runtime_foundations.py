@@ -105,7 +105,7 @@ def test_scope_first_repository_and_receipt_cardinality(tmp_path: Path):
 
 def test_active_draft_runtime_writes_only_canonical_pointer():
     patch = active_draft_patch("offer:1")
-    assert patch == {"active_draft_id": "offer:1"}
+    assert patch == {"focused_draft_id": "offer:1", "active_draft_id": "offer:1"}
     assert get_active_draft_id({"pending_offer_handle": "legacy:1"}) is None
     assert get_active_draft_id({"active_draft_id": "new:1", "pending_offer_handle": "legacy:1"}) == "new:1"
 

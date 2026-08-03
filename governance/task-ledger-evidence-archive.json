@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "archive_id": "b28-dynamic-governance-evidence-v1",
+  "artifact": "customer_agent_workspace_v20_17_b28_repository_onboarding_phase_candidate_20260803.zip",
+  "artifact_sha256": "a3bc765c6d47658a693acaa1fea748f9e90ccdccc5d2e054c09257ad13411ca4",
+  "scope": "task-ledger evidence excluded from the stable repository source tree and retained in the validated B28 phase-candidate package",
+  "entries": {
+    ".github/workflows/release.yml": {
+      "size": 10577,
+      "sha256": "23826695ba916fbb8e2ec2a53a4f2bdb0df8f3087a05b6844f1d4d08c98661a0"
+    },
+    ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json": {
+      "size": 899,
+      "sha256": "21cf4eda46bc75f95365e7b9961abfa1e71a3f432e1b4f8853a5430d6405dd2a"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/authority-boundary.json": {
+      "size": 1342,
+      "sha256": "417dbb1c0dd66944946fc9af88c9eb24f831dc4a1f5bd077b39b5dcca82c1816"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/counterexamples.json": {
+      "size": 569,
+      "sha256": "f078a86acf36ee99504ff43847b824422e190a063844fd499d02ca56351dc038"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/focused-tests.json": {
+      "size": 632,
+      "sha256": "e3a8e8ff90d4caf29c3bf34a42851ec05d2bd8ddf4ad38ddeaf3865d0e7c10ef"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/negative-paths.json": {
+      "size": 563,
+      "sha256": "c94b6c23133394ee921c2926965b4be98e46d6ddd7eb1e2e66373f01ba92fb6b"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/original-failure.json": {
+      "size": 1276,
+      "sha256": "c1f80ba0371194a4290c9e48353ea111b4ee0e8cefd8cd83df0c0b4750c14f2e"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/quality-loop-controller-tests.json": {
+      "size": 598,
+      "sha256": "cd9c8060b58a1c3463824d267646818a2edd0c7f599bd4420c28bcdd18bd3d3b"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/regression.json": {
+      "size": 2215,
+      "sha256": "df002ef79225827a030236c60a370213f6c628c071d41c6eeb10cf0124d9a2ab"
+    },
+    "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/trusted-judge-verify.json": {
+      "size": 581,
+      "sha256": "afcb940125aa0684503fb26961b1b87917030e82eb955f89d872ff82ef80e111"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/closure-matrix.json": {
+      "size": 3336,
+      "sha256": "78d9be43afabbb39253cf4302857b55ca30b1ad76df6659c8d481a3de30f2d59"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/diff-review.json": {
+      "size": 6155,
+      "sha256": "6c98ee2bc842a9a73ee74df5b4f5715d64db75f8b7d46214101d464b70cb8697"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/authority-boundary.json": {
+      "size": 1411,
+      "sha256": "74066484ae5c244d8661b4906f1bd81d55e7a86691eda5a336cc07f19830cd2e"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/counterexamples.json": {
+      "size": 1001,
+      "sha256": "4d736fc32e252c94ed4c735eaf39b5f834052afbc2c9e4308f2fc5b0d7da2f5b"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/focused-tests.json": {
+      "size": 1351,
+      "sha256": "7db78a5a823021972d718c14460ab55f3e76dc499302893e52b87f20c5d5397d"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/negative-paths.json": {
+      "size": 1571,
+      "sha256": "90b4b1174d8e8ba58c582b0da12fb20f30fcfb40495b697e4fad7988374aa6cd"
+    },
+    "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/original-failure.json": {
+      "size": 1413,
+      "sha256": "fa2316c17295d718efc723bac9f331b4e7055a31c402dc914020ce5878d32317"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/closure-matrix.json": {
+      "size": 3461,
+      "sha256": "f84ef7b538576be21bc21daccbd042b1d71979e7efb5d6848940ab6ed71f9ebd"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/diff-review.json": {
+      "size": 3535,
+      "sha256": "51392da14c2d2bebd18562d3c66d3b0002c9303bd3fe0cd2204992012e3465aa"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/authority-boundary.json": {
+      "size": 674,
+      "sha256": "f948770497525a27ded6a03e424ab92ec758a8c7a35a062fb6b2eace02cf4c32"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/counterexamples.json": {
+      "size": 1309,
+      "sha256": "d5e87c8b48f3e9e25eaf89aeedb9b3e411433b4e05773b22bbeb129d426a0abc"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/focused-tests.json": {
+      "size": 639,
+      "sha256": "112f65d9561473694ad282702b949a8bc0bf96626096bee3fa4fbf7cb7fb3ff1"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/negative-paths.json": {
+      "size": 1331,
+      "sha256": "a83341c79457518a47a6752330bb293d9e8168340f6f2c4e162f96383993e1dc"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/original-failure.json": {
+      "size": 1650,
+      "sha256": "92e617d83824b8aa72e366595679660d6b2b68a1cde8489e854e3aa83c97f9a0"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/regression.json": {
+      "size": 2569,
+      "sha256": "9f126d8ee8e265b43a67edb88eca276c0433ee325b6d901a8072b69858b0ef39"
+    },
+    "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/runtime-trace.json": {
+      "size": 1003,
+      "sha256": "c72ea9b8623ae017d8309fcf0f29b05cb8da4ce8685d44dc970fefb8d3bd1856"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/closure-matrix.json": {
+      "size": 3133,
+      "sha256": "3c490893b57575a16ef2fe06f4c262343db36097ed294d45268cf4e1d1cd852e"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/diff-review.json": {
+      "size": 5422,
+      "sha256": "e3d6d8af95cbe417ac0eca190e07e905689043ebc7d0305c428d5b32ab8e2eeb"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/authority-boundary.json": {
+      "size": 574,
+      "sha256": "4638675c8eb6349ef26260580e2100e5089551cda5c7c2792f625cba158dfa4b"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/counterexamples.json": {
+      "size": 626,
+      "sha256": "108f6e3a033a6ea723526716bf0328cbef1dc0e9900e67422b55b30af93ff2a4"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/focused-tests.json": {
+      "size": 477,
+      "sha256": "f6e3ecca9373cd7c8c899e9b228df6a5f0cc562170e5e2733d770f1e30b28cfa"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/negative-paths.json": {
+      "size": 565,
+      "sha256": "5371825ce14ec9bcda0939fbb0ca68f49ea79de7bac2be97e73872f781a86aec"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/original-failure.json": {
+      "size": 1092,
+      "sha256": "401e7df736b0d21e09693293026e30ddf36cbf9f80a84bd9424c93d1479f8ea2"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/regression.json": {
+      "size": 306,
+      "sha256": "cc0bd4847ab8be70ae95466c2596f2dc48c5fc4b82dd4fe8cde95a99b72f3abf"
+    },
+    "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/runtime-trace.json": {
+      "size": 582,
+      "sha256": "299ed4420776634105015dd47dba4a2878ffcfe31bec6071553d5543bf1d7172"
+    },
+    "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/closure-matrix.json": {
+      "size": 3086,
+      "sha256": "574950ab0eb94bf3f09ef7c49575157d19137b4c44d001adb589e10dad15e02f"
+    },
+    "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/authority-boundary.json": {
+      "size": 345,
+      "sha256": "42682911798635d24079d05375247007fee90f5b148c66920b45bfa4ad32fff6"
+    },
+    "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/negative-paths.json": {
+      "size": 506,
+      "sha256": "b2dbcb3043981211bbc5c057354a70473e3411c28ececfa81c5460f7da7f73d8"
+    },
+    "governance/repair-cases/repair-v20.17-b25-wp08-resumable-certification/closure-matrix.json": {
+      "size": 3120,
+      "sha256": "51c2d04b75b227279db08cb5194a3e4f33cd4273b8becdb388ed1d208b171753"
+    },
+    "governance/repair-cases/repair-v20.17-b25-wp08-resumable-certification/evidence/local-probe-state.json": {
+      "size": 7679,
+      "sha256": "4053be730efaa84d2f814bf1f640c3a9fec8d72da3d2688c689cc8ae1e3a2b5f"
+    },
+    "governance/repair-cases/repair-v20.17-b25-wp08-resumable-certification/evidence/static-contract.log": {
+      "size": 403,
+      "sha256": "de548a7dbfe8e0fef7ef70585ee7716d55c4c08f64c8aa45598a0352ba7bb706"
+    },
+    "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/closure-matrix.json": {
+      "size": 3135,
+      "sha256": "1ee7a3c6dba4e46b27d2ac9ac9b2b59d46494443c0a93facf6122347290b93a0"
+    },
+    "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/authority-boundary.json": {
+      "size": 283,
+      "sha256": "e6b1c1896966bbd86989e205ea99f916d8027703c07ca7463b552ea36b886d77"
+    },
+    "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/counterexamples.json": {
+      "size": 253,
+      "sha256": "0a1132f1cc46927be36776edae01dbed582afce604568607ad579b77a3da62aa"
+    },
+    "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/focused-tests.json": {
+      "size": 164,
+      "sha256": "ef598ca88549e4db71968816fe037460229479e6d32c596638ec043aebe5e675"
+    },
+    "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/negative-paths.json": {
+      "size": 245,
+      "sha256": "5c44ce11a85243a1aedf9dd63395077c2198f5b0048f6690d349c923d8fa1f18"
+    },
+    "governance/repair-cases/repair-v20.17-b27-host-release-readiness/closure-matrix.json": {
+      "size": 2967,
+      "sha256": "8b14501678f1a1ee60d53b3f614b61e1f4db126548021f7d23a657cb865b8ab4"
+    },
+    "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/authority-boundary.json": {
+      "size": 418,
+      "sha256": "dcc8e0e9c69cd70cb348bdc907cedcd5f9aa3f97e27956fd2b46ecee5621ba8a"
+    },
+    "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/counterexamples.json": {
+      "size": 267,
+      "sha256": "5fedc2012a28b8bb01b1bac4a0c93b5396823fa2066b1d63c4ef89d9d208cbee"
+    },
+    "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/focused-tests.json": {
+      "size": 160,
+      "sha256": "15df538e639a1a3cb62d5e05dae179bdb24fe1ff1c5fb2be3c40b19afdec9c89"
+    },
+    "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/host-preflight.json": {
+      "size": 453,
+      "sha256": "6117877240135fd35d7e9a2494712a02054897075f3feab2d463440e4005a4db"
+    },
+    "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/closure-matrix.json": {
+      "size": 2982,
+      "sha256": "4b0b808e9931e14fd5531855ea29d73d87abf916e22cc9c75a7d972c21f17edf"
+    },
+    "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/evidence/repository-preflight-blocked.json": {
+      "size": 1127,
+      "sha256": "0204b05399743adc0333505d1a0a26570740a872250efb574b32e670e0f10ebd"
+    },
+    "release/VALIDATION_REPORT.md": {
+      "size": 1691,
+      "sha256": "a5b8b451310fea763132b52079e51a7f1bbf85c98f542a9ab2eb8dd39e3e7ccb"
+    },
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": {
+      "size": 39216,
+      "sha256": "b91f86993e2f395b5f5519b1a23895de73a12ca7986ae2190016a68911f8a68d"
+    },
+    "skill-system/tests/test_stage6_host_release_readiness.py": {
+      "size": 10865,
+      "sha256": "e8daa45590c7fd24606437b32689fb3a5016f324883dd21c592b76913b7468b2"
+    }
+  }
+}

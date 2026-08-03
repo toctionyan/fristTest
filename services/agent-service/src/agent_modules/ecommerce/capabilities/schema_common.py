@@ -111,16 +111,32 @@ CONTEXT_BINDING_SCHEMA: dict[str, Any] = {
     "description": (
         "仅在显式引用非最新可见结果时填写。explicit_return 用于按商品名/订单号回到一个旧结果，"
         "source_span 必须逐字复制标签片段；explicit_group_reference 用于‘刚才两个/前面三个’这类"
-        "明确把最近连续多个可见结果作为一组的引用，source_span 必须逐字复制该组引用。普通的"
-        "其中/它/这些不能伪装成任一种显式绑定。"
+        "明确把最近连续多个可见结果作为一组的引用，source_span 必须逐字复制该组引用，group_size "
+        "必须填写用户明确指向的结果数量。普通的其中/它/这些不能伪装成任一种显式绑定。"
     ),
-    "properties": {
-        "reference_kind": {"type": "string", "enum": ["explicit_return", "explicit_group_reference"]},
-        "source_span": {"type": "string", "minLength": 1},
-    },
-    "required": ["reference_kind", "source_span"],
-    "additionalProperties": False,
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "reference_kind": {"const": "explicit_return"},
+                "source_span": {"type": "string", "minLength": 1},
+            },
+            "required": ["reference_kind", "source_span"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "reference_kind": {"const": "explicit_group_reference"},
+                "source_span": {"type": "string", "minLength": 1},
+                "group_size": {"type": "integer", "minimum": 2, "maximum": 4},
+            },
+            "required": ["reference_kind", "source_span", "group_size"],
+            "additionalProperties": False,
+        },
+    ],
 }
+
 
 
 def function_schema(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:

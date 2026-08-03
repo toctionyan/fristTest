@@ -29,6 +29,8 @@ class State(TypedDict, total=False):
     current_user_id: str
     current_role: str
     current_tenant_id: str | None
+    # Authenticated/delegated business subject. It is independent from Actor.
+    current_subject: str | None
 
     state_schema_version: int
     state_migration: dict[str, Any] | None
@@ -117,6 +119,12 @@ class State(TypedDict, total=False):
     presentation: dict[str, Any] | None
     transaction_context_hint: bool
     transaction_context_blocked: bool
+    # Canonical UI interaction focus. Multiple durable Drafts may remain open;
+    # this pointer selects only the one currently rendered/accepted by UI.
+    focused_draft_id: str | None
+    # Compatibility projection for older clients/checkpoints. Runtime readers
+    # resolve through transaction.focus and never treat this as authority when
+    # focused_draft_id is present (including explicit null).
     active_draft_id: str | None
     # Read-only reconciliation facts from the durable attempt store. They are
     # not semantic context and cannot authorize a new operation.

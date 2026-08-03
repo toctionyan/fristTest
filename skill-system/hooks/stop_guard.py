@@ -13,6 +13,8 @@ if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
 from contract import load_contract  # type: ignore
+from multi_agent_governance import validate_multi_agent_verification_ready  # type: ignore
+from repair_governance import TRANSITION_KINDS  # type: ignore
 from verification import source_fingerprint  # type: ignore
 
 
@@ -34,22 +36,36 @@ def main() -> int:
     except Exception:
         payload = {}
     workspace = workspace_from(payload)
+
     try:
         contract = load_contract(workspace, require_approved=False)
     except ValueError:
-        # Read-only diagnosis and explanation sessions do not require a writable contract.
         return 0
+
     if contract.status not in {"verified", "closed"}:
         return _deny(f"change contract {contract.change_id} is {contract.status}, not verified/closed")
+
+    if contract.target_kind.value in TRANSITION_KINDS:
+        try:
+            validate_multi_agent_verification_ready(
+                workspace,
+                contract.payload,
+                expected_result=str(contract.payload.get("result") or ""),
+            )
+        except ValueError as exc:
+            return _deny(f"Codex multi-agent repair governance completion is invalid: {exc}")
+
     verification = contract.payload.get("verification")
     if not isinstance(verification, dict):
         return _deny("completion verification identity is missing")
     evidence = workspace / str(verification.get("path") or "")
     if not evidence.is_file() or _sha256(evidence) != verification.get("sha256"):
         return _deny("completion verification evidence is missing or changed")
+
     fingerprint, file_count = source_fingerprint(workspace, contract.allowed_paths)
     if fingerprint != verification.get("source_fingerprint") or file_count != verification.get("source_file_count"):
         return _deny("governed source changed after deterministic verification")
+
     attestations = {
         str(row.get("role")): str(row.get("decision"))
         for row in contract.payload.get("review_attestations", [])

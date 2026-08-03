@@ -57,6 +57,7 @@ def _actor_context(actor: Actor) -> ActorContext:
         user_id=actor.user_id,
         role=actor.role,
         tenant_id=actor.tenant_id,
+        subject_user_id=actor.subject or actor.user_id,
         subject=actor.subject,
         permissions=tuple(actor.permissions or ()),
     )
@@ -195,7 +196,7 @@ def get_order_actions(order_id: str, actor: Actor = Depends(current_actor)):
 
 @router.post("/chat/turn", response_model=ChatResponse, dependencies=[Depends(require_api_permission("chat:use"))])
 def chat_turn(payload: ChatTurnPayload, request: Request, actor: Actor = Depends(current_actor)):
-    req = ChatRequest(thread_id=payload.thread_id, user_id=actor.user_id, role=actor.role, tenant_id=actor.tenant_id, message=payload.message)
+    req = ChatRequest(thread_id=payload.thread_id, user_id=actor.user_id, role=actor.role, tenant_id=actor.tenant_id, subject=actor.subject or actor.user_id, message=payload.message)
     return request.app.state.agent_service.chat(req, include_debug=actor_can_debug(actor))
 
 
@@ -206,7 +207,7 @@ def chat_stream(payload: ChatTurnPayload, request: Request, actor: Actor = Depen
     The stream generator already filters public events for non-debug actors;
     this endpoint only supplies authenticated identity and transport headers.
     """
-    req = ChatRequest(thread_id=payload.thread_id, user_id=actor.user_id, role=actor.role, tenant_id=actor.tenant_id, message=payload.message)
+    req = ChatRequest(thread_id=payload.thread_id, user_id=actor.user_id, role=actor.role, tenant_id=actor.tenant_id, subject=actor.subject or actor.user_id, message=payload.message)
     return StreamingResponse(
         request.app.state.agent_service.chat_stream(req, include_debug=actor_can_debug(actor)),
         media_type="text/event-stream",

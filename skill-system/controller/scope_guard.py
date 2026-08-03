@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import fnmatch
@@ -9,17 +8,23 @@ from typing import Any, Iterable
 
 try:
     from .models import ChangeContract
-except ImportError:  # direct script/test loading
+except ImportError:
     from models import ChangeContract  # type: ignore
 
 PROTECTED_GOVERNANCE = (
     "governance/quality-loop-policy.json",
     "governance/active-change.json",
     "governance/evidence/**",
+    "governance/repair-cases/**",
     ".quality/**",
     "skill-system/trusted-judge/**",
 )
-CONTRACT_BOOTSTRAP_COMMANDS = ("skill-system/controller/change_contract_cli.py", "skillctl.py")
+CONTRACT_BOOTSTRAP_COMMANDS = (
+    "skill-system/controller/change_contract_cli.py",
+    "skill-system/controller/review_import_cli.py",
+    "skill-system/controller/candidate_freeze_cli.py",
+    "skillctl.py",
+)
 DESTRUCTIVE_COMMANDS = (
     r"\brm\s+-rf\b",
     r"\bgit\s+reset\s+--hard\b",
@@ -27,10 +32,6 @@ DESTRUCTIVE_COMMANDS = (
     r"\bgit\s+(checkout|restore|apply|am)\b",
     r"\bsudo\b",
 )
-
-# Repository writes must use the host's structured Write/Edit/apply_patch tools,
-# where the Hook can check exact paths. Shell mutation is intentionally denied
-# because redirects, here-docs and inline interpreters can bypass path guards.
 SHELL_MUTATION_PATTERNS = (
     r"(^|[;&|]\s*)(touch|mkdir|cp|mv|rm|install|chmod|chown)\b",
     r"\bsed\s+[^\n;]*-[^\s]*i\b",
@@ -40,16 +41,56 @@ SHELL_MUTATION_PATTERNS = (
     r"\bpython(?:3)?\s+(-c|-\s*<<)",
     r"\b(npm|pnpm|yarn|pip|uv)\s+(install|add|remove|uninstall|sync)\b",
 )
-
 READ_ONLY_COMMAND_PATTERNS = (
     r"^\s*(git\s+(status|diff|log|show|branch)|rg|grep|find|ls|pwd|cat|head|tail|wc|stat)\b",
     r"^\s*sed\s+-n\b",
     r"^\s*python(?:3)?\s+-B\s+(architecture-skill/scripts/verify_|skill-system/controller/(host_conformance|registry|project_compatibility|profile_runner)|-m\s+(unittest|pytest))",
 )
+BOOTSTRAP_ACTIONS = (
+    "init",
+    "product-init",
+    "product-baseline",
+    "product-verify",
+    "contract-validate",
+    "contract-show",
+    "contract-approve",
+    "contract-configure",
+    "contract-begin",
+    "attest-review",
+    "contract-verify",
+    "contract-close",
+    "repair-permit",
+    "repair-governance-validate",
+    "repair-diff-review",
+    "repair-closure-record",
+    "repair-governance-status",
+    "agent-review-import",
+    "agent-implementer-register",
+    "multi-agent-validate",
+    "multi-agent-status",
+    "candidate-freeze",
+    "candidate-freeze-validate",
+    "candidate-freeze-status",
+    "import-review",
+    "register-implementer",
+    "issue-permit",
+    "diff-review",
+    "closure-record",
+    "freeze",
+    "validate",
+    "show",
+    "approve",
+    "configure",
+    "begin",
+    "verify",
+    "close",
+    "status",
+    "profiles",
+)
 
 
 def normalize_path(raw: str, workspace: Path) -> str:
-    value = raw.strip().strip('"\'').replace("\\", "/")
+    value = raw.strip().strip("\"'").replace("\\", "/")
     if not value:
         return value
     path = Path(value)
@@ -79,7 +120,7 @@ def path_decision(contract: ChangeContract, path: str) -> tuple[bool, str]:
     if matches_any(normalized, contract.forbidden_paths):
         return False, f"path is forbidden by change contract: {normalized}"
     if matches_any(normalized, PROTECTED_GOVERNANCE):
-        return False, f"path is protected Judge or evidence input: {normalized}"
+        return False, f"path is protected Judge, review or evidence input: {normalized}"
     if not matches_any(normalized, contract.allowed_paths):
         return False, f"path is outside allowed_paths: {normalized}"
     return True, "allowed"
@@ -121,10 +162,7 @@ def command_requires_contract(command: str) -> bool:
 def bootstrap_command_allowed(command: str) -> bool:
     if not any(value in command for value in CONTRACT_BOOTSTRAP_COMMANDS):
         return False
-    return re.search(
-        r"\b(init|product-init|product-baseline|product-verify|contract-validate|contract-show|contract-approve|contract-configure|contract-begin|attest-review|contract-verify|contract-close|validate|show|approve|configure|begin|verify|close|status|profiles)\b",
-        command,
-    ) is not None
+    return re.search(r"\b(" + "|".join(re.escape(value) for value in BOOTSTRAP_ACTIONS) + r")\b", command) is not None
 
 
 def parse_hook_input(raw: str) -> dict[str, Any]:

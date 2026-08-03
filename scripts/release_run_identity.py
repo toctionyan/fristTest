@@ -190,7 +190,21 @@ def capture_run_identity(
         )
 
     workflow_ref = str(source.get("GITHUB_WORKFLOW_REF") or "").strip()
-    expected_workflow_ref = f"{repository}/.github/workflows/release.yml@{expected_ref}"
+    expected_workflow_file = str(
+        source.get("PRODUCTION_RELEASE_EXPECTED_WORKFLOW_FILE")
+        or ".github/workflows/release.yml"
+    ).strip()
+    if (
+        not expected_workflow_file.startswith(".github/workflows/")
+        or not expected_workflow_file.endswith((".yml", ".yaml"))
+        or ".." in Path(expected_workflow_file).parts
+    ):
+        raise ReleaseRunIdentityError(
+            "release_expected_workflow_file_invalid",
+            "PRODUCTION_RELEASE_EXPECTED_WORKFLOW_FILE must name one workflow under .github/workflows",
+            environment_blocked=True,
+        )
+    expected_workflow_ref = f"{repository}/{expected_workflow_file}@{expected_ref}"
     if workflow_ref != expected_workflow_ref:
         raise ReleaseRunIdentityError(
             "release_workflow_ref_mismatch",
@@ -266,6 +280,7 @@ def capture_run_identity(
         "repository_id": repository_id,
         "workflow": workflow_name,
         "workflow_ref": workflow_ref,
+        "workflow_file": expected_workflow_file,
         "workflow_sha": workflow_sha,
         "job": job_name,
         "git_ref": git_ref,

@@ -160,6 +160,8 @@ class OperationCommandRequest(BaseModel):
     target: dict[str, Any] = Field(default_factory=dict)
     input: dict[str, Any] = Field(default_factory=dict)
     actor_scope: dict[str, Any] = Field(default_factory=dict)
+    subject_scope: dict[str, Any] = Field(default_factory=dict)
+    resource_scope: dict[str, Any] = Field(default_factory=dict)
 
 
 class LegacyReviewRequest(BaseModel):

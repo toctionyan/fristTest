@@ -18,8 +18,6 @@ for path in (ROOT / "scripts", AGENT_ROOT, AGENT_ROOT / "src"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from locked_python import locked_project_python  # noqa: E402
-
 from production_certification_contract import (  # noqa: E402
     ProductionCertificationError,
     production_session_evidence,
@@ -78,7 +76,7 @@ def _run_integration_tests(url: str) -> dict[str, Any]:
         })
         completed = subprocess.run(
             [
-                str(locked_project_python(ROOT, "agent", env=env)),
+                sys.executable,
                 "-B",
                 str(ROOT / "scripts" / "run_agent_pytest.py"),
                 "--workspace-root",

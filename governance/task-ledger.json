@@ -1,0 +1,470 @@
+{
+  "schema_version": 1,
+  "ledger_id": "customer-agent-final-closure-ledger-v1",
+  "project": "customer-agent-workspace",
+  "frozen_at": "2026-08-02T09:12:29.840244+00:00",
+  "evidence_archive": "governance/task-ledger-evidence-archive.json",
+  "active_stage_id": "STAGE-5",
+  "policy": {
+    "required_stage_ids": [
+      "STAGE-1",
+      "STAGE-2",
+      "STAGE-3",
+      "STAGE-4",
+      "STAGE-5",
+      "STAGE-6"
+    ],
+    "required_work_package_ids": [
+      "WP-01",
+      "WP-02",
+      "WP-03",
+      "WP-04",
+      "WP-05",
+      "WP-06",
+      "WP-07",
+      "WP-08",
+      "WP-09"
+    ],
+    "terminal_states_require_evidence": true,
+    "max_loop_iterations_are_not_success": true,
+    "work_package_scope_changes_require_plan_review": true,
+    "must_close_cannot_be_deferred": true
+  },
+  "stages": [
+    {
+      "stage_id": "STAGE-1",
+      "title": "最终任务总账与治理控制器模块化",
+      "goal": "冻结所有合理未完成项并降低质量控制器变更半径。",
+      "status": "CLOSED_VERIFIED",
+      "depends_on": [],
+      "work_package_ids": [
+        "WP-01",
+        "WP-02"
+      ],
+      "closure_contract": "总账语义校验、模块边界测试、兼容回归和独立 DiffReview 全部通过。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/regression.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/negative-paths.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/authority-boundary.json"
+      ],
+      "blockers": []
+    },
+    {
+      "stage_id": "STAGE-2",
+      "title": "语义权威最终切换与旧链删除",
+      "goal": "确保新 Turn 只受唯一语义权威链控制。",
+      "status": "CLOSED_VERIFIED",
+      "depends_on": [
+        "STAGE-1"
+      ],
+      "work_package_ids": [
+        "WP-03"
+      ],
+      "closure_contract": "旧写路径和静默 fallback 调用为零，并通过旧 checkpoint 迁移回归。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/counterexamples.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/negative-paths.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/authority-boundary.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/diff-review.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/closure-matrix.json"
+      ],
+      "blockers": []
+    },
+    {
+      "stage_id": "STAGE-3",
+      "title": "上下文、多 Goal 与精确能力闭环",
+      "goal": "真实解决集合引用、纠正、打断、多目标和 unsupported 问题。",
+      "status": "CLOSED_VERIFIED",
+      "depends_on": [
+        "STAGE-2"
+      ],
+      "work_package_ids": [
+        "WP-04",
+        "WP-05"
+      ],
+      "closure_contract": "锁定集与独立 holdout 通过，P0/P1 上下文错误为零且无能力误匹配受控。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/counterexamples.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/regression.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/negative-paths.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/runtime-trace.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/authority-boundary.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/diff-review.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/closure-matrix.json"
+      ],
+      "blockers": []
+    },
+    {
+      "stage_id": "STAGE-4",
+      "title": "事务、多 Draft 与身份安全闭环",
+      "goal": "分离持久事务和交互焦点，并完成 Actor/Subject/Resource 权限边界。",
+      "status": "CLOSED_VERIFIED",
+      "depends_on": [
+        "STAGE-3"
+      ],
+      "work_package_ids": [
+        "WP-06",
+        "WP-07"
+      ],
+      "closure_contract": "Non-environment multi-Draft/focus/recovery and Actor/Subject/Resource security contracts are CLOSED_VERIFIED; real PostgreSQL/LangGraph/full-stack execution is explicitly handed to WP-08.",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/original-failure.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/regression.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/runtime-trace.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/diff-review.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/closure-matrix.json",
+        ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json"
+      ],
+      "blockers": []
+    },
+    {
+      "stage_id": "STAGE-5",
+      "title": "真实环境、模型与全栈认证",
+      "goal": "在真实 PostgreSQL、模型、Embedding、前端和浏览器中执行全链路认证。",
+      "status": "BLOCKED",
+      "depends_on": [
+        "STAGE-4"
+      ],
+      "work_package_ids": [
+        "WP-08"
+      ],
+      "closure_contract": "真实全栈、模型、RAG、恢复和浏览器证据绑定同一源码身份。",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/closure-matrix.json"
+      ],
+      "blockers": [
+        "WP-08 cross-run restore authority is CLOSED_VERIFIED, but no accessible connected GitHub repository contains this project.",
+        "The correct repository must provide protected main, the production-certification Environment, locked dependencies, Docker/PostgreSQL/pgvector, Playwright and real provider credentials.",
+        "Repository onboarding is machine-gated in B28; real protected WP-08 execution still requires the selected repository metadata and GitHub configuration."
+      ]
+    },
+    {
+      "stage_id": "STAGE-6",
+      "title": "真实宿主验证与生产发布关单",
+      "goal": "验证 Codex/Claude 宿主约束并在受保护 GitHub 环境完成 production_closed。",
+      "status": "OPEN",
+      "depends_on": [
+        "STAGE-5"
+      ],
+      "work_package_ids": [
+        "WP-09"
+      ],
+      "closure_contract": "真实宿主任务通过且受保护发布生成 production_closed=true 的同 Run 证据。",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/host-preflight.json"
+      ],
+      "blockers": [
+        "STAGE-5 / WP-08 remains BLOCKED until the correct protected GitHub repository runs all real full-stack batches.",
+        "The current execution environment has no codex, claude or gh CLI and the package is not a Git checkout.",
+        "No same-run protected production artifact set exists yet for the independent closure consumer."
+      ]
+    }
+  ],
+  "work_packages": [
+    {
+      "work_package_id": "WP-01",
+      "stage_id": "STAGE-1",
+      "title": "历史任务总账",
+      "goal": "把所有合理历史义务归入唯一状态、依赖和闭环合同。",
+      "owner": "governance-control-plane",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [],
+      "closure_contract": "六阶段九工作包、已知问题和范围裁决通过机器验证。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/counterexamples.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-02",
+      "stage_id": "STAGE-1",
+      "title": "Quality Loop 控制器模块化",
+      "goal": "拆分质量控制职责并保留兼容入口。",
+      "owner": "quality-control-plane",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [],
+      "closure_contract": "quality_loop 兼容测试、模块边界、Trusted Judge 和回归通过。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/quality-loop-controller-tests.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/trusted-judge-verify.json",
+        "governance/repair-cases/migration-v20.17-b19-task-ledger-quality-controller-modularization/evidence/regression.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-03",
+      "stage_id": "STAGE-2",
+      "title": "旧语义兼容链删除",
+      "goal": "迁移所有生产 Reader 并停止旧字段影响新 Turn。",
+      "owner": "semantic-core",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [
+        "WP-02"
+      ],
+      "closure_contract": "旧 writer/router/fallback 运行调用为零。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/counterexamples.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/negative-paths.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/authority-boundary.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/diff-review.json",
+        "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/closure-matrix.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-04",
+      "stage_id": "STAGE-3",
+      "title": "强上下文与多 Goal",
+      "goal": "闭环代词集合、纠正、打断、恢复和多目标依赖。",
+      "owner": "semantic-planning",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [
+        "WP-03"
+      ],
+      "closure_contract": "50/100/200/200 分层 Campaign 与 holdout 达标。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/counterexamples.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/regression.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/negative-paths.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/runtime-trace.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/authority-boundary.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/diff-review.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/closure-matrix.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-05",
+      "stage_id": "STAGE-3",
+      "title": "精确能力与 unsupported",
+      "goal": "能力必须匹配 requested effect，缺失时明确 unsupported。",
+      "owner": "capability-grounding",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [
+        "WP-03"
+      ],
+      "closure_contract": "相似能力干扰集和无能力反例通过。",
+      "evidence_refs": [
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/original-failure.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/focused-tests.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/counterexamples.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/regression.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/negative-paths.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/runtime-trace.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/evidence/authority-boundary.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/diff-review.json",
+        "governance/repair-cases/migration-v20.17-b21-context-multigoal-capability-closure/closure-matrix.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-06",
+      "stage_id": "STAGE-4",
+      "title": "多 Draft 与事务恢复",
+      "goal": "分离 open drafts、交互焦点、授权目标、Attempt 和 Receipt。",
+      "owner": "transaction-runtime",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [
+        "WP-04",
+        "WP-05"
+      ],
+      "closure_contract": "Canonical focused_draft_id, multiple durable open drafts, stale-card current-focus projection, SUBMISSION_UNKNOWN/idempotency protocol and non-environment recovery regressions pass; real PostgreSQL restart/concurrency is transferred to WP-08.",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/original-failure.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/regression.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/runtime-trace.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/diff-review.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/closure-matrix.json",
+        ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-07",
+      "stage_id": "STAGE-4",
+      "title": "Actor/Subject/Resource 安全",
+      "goal": "业务服务独立验证租户、角色、资源归属和委托身份。",
+      "owner": "business-security",
+      "status": "CLOSED_VERIFIED",
+      "must_close": true,
+      "depends_on": [
+        "WP-04",
+        "WP-05"
+      ],
+      "closure_contract": "Authenticated Actor, Subject and Resource assertions remain separate through transport and are independently rejected on tenant/role/subject/resource/version mismatch; Business domain ownership remains final authority.",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/original-failure.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/regression.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/runtime-trace.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/diff-review.json",
+        "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/closure-matrix.json",
+        ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json"
+      ],
+      "blockers": []
+    },
+    {
+      "work_package_id": "WP-08",
+      "stage_id": "STAGE-5",
+      "title": "真实全栈和模型认证",
+      "goal": "运行真实服务、数据库、模型、Embedding、RAG、前端与浏览器。",
+      "owner": "production-readiness",
+      "status": "BLOCKED",
+      "must_close": true,
+      "depends_on": [
+        "WP-06",
+        "WP-07"
+      ],
+      "closure_contract": "同源码身份的真实集成、恢复、浏览器和安全证据通过。",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b25-wp08-resumable-certification/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b25-wp08-resumable-certification/evidence/local-probe-state.json",
+        "governance/repair-cases/repair-v20.17-b25-wp08-resumable-certification/evidence/static-contract.log",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/evidence/repository-preflight-blocked.json"
+      ],
+      "blockers": [
+        "B26 closes genuine cross-Run resume: an exact prior Artifact can be validated and only prior PASS batches are reused.",
+        "Docker/PostgreSQL/pgvector, real model/embedding, Playwright and protected secrets remain required.",
+        "B28 provides a fail-closed repository onboarding contract and locks the integration diagnostic workflow to the release toolchain authority.",
+        "No target repository metadata has been supplied; repository import remains blocked rather than guessing an unrelated connected repository.",
+        "Protected main, production-certification Environment and required secret names must pass repository_onboarding_preflight.py before WP-08 runs."
+      ]
+    },
+    {
+      "work_package_id": "WP-09",
+      "stage_id": "STAGE-6",
+      "title": "宿主与生产发布认证",
+      "goal": "真实验证 Codex/Claude 并完成受保护生产发布。",
+      "owner": "release-authority",
+      "status": "OPEN",
+      "must_close": true,
+      "depends_on": [
+        "WP-08"
+      ],
+      "closure_contract": "production_closed=true 且总账所有 must-close 项关闭。",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/host-preflight.json"
+      ],
+      "blockers": [
+        "WP-08 is not CLOSED_VERIFIED.",
+        "Real Codex and Claude Code host canaries have not executed.",
+        "The protected production release result, toolchain provenance and exact artifacts have not been produced."
+      ]
+    }
+  ],
+  "known_issues": [
+    {
+      "issue_id": "ISSUE-REL-001",
+      "status": "CLOSED_VERIFIED",
+      "owner_work_package_id": "WP-09",
+      "classification": "test-oracle-workflow-drift",
+      "description": "The release workflow oracle now tracks the current protected runtime steps and no longer references the removed Start actual protected-profile services step.",
+      "evidence_refs": [
+        "skill-system/tests/test_stage6_host_release_readiness.py",
+        "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+        ".github/workflows/release.yml"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-ENV-001",
+      "status": "BLOCKED",
+      "owner_work_package_id": "WP-08",
+      "classification": "environment",
+      "description": "WP-08 toolchain and cross-run orchestration are CLOSED_VERIFIED, but the project is not present in an accessible GitHub repository and the protected locked runtime, Docker/PostgreSQL, browser bundle and real provider credentials are unavailable.",
+      "evidence_refs": [
+        ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json",
+        "release/VALIDATION_REPORT.md",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b24-quality-toolchain-authority/evidence/negative-paths.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/closure-matrix.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/focused-tests.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/counterexamples.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/authority-boundary.json",
+        "governance/repair-cases/repair-v20.17-b26-wp08-cross-run-resume/evidence/negative-paths.json"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-HOST-001",
+      "status": "BLOCKED",
+      "owner_work_package_id": "WP-09",
+      "classification": "environment",
+      "description": "Real Codex/Claude host execution and protected production artifact consumption remain unavailable until WP-08 closes in the correct GitHub repository and the required CLIs/secrets exist.",
+      "evidence_refs": [
+        "governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/host-preflight.json",
+        "release/VALIDATION_REPORT.md"
+      ]
+    }
+  ],
+  "scope_decisions": [
+    {
+      "decision_id": "SCOPE-001",
+      "status": "DEFERRED",
+      "subject": "external payment, logistics, tax-control and enterprise ticket integrations",
+      "reason": "External integrations are expansion work and do not block closure of the current reference product.",
+      "decision_record": "governance/task-ledger.json"
+    },
+    {
+      "decision_id": "SCOPE-002",
+      "status": "CANCELLED",
+      "subject": "generic PUT/DELETE restoration",
+      "reason": "Domain commands remain the intentional contract; generic mutation endpoints would weaken authority boundaries.",
+      "decision_record": "governance/task-ledger.json"
+    }
+  ],
+  "last_updated_at": "2026-08-02T16:04:29.477089+00:00"
+}

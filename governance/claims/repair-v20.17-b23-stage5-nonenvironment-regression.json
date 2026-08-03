@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-v20.17-b23-stage5-nonenvironment-regression",
+  "claims": [
+    {
+      "id": "V20-17-B23-STAGE5-NONENV-001",
+      "statement": "All reproduced non-environment Stage-5 regressions are fixed with exact authority contracts and current test oracles.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py::test_current_turn_permit_backed_observation_can_feed_next_set_operation",
+        "services/agent-service/tests/architecture/test_command_and_model_governance.py::test_answer_release_does_not_scope_judge_a_non_effecting_narrative"
+      ],
+      "owner": "stage5-repair-owner",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

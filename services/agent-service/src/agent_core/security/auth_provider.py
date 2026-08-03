@@ -157,7 +157,7 @@ class HmacJwtAuthProvider:
             tenant_id=str(payload.get("tenant_id") or payload.get("tenantId") or "") or None,
             permissions=permissions,
             source="jwt_hs256",
-            subject=str(payload.get("sub") or user_id),
+            subject=str(payload.get("subject_user_id") or payload.get("subjectUserId") or payload.get("account_id") or payload.get("accountId") or payload.get("sub") or user_id),
         )
 
 
@@ -235,7 +235,7 @@ class RemoteUserInfoAuthProvider:
             tenant_id=tenant_id,
             permissions=permissions,
             source="remote_userinfo",
-            subject=str(merged.get("account_id") or merged.get("accountId") or merged.get("sub") or user_id),
+            subject=str(merged.get("subject_user_id") or merged.get("subjectUserId") or merged.get("account_id") or merged.get("accountId") or merged.get("sub") or user_id),
         )
 
 

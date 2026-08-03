@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Canonical read-only lifecycle projections used by ContextBundle.
 
-This module never mutates Goal, Blocker or Clarification state. Lifecycle keeps
-all write and transition authority and re-exports these functions only for
-backward-compatible imports.
+State Schema v2 exposes Goal, Blocker and Focus projections only. Legacy
+checkpoint fields are consumed exclusively by ``lifecycle.state_schema`` before
+this module is called.
 """
 
 from copy import deepcopy
@@ -12,7 +12,6 @@ from typing import Any, Iterable
 
 _ACTIVE_GOAL_LIFECYCLES = {"OPEN", "ACTIVE", "BLOCKED", "PAUSED"}
 _ACTIVE_BLOCKER_STATUSES = {"OPEN"}
-_ACTIVE_CLARIFICATION_STATUSES = {"pending", "resuming"}
 
 
 def _record_revision(record: dict[str, Any] | None) -> int:
@@ -82,91 +81,36 @@ def goal_records_context_projection(
     ]
 
 
-def _state_scope(state: dict[str, Any]) -> dict[str, str]:
-    return {
-        "tenant_id": str(state.get("current_tenant_id") or ""),
-        "user_id": str(state.get("current_user_id") or ""),
-        "thread_id": str(state.get("current_thread_id") or ""),
-    }
-
-
-def active_pending_clarification(state: dict[str, Any]) -> dict[str, Any] | None:
-    if int(state.get("state_schema_version") or 1) >= 2:
-        return None
-    value = state.get("pending_clarification")
-    if not isinstance(value, dict):
-        return None
-    if str(value.get("status") or "") not in _ACTIVE_CLARIFICATION_STATUSES:
-        return None
-    if not str(value.get("clarification_id") or ""):
-        return None
-    current_scope = _state_scope(state)
-    if any(current_scope.values()):
-        stored_scope = value.get("scope") if isinstance(value.get("scope"), dict) else {}
-        if any(stored_scope.get(key) != expected for key, expected in current_scope.items()):
-            return None
-    return deepcopy(value)
-
-
 def clarification_context_projection(state: dict[str, Any]) -> dict[str, Any] | None:
     blockers = active_goal_blockers(state)
-    if blockers:
-        return {
-            "version": "goal-blocker-projection@1",
-            "blockers": [
-                {
-                    "blocker_id": row.get("blocker_id"),
-                    "goal_id": row.get("goal_id"),
-                    "missing_kind": row.get("missing_kind"),
-                    "question": row.get("question"),
-                    "requested_effect": deepcopy(row.get("requested_effect"))
-                    if isinstance(row.get("requested_effect"), dict)
-                    else None,
-                }
-                for row in blockers
-            ],
-            "requires_single_global_disposition": False,
-            "allowed_operations": [
-                "RESOLVE_BLOCKER",
-                "CANCEL_BLOCKER",
-                "SUPERSEDE_BLOCKER",
-            ],
-            "authority": "model_proposes_goal_scoped_changes_runtime_verifies",
-        }
-
-    pending = active_pending_clarification(state)
-    if pending is None:
+    if not blockers:
         return None
     return {
-        "version": pending.get("version"),
-        "clarification_id": pending.get("clarification_id"),
-        "status": pending.get("status"),
-        "user_request": pending.get("user_request"),
-        "question": pending.get("question"),
-        "missing_kind": pending.get("missing_kind"),
-        "attempt": pending.get("attempt"),
-        "suspended_goals": [
+        "version": "goal-blocker-projection@1",
+        "blockers": [
             {
+                "blocker_id": row.get("blocker_id"),
                 "goal_id": row.get("goal_id"),
-                "description": row.get("description"),
+                "missing_kind": row.get("missing_kind"),
+                "question": row.get("question"),
                 "requested_effect": deepcopy(row.get("requested_effect"))
                 if isinstance(row.get("requested_effect"), dict)
                 else None,
-                "goal_type": row.get("goal_type"),
-                "required": row.get("required", True),
             }
-            for row in list(pending.get("suspended_goals") or [])
-            if isinstance(row, dict)
+            for row in blockers
         ],
-        "legacy_disposition_optional": ["resume", "abandon", "new_request"],
         "requires_single_global_disposition": False,
-        "authority": "model_proposes_runtime_verifies",
+        "allowed_operations": [
+            "RESOLVE_BLOCKER",
+            "CANCEL_BLOCKER",
+            "SUPERSEDE_BLOCKER",
+        ],
+        "authority": "model_proposes_goal_scoped_changes_runtime_verifies",
     }
 
 
 __all__ = [
     "active_goal_blockers",
-    "active_pending_clarification",
     "clarification_context_projection",
     "goal_records_context_projection",
 ]

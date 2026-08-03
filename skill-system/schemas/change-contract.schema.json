@@ -247,6 +247,33 @@
         "string",
         "null"
       ]
+    },
+    "repair_governance": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "repair_governance_permit_digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repair_governance_consumed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "multi_agent_mode": {
+      "enum": [
+        "required",
+        "not-applicable",
+        "legacy"
+      ]
     }
   },
   "additionalProperties": false

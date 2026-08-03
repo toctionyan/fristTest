@@ -7,6 +7,7 @@ from agent_core.lifecycle.dialogue_runtime import _build_loop_plan
 from agent_core.lifecycle.workflow_contracts import PlanLevel, StepKind, StepStatus, WorkflowStatus
 from agent_core.lifecycle.workflow_runtime import build_workflow_plan, verify_workflow_for_final_answer
 from tests.support.legacy_workflow_projection import mark_step_result
+from tests.support.test_semantic_state import install_test_semantic_contract, requested_effect_for_tool
 
 
 def _state(text: str, *, turn: int = 1) -> dict[str, Any]:
@@ -38,9 +39,51 @@ def _visible_collection_target() -> dict[str, Any]:
 def _plan(text: str, calls: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     state = _state(text)
     bound_calls = []
+    goals = []
     for index, call in enumerate(calls, start=1):
-        args = {**dict(call.get("args") or {}), "goal_ids": [f"legacy-goal:{index}"]}
-        bound_calls.append({**call, "args": args})
+        goal_id = f"goal:{index}"
+        args = {**dict(call.get("args") or {}), "goal_ids": [goal_id]}
+        bound_calls.append({key: value for key, value in {**call, "args": args}.items() if key != "depends_on_goal_indexes"})
+        tool_name = str(call.get("name") or "")
+        evidence_span = str(
+            args.get("action_span")
+            or args.get("reference_span")
+            or args.get("request_span")
+            or text
+        )
+        if evidence_span not in text:
+            evidence_span = text
+        contract = get_runtime_registry().capabilities.contract_for_tool(tool_name)
+        if contract is not None and contract.execution_kind == "unsupported":
+            goal_type = "unsupported"
+        elif contract is not None and contract.execution_kind == "action_draft":
+            goal_type = "action"
+        elif tool_name == "evaluate_refund_eligibility":
+            goal_type = "consult"
+        else:
+            goal_type = "query"
+        goals.append({
+            "goal_id": goal_id,
+            "description": f"test goal for {tool_name}",
+            "evidence_span": evidence_span,
+            "goal_type": goal_type,
+            "requested_effect": (
+                {"domain": "open", "operation": "unsupported_test", "object_type": "request", "raw_description": evidence_span}
+                if goal_type == "unsupported"
+                else requested_effect_for_tool(tool_name)
+            ),
+            "required": True,
+            "depends_on": [
+                f"goal:{dependency_index}"
+                for dependency_index in list(call.get("depends_on_goal_indexes") or [])
+            ],
+        })
+    install_test_semantic_contract(state, {
+        "turn": state["turn_index"],
+        "user_text": text,
+        "summary": "multi-goal runtime test",
+        "goals": goals,
+    })
     turn_plan = _build_loop_plan(state, text, bound_calls, "", capability_registry=get_runtime_registry().capabilities)
     workflow = build_workflow_plan(state=state, turn_plan=turn_plan, user_text=text)
     return state, turn_plan, workflow
@@ -104,7 +147,7 @@ def test_query_plus_single_write_action_keeps_dependency_and_awaits_authority():
         result={"ok": True, "code": "OK", "message": "已创建退款草稿", "runtime_outcome": {"outcome_type": "draft_created", "effects": "draft_created", "next_interaction": "open_authority"}},
     )
     assert workflow["status"] == WorkflowStatus.AWAITING_AUTHORIZATION.value
-    assert verify_workflow_for_final_answer({**state, "workflow_plan": workflow})["ok"] is True
+    assert verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})["ok"] is True
 
 
 def test_multi_branch_request_requires_all_branches_before_finalizing():
@@ -112,8 +155,8 @@ def test_multi_branch_request_requires_all_branches_before_finalizing():
         "把没发货的取消，已签收的看看能不能退",
         [
             {"id": "orders", "name": "list_orders", "args": _orders_target()},
-            {"id": "cancel", "name": "prepare_cancel_order", "args": {"target": _visible_collection_target(), "reference_span": "没发货的", "reason_code": "changed_mind", "reason_span": "取消"}},
-            {"id": "eligibility", "name": "evaluate_refund_eligibility", "args": {"target": _visible_collection_target(), "reference_span": "已签收的", "query": {}}},
+            {"id": "cancel", "name": "prepare_cancel_order", "depends_on_goal_indexes": [1], "args": {"target": _visible_collection_target(), "reference_span": "没发货的", "reason_code": "changed_mind", "reason_span": "取消"}},
+            {"id": "eligibility", "name": "evaluate_refund_eligibility", "depends_on_goal_indexes": [1], "args": {"target": _visible_collection_target(), "reference_span": "已签收的", "query": {}}},
         ],
     )
     assert workflow["level"] == PlanLevel.WORKFLOW.value
@@ -126,9 +169,9 @@ def test_multi_branch_request_requires_all_branches_before_finalizing():
         result={"ok": True, "code": "OK", "message": "已创建取消草稿", "runtime_outcome": {"outcome_type": "draft_created", "effects": "draft_created", "next_interaction": "open_authority"}},
     )
     assert workflow["status"] == WorkflowStatus.RUNNING.value
-    verification = verify_workflow_for_final_answer({**state, "workflow_plan": workflow})
+    verification = verify_workflow_for_final_answer({**state, "grounded_execution_plan": workflow})
     assert verification["ok"] is False
-    assert set(verification["uncovered_goal_ids"]) == {"legacy-goal:1", "legacy-goal:3"}
+    assert set(verification["uncovered_goal_ids"]) == {"goal:1", "goal:3"}
 
 
 def test_supported_plus_unsupported_mixed_intent_reports_unsupported_without_substitution():

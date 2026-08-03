@@ -3,6 +3,7 @@ from __future__ import annotations
 from agent_core.context.visible_result_refs import mark_visible_result_refs
 from agent_core.ledger import artifact_entry, result_entry
 from agent_core.lifecycle.workflow_runtime import build_workflow_plan
+from tests.support.test_semantic_state import install_test_semantic_contract
 
 
 def _visible_evidence_state(*, goal_type: str = "query") -> tuple[dict, dict]:
@@ -32,17 +33,20 @@ def _visible_evidence_state(*, goal_type: str = "query") -> tuple[dict, dict]:
         "current_thread_id": "thread-a",
         "turn_index": 2,
         "artifact_ledger": [artifact, result],
-        "turn_goal_plan": {
-            "goals": [{
-                "goal_id": "g1",
-                "description": "回答最贵的订单",
-                "evidence_span": "最贵的是哪个",
-                "goal_type": goal_type,
-                "required": True,
-                "depends_on": [],
-            }]
-        },
+        "current_user_input": "最贵的是哪个",
     }
+    install_test_semantic_contract(state, {
+        "turn": 2,
+        "user_text": "最贵的是哪个",
+        "goals": [{
+            "goal_id": "g1",
+            "description": "回答最贵的订单",
+            "evidence_span": "最贵的是哪个",
+            "goal_type": goal_type,
+            "required": True,
+            "depends_on": [],
+        }],
+    })
     state["artifact_ledger"] = mark_visible_result_refs(
         state["artifact_ledger"], state=state, evidence_handles=[result["handle"]]
     )

@@ -9,7 +9,6 @@ from agent_core.model_calls.gateway import (
     is_environmental_model_failure_category,
     model_call_scope,
 )
-from agent_core.model_calls.structured_prompt import structured_verifier_messages
 from agent_core.model_calls.real_model_identity import (
     RealModelCertificationError,
     attest_real_model_call_record,
@@ -24,6 +23,13 @@ from agent_core.model_calls.real_model_certification_bundle import (
     validate_certification_components,
     workspace_fingerprint,
 )
+
+
+def structured_verifier_messages(*args, **kwargs):
+    """Load native message classes only when a model verifier is invoked."""
+    from agent_core.model_calls.structured_prompt import structured_verifier_messages as build_messages
+
+    return build_messages(*args, **kwargs)
 
 
 __all__ = [

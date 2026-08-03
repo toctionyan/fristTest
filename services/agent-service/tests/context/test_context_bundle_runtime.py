@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.support.test_semantic_state import install_test_semantic_contract, requested_effect_for_tool
 from copy import deepcopy
 from typing import Any
 
@@ -7,7 +8,7 @@ import pytest
 
 from agent_core.composition import get_runtime_registry
 from agent_core.lifecycle.dialogue_runtime import _build_loop_plan
-from agent_core.lifecycle.workflow_runtime import build_workflow_plan
+from agent_core.lifecycle.workflow_runtime import build_workflow_plan, materialize_plan_runtime
 from agent_core.runtime.capability_gate import (
     build_effects,
     issue_execution_permit,
@@ -61,12 +62,19 @@ def _query_args() -> dict[str, Any]:
 
 def _attach_query_workflow(state: dict[str, Any], effects: list[dict[str, Any]], calls: list[dict[str, Any]]) -> None:
     text = str(state["current_user_input"])
-    state["turn_goal_plan"] = {"turn": state["turn_index"], "goals": [{
+    install_test_semantic_contract(state, {"turn": state["turn_index"], "goals": [{
         "goal_id": "g1", "description": text, "evidence_span": text,
-        "goal_type": "query", "required": True, "depends_on": [], "expected_tools": [],
-    }]}
+        "goal_type": "query", "requested_effect": requested_effect_for_tool("list_orders"),
+        "required": True, "depends_on": [],
+    }]})
     state["current_turn_plan"] = {**state["current_turn_plan"], "effects": effects, "tool_calls": calls}
-    state["workflow_plan"] = build_workflow_plan(state=state, turn_plan=state["current_turn_plan"], user_text=text)
+    workflow = build_workflow_plan(state=state, turn_plan=state["current_turn_plan"], user_text=text)
+    definition, run, projection = materialize_plan_runtime(state=state, workflow_plan=workflow)
+    state.update({
+        "frozen_plan_definition": definition,
+        "plan_run": run,
+        "grounded_execution_plan": projection,
+    })
 
 
 def test_all_registered_schemas_have_a_runtime_contract():
@@ -294,11 +302,11 @@ def test_pending_structured_interaction_preempts_action_before_capability_dispat
     offer = transition_draft(attach_snapshot(offer), "NEEDS_INPUT")
     offer.update({"input_form_id": "form:refund", "input_form_version": 1, "input_step": 1})
     state.update({"active_draft_id": offer["handle"], "artifact_ledger": [order, offer]})
-    state["turn_goal_plan"] = {"turn": 8, "goals": [{
+    install_test_semantic_contract(state, {"turn": 8, "goals": [{
         "goal_id": "g1", "description": "补充退款原因", "evidence_span": "原因是不喜欢",
         "goal_type": "action", "expected_result_cardinality": "single",
         "required": True, "depends_on": [], "expected_tools": [],
-    }]}
+    }]})
     effects, calls = build_effects(
         plan_id=state["current_turn_plan"]["plan_id"],
         capability_registry=get_runtime_registry().capabilities,
@@ -312,9 +320,15 @@ def test_pending_structured_interaction_preempts_action_before_capability_dispat
         }],
     )
     state["current_turn_plan"] = {**state["current_turn_plan"], "effects": effects, "tool_calls": calls}
-    state["workflow_plan"] = build_workflow_plan(
+    workflow = build_workflow_plan(
         state=state, turn_plan=state["current_turn_plan"], user_text=state["current_user_input"],
     )
+    definition, run, projection = materialize_plan_runtime(state=state, workflow_plan=workflow)
+    state.update({
+        "frozen_plan_definition": definition,
+        "plan_run": run,
+        "grounded_execution_plan": projection,
+    })
 
     deps = runtime_deps()
     output = execute_agent_loop_calls_node(
@@ -327,7 +341,10 @@ def test_pending_structured_interaction_preempts_action_before_capability_dispat
     assert output["tool_trace"][-1]["result"]["code"] == "INTERACTION_REDIRECT"
     assert output["tool_trace"][-1]["execution_permit"] is None
     assert output["response_contract"]["interaction"]["interaction_id"] == offer["handle"]
-    assert output["workflow_plan"]["steps"][0]["status"] == "NEEDS_INPUT"
+    # The existing structured interaction owns the pause. No new tool attempt
+    # starts, so the newly proposed action step remains structurally PLANNED.
+    assert output["grounded_execution_plan"]["steps"][0]["status"] == "PLANNED"
+    assert output["plan_run"]["step_states"][effects[0]["effect_id"]]["attempt_count"] == 0
 
 
 def test_live_tool_runtime_records_permit_and_rejects_invalid_candidate(monkeypatch):

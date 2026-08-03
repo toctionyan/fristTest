@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "phase": "B28",
+  "status": "PHASE_CANDIDATE_REPOSITORY_ONBOARDING_READY_EXTERNAL_EXECUTION_BLOCKED",
+  "workspace_version": "20.6.1",
+  "skill_version": "6.7.0",
+  "production_closed": false,
+  "current_stage": "STAGE-5",
+  "work_package": "WP-08",
+  "work_package_status": "BLOCKED",
+  "closed_claim": "V20-17-B28-REPOSITORY-ONBOARDING-001",
+  "implemented": [
+    "stdlib-only fail-closed repository onboarding preflight",
+    "private/public and empty/nonempty repository safety decisions",
+    "protected main, production-certification Environment and secret-name readiness checks",
+    "integration-diagnostic workflow aligned to release toolchain lock"
+  ],
+  "remaining_blockers": [
+    "target repository metadata not supplied",
+    "real protected WP-08 workflow not executed",
+    "real Codex/Claude host canaries not executed"
+  ],
+  "closure": "governance/repair-cases/repair-v20.17-b28-repository-onboarding-authority/closure-matrix.json"
+}

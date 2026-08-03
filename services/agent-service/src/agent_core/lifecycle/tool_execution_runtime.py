@@ -24,7 +24,6 @@ from agent_core.lifecycle.goal_lifecycle import (
     update_goal_records_from_execution_plan,
 )
 from agent_core.lifecycle.semantic_state_changes import apply_focus_change
-from agent_core.lifecycle.state_schema import legacy_fallback_allowed
 from agent_core.lifecycle.goal_blockers import apply_blocker_resolutions
 from agent_core.lifecycle.workflow_runtime import (
     build_workflow_plan,
@@ -182,7 +181,7 @@ def execute_agent_loop_calls_node(
     grounded_execution_plan = deepcopy(workflow_plan)
     frozen_semantic_contract = deepcopy(state.get("frozen_semantic_contract")) if isinstance(state.get("frozen_semantic_contract"), dict) else None
     semantic_proposal = deepcopy(state.get("semantic_proposal")) if isinstance(state.get("semantic_proposal"), dict) else None
-    turn_goal_plan: dict[str, Any] | None = None
+    goal_declaration: dict[str, Any] | None = None
     goal_blockers = [deepcopy(row) for row in list(state.get("goal_blockers") or []) if isinstance(row, dict)]
     goal_records = [deepcopy(row) for row in list(state.get("goal_records") or []) if isinstance(row, dict)]
     focus_state = deepcopy(state.get("focus_state")) if isinstance(state.get("focus_state"), dict) else None
@@ -216,9 +215,9 @@ def execute_agent_loop_calls_node(
                     capability_registry=capability_registry,
                 )
                 if declared is not None:
-                    compatibility_plan = deepcopy(declared)
-                    candidate_contract = compatibility_plan.pop("_frozen_semantic_contract", None)
-                    candidate_proposal = compatibility_plan.pop("_semantic_proposal", None)
+                    declaration_projection = deepcopy(declared)
+                    candidate_contract = declaration_projection.pop("_frozen_semantic_contract", None)
+                    candidate_proposal = declaration_projection.pop("_semantic_proposal", None)
                     candidate_records = goal_records
                     candidate_blockers = goal_blockers
                     candidate_focus = focus_state
@@ -254,11 +253,11 @@ def execute_agent_loop_calls_node(
                         # all deterministic lifecycle/blocker checks pass.
                         frozen_semantic_contract = candidate_contract
                         semantic_proposal = candidate_proposal
-                        turn_goal_plan = compatibility_plan
+                        goal_declaration = declaration_projection
                         goal_records = candidate_records
                         goal_blockers = candidate_blockers
                         focus_state = candidate_focus
-                        plan = {**dict(plan), "goal_declaration": deepcopy(turn_goal_plan)}
+                        plan = {**dict(plan), "goal_declaration": deepcopy(goal_declaration)}
                         candidate_workflow_plan = build_workflow_plan(
                             state={
                                 **state,
@@ -561,7 +560,6 @@ def execute_agent_loop_calls_node(
         "frozen_plan_definition": frozen_plan_definition,
         "plan_run": plan_run,
         "grounded_execution_plan": grounded_execution_plan,
-        **({"workflow_plan": workflow_plan} if legacy_fallback_allowed(state) else {}),
         "goal_blockers": goal_blockers,
         "goal_records": goal_records,
         "focus_state": focus_state,

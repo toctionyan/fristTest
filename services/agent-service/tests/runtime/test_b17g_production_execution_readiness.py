@@ -41,9 +41,9 @@ def _env(**overrides: str) -> dict[str, str]:
         "PRODUCTION_RELEASE_EXPECTED_WORKFLOW": "production-certification-release",
         "PRODUCTION_RELEASE_EXPECTED_REF": "refs/heads/main",
         "RELEASE_INPUT_PROVIDER": "deepseek",
-        "RELEASE_INPUT_MODEL": "deepseek-v4-flash",
-        "RELEASE_INPUT_EMBEDDING_MODEL": "text-embedding-v4",
-        "RELEASE_INPUT_EMBEDDING_DIMENSION": "1024",
+        "RELEASE_INPUT_MODEL": "deepseek-chat",
+        "RELEASE_INPUT_EMBEDDING_MODEL": "text-embedding-3-small",
+        "RELEASE_INPUT_EMBEDDING_DIMENSION": "1536",
     }
     payload.update(overrides)
     return payload
@@ -54,7 +54,7 @@ def test_valid_protected_dispatch_is_admitted() -> None:
     assert result["contract"] == "release-workflow-admission@1"
     assert result["status"] == "PASS"
     assert result["ref_protected"] is True
-    assert result["embedding_dimension"] == 1024
+    assert result["embedding_dimension"] == 1536
 
 
 def test_unprotected_dispatch_fails_instead_of_being_silently_skipped() -> None:

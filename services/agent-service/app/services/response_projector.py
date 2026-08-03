@@ -17,7 +17,7 @@ from agent_core.presentation.outcome import Presentation, presentation_from_outc
 from agent_core.runtime.outcomes import coerce_runtime_outcome
 from agent_core.runtime.answer_release_alignment import evaluate_answer_release
 from agent_core.presentation.contracts.runtime import project_interaction_timeline
-from agent_core.transaction.active_draft import get_active_draft_id
+from agent_core.transaction.focus import get_focused_draft_id
 
 
 class ResponseProjector:
@@ -64,13 +64,15 @@ class ResponseProjector:
             "ledger_schema_version", "artifact_ledger", "ledger_snapshot",
             "current_turn_plan", "loop_plans", "agent_loop_step", "agent_loop_max_steps", "agent_loop_seen_calls", "answer_protocol_retry", "goal_declaration_retry", "clarification_scope_retry", "deferred_terminal_calls",
             "task_board", "current_turn_task_ids", "action_queue", "action_gateway_result", "conversation_event_log", "audit_snapshot",
-            "tool_trace", "tool_error", "answer_evidence_handles", "active_draft_id", "pending_confirmation_id", "pending_confirmation_version", "response_contract",
+            "tool_trace", "tool_error", "answer_evidence_handles", "focused_draft_id", "active_draft_id", "pending_confirmation_id", "pending_confirmation_version", "response_contract",
             "approval_result", "commit_authority", "offer_execution_result", "current_ask_message",
             "current_final_answer", "sources", "summary", "debug_llm_calls", "runtime_outcome", "presentation",
             "debug_current_run_id", "decision_chain", "state_contract_violations", "presentation_contract_violations", "answer_release_alignment", "history_recall_evidence_binding", "transaction_reconciliation", "context_health", "transaction_context_blocked",
         ]
         state = {key: result.get(key) for key in keys if key in result}
-        state["active_draft_id"] = get_active_draft_id(result)
+        focused_draft_id = get_focused_draft_id(result)
+        state["focused_draft_id"] = focused_draft_id
+        state["active_draft_id"] = focused_draft_id
         if "debug_llm_calls" in state:
             state["debug_llm_calls"] = self.dedupe_debug_llm_calls(state.get("debug_llm_calls") or [])
         return state
@@ -78,9 +80,10 @@ class ResponseProjector:
     def public_state(self, result: dict[str, Any]) -> dict[str, Any] | None:
         keys = ["phase", "status", "current_ask_message", "pending_confirmation_id", "pending_confirmation_version"]
         public = {key: result.get(key) for key in keys if key in result and result.get(key) is not None}
-        active_draft_id = get_active_draft_id(result)
-        if active_draft_id:
-            public["active_draft_id"] = active_draft_id
+        focused_draft_id = get_focused_draft_id(result)
+        if focused_draft_id:
+            public["focused_draft_id"] = focused_draft_id
+            public["active_draft_id"] = focused_draft_id
         snapshot = result.get("ledger_snapshot")
         if isinstance(snapshot, dict):
             public["active_offer_count"] = len(snapshot.get("offers") or [])
