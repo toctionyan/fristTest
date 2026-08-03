@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "B30",
-  "work_package": "WP-02",
+  "work_package": "WP-02A",
   "status": "PROPOSED",
   "authority": {
     "owner": "TurnRequestLedger",
