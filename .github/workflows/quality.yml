@@ -30,8 +30,21 @@ jobs:
           services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py
           --workspace-root . --static-only
 
-  quality-static:
+  multi-agent-governance:
     needs: skill-control-plane
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Validate strict host topology
+        run: '"${pythonLocation}/bin/python" -B skill-system/controller/host_conformance.py --strict'
+      - name: Run multi-agent identity and isolation counterexamples
+        run: '"${pythonLocation}/bin/python" -B skill-system/tests/test_multi_agent_governance.py'
+
+  quality-static:
+    needs: [skill-control-plane, multi-agent-governance]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
