@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 3
+          fetch-depth: 4
           clean: true
           persist-credentials: true
 
@@ -45,7 +45,7 @@ jobs:
           git merge-base --is-ancestor b33e876eb0f9a6df3a9222dd4696c24230e0f8d9 HEAD
           COMMIT_COUNT="$(git rev-list --count b33e876eb0f9a6df3a9222dd4696c24230e0f8d9..HEAD)"
           test "$COMMIT_COUNT" -ge 1
-          test "$COMMIT_COUNT" -le 2
+          test "$COMMIT_COUNT" -le 3
           command -v zstd >/dev/null
           test "$(find .b28-bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "16"
 
@@ -53,6 +53,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          # Git checkout preserves executable bits, while the retained B17j
+          # source snapshot is intentionally distributed with normalized
+          # 0755 directory / 0644 regular-file modes. Normalize only the
+          # temporary checkout before computing its immutable source identity.
+          find . -path './.git' -prune -o -type d -exec chmod 0755 {} +
+          find . -path './.git' -prune -o -type f -exec chmod 0644 {} +
+
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --format=gnu \
             --exclude='./.git' \
             --exclude='./.b28-bootstrap' \
