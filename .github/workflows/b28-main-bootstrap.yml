@@ -77,3 +77,5 @@ jobs:
           test "$(git rev-parse HEAD^{tree})" = "a43068fb9d2d5e4aa9bbca8d1a3d97d8c0885bd2"
           git push --force-with-lease=refs/heads/${B28_UPGRADE_BRANCH}:$B28_EXPECTED_HEAD \
             origin HEAD:${B28_UPGRADE_BRANCH}
+
+# Retrigger after the workflow became resident on main (2026-08-03).
