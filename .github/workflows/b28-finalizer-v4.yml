@@ -1,0 +1,173 @@
+name: B28 Governed Finalizer V4
+run-name: Assemble minimal corrected B28 candidate
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: [.b28-publisher-trigger]
+
+permissions:
+  contents: write
+
+env:
+  B28_BRANCH: agent/b28-repository-onboarding
+  B28_EXPECTED_BRANCH_HEAD: 4382c38d04fdd2570eaf20d1cfc2032b734c80fd
+  B28_STABLE_HEAD: 03484367b072fe82d189d79f9287e95592c2ed11
+  FINAL5_TRANSPORT_HEAD: 90e567ca581949120385ab57d479f2de27c67e7d
+  FINAL5_ZST_SHA256: d1dcef18d6d5328e1c75e13ab953ae610271c470b7756f0bab81ea91f1547517
+  FINAL5_TAR_SHA256: 361603b3834bfc9bf055a687a3f8ea4f605001d3d4183a9263e5bfdc18deb6a6
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b28-publisher-trigger'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout trusted finalizer control
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: control
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout immutable stable B28 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.B28_STABLE_HEAD }}
+          path: candidate
+          fetch-depth: 8
+          clean: true
+          persist-credentials: true
+
+      - name: Checkout immutable minimal governance transport
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.FINAL5_TRANSPORT_HEAD }}
+          path: overlay
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Set up governed Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Verify and apply minimal governance overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$B28_STABLE_HEAD"
+          test "$(git -C overlay rev-parse HEAD)" = "$FINAL5_TRANSPORT_HEAD"
+          test "$(find overlay/.b28-final5 -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "3"
+
+          cat overlay/.b28-final5/part-* | base64 --decode > /tmp/b28-final5.tar.zst
+          echo "$FINAL5_ZST_SHA256  /tmp/b28-final5.tar.zst" | sha256sum -c -
+          command -v zstd >/dev/null
+          zstd -q -d /tmp/b28-final5.tar.zst -o /tmp/b28-final5.tar
+          echo "$FINAL5_TAR_SHA256  /tmp/b28-final5.tar" | sha256sum -c -
+
+          cat > /tmp/expected-overlay-paths.txt <<'EOF'
+          governance/task-ledger-evidence-archive.json
+          governance/task-ledger.json
+          governance/task-ledger.schema.json
+          skill-system/controller/task_ledger.py
+          skill-system/tests/test_task_ledger.py
+          EOF
+          tar -tf /tmp/b28-final5.tar | sort > /tmp/actual-overlay-paths.txt
+          diff -u /tmp/expected-overlay-paths.txt /tmp/actual-overlay-paths.txt
+          if tar -tvf /tmp/b28-final5.tar | awk '$1 !~ /^-/' | grep -q .; then
+            echo 'Final governance overlay contains a non-regular-file entry.' >&2
+            exit 1
+          fi
+          tar -xf /tmp/b28-final5.tar -C candidate
+
+          mkdir -p candidate/.github/scripts
+          cp control/.github/scripts/b28_finalize_overlay.py candidate/.github/scripts/b28_finalize_overlay.py
+          "${pythonLocation}/bin/python" -B candidate/.github/scripts/b28_finalize_overlay.py
+          rm candidate/.github/scripts/b28_finalize_overlay.py
+
+          echo '62888ce62c3e529c13d29471760a103d52b124c7c8137b0d174d22539d62ba96  candidate/skill-system/controller/task_ledger.py' | sha256sum -c -
+          echo 'b73d1e2484acec1ba0dc3a1d824371212ca20b393bae56f27cad19fc9c6a9080  candidate/governance/task-ledger.schema.json' | sha256sum -c -
+          echo '64a2e9e93d0cdcfa44b0815833c8f17fe5527fd87d8fa85f55df37ce3daed170  candidate/governance/task-ledger.json' | sha256sum -c -
+          echo 'd39d03d98dc1c8510b7f41b6ad60faf822a10bf5f8174ab7c2ef2c37a31b74fa  candidate/governance/task-ledger-evidence-archive.json' | sha256sum -c -
+          echo '250ed571ca73a1338d232a070fc2442b1dbe263318db4f0e3e700c7a5dc0a419  candidate/skill-system/registry/product-source-baseline.json' | sha256sum -c -
+          echo 'c0d24d0a311b5836cac49076df74f47b545943d15e2f60df0ab8dd22b8d42a86  candidate/skill-system/tests/test_task_ledger.py' | sha256sum -c -
+          echo '28c6509301b74c54eba9fcf1a2f62c5e435ed58531ef4595e748bdcd5544e4a0  candidate/skill-system/controller/project_compatibility.py' | sha256sum -c -
+          echo '3d2064a0139660ff9f779d69b94912a141e0eabf91288c57620630e7c8202f57  candidate/skill-system/tests/test_project_compatibility.py' | sha256sum -c -
+
+          if find candidate -type f -name '.env' -print -quit | grep -q .; then
+            echo 'A real .env file was found in the corrected candidate.' >&2
+            exit 1
+          fi
+          if find candidate -type d \( -name '.pytest_cache' -o -name '__pycache__' -o -name '.venv' -o -name 'venv' -o -name 'node_modules' \) -print -quit | grep -q .; then
+            echo 'Generated dependency or cache content exists before validation.' >&2
+            exit 1
+          fi
+
+      - name: Install locked validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run governed validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          PYTHON=services/agent-service/.venv/bin/python
+          TARGET="$PWD/.quality/targets/quality-target-b28-finalizer-v4.md"
+          export QUALITY_EVIDENCE_DIR="$RUNNER_TEMP/quality-evidence/b28-finalizer-v4"
+          "$PYTHON" -B scripts/verify_task_ledger.py
+          "$PYTHON" -B skill-system/controller/profile_runner.py skill-control-plane
+          "$PYTHON" -B scripts/quality_toolchain_contract.py --static-only
+          "$PYTHON" -B scripts/create_ci_quality_target.py \
+            --output "$TARGET" --ref "$B28_STABLE_HEAD" --workflow quality-static
+          "$PYTHON" -B scripts/quality_loop.py --mode static --target "$TARGET"
+
+      - name: Commit and publish exact minimal candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          rm -rf .quality services/agent-service/.venv
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          git add -A
+
+          cat > /tmp/expected-final-paths.txt <<'EOF'
+          governance/task-ledger-evidence-archive.json
+          governance/task-ledger.json
+          governance/task-ledger.schema.json
+          skill-system/controller/project_compatibility.py
+          skill-system/controller/task_ledger.py
+          skill-system/registry/product-source-baseline.json
+          skill-system/tests/test_project_compatibility.py
+          skill-system/tests/test_task_ledger.py
+          EOF
+          git diff --cached --name-only "$B28_STABLE_HEAD" -- | sort > /tmp/actual-final-paths.txt
+          diff -u /tmp/expected-final-paths.txt /tmp/actual-final-paths.txt
+
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git commit -m 'Persist evidence archive and correct B28 source authority'
+          echo "FINAL_COMMIT=$(git rev-parse HEAD)"
+          echo "FINAL_TREE=$(git rev-parse HEAD^{tree})"
+          git push --force-with-lease=refs/heads/${B28_BRANCH}:$B28_EXPECTED_BRANCH_HEAD \
+            origin HEAD:${B28_BRANCH}
