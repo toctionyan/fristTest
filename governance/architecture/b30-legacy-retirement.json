@@ -20,7 +20,7 @@
     {
       "id": "per_intent_context_owners",
       "target": "per-intent pronoun, focus or history resolution",
-      "replacement": "TypedTargetSet+VisibleResultRef+SourceEffect",
+      "replacement": "TurnSemanticContract.TypedTargetSet with ContextEvidenceProjection, VisibleResultRef and SourceEffect as non-selecting provenance",
       "discovery": "inventory slot resolvers and tool adapters that infer targets from untyped history",
       "deletion_condition": "set, subset, correction, interruption and stale-reference counterexamples pass",
       "rollback": "revert canonical resolver changes while preserving fail-closed clarification"
@@ -110,14 +110,22 @@
           "id": "WP-02B",
           "parent": "WP-02",
           "name": "Semantic, context and typed target authority",
-          "authority_owner": "TurnSemanticContract+TypedTargetSet+VisibleResultRef+SourceEffect",
+          "authority_owner": "ContextEvidenceProjection+TurnSemanticContract+TurnSemanticContract.TypedTargetSet",
           "allowed_paths": [
-            "services/agent-service/src/agent_core/lifecycle/**",
-            "services/agent-service/src/agent_core/runtime/**",
+            "services/agent-service/src/agent_core/context/**",
+            "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+            "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+            "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py",
+            "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py",
+            "services/agent-service/src/agent_core/lifecycle/goal_blockers.py",
+            "services/agent-service/src/agent_core/lifecycle/clarification_runtime.py",
+            "services/agent-service/src/agent_core/lifecycle/context_runtime.py",
+            "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
             "services/agent-service/tests/context/**",
             "services/agent-service/tests/runtime/**"
           ],
           "exit_conditions": [
+            "context evidence precedes semantic freeze and cannot select a target",
             "one TurnSemanticContract owns user meaning and typed goals",
             "pronoun, set, subset, correction and interruption counterexamples pass",
             "per-intent and per-tool history resolvers cannot become authorities",
