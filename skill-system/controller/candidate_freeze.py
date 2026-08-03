@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import fnmatch
+import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +11,6 @@ try:
     from .agent_attestation import (
         IMPLEMENTER_ROLE,
         case_dir_from_contract,
-        file_sha256,
         git_value,
         load_manifest,
         manifest_path,
@@ -26,7 +28,6 @@ except ImportError:
     from agent_attestation import (  # type: ignore
         IMPLEMENTER_ROLE,
         case_dir_from_contract,
-        file_sha256,
         git_value,
         load_manifest,
         manifest_path,
@@ -61,6 +62,61 @@ def _load_freeze(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _matches(path: str, patterns: list[str]) -> bool:
+    return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+
+
+def _exact_patterns(patterns: list[str]) -> list[str]:
+    return [pattern for pattern in patterns if not any(char in pattern for char in "*?[")]
+
+
+def _workspace_content_manifest(
+    workspace: Path,
+    allowed: list[str],
+    *,
+    workspace_files: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, str | None]:
+    files = workspace_files if workspace_files is not None else capture_workspace_manifest(workspace)
+    result: dict[str, str | None] = {}
+    for path, record in files.items():
+        if _matches(path, allowed):
+            digest = record.get("sha256") if isinstance(record, dict) else None
+            result[path] = str(digest) if digest else None
+    for path in _exact_patterns(allowed):
+        result.setdefault(path, None)
+    return dict(sorted(result.items()))
+
+
+def _commit_content_manifest(workspace: Path, commit: str, allowed: list[str]) -> dict[str, str | None]:
+    completed = subprocess.run(
+        ["git", "-C", str(workspace), "ls-tree", "-r", "-z", "--name-only", commit],
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode:
+        raise ValueError(f"cannot enumerate frozen candidate commit: {completed.stderr.decode(errors='replace').strip()}")
+    paths = [value.decode("utf-8") for value in completed.stdout.split(b"\0") if value]
+    result: dict[str, str | None] = {}
+    for path in paths:
+        if not _matches(path, allowed):
+            continue
+        blob = subprocess.run(
+            ["git", "-C", str(workspace), "show", f"{commit}:{path}"],
+            capture_output=True,
+            check=False,
+        )
+        if blob.returncode:
+            raise ValueError(f"cannot read frozen candidate blob: {path}")
+        result[path] = hashlib.sha256(blob.stdout).hexdigest()
+    for path in _exact_patterns(allowed):
+        result.setdefault(path, None)
+    return dict(sorted(result.items()))
+
+
+def _content_fingerprint(files: dict[str, str | None]) -> str:
+    return manifest_fingerprint(files)
+
+
 def freeze_candidate(
     workspace: Path,
     contract_payload: dict[str, Any],
@@ -75,12 +131,20 @@ def freeze_candidate(
         manifest,
         {"failure-explorer", "repair-plan-reviewer", IMPLEMENTER_ROLE},
     )
-    commit = candidate_commit or git_value(workspace, "rev-parse", "HEAD")
+    head = git_value(workspace, "rev-parse", "HEAD")
+    commit = git_value(workspace, "rev-parse", candidate_commit or "HEAD")
+    if commit != head:
+        raise ValueError("candidate freeze requires candidate_commit to equal the current HEAD")
     tree = git_value(workspace, "rev-parse", f"{commit}^{{tree}}")
     workspace_files = capture_workspace_manifest(workspace)
     allowed = [str(value) for value in chain.permit.get("allowed_paths") or []]
     source_files = capture_allowed_manifest(workspace, allowed, workspace_files=workspace_files)
     source_fingerprint = manifest_fingerprint(source_files)
+    current_content = _workspace_content_manifest(workspace, allowed, workspace_files=workspace_files)
+    commit_content = _commit_content_manifest(workspace, commit, allowed)
+    if current_content != commit_content:
+        raise ValueError("candidate freeze requires every permitted source change to be committed at candidate_commit")
+    commit_source_fingerprint = _content_fingerprint(commit_content)
     if source_fingerprint == chain.permit.get("baseline_source_fingerprint"):
         raise ValueError("candidate freeze requires a permitted source change")
     payload = {
@@ -92,6 +156,7 @@ def freeze_candidate(
         "candidate_commit": commit,
         "candidate_tree": tree,
         "candidate_source_fingerprint": source_fingerprint,
+        "candidate_commit_source_fingerprint": commit_source_fingerprint,
         "implementer_task_id": implementer["stage"].get("task_id"),
         "implementer_worktree_id": implementer["stage"].get("worktree_id"),
         "status": "FROZEN",
@@ -151,8 +216,6 @@ def validate_candidate_freeze(
     tree = git_value(workspace, "rev-parse", f"{commit}^{{tree}}")
     if payload.get("candidate_tree") != tree:
         raise ValueError("candidate freeze tree differs from candidate commit")
-    # `merge-base --is-ancestor` is status-only; run it separately.
-    import subprocess
     completed = subprocess.run(
         ["git", "-C", str(workspace), "merge-base", "--is-ancestor", commit, "HEAD"],
         capture_output=True,
@@ -166,4 +229,11 @@ def validate_candidate_freeze(
     fingerprint = manifest_fingerprint(current_allowed)
     if payload.get("candidate_source_fingerprint") != fingerprint:
         raise ValueError("governed source changed after candidate freeze")
+    current_content = _workspace_content_manifest(workspace, allowed, workspace_files=current_files)
+    commit_content = _commit_content_manifest(workspace, commit, allowed)
+    commit_fingerprint = _content_fingerprint(commit_content)
+    if payload.get("candidate_commit_source_fingerprint") != commit_fingerprint:
+        raise ValueError("candidate freeze commit content fingerprint is stale or forged")
+    if current_content != commit_content:
+        raise ValueError("governed source no longer matches the frozen candidate commit")
     return payload

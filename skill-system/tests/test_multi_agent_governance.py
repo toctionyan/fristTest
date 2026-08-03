@@ -7,17 +7,23 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 CONTROLLER = Path(__file__).resolve().parents[1] / "controller"
 if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
+
+import candidate_freeze
 
 from agent_attestation import (  # type: ignore
     import_attestation,
     load_manifest,
     payload_digest,
     register_implementer,
+    sign_attestation,
     validate_role_separation,
     validate_stage,
 )
@@ -76,6 +82,7 @@ class MultiAgentGovernanceTest(unittest.TestCase):
         decision: str,
         input_sha256: str | None = None,
         candidate_commit: str = "",
+        sign_key: str | None = None,
     ) -> Path:
         payload = {
             "schema_version": 1,
@@ -94,7 +101,10 @@ class MultiAgentGovernanceTest(unittest.TestCase):
             "decision": decision,
             "issued_at": "2026-08-03T09:00:00Z",
         }
-        payload["attestation_digest"] = payload_digest(payload)
+        if sign_key:
+            payload = sign_attestation(payload, sign_key)
+        else:
+            payload["attestation_digest"] = payload_digest(payload)
         path = self.root / "inbox" / f"{role}.json"
         _write(path, payload)
         return path
@@ -220,6 +230,110 @@ class MultiAgentGovernanceTest(unittest.TestCase):
                 ),
             )
 
+    def test_reused_reviewer_thread_is_rejected(self) -> None:
+        failure = self.root / "inbox/root-cause.json"
+        _write(failure, {"record_type": "root-cause-proof", "decision": "PROVEN"})
+        import_attestation(
+            self.root,
+            self.contract,
+            role="failure-explorer",
+            artifact_source=failure,
+            attestation_source=self._attestation(
+                role="failure-explorer",
+                artifact=failure,
+                task_id="task-failure",
+                thread_id="shared-thread",
+                worktree_id="worktree-failure",
+                decision="PROVEN",
+            ),
+        )
+        plan_review = self.root / "inbox/plan-review.json"
+        _write(plan_review, {"reviewer_role": "repair-plan-reviewer", "decision": "APPROVED"})
+        with self.assertRaisesRegex(ValueError, "thread reused"):
+            import_attestation(
+                self.root,
+                self.contract,
+                role="repair-plan-reviewer",
+                artifact_source=plan_review,
+                attestation_source=self._attestation(
+                    role="repair-plan-reviewer",
+                    artifact=plan_review,
+                    task_id="task-plan",
+                    thread_id="shared-thread",
+                    worktree_id="worktree-plan",
+                    decision="APPROVED",
+                ),
+            )
+
+    def test_strict_signature_mode_rejects_unsigned_attestation(self) -> None:
+        plan_review = self.root / "inbox/plan-review.json"
+        _write(plan_review, {"reviewer_role": "repair-plan-reviewer", "decision": "APPROVED"})
+        attestation = self._attestation(
+            role="repair-plan-reviewer",
+            artifact=plan_review,
+            task_id="task-plan",
+            thread_id="thread-plan",
+            worktree_id="worktree-plan",
+            decision="APPROVED",
+        )
+        old_required = os.environ.get("MULTI_AGENT_REQUIRE_SIGNATURE")
+        old_key = os.environ.get("MULTI_AGENT_ATTESTATION_KEY")
+        try:
+            os.environ["MULTI_AGENT_REQUIRE_SIGNATURE"] = "1"
+            os.environ["MULTI_AGENT_ATTESTATION_KEY"] = "trusted-test-key"
+            with self.assertRaisesRegex(ValueError, "requires a trusted signature"):
+                import_attestation(
+                    self.root, self.contract, role="repair-plan-reviewer",
+                    artifact_source=plan_review, attestation_source=attestation,
+                )
+        finally:
+            if old_required is None:
+                os.environ.pop("MULTI_AGENT_REQUIRE_SIGNATURE", None)
+            else:
+                os.environ["MULTI_AGENT_REQUIRE_SIGNATURE"] = old_required
+            if old_key is None:
+                os.environ.pop("MULTI_AGENT_ATTESTATION_KEY", None)
+            else:
+                os.environ["MULTI_AGENT_ATTESTATION_KEY"] = old_key
+
+    def test_signed_attestation_passes_only_with_the_matching_key(self) -> None:
+        plan_review = self.root / "inbox/plan-review.json"
+        _write(plan_review, {"reviewer_role": "repair-plan-reviewer", "decision": "APPROVED"})
+        attestation = self._attestation(
+            role="repair-plan-reviewer",
+            artifact=plan_review,
+            task_id="task-plan",
+            thread_id="thread-plan",
+            worktree_id="worktree-plan",
+            decision="APPROVED",
+            sign_key="trusted-test-key",
+        )
+        old_required = os.environ.get("MULTI_AGENT_REQUIRE_SIGNATURE")
+        old_key = os.environ.get("MULTI_AGENT_ATTESTATION_KEY")
+        try:
+            os.environ["MULTI_AGENT_REQUIRE_SIGNATURE"] = "1"
+            os.environ["MULTI_AGENT_ATTESTATION_KEY"] = "wrong-key"
+            with self.assertRaisesRegex(ValueError, "signature is invalid"):
+                import_attestation(
+                    self.root, self.contract, role="repair-plan-reviewer",
+                    artifact_source=plan_review, attestation_source=attestation,
+                )
+            os.environ["MULTI_AGENT_ATTESTATION_KEY"] = "trusted-test-key"
+            result = import_attestation(
+                self.root, self.contract, role="repair-plan-reviewer",
+                artifact_source=plan_review, attestation_source=attestation,
+            )
+            self.assertEqual(result["status"], "PASS")
+        finally:
+            if old_required is None:
+                os.environ.pop("MULTI_AGENT_REQUIRE_SIGNATURE", None)
+            else:
+                os.environ["MULTI_AGENT_REQUIRE_SIGNATURE"] = old_required
+            if old_key is None:
+                os.environ.pop("MULTI_AGENT_ATTESTATION_KEY", None)
+            else:
+                os.environ["MULTI_AGENT_ATTESTATION_KEY"] = old_key
+
     def test_changed_artifact_invalidates_attestation(self) -> None:
         plan_review = self.root / "inbox/plan-review.json"
         _write(plan_review, {"reviewer_role": "repair-plan-reviewer", "decision": "APPROVED"})
@@ -240,6 +354,90 @@ class MultiAgentGovernanceTest(unittest.TestCase):
         _write(self.case_dir / "plan-review.json", {"reviewer_role": "repair-plan-reviewer", "decision": "REJECTED"})
         with self.assertRaisesRegex(ValueError, "artifact changed"):
             validate_stage(self.root, self.contract, "repair-plan-reviewer")
+
+    def _commit_source_value(self, value: int, message: str) -> str:
+        _write(self.root / "src/module.py", f"def value():\n    return {value}\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "src/module.py"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", message], check=True)
+        return subprocess.check_output(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True
+        ).strip()
+
+    def _candidate_freeze_patches(self) -> ExitStack:
+        stages = {
+            "failure-explorer": {
+                "task_id": "task-failure", "thread_id": "thread-failure",
+                "worktree_id": "worktree-failure",
+            },
+            "repair-plan-reviewer": {
+                "task_id": "task-plan", "thread_id": "thread-plan",
+                "worktree_id": "worktree-plan",
+            },
+            "product-implementer": {
+                "task_id": "task-implementation", "thread_id": "thread-implementation",
+                "worktree_id": "worktree-implementation",
+            },
+        }
+        manifest = {
+            "schema_version": 1,
+            "record_type": "agent-task-manifest",
+            "change_id": "change-001",
+            "repository": "example/repository",
+            "baseline_commit": self.baseline,
+            "stages": stages,
+        }
+        implementer = {"manifest": manifest, "stage": stages["product-implementer"]}
+        chain = SimpleNamespace(
+            permit={
+                "allowed_paths": ["src/module.py"],
+                "baseline_source_fingerprint": "0" * 64,
+            },
+            permit_digest="1" * 64,
+        )
+        stack = ExitStack()
+        stack.enter_context(patch.object(candidate_freeze, "load_chain", return_value=chain))
+        stack.enter_context(patch.object(candidate_freeze, "validate_stage", return_value=implementer))
+        stack.enter_context(patch.object(candidate_freeze, "validate_role_separation"))
+        stack.enter_context(patch.object(candidate_freeze, "load_manifest", return_value=manifest))
+        stack.enter_context(
+            patch.object(candidate_freeze, "manifest_path", return_value=self.case_dir / "agent-task-manifest.json")
+        )
+        stack.enter_context(patch.object(candidate_freeze, "case_dir_from_contract", return_value=self.case_dir))
+        return stack
+
+    def test_candidate_freeze_rejects_an_old_commit(self) -> None:
+        candidate = self._commit_source_value(2, "candidate")
+        _write(self.root / "governance/note.txt", "later governance change\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "governance/note.txt"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "later governance"], check=True)
+        with self._candidate_freeze_patches():
+            with self.assertRaisesRegex(ValueError, "equal the current HEAD"):
+                candidate_freeze.freeze_candidate(self.root, self.contract, candidate_commit=candidate)
+
+    def test_candidate_freeze_rejects_uncommitted_permitted_source(self) -> None:
+        _write(self.root / "src/module.py", "def value():\n    return 2\n")
+        with self._candidate_freeze_patches():
+            with self.assertRaisesRegex(ValueError, "permitted source change to be committed"):
+                candidate_freeze.freeze_candidate(
+                    self.root, self.contract, candidate_commit=self.baseline
+                )
+
+    def test_candidate_freeze_rejects_source_change_after_freeze(self) -> None:
+        candidate = self._commit_source_value(2, "candidate")
+        with self._candidate_freeze_patches():
+            candidate_freeze.freeze_candidate(self.root, self.contract, candidate_commit=candidate)
+            _write(self.root / "src/module.py", "def value():\n    return 3\n")
+            with self.assertRaisesRegex(ValueError, "governed source changed"):
+                candidate_freeze.validate_candidate_freeze(self.root, self.contract)
+
+    def test_candidate_freeze_allows_later_governance_commit_only(self) -> None:
+        candidate = self._commit_source_value(2, "candidate")
+        with self._candidate_freeze_patches():
+            candidate_freeze.freeze_candidate(self.root, self.contract, candidate_commit=candidate)
+            subprocess.run(["git", "-C", str(self.root), "add", "governance"], check=True)
+            subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "record governance"], check=True)
+            result = candidate_freeze.validate_candidate_freeze(self.root, self.contract)
+            self.assertEqual(result["candidate_commit"], candidate)
 
     def test_role_string_without_attestation_is_not_identity(self) -> None:
         _write(

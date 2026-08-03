@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -42,6 +43,8 @@ ROLE_DECISIONS = {
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
+SIGNATURE_KEY_ENV = "MULTI_AGENT_ATTESTATION_KEY"
+REQUIRE_SIGNATURE_ENV = "MULTI_AGENT_REQUIRE_SIGNATURE"
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -55,6 +58,56 @@ def payload_digest(value: dict[str, Any], *, exclude: Iterable[str] = ()) -> str
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _signature_payload(payload: dict[str, Any]) -> bytes:
+    unsigned = {
+        key: value
+        for key, value in payload.items()
+        if key != "attestation_digest"
+    }
+    signature = unsigned.get("signature")
+    if isinstance(signature, dict):
+        unsigned["signature"] = {
+            key: value for key, value in signature.items() if key != "value"
+        }
+    return canonical_bytes(unsigned)
+
+
+def sign_attestation(payload: dict[str, Any], key: str, *, key_id: str = "trusted-codex-reviewer") -> dict[str, Any]:
+    signed = dict(payload)
+    signed["signature"] = {
+        "algorithm": "hmac-sha256",
+        "key_id": key_id,
+    }
+    signed["signature"]["value"] = hmac.new(
+        key.encode("utf-8"), _signature_payload(signed), hashlib.sha256
+    ).hexdigest()
+    signed["attestation_digest"] = payload_digest(signed, exclude={"attestation_digest"})
+    return signed
+
+
+def _validate_signature(payload: dict[str, Any], role: str) -> None:
+    require = (
+        role in REVIEWER_ROLES
+        and os.environ.get(REQUIRE_SIGNATURE_ENV, "").strip() == "1"
+    )
+    signature = payload.get("signature")
+    if signature is None:
+        if require:
+            raise ValueError("reviewer agent-attestation requires a trusted signature")
+        return
+    if not isinstance(signature, dict) or signature.get("algorithm") != "hmac-sha256":
+        raise ValueError("agent-attestation signature algorithm is invalid")
+    key_id = str(signature.get("key_id") or "").strip()
+    if not key_id:
+        raise ValueError("agent-attestation signature requires key_id")
+    key = os.environ.get(SIGNATURE_KEY_ENV, "")
+    if not key:
+        raise ValueError("agent-attestation signature cannot be verified without the trusted key")
+    expected = hmac.new(key.encode("utf-8"), _signature_payload(payload), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(str(signature.get("value") or ""), expected):
+        raise ValueError("agent-attestation signature is invalid")
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -190,6 +243,7 @@ def validate_attestation(
     digest = _require_text(payload, "attestation_digest")
     if digest != payload_digest(payload, exclude={"attestation_digest"}):
         raise ValueError("agent-attestation digest is invalid")
+    _validate_signature(payload, expected_role)
     return payload
 
 
@@ -210,21 +264,25 @@ def load_manifest(case_dir: Path, *, required: bool = True) -> dict[str, Any]:
 
 def _validate_distinct_stage_identities(stages: dict[str, Any]) -> None:
     seen_tasks: dict[str, str] = {}
+    seen_threads: dict[str, str] = {}
     seen_worktrees: dict[str, str] = {}
     for role, raw in stages.items():
         if role not in ALL_AGENT_ROLES or not isinstance(raw, dict):
             raise ValueError(f"invalid task-manifest stage: {role}")
         task_id = str(raw.get("task_id") or "")
+        thread_id = str(raw.get("thread_id") or "")
         worktree_id = str(raw.get("worktree_id") or "")
-        if not task_id or not worktree_id:
-            raise ValueError(f"task-manifest stage {role} lacks task/worktree identity")
+        if not task_id or not thread_id or not worktree_id:
+            raise ValueError(f"task-manifest stage {role} lacks task/thread/worktree identity")
         if task_id in seen_tasks and seen_tasks[task_id] != role:
             raise ValueError(f"agent task reused across roles: {task_id}")
+        if thread_id in seen_threads and seen_threads[thread_id] != role:
+            raise ValueError(f"agent thread reused across roles: {thread_id}")
         if worktree_id in seen_worktrees and seen_worktrees[worktree_id] != role:
             raise ValueError(f"agent worktree reused across roles: {worktree_id}")
         seen_tasks[task_id] = role
+        seen_threads[thread_id] = role
         seen_worktrees[worktree_id] = role
-
 
 
 def preflight_stage_update(
@@ -232,6 +290,7 @@ def preflight_stage_update(
     *,
     role: str,
     task_id: str,
+    thread_id: str,
     worktree_id: str,
     replace: bool,
 ) -> dict[str, Any]:
@@ -242,6 +301,7 @@ def preflight_stage_update(
     prospective = dict(stages)
     prospective[role] = {
         "task_id": task_id,
+        "thread_id": thread_id,
         "worktree_id": worktree_id,
     }
     _validate_distinct_stage_identities(prospective)
@@ -346,6 +406,7 @@ def import_attestation(
         case_dir,
         role=role,
         task_id=str(raw_attestation["task_id"]),
+        thread_id=str(raw_attestation["thread_id"]),
         worktree_id=str(raw_attestation["worktree_id"]),
         replace=replace,
     )
@@ -403,6 +464,7 @@ def register_implementer(
         case_dir,
         role=IMPLEMENTER_ROLE,
         task_id=task_id,
+        thread_id=thread_id,
         worktree_id=worktree_id,
         replace=replace,
     )
@@ -438,6 +500,8 @@ def register_implementer(
         "decision": "STARTED",
         "issued_at": os.environ.get("AGENT_ATTESTATION_TIME") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    # The reviewer signing key must remain unavailable to the writable implementer.
+    # Implementer identity is bound to the host task/thread/worktree registration.
     attestation["attestation_digest"] = payload_digest(attestation)
     target_attestation = attestation_path(case_dir, IMPLEMENTER_ROLE)
     target_attestation.parent.mkdir(parents=True, exist_ok=True)
