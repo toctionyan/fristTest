@@ -16,6 +16,7 @@ from typing import Any, Mapping
 CONTRACT = "quality-toolchain-contract@1"
 LOCK_CONTRACT = "release-toolchain-lock@1"
 _ACTION_RE = re.compile(r"^\s*(?:-\s+)?uses:\s+([^\s@]+)@([^\s#]+)(?:\s+#\s*(.*))?\s*$")
+_VERSION_TOKEN_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
 
 class QualityToolchainError(RuntimeError):
@@ -157,7 +158,23 @@ def _run_version(command: list[str]) -> str:
             f"{command[0]} exited {result.returncode}: {(result.stderr or result.stdout).strip()}",
             environment_blocked=True,
         )
-    return result.stdout.strip().lstrip("v")
+    return result.stdout.strip()
+
+
+def _normalize_version_output(name: str, value: str) -> str:
+    text = value.strip()
+    if name == "node" and text.startswith("v"):
+        text = text[1:]
+    elif name == "uv" and text.startswith("uv "):
+        text = text[3:]
+    token = text.split(maxsplit=1)[0] if text else ""
+    if not _VERSION_TOKEN_RE.fullmatch(token):
+        raise QualityToolchainError(
+            "quality_toolchain_version_unparseable",
+            f"unable to parse {name} version from {value!r}",
+            environment_blocked=True,
+        )
+    return token
 
 
 def validate_runtime(workspace_root: Path) -> dict[str, Any]:
@@ -169,9 +186,8 @@ def validate_runtime(workspace_root: Path) -> dict[str, Any]:
         "npm": [shutil.which("npm") or "npm", "--version"],
         "uv": [shutil.which("uv") or "uv", "--version"],
     }
-    actual = {name: _run_version(command) for name, command in commands.items()}
-    if actual["uv"].startswith("uv "):
-        actual["uv"] = actual["uv"].split(" ", 1)[1]
+    raw = {name: _run_version(command) for name, command in commands.items()}
+    actual = {name: _normalize_version_output(name, value) for name, value in raw.items()}
     expected = {
         "python": str(lock.get("python_version") or ""),
         "node": str(lock.get("node_version") or ""),
