@@ -4,6 +4,13 @@ name: B28 Governed Bootstrap
   push:
     branches:
       - agent/b28-repository-onboarding
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: write
@@ -14,23 +21,31 @@ concurrency:
 
 jobs:
   upgrade:
+    if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/b28-repository-onboarding'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Checkout immutable bootstrap commit
+      - name: Checkout immutable upgrade head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 2
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 3
           clean: true
           persist-credentials: true
 
-      - name: Validate immutable B17j baseline
+      - name: Validate immutable B17j ancestry
         shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/agent/b28-repository-onboarding"
-          test "$(git rev-parse HEAD^)" = "b33e876eb0f9a6df3a9222dd4696c24230e0f8d9"
+          test "$EXPECTED_BRANCH" = "agent/b28-repository-onboarding"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor b33e876eb0f9a6df3a9222dd4696c24230e0f8d9 HEAD
+          COMMIT_COUNT="$(git rev-list --count b33e876eb0f9a6df3a9222dd4696c24230e0f8d9..HEAD)"
+          test "$COMMIT_COUNT" -ge 1
+          test "$COMMIT_COUNT" -le 2
           command -v zstd >/dev/null
           test "$(find .b28-bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "16"
 
@@ -53,6 +68,8 @@ jobs:
 
       - name: Replace B17j with verified B28 stable workspace
         shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           git rm -rf .
@@ -73,4 +90,5 @@ jobs:
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
           git commit -m 'Upgrade workspace to V20.17 B28'
-          git push origin HEAD:agent/b28-repository-onboarding
+          git push --force-with-lease=refs/heads/agent/b28-repository-onboarding:"$EXPECTED_HEAD" \
+            origin HEAD:agent/b28-repository-onboarding
