@@ -25,7 +25,7 @@ Capability absence, tool failure, plan failure or business rejection may change 
 
 ## Typed target authority
 
-A Goal carries its typed target candidate or input candidates inside the frozen semantic contract and revisioned GoalRecord. Supported relations include explicit entities, visible ResultRefs and members, sets, subsets, union, intersection, difference, filter, sort, position and continuation.
+A Goal carries one formal `TypedTargetSet` through its target candidate or input candidates inside the frozen semantic contract and revisioned GoalRecord. Supported relations include explicit entities, visible ResultRefs and members, sets, subsets, union, intersection, difference, filter, sort, position and continuation.
 
 Ambiguity is fail-closed:
 
@@ -91,7 +91,7 @@ Each change binds the current revision and literal current-turn evidence. Clarif
 - `WP-03` owns capability support. WP-02B preserves unsupported requested effects for MatchProof absence.
 - `WP-04` owns executable planning. PlanRun derives from the frozen contract and cannot reinterpret it.
 - `WP-05` owns business facts and transaction state.
-- `WP-06` projects RuntimeOutcome and cannot synthesize new semantics.
+- `WP-06` projects `RuntimeOutcome` and cannot synthesize new semantics.
 
 ## Legacy retirement
 
