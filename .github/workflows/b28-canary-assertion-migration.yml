@@ -211,7 +211,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd candidate
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+          cd ../..
           services/agent-service/.venv/bin/python -B \
             skill-system/controller/profile_runner.py skill-control-plane
 
