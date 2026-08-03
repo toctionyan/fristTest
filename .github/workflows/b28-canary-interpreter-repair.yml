@@ -1,0 +1,266 @@
+name: B28 Canary Interpreter Repair
+run-name: Repair B28 lifecycle canary virtualenv interpreter
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: [.b28-canary-fix-trigger]
+
+permissions:
+  contents: write
+
+env:
+  B28_BRANCH: agent/b28-repository-onboarding
+  B28_EXPECTED_HEAD: 6f7a2df190bf9d3f2588adf003fd76181b8a1343
+  B28_EXPECTED_TREE: f209d18f4fd28a3ee738a633d40404277d2fb12b
+
+jobs:
+  repair:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/b28-canary-fix-trigger'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable B28 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.B28_EXPECTED_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          clean: true
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install locked service environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
+          test "$(git -C candidate rev-parse HEAD^{tree})" = "$B28_EXPECTED_TREE"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+          cd ../business-service
+          uv sync --locked --all-groups
+
+      - name: Apply exact interpreter repair and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          from pathlib import Path
+
+          root = Path("candidate").resolve()
+          script_path = root / "scripts/verify_full_lifecycle_canary.py"
+          source = script_path.read_text(encoding="utf-8")
+          old = """        if candidate.is_file():
+              return candidate.resolve()
+          """
+          new = """        if candidate.is_file():
+              # Preserve the virtualenv launcher path. Resolving this symlink to the
+              # base interpreter discards pyvenv.cfg discovery and loses locked packages.
+              return candidate.absolute()
+          """
+          if source.count(old) != 1:
+              raise SystemExit(f"unexpected_resolve_python_shape:{source.count(old)}")
+          script_path.write_text(source.replace(old, new), encoding="utf-8")
+
+          test_path = (
+              root
+              / "services/agent-service/tests/architecture/"
+              / "test_full_lifecycle_canary_interpreter.py"
+          )
+          if test_path.exists():
+              raise SystemExit("canary_interpreter_test_already_exists")
+          test_content = '''from __future__ import annotations
+
+          import importlib.util
+          from pathlib import Path
+
+          from tests.support.paths import workspace_root
+
+
+          def _load_canary_module():
+              root = workspace_root(__file__)
+              path = root / "scripts" / "verify_full_lifecycle_canary.py"
+              spec = importlib.util.spec_from_file_location("verify_full_lifecycle_canary", path)
+              assert spec and spec.loader
+              module = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(module)
+              return module
+
+
+          def test_resolve_python_preserves_virtualenv_launcher_symlink(
+              tmp_path: Path,
+              monkeypatch,
+          ) -> None:
+              module = _load_canary_module()
+              real_python = tmp_path / "python-real"
+              real_python.write_text("#!/bin/sh\\n", encoding="utf-8")
+              launcher = tmp_path / ".venv" / "bin" / "python"
+              launcher.parent.mkdir(parents=True)
+              launcher.symlink_to(real_python)
+
+              monkeypatch.delenv("QUALITY_TEST_PYTHON", raising=False)
+              selected = module._resolve_python("QUALITY_TEST_PYTHON", launcher)
+
+              assert selected == launcher.absolute()
+              assert selected != real_python.resolve()
+          '''
+          test_content = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in test_content.splitlines()
+          ) + "\n"
+          expected = "2985fb4b77e390209a467f00834c24bafa55166532e90d8197de898c8f16cb7c"
+          actual = hashlib.sha256(test_content.encode("utf-8")).hexdigest()
+          if actual != expected:
+              raise SystemExit(f"test_payload_hash_mismatch:{actual}")
+          test_path.write_text(test_content, encoding="utf-8")
+          PY
+
+      - name: Prove launcher preservation and full public lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            tests/architecture/test_full_lifecycle_canary_interpreter.py
+          cd ../..
+          services/agent-service/.venv/bin/python -B \
+            scripts/verify_full_lifecycle_canary.py
+
+      - name: Commit repaired canary implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          printf '%s\n' \
+            'scripts/verify_full_lifecycle_canary.py' \
+            'services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py' \
+            > /tmp/fix-paths.txt
+          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-fix-paths.txt
+          sort /tmp/fix-paths.txt > /tmp/expected-fix-paths.txt
+          diff -u /tmp/expected-fix-paths.txt /tmp/actual-fix-paths.txt
+          git add -- $(cat /tmp/fix-paths.txt)
+          git diff --cached --check
+          git commit -m 'Preserve virtualenv launcher in lifecycle canary'
+          echo "CANARY_FIX_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "CANARY_FIX_TREE=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+
+      - name: Refresh exact product-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path("candidate").resolve()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          protected_roots = tuple(str(item) for item in payload["protected_roots"])
+          ignored_parts = {".venv", "node_modules", "__pycache__"}
+
+          current: dict[str, str] = {}
+          for name in protected_roots:
+              protected_root = root / name
+              for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
+                  if any(part in ignored_parts for part in path.parts):
+                      continue
+                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          baseline = {str(key): str(value) for key, value in payload["files"].items()}
+          test_path = "services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py"
+          expected_hash = "2985fb4b77e390209a467f00834c24bafa55166532e90d8197de898c8f16cb7c"
+          changed = {
+              path
+              for path in set(current) | set(baseline)
+              if current.get(path) != baseline.get(path)
+          }
+          if changed != {test_path}:
+              raise SystemExit("unexpected_product_source_delta:" + ",".join(sorted(changed)))
+          if current.get(test_path) != expected_hash:
+              raise SystemExit(f"canary_test_hash_mismatch:{current.get(test_path)}")
+          if len(current) != int(payload["file_count"]) + 1:
+              raise SystemExit(
+                  f"protected_file_count_not_incremented_once:{payload['file_count']}->{len(current)}"
+              )
+
+          payload["generated_from"] = "git:" + os.environ["CANARY_FIX_COMMIT"]
+          payload["generated_at"] = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          payload["file_count"] = len(current)
+          payload["files"] = dict(sorted(current.items()))
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "status": "PASS",
+              "generated_from": payload["generated_from"],
+              "added_path": test_path,
+              "file_count": len(current),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate complete Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Publish exact two-commit repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
+          test "$(git rev-parse HEAD)" = "$CANARY_FIX_COMMIT"
+          test "$(git rev-parse HEAD^{tree})" = "$CANARY_FIX_TREE"
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/baseline-path.txt
+          git diff --name-only "$CANARY_FIX_COMMIT" -- | sort > /tmp/actual-baseline-path.txt
+          diff -u /tmp/baseline-path.txt /tmp/actual-baseline-path.txt
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh product-source baseline for canary repair'
+
+          printf '%s\n' \
+            'scripts/verify_full_lifecycle_canary.py' \
+            'services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py' \
+            'skill-system/registry/product-source-baseline.json' \
+            | sort > /tmp/expected-final-paths.txt
+          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-final-paths.txt
+          diff -u /tmp/expected-final-paths.txt /tmp/actual-final-paths.txt
+          echo "FINAL_COMMIT=$(git rev-parse HEAD)"
+          echo "FINAL_TREE=$(git rev-parse HEAD^{tree})"
+          git push --force-with-lease=refs/heads/${B28_BRANCH}:$B28_EXPECTED_HEAD \
+            origin HEAD:${B28_BRANCH}
