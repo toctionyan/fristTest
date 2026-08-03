@@ -217,7 +217,7 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
             --output "$QUALITY_TARGET" --ref "$SYNC_FINAL_COMMIT" \
-            --workflow b29-sync-static
+            --workflow quality-static
           "${pythonLocation}/bin/python" -B scripts/quality_loop.py \
             --mode static --target "$QUALITY_TARGET"
 
@@ -233,7 +233,7 @@ jobs:
             --output "${RUNNER_TEMP}/b29-sync-toolchain.json"
           "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
             --output "$QUALITY_TARGET" --ref "$SYNC_FINAL_COMMIT" \
-            --workflow b29-sync-quick \
+            --workflow quality-quick \
             --claims-source governance/claims/v20.6.2-project-quick-certification.json
           services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
             --mode quick --target "$QUALITY_TARGET"
