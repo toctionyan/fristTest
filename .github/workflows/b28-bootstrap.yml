@@ -1,9 +1,6 @@
-name: B28 Governed Bootstrap
+name: B28 Current Main Snapshot
 
 "on":
-  push:
-    branches:
-      - agent/b28-repository-onboarding
   pull_request:
     branches:
       - main
@@ -13,51 +10,38 @@ name: B28 Governed Bootstrap
       - reopened
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: b28-governed-bootstrap
+  group: b28-current-main-snapshot
   cancel-in-progress: false
 
 jobs:
-  upgrade:
-    if: github.event_name == 'push' || github.event.pull_request.head.ref == 'agent/b28-repository-onboarding'
+  snapshot:
+    if: github.event.pull_request.head.ref == 'agent/b28-repository-onboarding'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout immutable upgrade head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 4
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 5
           clean: true
-          persist-credentials: true
+          persist-credentials: false
 
-      - name: Validate immutable B17j ancestry
+      - name: Capture normalized current-main source identity
         shell: bash
         env:
-          EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          EXPECTED_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           test "$EXPECTED_BRANCH" = "agent/b28-repository-onboarding"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git merge-base --is-ancestor b33e876eb0f9a6df3a9222dd4696c24230e0f8d9 HEAD
-          COMMIT_COUNT="$(git rev-list --count b33e876eb0f9a6df3a9222dd4696c24230e0f8d9..HEAD)"
-          test "$COMMIT_COUNT" -ge 1
-          test "$COMMIT_COUNT" -le 3
-          command -v zstd >/dev/null
           test "$(find .b28-bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')" = "16"
 
-      - name: Reconstruct and verify governed B28 snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Git checkout preserves executable bits, while the retained B17j
-          # source snapshot is intentionally distributed with normalized
-          # 0755 directory / 0644 regular-file modes. Normalize only the
-          # temporary checkout before computing its immutable source identity.
           find . -path './.git' -prune -o -type d -exec chmod 0755 {} +
           find . -path './.git' -prune -o -type f -exec chmod 0644 {} +
 
@@ -65,38 +49,15 @@ jobs:
             --exclude='./.git' \
             --exclude='./.b28-bootstrap' \
             --exclude='./.github/workflows/b28-bootstrap.yml' \
-            -cf /tmp/b17j-old.tar .
-          echo "526e44071fe3e78f42af33baef52a2769daa59a1deb5bf1bdd5ec220bf2598ff  /tmp/b17j-old.tar" | sha256sum -c -
+            -cf /tmp/current-main-normalized.tar .
+          sha256sum /tmp/current-main-normalized.tar | tee /tmp/current-main-normalized.tar.sha256
 
-          cat .b28-bootstrap/part-* > /tmp/b28.patch.zst
-          echo "f46344723a6fe12993bb07c81bc14d24be4ab0400508668cdda4d180bf136563  /tmp/b28.patch.zst" | sha256sum -c -
-
-          zstd -q -d --patch-from=/tmp/b17j-old.tar /tmp/b28.patch.zst -o /tmp/b28-new.tar
-          echo "f09d5e914e9f1c6bf90f663292b2503fc47a42a6dd3764aece67ec4472a740f0  /tmp/b28-new.tar" | sha256sum -c -
-
-      - name: Replace B17j with verified B28 stable workspace
-        shell: bash
-        env:
-          EXPECTED_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          git rm -rf .
-          git clean -fdx
-          tar -xf /tmp/b28-new.tar -C .
-
-          if find . -type f -name '.env' -print -quit | grep -q .; then
-            echo 'A real .env file was found in the governed snapshot.' >&2
-            exit 1
-          fi
-          if find . -type d \( -name '.pytest_cache' -o -name '__pycache__' -o -name '.venv' -o -name 'venv' -o -name 'node_modules' \) -print -quit | grep -q .; then
-            echo 'A generated dependency or cache directory was found.' >&2
-            exit 1
-          fi
-
-          git add -A
-          test -n "$(git status --short)"
-          git config user.name 'customer-agent-governance[bot]'
-          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git commit -m 'Upgrade workspace to V20.17 B28'
-          git push --force-with-lease=refs/heads/agent/b28-repository-onboarding:"$EXPECTED_HEAD" \
-            origin HEAD:agent/b28-repository-onboarding
+      - name: Upload normalized current-main snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b28-current-main-normalized-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/current-main-normalized.tar
+            /tmp/current-main-normalized.tar.sha256
+          retention-days: 7
+          if-no-files-found: error
