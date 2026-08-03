@@ -1,4 +1,5 @@
-name: B28 Main-Context Bootstrap
+name: B28 Governed Publisher
+run-name: Publish verified B28 tree from ${{ github.event_name }}
 
 "on":
   push:
@@ -6,6 +7,15 @@ name: B28 Main-Context Bootstrap
       - main
     paths:
       - .github/workflows/b28-main-bootstrap.yml
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+    branches:
+      - main
+    paths:
+      - .b28-publisher-trigger
 
 permissions:
   contents: write
@@ -17,6 +27,11 @@ env:
 
 jobs:
   publish-verified-tree:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'agent/b28-publisher-trigger')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -50,6 +65,7 @@ jobs:
           cat .b28-bootstrap/part-* > /tmp/b28.patch.zst
           echo "f46344723a6fe12993bb07c81bc14d24be4ab0400508668cdda4d180bf136563  /tmp/b28.patch.zst" | sha256sum -c -
 
+          command -v zstd >/dev/null
           zstd -q -d --patch-from=/tmp/b17j-source.tar /tmp/b28.patch.zst -o /tmp/b28-new.tar
           echo "f09d5e914e9f1c6bf90f663292b2503fc47a42a6dd3764aece67ec4472a740f0  /tmp/b28-new.tar" | sha256sum -c -
 
@@ -71,11 +87,10 @@ jobs:
           fi
 
           git add -A
+          git diff --cached --check
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
           git commit -m 'Upgrade workspace to V20.17 B28'
           test "$(git rev-parse HEAD^{tree})" = "a43068fb9d2d5e4aa9bbca8d1a3d97d8c0885bd2"
           git push --force-with-lease=refs/heads/${B28_UPGRADE_BRANCH}:$B28_EXPECTED_HEAD \
             origin HEAD:${B28_UPGRADE_BRANCH}
-
-# Retrigger after the workflow became resident on main (2026-08-03).
