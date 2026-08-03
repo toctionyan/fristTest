@@ -159,7 +159,10 @@ jobs:
             'scripts/verify_full_lifecycle_canary.py' \
             'services/agent-service/tests/architecture/test_full_lifecycle_canary_interpreter.py' \
             | sort > /tmp/expected-fix-paths.txt
-          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-fix-paths.txt
+          {
+            git diff --name-only "$B28_EXPECTED_HEAD" --
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual-fix-paths.txt
           diff -u /tmp/expected-fix-paths.txt /tmp/actual-fix-paths.txt
           git add -- $(cat /tmp/expected-fix-paths.txt)
           git diff --cached --check
