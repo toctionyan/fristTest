@@ -16,11 +16,18 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
       - name: Validate Skill control plane
-        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-control-plane'
+        run: 'services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane'
       - name: Validate quality toolchain authority
         run: >-
-          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
+          services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py
           --workspace-root . --static-only
 
   quality-static:
