@@ -176,28 +176,29 @@ jobs:
           "${pythonLocation}/bin/python" -B skill-system/tests/test_contract.py
           "${pythonLocation}/bin/python" -B skill-system/tests/test_product_portability.py
 
-      - name: Publish only verified permanent files
+      - name: Publish verified non-workflow files
         shell: bash
         run: |
           set -euo pipefail
+          git checkout HEAD -- .github/workflows/quality.yml
+          find skill-system -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find skill-system -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           rm -f \
             .b29-multi-agent-upgrade-trigger \
             .github/scripts/b29-upgrade.part00 \
             .github/scripts/b29-upgrade.part01 \
             .github/scripts/b29-upgrade.part02 \
             .github/scripts/b29-upgrade.part03 \
-            .github/scripts/b29-upgrade.part04 \
-            .github/workflows/b29-part03-diagnostic.yml \
-            .github/workflows/b29-multi-agent-governance-upgrade.yml
+            .github/scripts/b29-upgrade.part04
           git diff --check
           test ! -e .b29-multi-agent-upgrade-trigger
-          test ! -e .github/workflows/b29-part03-diagnostic.yml
-          test ! -e .github/workflows/b29-multi-agent-governance-upgrade.yml
           test -z "$(find .github/scripts -maxdepth 1 -name 'b29-upgrade.part*' -print -quit)"
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
           git add -A
           git diff --cached --check
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          test -z "$(git diff --cached --name-only | grep -E '(^|/)__pycache__/|\.(pyc|pyo)$' || true)"
           git commit -m 'Implement Codex multi-agent repair governance'
           echo "B29_COMMIT=$(git rev-parse HEAD)"
           echo "B29_TREE=$(git rev-parse HEAD^{tree})"
