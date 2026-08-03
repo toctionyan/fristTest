@@ -6,14 +6,14 @@ run-name: Publish locally verified B29 hardening
     branches:
       - agent/b29-codex-multi-agent-governance
     paths:
-      - .github/b29-hardening.tar.gz
+      - .github/b29-hardening-parts/**
       - .github/workflows/b29-hardening-publisher.yml
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
       - agent/b28-repository-onboarding
     paths:
-      - .github/b29-hardening.tar.gz
+      - .github/b29-hardening-parts/**
       - .github/workflows/b29-hardening-publisher.yml
 
 permissions:
@@ -40,25 +40,74 @@ jobs:
           clean: true
           persist-credentials: true
 
-      - name: Verify immutable publisher input
+      - name: Verify immutable chunk transport
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "af8484e2151169ce99cfba1730313ed19c237abb"
-          test "$(git diff --name-only HEAD^ HEAD | sort | tr '\n' ' ')" = ".github/workflows/b29-hardening-publisher.yml "
-          test "$(git hash-object .github/b29-hardening.tar.gz)" = "ca5d5998528f225e78bdfe108d679068ff0e2258"
+          test "$(git rev-parse HEAD^)" = "2ee433396aabb613a717f1bd9d579175b17bb875"
+          cat > "${RUNNER_TEMP}/expected-stage-paths" <<'EOF'
+          .github/b29-hardening-parts/manifest.json
+          .github/b29-hardening-parts/part-00.hex
+          .github/b29-hardening-parts/part-01.hex
+          .github/b29-hardening-parts/part-02.hex
+          .github/b29-hardening-parts/part-03.hex
+          .github/b29-hardening-parts/part-04.hex
+          .github/b29-hardening-parts/part-05.hex
+          .github/b29-hardening-parts/part-06.hex
+          .github/b29-hardening-parts/part-07.hex
+          .github/b29-hardening-parts/part-08.hex
+          .github/b29-hardening-parts/part-09.hex
+          .github/b29-hardening-parts/part-10.hex
+          .github/b29-hardening-parts/part-11.hex
+          .github/b29-hardening-parts/part-12.hex
+          .github/b29-hardening.tar.gz
+          .github/workflows/b29-hardening-publisher.yml
+          EOF
+          git diff --name-only HEAD^ HEAD | sort > "${RUNNER_TEMP}/actual-stage-paths"
+          diff -u "${RUNNER_TEMP}/expected-stage-paths" "${RUNNER_TEMP}/actual-stage-paths"
+          test "$(git hash-object .github/b29-hardening-parts/manifest.json)" = "365a18cbb14fae055c9c38c66173292f778c8eac"
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
 
-      - name: Install exact locally verified files
+      - name: Reconstruct and install exact locally verified files
         shell: bash
         run: |
           set -euo pipefail
+          archive="${RUNNER_TEMP}/b29-hardening.tar.gz"
           staging="${RUNNER_TEMP}/b29-hardening"
           mkdir -p "$staging"
-          tar -xzf .github/b29-hardening.tar.gz -C "$staging"
+          python3 - "$archive" <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          output = Path(sys.argv[1]).resolve()
+          manifest = json.loads((root / ".github/b29-hardening-parts/manifest.json").read_text(encoding="utf-8"))
+          if manifest.get("schema_version") != 1 or manifest.get("encoding") != "hex":
+              raise SystemExit("invalid B29 chunk manifest")
+          chunks: list[str] = []
+          for row in manifest.get("parts") or []:
+              path = (root / str(row.get("path") or "")).resolve()
+              path.relative_to(root / ".github/b29-hardening-parts")
+              text = path.read_text(encoding="ascii")
+              if len(text) != row.get("length"):
+                  raise SystemExit(f"chunk length mismatch: {path.name}")
+              if hashlib.sha256(text.encode("ascii")).hexdigest() != row.get("sha256"):
+                  raise SystemExit(f"chunk digest mismatch: {path.name}")
+              chunks.append(text)
+          data = bytes.fromhex("".join(chunks))
+          if len(data) != manifest.get("archive_size"):
+              raise SystemExit("reconstructed archive size mismatch")
+          if hashlib.sha256(data).hexdigest() != manifest.get("archive_sha256"):
+              raise SystemExit("reconstructed archive digest mismatch")
+          output.write_bytes(data)
+          PY
+          tar -xzf "$archive" -C "$staging"
           python3 - "$staging" <<'PY'
           from __future__ import annotations
           import hashlib
@@ -69,8 +118,7 @@ jobs:
 
           root = Path.cwd().resolve()
           staging = Path(sys.argv[1]).resolve()
-          manifest_path = staging / "B29_HARDENING_MANIFEST.json"
-          payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+          payload = json.loads((staging / "B29_HARDENING_MANIFEST.json").read_text(encoding="utf-8"))
           expected = {
               "skill-system/controller/agent_attestation.py": "d337bf070337dbcf5a85f289ff8c424eac0fee4d6808f16ac8c52903307618e5",
               "skill-system/controller/candidate_freeze.py": "02f25a43a790c698f959e7a8cc0c325d6b71069bd518e9986d44b38b06dfcf49",
@@ -79,23 +127,21 @@ jobs:
               "skill-system/skills/governed-repair/SKILL.md": "8b44ddf9ddd5fe27bdec205e034ee56962cbf17fda98a780aa2c57888b8ce320",
               "skill-system/tests/test_multi_agent_governance.py": "9bb256f470eed3f9955972f7192d0147f26c542fdc0a3d91a0d620192cef9061",
           }
-          files = payload.get("files")
-          if payload.get("schema_version") != 1 or files != expected:
+          if payload.get("schema_version") != 1 or payload.get("files") != expected:
               raise SystemExit("B29 hardening manifest identity mismatch")
           for relative, expected_sha in sorted(expected.items()):
               source = (staging / relative).resolve()
               source.relative_to(staging)
               if not source.is_file():
                   raise SystemExit(f"missing archive file: {relative}")
-              actual_sha = hashlib.sha256(source.read_bytes()).hexdigest()
-              if actual_sha != expected_sha:
+              if hashlib.sha256(source.read_bytes()).hexdigest() != expected_sha:
                   raise SystemExit(f"archive content digest mismatch: {relative}")
               target = (root / relative).resolve()
               target.relative_to(root)
               target.parent.mkdir(parents=True, exist_ok=True)
               shutil.copyfile(source, target)
           PY
-          rm .github/b29-hardening.tar.gz
+          rm -rf .github/b29-hardening-parts
           rm .github/workflows/b29-hardening-publisher.yml
 
       - name: Run focused local-equivalent verification
@@ -123,8 +169,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > "${RUNNER_TEMP}/expected-paths" <<'EOF'
-          .github/b29-hardening.tar.gz
+          cat > "${RUNNER_TEMP}/expected-final-paths" <<'EOF'
+          .github/b29-hardening-parts/manifest.json
+          .github/b29-hardening-parts/part-00.hex
+          .github/b29-hardening-parts/part-01.hex
+          .github/b29-hardening-parts/part-02.hex
+          .github/b29-hardening-parts/part-03.hex
+          .github/b29-hardening-parts/part-04.hex
+          .github/b29-hardening-parts/part-05.hex
+          .github/b29-hardening-parts/part-06.hex
+          .github/b29-hardening-parts/part-07.hex
+          .github/b29-hardening-parts/part-08.hex
+          .github/b29-hardening-parts/part-09.hex
+          .github/b29-hardening-parts/part-10.hex
+          .github/b29-hardening-parts/part-11.hex
+          .github/b29-hardening-parts/part-12.hex
           .github/workflows/b29-hardening-publisher.yml
           skill-system/controller/agent_attestation.py
           skill-system/controller/candidate_freeze.py
@@ -133,8 +192,8 @@ jobs:
           skill-system/skills/governed-repair/SKILL.md
           skill-system/tests/test_multi_agent_governance.py
           EOF
-          git diff --name-only | sort > "${RUNNER_TEMP}/actual-paths"
-          diff -u "${RUNNER_TEMP}/expected-paths" "${RUNNER_TEMP}/actual-paths"
+          git diff --name-only | sort > "${RUNNER_TEMP}/actual-final-paths"
+          diff -u "${RUNNER_TEMP}/expected-final-paths" "${RUNNER_TEMP}/actual-final-paths"
 
       - name: Commit final clean tree
         shell: bash
@@ -145,6 +204,6 @@ jobs:
           git add -A
           git diff --cached --check
           git commit -m 'Harden B29 agent identity and candidate freeze'
-          test ! -e .github/b29-hardening.tar.gz
+          test ! -e .github/b29-hardening-parts
           test ! -e .github/workflows/b29-hardening-publisher.yml
           git push origin HEAD:agent/b29-codex-multi-agent-governance
