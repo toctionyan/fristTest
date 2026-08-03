@@ -28,6 +28,12 @@ class TurnRequestLedgerContractTest(unittest.TestCase):
     def test_repository_contract_is_valid(self) -> None:
         validator.validate(self.contract, self.documentation)
 
+    def test_turn_request_ledger_must_belong_to_wp02a(self) -> None:
+        payload = json.loads(self.contract.read_text(encoding="utf-8"))
+        payload["work_package"] = "WP-02"
+        with self.assertRaisesRegex(validator.LedgerContractError, "schema_stage_or_work_package_invalid"):
+            self._validate(payload)
+
     def test_scope_key_cannot_drop_tenant_or_client_request_id(self) -> None:
         payload = json.loads(self.contract.read_text(encoding="utf-8"))
         payload["authority"]["scope_key"] = ["user_id", "thread_id"]
