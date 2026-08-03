@@ -33,8 +33,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "9e3876497a955dab3dfc209d6650aaca82d1f232"
-          test "$(git diff --name-only HEAD^ HEAD | sort | tr '\n' ' ')" = ".github/b29-hardening.tar.gz .github/workflows/b29-hardening-publisher.yml "
+          test "$(git rev-parse HEAD^)" = "2d729ebc124e7b3816f46da1f5a701bcdcc46e35"
+          test "$(git diff --name-only HEAD^ HEAD | sort | tr '\n' ' ')" = ".github/workflows/b29-hardening-publisher.yml "
           echo "0b25aff520af67b496aea4ef84b1b49e7579da30ab204dc9f9003a66cff56ef8  .github/b29-hardening.tar.gz" | sha256sum -c -
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
