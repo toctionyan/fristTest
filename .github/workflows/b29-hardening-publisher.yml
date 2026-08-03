@@ -1,0 +1,139 @@
+name: B29 Multi-Agent Hardening Publisher
+run-name: Publish locally verified B29 hardening
+
+"on":
+  push:
+    branches:
+      - agent/b29-codex-multi-agent-governance
+    paths:
+      - .github/b29-hardening.tar.gz
+      - .github/workflows/b29-hardening-publisher.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: b29-multi-agent-hardening-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact publisher commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          clean: true
+          persist-credentials: true
+
+      - name: Verify immutable publisher input
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "9e3876497a955dab3dfc209d6650aaca82d1f232"
+          test "$(git diff --name-only HEAD^ HEAD | sort | tr '\n' ' ')" = ".github/b29-hardening.tar.gz .github/workflows/b29-hardening-publisher.yml "
+          echo "0b25aff520af67b496aea4ef84b1b49e7579da30ab204dc9f9003a66cff56ef8  .github/b29-hardening.tar.gz" | sha256sum -c -
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Install exact locally verified files
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="${RUNNER_TEMP}/b29-hardening"
+          mkdir -p "$staging"
+          tar -xzf .github/b29-hardening.tar.gz -C "$staging"
+          python3 - "$staging" <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import shutil
+          import sys
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          staging = Path(sys.argv[1]).resolve()
+          manifest_path = staging / "B29_HARDENING_MANIFEST.json"
+          payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+          expected = {
+              "skill-system/controller/agent_attestation.py",
+              "skill-system/controller/candidate_freeze.py",
+              "skill-system/tests/test_multi_agent_governance.py",
+              "skill-system/schemas/agent-attestation.schema.json",
+              "skill-system/schemas/multi-agent-governance.schema.json",
+              "skill-system/skills/governed-repair/SKILL.md",
+          }
+          files = payload.get("files")
+          if payload.get("schema_version") != 1 or not isinstance(files, dict) or set(files) != expected:
+              raise SystemExit("B29 hardening manifest scope mismatch")
+          for relative, expected_sha in sorted(files.items()):
+              source = (staging / relative).resolve()
+              source.relative_to(staging)
+              if not source.is_file():
+                  raise SystemExit(f"missing archive file: {relative}")
+              actual_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+              if actual_sha != expected_sha:
+                  raise SystemExit(f"archive digest mismatch: {relative}")
+              target = (root / relative).resolve()
+              target.relative_to(root)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, target)
+          PY
+          rm .github/b29-hardening.tar.gz
+          rm .github/workflows/b29-hardening-publisher.yml
+
+      - name: Run focused local-equivalent verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m py_compile \
+            skill-system/controller/agent_attestation.py \
+            skill-system/controller/candidate_freeze.py
+          python3 -B skill-system/tests/test_multi_agent_governance.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for raw in (
+              "skill-system/schemas/agent-attestation.schema.json",
+              "skill-system/schemas/multi-agent-governance.schema.json",
+          ):
+              json.loads(Path(raw).read_text(encoding="utf-8"))
+          PY
+          python3 -B skill-system/controller/registry.py --verify
+          python3 -B skill-system/controller/host_conformance.py --strict
+          git diff --check
+
+      - name: Assert exact final delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/expected-paths" <<'EOF'
+          .github/b29-hardening.tar.gz
+          .github/workflows/b29-hardening-publisher.yml
+          skill-system/controller/agent_attestation.py
+          skill-system/controller/candidate_freeze.py
+          skill-system/schemas/agent-attestation.schema.json
+          skill-system/schemas/multi-agent-governance.schema.json
+          skill-system/skills/governed-repair/SKILL.md
+          skill-system/tests/test_multi_agent_governance.py
+          EOF
+          git diff --name-only | sort > "${RUNNER_TEMP}/actual-paths"
+          diff -u "${RUNNER_TEMP}/expected-paths" "${RUNNER_TEMP}/actual-paths"
+
+      - name: Commit final clean tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Harden B29 agent identity and candidate freeze'
+          test ! -e .github/b29-hardening.tar.gz
+          test ! -e .github/workflows/b29-hardening-publisher.yml
+          git push origin HEAD:agent/b29-codex-multi-agent-governance
