@@ -43,11 +43,38 @@ jobs:
           xz -dc "${RUNNER_TEMP}/b33-runtime.patch.xz" > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" | sha256sum -c -
 
-          CONFLICT_PATH="services/agent-service/src/agent_core/runtime/capability_gate.py"
-          git apply --check --exclude="${CONFLICT_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
-          git apply --exclude="${CONFLICT_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
+          CAPABILITY_GATE_PATH="services/agent-service/src/agent_core/runtime/capability_gate.py"
+          DIALOGUE_RUNTIME_PATH="services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py"
+          git apply --check \
+            --exclude="${CAPABILITY_GATE_PATH}" \
+            --exclude="${DIALOGUE_RUNTIME_PATH}" \
+            "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply \
+            --exclude="${CAPABILITY_GATE_PATH}" \
+            --exclude="${DIALOGUE_RUNTIME_PATH}" \
+            "${RUNNER_TEMP}/b33-runtime.patch"
+
           base64 --decode candidate-validation/b33-file-overrides/capability_gate.py.xz.b64 \
-            | xz -dc > "${CONFLICT_PATH}"
+            | xz -dc > "${CAPABILITY_GATE_PATH}"
+
+          DIALOGUE_PARTS="candidate-validation/b33-file-overrides/dialogue-runtime"
+          {
+            head -c 3000 "${DIALOGUE_PARTS}/part-00.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-01.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-02.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-03.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-04.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-05.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-06.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-07.b64"
+            head -c 972 "${DIALOGUE_PARTS}/part-08.b64"
+          } > "${RUNNER_TEMP}/dialogue_runtime.py.xz.b64"
+          test "$(wc -c < "${RUNNER_TEMP}/dialogue_runtime.py.xz.b64")" -eq 24972
+          base64 --decode "${RUNNER_TEMP}/dialogue_runtime.py.xz.b64" \
+            > "${RUNNER_TEMP}/dialogue_runtime.py.xz"
+          echo "2ca2eacc8c5878bfd46b13ad8334cc4abfcc9ec1014e3c83238db25f74011e8e  ${RUNNER_TEMP}/dialogue_runtime.py.xz" | sha256sum -c -
+          xz --test "${RUNNER_TEMP}/dialogue_runtime.py.xz"
+          xz -dc "${RUNNER_TEMP}/dialogue_runtime.py.xz" > "${DIALOGUE_RUNTIME_PATH}"
 
           test "$(wc -l < candidate-validation/B33_FILE_SHA256SUMS.txt)" -eq 48
           sha256sum -c candidate-validation/B33_FILE_SHA256SUMS.txt
@@ -130,6 +157,8 @@ jobs:
             ${{ runner.temp }}/b33-runtime.patch.xz.b64
             ${{ runner.temp }}/b33-runtime.patch.xz
             ${{ runner.temp }}/b33-runtime.patch
+            ${{ runner.temp }}/dialogue_runtime.py.xz.b64
+            ${{ runner.temp }}/dialogue_runtime.py.xz
             ${{ runner.temp }}/b33-changed-files.txt
             ${{ runner.temp }}/b33-focused-pytest.log
             ${{ runner.temp }}/b33-regression-pytest.log
