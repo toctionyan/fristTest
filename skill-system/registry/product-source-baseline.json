@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "v20.17-b33-full-source-20260804",
+  "generated_from": "v20.17-b33-full-source-20260804-provider-projection-repair",
   "source_release_sha256": "bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195",
-  "generated_at": "2026-08-04T08:54:00Z",
+  "generated_at": "2026-08-04T09:25:00Z",
   "protected_roots": [
     "services",
     "web",
@@ -167,7 +167,7 @@
     "services/agent-service/src/agent_core/lifecycle/plan_execution.py": "b3cb87c8f7cbb4e3c438a5d5633c581413035005ca81e060c9780b7823269cd4",
     "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py": "20c350e8f013f95c22c9379551f748980672fefea8992ebbb7354e2cb505cf47",
     "services/agent-service/src/agent_core/lifecycle/pretool_planner.py": "18dddc0facd80a9fdf1747d0a7104ea3b47ab4d7c2dd6c19453d736bf4f3d710",
-    "services/agent-service/src/agent_core/lifecycle/protocol.py": "1ca6ba6b9304f0b88003e862c8f2efd1aa615caaf2c904a058a2f751120d0846",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py": "a680960ec639ffa3b7229443259e18834b1e63a1ef7e858c12bd245b07a504a9",
     "services/agent-service/src/agent_core/lifecycle/publish_runtime.py": "38a866c2163db808f5954d787403d70ea3814c986dc8f201a9850085fe0f7838",
     "services/agent-service/src/agent_core/lifecycle/semantic_contract.py": "4d906ddba27e61f0447858c115fe293a2a5dfade0d521e6f9127e367296f09a5",
     "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py": "0313b8ce89ced8b433f209757d5d13408420d20e0692e697b6ed8d28b265452f",
