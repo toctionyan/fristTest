@@ -101,6 +101,57 @@ class ProjectCompatibilityPermitTest(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
         self.assertTrue(result["baseline_authority"].startswith("change-permit:"))
 
+
+    def test_closed_change_uses_promoted_historical_baseline(self) -> None:
+        current_hash = file_sha256(self.root / "services/app.py")
+        write(
+            self.root / "skill-system/registry/product-source-baseline.json",
+            {"files": {"services/app.py": current_hash}},
+        )
+        closed = dict(self.contract)
+        closed["status"] = "closed"
+        closed["result"] = "CONVERGED"
+        write(self.root / "governance/active-change.json", closed)
+
+        result = evaluate(self.root)
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["baseline_authority"], "historical-registry-baseline")
+
+    def test_rejected_change_cannot_override_historical_baseline(self) -> None:
+        current_hash = file_sha256(self.root / "services/app.py")
+        write(
+            self.root / "skill-system/registry/product-source-baseline.json",
+            {"files": {"services/app.py": current_hash}},
+        )
+        rejected = dict(self.contract)
+        rejected["status"] = "rejected"
+        rejected["result"] = "FAILED"
+        write(self.root / "governance/active-change.json", rejected)
+
+        result = evaluate(self.root)
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["baseline_authority"], "historical-registry-baseline")
+
+
+    def test_pytest_cache_is_not_product_source(self) -> None:
+        current_hash = file_sha256(self.root / "services/app.py")
+        write(
+            self.root / "skill-system/registry/product-source-baseline.json",
+            {"files": {"services/app.py": current_hash}},
+        )
+        closed = dict(self.contract)
+        closed["status"] = "closed"
+        closed["result"] = "CONVERGED"
+        write(self.root / "governance/active-change.json", closed)
+        write(self.root / "services/.pytest_cache/v/cache/nodeids", "[]")
+
+        result = evaluate(self.root)
+
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["protected_file_count"], 1)
+
     def test_real_product_drift_after_permit_is_rejected(self) -> None:
         write(self.root / "services/app.py", "VALUE = 2\n")
         result = evaluate(self.root)

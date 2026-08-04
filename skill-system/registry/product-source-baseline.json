@@ -1,15 +1,18 @@
 {
   "schema_version": 2,
-  "generated_from": "v20.17-b33-full-source-20260804-provider-projection-repair",
-  "source_release_sha256": "bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195",
-  "generated_at": "2026-08-04T09:25:00Z",
+  "generated_from": "v20.17-b34-resilient-task-harness-github-authority-locked",
+  "source_release_sha256": "295dc5842c0ff230cb32e949579df791c8ba11d22c5830124a15c5ec9b639d08",
+  "generated_at": "2026-08-04T12:29:38Z",
   "protected_roots": [
     "services",
     "web",
     "contracts"
   ],
-  "file_count": 546,
+  "file_count": 547,
   "files": {
+    "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
+    "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
+    "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21",
     "services/agent-service/.env.example": "8e6c360b58b57e325c562cdebc13a4ca736e193cef530826ee25eb498fcaa3f8",
     "services/agent-service/.gitignore": "865aff3868d71c17bb463346cf6483752f4fb778bce2528b84dcd9584b2157bd",
     "services/agent-service/.python-version": "aa0d6581054e6e4ff3f91839deca7a854ad37221b8784d060b42d0f847ff1a3b",
@@ -401,8 +404,9 @@
     "services/agent-service/tests/architecture/test_protected_model_stub_contract.py": "7d3b8e1c1213c950cd8ad113c34bea6723eea931befc8f3b77efcb4d37a1d547",
     "services/agent-service/tests/architecture/test_python_test_runner.py": "e1120705cb96a07800af83eb7c6abccd9291c8bfc13d5eb476dc93e551da2bbc",
     "services/agent-service/tests/architecture/test_quality_loop_controller.py": "f0117991f8a36a35593ce20607f548baf8bcf29ece93818cc1df48cacf58d565",
-    "services/agent-service/tests/architecture/test_quality_loop_governance.py": "b91f86993e2f395b5f5519b1a23895de73a12ca7986ae2190016a68911f8a68d",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": "28cff97dd94e2927143c085fb70b67d3fab589182b837f9d94ec9600c5ea8467",
     "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py": "ce79becc2dae5d6956fbcfb16fb3eb5fdda45f8444bf28a472ed85ca7b3ad325",
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": "c83ca593edcb2af8a6b004fd8111ee4322916c199260c05a16070f5a1ad5bddf",
     "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py": "1fcb435afc2fbbaf267ebd3d487d8d147ac772ff15f09b3026678ad50e097601",
     "services/agent-service/tests/architecture/test_runtime_boundaries.py": "0380d409c626d3cc3ded334c2fb9d14df2b83590a2c584b30a87f721bde6450a",
     "services/agent-service/tests/architecture/test_runtime_contract.py": "ab59e79df49562649a7532cc24a733572f3be7d1e3de89760975077f47a1f356",
@@ -552,9 +556,6 @@
     "services/business-service/tests/test_main.py": "a94446ebb8c9b45836b96da8a50e1e4ff262fa3e023467d55b85da5916b04aa2",
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
-    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
-    "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
-    "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
-    "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21"
+    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   }
 }

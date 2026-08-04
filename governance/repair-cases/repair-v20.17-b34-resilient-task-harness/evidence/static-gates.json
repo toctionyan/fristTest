@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "dimension": "static-gates",
+  "status": "PASS",
+  "checks": [
+    "Architecture Gate",
+    "Module Vertical Closure",
+    "Version Consistency",
+    "Architecture Convergence"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "dimension": "regression",
+  "results": [
+    {
+      "failed": 0,
+      "passed": 96,
+      "suite": "Stage 1-5 core runtime"
+    },
+    {
+      "deselected": 4,
+      "deselection_reason": "protected real-model smoke requires local langchain_core/langgraph",
+      "failed": 0,
+      "passed": 607,
+      "suite": "broad context transaction governance"
+    },
+    {
+      "checks_failed": 0,
+      "checks_passed": 9,
+      "completion_eligible": true,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "suite": "resumable candidate verification",
+      "task_run_status": "COMPLETED"
+    }
+  ],
+  "schema_version": 1,
+  "status": "PASS"
+}

@@ -1,0 +1,33 @@
+{
+  "base": "B33 Stage 5 Controlled Target DSL",
+  "candidate": "B34 Resilient Task Harness",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "completion_proof": {
+    "check_count": 9,
+    "completion_eligible": true,
+    "invalid_conditions": [],
+    "missing_conditions": [],
+    "passed": 9,
+    "status": "COMPLETED",
+    "task_id": "verify-b34-resilient-harness-4685ad6ef492412fb3a8"
+  },
+  "environment_status": "BLOCKED_BY_ENVIRONMENT for production certification only",
+  "permit_digest": "91fd779e088b2a0941140de8c64e6d95e4c9c8ca75bd4f355a3c491379c10a1f",
+  "production_closed": false,
+  "schema_version": 1,
+  "source_fingerprint": "295dc5842c0ff230cb32e949579df791c8ba11d22c5830124a15c5ec9b639d08",
+  "status": "GOVERNED_B34_RESILIENT_TASK_HARNESS_CANDIDATE",
+  "validation": {
+    "actual_interruption_resume": "PASS on final source fingerprint; durable PASS results skipped after outer timeout",
+    "broad_impact": "607 passed, 4 environment-dependent deselected",
+    "current_immutable_evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/terminal-change-permit-authority.json",
+    "focused_repair_loop": "8 passed, 28 deselected",
+    "immutable_ledger_evidence": "PASS; ISSUE-ENV-001 and ISSUE-REL-001 no longer depend on disposable or mutable evidence paths",
+    "resumable_verifier_self_test": "1 passed",
+    "skill_control_plane": "148 passed",
+    "stage1_stage5": "96 passed",
+    "static_gates": "PASS",
+    "task_run_control_plane": "20 passed",
+    "terminal_change_permit_authority": "5 passed; project compatibility PASS via historical-registry-baseline (546/546); .pytest_cache ignored"
+  }
+}

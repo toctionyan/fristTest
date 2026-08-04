@@ -1,0 +1,648 @@
+{
+  "action_attempts": [
+    {
+      "action_key": "f708cd4d79624d86f9e3e1aecd9505660e754a4bd84e121176a15464ba27bcae",
+      "created_at": "2026-08-04T11:20:12.913709+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "ad0798ba2b7e8ea8c5d18312edafaaa88c7aa752c93c97ba50f5bb06eff371da",
+      "sequence": 1,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "834a1ba294cd5f124614b151f6a45a9c36abef79ca480a0c0e4090074684961b",
+      "created_at": "2026-08-04T11:20:22.844158+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "6c83148e3a227b8cca9426f10f20ccb429f885eedb165dcde63a4a245756391e",
+      "sequence": 2,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "167531d634a48a02b84e0f88350d8b81f78cc9d7e7ca147db4d315533fa0c9ee",
+      "created_at": "2026-08-04T11:21:12.389846+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "4a03129c870c4877fc740bdbcef33f58d595d2874cd487dd22f300f3738f3270",
+      "sequence": 3,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "167531d634a48a02b84e0f88350d8b81f78cc9d7e7ca147db4d315533fa0c9ee",
+      "created_at": "2026-08-04T11:25:10.032624+00:00",
+      "decision": "SWITCH_FALLBACK",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "dbfede81889659d795cc1a213a6fed5bc30919dd2cff2e123769e5d7a3c9768e",
+      "sequence": 4,
+      "strategy": "execute-check-retry"
+    },
+    {
+      "action_key": "d999045514864e83471c8407af2c0213a0c8386959f6c5489908a2106ac1dad5",
+      "created_at": "2026-08-04T11:25:26.836785+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "a34c4a45b41ab9ecc71a147be2b5f4d129250eccaaa8228a0721a6a97d4215fb",
+      "sequence": 5,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "d435778f46b9d80f673d1b8f887228adb9deecc0e26321e0dcf70179a34787a8",
+      "created_at": "2026-08-04T11:25:51.394466+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "52afb2858aa511535b1e91726e5289e85fd86d7ec6904b8b7a9d8871603f87a0",
+      "sequence": 6,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "dbdfee7373e48f9a5685cb00fe2bbaacf880ec6da80937330bde82536633bbe9",
+      "created_at": "2026-08-04T11:26:05.470524+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "c21aa6134bf260d9a822457760117b6c0297724f114b837fb12bc9b1130adeae",
+      "sequence": 7,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "c3bf9e52bb3726ad1364f03a390b7ae9dbf7b123c414e865d6563ef1babc2376",
+      "created_at": "2026-08-04T11:26:22.440443+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "b91940831be9e566c89b5f4319b7cfb00575d844b254d95b92ba2e196db58abd",
+      "sequence": 8,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "e22b7058adc1c7acd99b1a83ef4407aa05be8074ac75b7f0de55d6be6eb25956",
+      "created_at": "2026-08-04T11:26:37.014207+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "9499837791169b621255eaf49449e5c7cea28d03b83d25b68b755517395dadda",
+      "sequence": 9,
+      "strategy": "execute-check"
+    },
+    {
+      "action_key": "780716e73504f83a23b76831491e64daa9c032b116c3aa9ab90326ba51516792",
+      "created_at": "2026-08-04T11:26:50.792263+00:00",
+      "decision": "RUN",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.result.json"
+      ],
+      "produced_new_evidence": true,
+      "result_fingerprint": "72b76160bffe45b666a52b261b134aacf35d2a8a3e8178bb3498baa6062e0d19",
+      "sequence": 10,
+      "strategy": "execute-check"
+    }
+  ],
+  "binding": {
+    "candidate": "B34 Resilient Task Harness",
+    "check_names": [
+      "task_run_control_plane",
+      "repair_loop_interruption_contracts",
+      "skill_control_plane",
+      "stage1_stage5_core_regression",
+      "broad_context_transaction_governance_regression",
+      "architecture",
+      "module_closure",
+      "version_consistency",
+      "convergence"
+    ],
+    "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+  },
+  "blockers": [],
+  "checkpoints": [
+    {
+      "created_at": "2026-08-04T11:20:05.058324+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "event": "task-run-created"
+      },
+      "phase": "CREATED",
+      "sequence": 1,
+      "status": "CREATED",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:05.093761+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check_count": 9
+      },
+      "phase": "VERIFICATION_PLANNED",
+      "sequence": 2,
+      "status": "PLANNED",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:05.145834+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "resume_from": "PLANNED"
+      },
+      "phase": "VERIFICATION_RUNNING",
+      "sequence": 3,
+      "status": "RUNNING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:05.147978+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "task_run_control_plane",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_TASK_RUN_CONTROL_PLANE",
+      "sequence": 4,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:12.916574+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.result.json"
+      ],
+      "metadata": {
+        "check": "task_run_control_plane"
+      },
+      "phase": "PASSED_TASK_RUN_CONTROL_PLANE",
+      "sequence": 5,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:12.918246+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "repair_loop_interruption_contracts",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_REPAIR_LOOP_INTERRUPTION_CONTRACTS",
+      "sequence": 6,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:22.846610+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.result.json"
+      ],
+      "metadata": {
+        "check": "repair_loop_interruption_contracts"
+      },
+      "phase": "PASSED_REPAIR_LOOP_INTERRUPTION_CONTRACTS",
+      "sequence": 7,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:22.847841+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "skill_control_plane",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_SKILL_CONTROL_PLANE",
+      "sequence": 8,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:20:50.133739+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "skill_control_plane",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_SKILL_CONTROL_PLANE",
+      "sequence": 9,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:21:12.391054+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json"
+      ],
+      "metadata": {
+        "check": "skill_control_plane",
+        "returncode": 1
+      },
+      "phase": "FAILED_SKILL_CONTROL_PLANE",
+      "sequence": 10,
+      "status": "FAILED_RECOVERABLE",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:24:46.745105+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "resume_from": "FAILED_RECOVERABLE"
+      },
+      "phase": "VERIFICATION_RUNNING",
+      "sequence": 11,
+      "status": "RUNNING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:24:47.075500+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "skill_control_plane",
+        "strategy": "execute-check-retry"
+      },
+      "phase": "RUNNING_SKILL_CONTROL_PLANE",
+      "sequence": 12,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:10.037678+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json"
+      ],
+      "metadata": {
+        "check": "skill_control_plane"
+      },
+      "phase": "PASSED_SKILL_CONTROL_PLANE",
+      "sequence": 13,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:10.039476+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "missing_conditions": [
+          "stage1_stage5_core_regression",
+          "broad_context_transaction_governance_regression",
+          "architecture",
+          "module_closure",
+          "version_consistency",
+          "convergence"
+        ]
+      },
+      "phase": "PARTIAL_VALIDATION",
+      "sequence": 14,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:24.401606+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "stage1_stage5_core_regression",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_STAGE1_STAGE5_CORE_REGRESSION",
+      "sequence": 15,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:26.842509+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.result.json"
+      ],
+      "metadata": {
+        "check": "stage1_stage5_core_regression"
+      },
+      "phase": "PASSED_STAGE1_STAGE5_CORE_REGRESSION",
+      "sequence": 16,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:26.844058+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "missing_conditions": [
+          "broad_context_transaction_governance_regression",
+          "architecture",
+          "module_closure",
+          "version_consistency",
+          "convergence"
+        ]
+      },
+      "phase": "PARTIAL_VALIDATION",
+      "sequence": 17,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:38.513396+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "broad_context_transaction_governance_regression",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_BROAD_CONTEXT_TRANSACTION_GOVERNANCE_REGRESSION",
+      "sequence": 18,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:51.402049+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.result.json"
+      ],
+      "metadata": {
+        "check": "broad_context_transaction_governance_regression"
+      },
+      "phase": "PASSED_BROAD_CONTEXT_TRANSACTION_GOVERNANCE_REGRESSION",
+      "sequence": 19,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:25:51.403375+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "missing_conditions": [
+          "architecture",
+          "module_closure",
+          "version_consistency",
+          "convergence"
+        ]
+      },
+      "phase": "PARTIAL_VALIDATION",
+      "sequence": 20,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:03.975355+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "architecture",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_ARCHITECTURE",
+      "sequence": 21,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:05.473878+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.result.json"
+      ],
+      "metadata": {
+        "check": "architecture"
+      },
+      "phase": "PASSED_ARCHITECTURE",
+      "sequence": 22,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:05.475283+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "missing_conditions": [
+          "module_closure",
+          "version_consistency",
+          "convergence"
+        ]
+      },
+      "phase": "PARTIAL_VALIDATION",
+      "sequence": 23,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:21.675742+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "module_closure",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_MODULE_CLOSURE",
+      "sequence": 24,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:22.447653+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.result.json"
+      ],
+      "metadata": {
+        "check": "module_closure"
+      },
+      "phase": "PASSED_MODULE_CLOSURE",
+      "sequence": 25,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:22.449177+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "missing_conditions": [
+          "version_consistency",
+          "convergence"
+        ]
+      },
+      "phase": "PARTIAL_VALIDATION",
+      "sequence": 26,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:36.367145+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "version_consistency",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_VERSION_CONSISTENCY",
+      "sequence": 27,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:37.018066+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.result.json"
+      ],
+      "metadata": {
+        "check": "version_consistency"
+      },
+      "phase": "PASSED_VERSION_CONSISTENCY",
+      "sequence": 28,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:37.019870+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "missing_conditions": [
+          "convergence"
+        ]
+      },
+      "phase": "PARTIAL_VALIDATION",
+      "sequence": 29,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:49.572635+00:00",
+      "evidence_refs": [],
+      "metadata": {
+        "check": "convergence",
+        "strategy": "execute-check"
+      },
+      "phase": "RUNNING_CONVERGENCE",
+      "sequence": 30,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:50.798172+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.result.json"
+      ],
+      "metadata": {
+        "check": "convergence"
+      },
+      "phase": "PASSED_CONVERGENCE",
+      "sequence": 31,
+      "status": "VALIDATING",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    },
+    {
+      "created_at": "2026-08-04T11:26:50.799863+00:00",
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.result.json",
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.result.json"
+      ],
+      "metadata": {
+        "completion_decision": "COMPLETED"
+      },
+      "phase": "COMPLETED",
+      "sequence": 32,
+      "status": "COMPLETED",
+      "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+    }
+  ],
+  "conditions": {
+    "architecture": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:26:05.472397+00:00"
+    },
+    "broad_context_transaction_governance_regression": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:25:51.395982+00:00"
+    },
+    "convergence": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:26:50.796744+00:00"
+    },
+    "module_closure": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:26:22.446290+00:00"
+    },
+    "repair_loop_interruption_contracts": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:20:22.845555+00:00"
+    },
+    "skill_control_plane": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:25:10.036411+00:00"
+    },
+    "stage1_stage5_core_regression": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:25:26.838092+00:00"
+    },
+    "task_run_control_plane": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:20:12.915279+00:00"
+    },
+    "version_consistency": {
+      "evidence_refs": [
+        ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.result.json"
+      ],
+      "satisfied": true,
+      "updated_at": "2026-08-04T11:26:37.016053+00:00"
+    }
+  },
+  "created_at": "2026-08-04T11:20:05.058274+00:00",
+  "metadata": {},
+  "phase": "COMPLETED",
+  "required_conditions": [
+    "task_run_control_plane",
+    "repair_loop_interruption_contracts",
+    "skill_control_plane",
+    "stage1_stage5_core_regression",
+    "broad_context_transaction_governance_regression",
+    "architecture",
+    "module_closure",
+    "version_consistency",
+    "convergence"
+  ],
+  "revision": 51,
+  "schema_version": 1,
+  "status": "COMPLETED",
+  "task_id": "verify-b34-resilient-harness-ffbaf2472a096d405384",
+  "task_kind": "b34-resilient-verification",
+  "updated_at": "2026-08-04T11:26:50.799863+00:00"
+}

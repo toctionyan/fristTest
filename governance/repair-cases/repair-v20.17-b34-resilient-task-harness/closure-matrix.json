@@ -1,0 +1,79 @@
+{
+  "candidate_source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "diff_review_sha256": "02765cd6174d978ad1f767de83b5240755067118361d1edab3f76a6b237b4787",
+  "evidence": [
+    {
+      "dimension": "focused_tests",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/focused-tests.json",
+      "evidence_sha256": "c35f607d6e24e9b4efc7829fef136e61be8cc18d0beb0b5c7a5fe66f0929367a",
+      "status": "PASS"
+    },
+    {
+      "dimension": "regression",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/regression.json",
+      "evidence_sha256": "ecc7c3383dc7444b5a9d0fd056f9c89c243432602be40150f2a6cb9096c3e4aa",
+      "status": "PASS"
+    },
+    {
+      "dimension": "static_gates",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/static-gates.json",
+      "evidence_sha256": "8304e3c6baa77c1ffe56702ec259bc6439225f0607c2989f37db15f4b7c94f4b",
+      "status": "PASS"
+    },
+    {
+      "dimension": "runtime_trace",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/runtime-trace.json",
+      "evidence_sha256": "6da1776abc06c8711cd454923f675864c429eba9a6327d3de5d4373700d40bcd",
+      "status": "PASS"
+    },
+    {
+      "dimension": "candidate_verifier",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/verifier-summary.json",
+      "evidence_sha256": "7eaa4f52d6de04a4d1296eb0f6446fd135092eb1e82f605ed90ce207d45d3af2",
+      "status": "PASS"
+    },
+    {
+      "dimension": "completion_guard",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/completion-guard.json",
+      "evidence_sha256": "9450e263886ca42c5bc114a9a8c029bda2bff8c82d9bba6bc4a39b8f53d053db",
+      "status": "PASS"
+    },
+    {
+      "dimension": "resumable_verification",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/resumable-verification.json",
+      "evidence_sha256": "0033739ac8da01575271fea32f534cf2c5556f6be7563bade59a4104dd8c0d1c",
+      "status": "PASS"
+    },
+    {
+      "dimension": "external_interruption_recovery",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/external-interruption-recovery-task-run.json",
+      "evidence_sha256": "e939430c18dfd28df9bcdd8f38209f4b0c8b0a6ae597b601ea62218be68ebed8",
+      "status": "PASS"
+    },
+    {
+      "dimension": "production_environment",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/environment-blockers.json",
+      "evidence_sha256": "e5c4b371fc653a59bad3f3ad3909afddc5da1fc6a049411c069a8b95470594ef",
+      "status": "BLOCKED_BY_ENVIRONMENT"
+    }
+  ],
+  "final_decision": "CLOSED_VERIFIED_LOCAL_HARNESS",
+  "loop_outcome": "CONVERGED",
+  "permit_digest": "91fd779e088b2a0941140de8c64e6d95e4c9c8ca75bd4f355a3c491379c10a1f",
+  "production_closed": false,
+  "record_type": "closure-matrix",
+  "residual_risks": [
+    "External platform interruption cannot be prevented; durable recovery is the guarantee.",
+    "Production provider/PostgreSQL/browser/host certification remains open."
+  ],
+  "result": "CONVERGED",
+  "reviewer_role": "closure-arbiter",
+  "schema_version": 1,
+  "repository_closure": {
+    "task_ledger": "PASS",
+    "issue_env_001": "IMMUTABLE_GOVERNANCE_EVIDENCE",
+    "issue_rel_001": "IMMUTABLE_GOVERNANCE_EVIDENCE",
+    "production_closed": false
+  }
+}
