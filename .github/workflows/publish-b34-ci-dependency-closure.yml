@@ -1,0 +1,111 @@
+name: Publish B34 CI dependency closure
+
+on:
+  pull_request:
+    branches:
+      - agent/b34-resilient-task-harness-20260804
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b34-ci-dependency-closure
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.head_ref == 'agent/b34-ci-dependency-closure-publisher-v2-20260804'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out immutable repair payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify repair payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(wc -c < candidate-validation/b34-ci-dependency-closure.patch.b64)" -eq 2632
+          echo 'ad2bee4a0a004e189f4f6e35cece4eb2fc5f02114529290172ecd463bac96298  candidate-validation/b34-ci-dependency-closure.patch.b64' | sha256sum -c -
+          base64 --decode candidate-validation/b34-ci-dependency-closure.patch.b64 > /tmp/b34-ci-dependency-closure.patch
+          echo '6a78c5df90a051a51b0958b4b11afc9694f05d068b68ee1a6e11af5164427bf1  /tmp/b34-ci-dependency-closure.patch' | sha256sum -c -
+
+      - name: Check out current B34 direct source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: agent/b34-resilient-task-harness-20260804
+          fetch-depth: 0
+          path: target
+
+      - name: Apply dependency-closure repair and verify scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          test "$(git rev-parse HEAD)" = '72cce126e4124e3abefb282de40e00ae1a91cb1b'
+          git apply --check /tmp/b34-ci-dependency-closure.patch
+          git apply /tmp/b34-ci-dependency-closure.patch
+          echo 'f1fc53c8d21ad6cc01e52e3f222e55bd5e7c16dfe9c7a35a28449d40822cc766  scripts/repair_loop.py' | sha256sum -c -
+          echo '28cff97dd94e2927143c085fb70b67d3fab589182b837f9d94ec9600c5ea8467  services/agent-service/tests/architecture/test_quality_loop_governance.py' | sha256sum -c -
+          echo '9070b500b2d5fa3612fcf79d7e5a8e29b074eac1cacd662918f0c4a9d1920d06  skill-system/tests/test_resilient_repair_task_run.py' | sha256sum -c -
+          python - <<'PY'
+          import subprocess
+          expected = {
+              'scripts/repair_loop.py',
+              'services/agent-service/tests/architecture/test_quality_loop_governance.py',
+              'skill-system/tests/test_resilient_repair_task_run.py',
+          }
+          actual = {
+              line[3:].strip()
+              for line in subprocess.check_output(['git', 'status', '--short'], text=True).splitlines()
+              if line.strip()
+          }
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          PY
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run GitHub Quick adversarial group and B34 recovery tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/runtime/test_goal_binding_counterexamples.py \
+            services/agent-service/tests/runtime/test_semantic_grounding_read.py \
+            services/agent-service/tests/runtime/test_similar_capability_rejection.py \
+            services/agent-service/tests/context/test_parameterized_capability_alignment.py \
+            services/agent-service/tests/architecture/test_quality_loop_governance.py
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            skill-system/tests/test_task_run.py \
+            skill-system/tests/test_task_run_cli.py \
+            skill-system/tests/test_resilient_repair_task_run.py
+
+      - name: Publish direct-source repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          git config user.name 'B34 Dependency Closure Publisher'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- \
+            scripts/repair_loop.py \
+            services/agent-service/tests/architecture/test_quality_loop_governance.py \
+            skill-system/tests/test_resilient_repair_task_run.py
+          git commit -m 'Close B34 repair runtime dependency manifest'
+          git push origin HEAD:refs/heads/agent/b34-resilient-task-harness-20260804
