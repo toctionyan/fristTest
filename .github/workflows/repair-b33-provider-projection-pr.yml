@@ -47,8 +47,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git apply --check "${RUNNER_TEMP}/repair.patch"
-          git apply "${RUNNER_TEMP}/repair.patch"
+          git apply -p4 --check "${RUNNER_TEMP}/repair.patch"
+          git apply -p4 "${RUNNER_TEMP}/repair.patch"
           python -B -m py_compile services/agent-service/src/agent_core/lifecycle/protocol.py
           git diff --check
 
