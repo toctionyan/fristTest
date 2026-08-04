@@ -100,7 +100,7 @@ def classify_execution_disposition(
         )
     if code in {
         "CAPABILITY_PARAMETERIZATION_INCOMPLETE", "CAPABILITY_SEMANTIC_CLARIFICATION_REQUIRED",
-        "CONTEXT_TARGET_NOT_UNIQUE", "NEED_TRANSACTION_SELECTION", "DUPLICATE_OBSERVATION_SUPPRESSED",
+        "CONTEXT_TARGET_NOT_UNIQUE", "CONTEXT_TARGET_NOT_VERIFIED_FOR_WRITE", "NEED_TRANSACTION_SELECTION", "DUPLICATE_OBSERVATION_SUPPRESSED",
     } or outcome_type == "clarification":
         invalidated = _handles(result) if "REF" in code else []
         return _make(

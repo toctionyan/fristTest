@@ -21,6 +21,7 @@ from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
 from agent_core.lifecycle.semantic_contract import (
+    find_goal_dependency_cycle,
     freeze_semantic_contract,
     goal_declaration_projection_from_contract,
     normalize_requested_effect,
@@ -567,6 +568,10 @@ def validate_goal_declaration(
     for row in goals:
         invalid = [dep for dep in row["depends_on"] if dep not in ids or dep == row["goal_id"]]
         errors.extend(f"invalid_goal_dependency:{row['goal_id']}:{dep}" for dep in invalid)
+    if not any(error.startswith("invalid_goal_dependency:") for error in errors):
+        cycle = find_goal_dependency_cycle(goals)
+        if cycle:
+            errors.append(f"goal_dependency_cycle:{'->'.join(cycle)}")
 
     normalized_goal_changes, goal_change_errors = validate_goal_changes(
         raw_goal_changes,

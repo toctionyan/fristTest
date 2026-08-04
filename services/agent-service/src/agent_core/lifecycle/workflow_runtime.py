@@ -83,6 +83,18 @@ def _has_collection_target(calls: list[dict[str, Any]], effects: list[dict[str, 
             if operator == "take" and limit == 1:
                 continue
             return True
+        if mode == "pipeline":
+            steps = [row for row in list(target.get("steps") or []) if isinstance(row, dict)]
+            last = steps[-1] if steps else {}
+            if str(last.get("op") or "") == "ordinal":
+                continue
+            if str(last.get("op") or "") == "take":
+                try:
+                    if int(last.get("limit") or 0) == 1:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+            return True
         handles = target.get("handles") or target.get("order_ids") or target.get("target_handles")
         if isinstance(handles, list) and len(handles) > 1:
             return True
@@ -1136,7 +1148,7 @@ def _failure_type_from_result(result: dict[str, Any]) -> str:
         "EXPLICIT_MEMBER_REQUIRES_SINGLE_MEMBER_TARGET",
     }:
         return FailureType.CAPABILITY_EXACT_MATCH_REQUIRED.value
-    if code in {"CONTEXT_TARGET_NOT_UNIQUE", "NEED_TRANSACTION_SELECTION"} or next_interaction == "need_selection":
+    if code in {"CONTEXT_TARGET_NOT_UNIQUE", "CONTEXT_TARGET_NOT_VERIFIED_FOR_WRITE", "NEED_TRANSACTION_SELECTION"} or next_interaction == "need_selection":
         return FailureType.TARGET_AMBIGUOUS.value
     if code == "UNSUPPORTED_TARGET_CARDINALITY":
         return FailureType.UNSUPPORTED_CARDINALITY.value

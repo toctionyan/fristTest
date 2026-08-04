@@ -2,8 +2,10 @@
 from __future__ import annotations
 from typing import Any
 
+from agent_modules.ecommerce.target_dsl import PIPELINE_STEPS_SCHEMA
+
 _TARGET_PROPERTIES: dict[str, Any] = {
-    "mode": {"type": "string", "enum": ["all_orders", "entity_match", "artifact", "collection", "set_operation"]},
+    "mode": {"type": "string", "enum": ["all_orders", "entity_match", "artifact", "collection", "set_operation", "pipeline"]},
     "attribute_span": {"type": "string", "minLength": 1},
     "status": {"type": "string", "enum": ["待付款", "已付款", "待发货", "已发货", "运输中", "已签收", "已取消"]},
     "status_span": {"type": "string", "minLength": 1},
@@ -15,6 +17,9 @@ _TARGET_PROPERTIES: dict[str, Any] = {
     "sort_field": {"type": "string", "enum": ["created_at", "amount", "order_id"]},
     "sort_direction": {"type": "string", "enum": ["asc", "desc"]},
     "sort_span": {"type": "string", "minLength": 1},
+    "source_kind": {"type": "string", "enum": ["all_orders", "collection"]},
+    "source_handle": {"type": "string", "minLength": 1},
+    "steps": PIPELINE_STEPS_SCHEMA,
 }
 
 
@@ -91,6 +96,16 @@ TARGET_SCHEMA: dict[str, Any] = {
             properties=["mode", "operator", "left_handle", "position"],
             required=["mode", "operator", "left_handle", "position"],
             constants={"mode": "set_operation", "operator": "ordinal"},
+        ),
+        _target_variant(
+            properties=["mode", "source_kind", "steps"],
+            required=["mode", "source_kind", "steps"],
+            constants={"mode": "pipeline", "source_kind": "all_orders"},
+        ),
+        _target_variant(
+            properties=["mode", "source_kind", "source_handle", "steps"],
+            required=["mode", "source_kind", "source_handle", "steps"],
+            constants={"mode": "pipeline", "source_kind": "collection"},
         ),
     ],
 }

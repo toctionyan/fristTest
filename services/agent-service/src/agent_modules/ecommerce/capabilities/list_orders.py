@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import verified_read_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -27,6 +28,11 @@ DEFINITION = EcommerceCapabilityDefinition(
     exclusion_examples=('物流', '在路上', '在途', '退款', '售后', '发票', '办理记录', '草稿'),
     schema=target_query_schema("list_orders", "查询当前用户订单列表或由可见结果引用限定的订单集合；同一目标包含多个集合分支时必须先用 union/intersection/difference 合成唯一 ResultRef，再以该合并集合完成最终查询。", shape="collection"),
     executor=execute,
+    contract_version='2',
+    planning_contract=verified_read_contract(
+        resource_types=("order",), cardinality="collection", target_type="ResolvedOrderSet",
+        output_name="order_list", output_type="VerifiedOrderCollection",
+    ),
     presentation_contract='commerce.order_list@1',
     public_label='订单查询',
 )

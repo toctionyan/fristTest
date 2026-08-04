@@ -59,7 +59,7 @@ def _entry_to_ref(entry: dict[str, Any]) -> dict[str, Any] | None:
         source_expression = source_query["target"]
     lineage_result_refs = list(dict.fromkeys(
         str(source_expression.get(key) or "").strip()
-        for key in ("left_handle", "right_handle")
+        for key in ("left_handle", "right_handle", "source_handle")
         if str(source_expression.get(key) or "").strip()
     ))
     # Preserve the typed operation that produced a visible collection.  This
@@ -69,7 +69,7 @@ def _entry_to_ref(entry: dict[str, Any]) -> dict[str, Any] | None:
     # its verified parent collection.
     operation_fields = {
         "mode", "operator", "sort_field", "sort_direction", "limit",
-        "position", "status",
+        "position", "status", "source_kind", "steps",
     }
     # Preserve user-authored operation evidence (``sort_span``,
     # ``status_span`` and future domain-neutral ``*_span`` fields).  These
@@ -162,7 +162,7 @@ def _transitive_lineage_result_refs(
             expression = source_query["target"]
         pending.extend(
             str(expression.get(key) or "").strip()
-            for key in ("left_handle", "right_handle")
+            for key in ("left_handle", "right_handle", "source_handle")
             if str(expression.get(key) or "").strip() not in seen
         )
     return ordered

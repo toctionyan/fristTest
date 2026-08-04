@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import unsupported_report_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -23,6 +24,8 @@ DEFINITION = EcommerceCapabilityDefinition(
     discovery_examples=('不支持', '没有这个能力', '无法办理'),
     schema=function_schema("report_unsupported_request", "明确报告未支持请求。", {"request_span": {"type": "string"}}, ["request_span"]),
     executor=execute,
+    contract_version='2',
+    planning_contract=unsupported_report_contract(),
     presentation_contract='runtime.transaction_status@1',
     public_label=None,
 )

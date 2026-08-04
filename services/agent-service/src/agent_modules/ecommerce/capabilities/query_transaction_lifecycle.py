@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import scoped_runtime_read_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -21,6 +22,11 @@ DEFINITION = EcommerceCapabilityDefinition(
     exclusion_examples=('订单状态', '物流状态', '退款状态', '发票状态', '售后状态'),
     schema=function_schema("query_transaction_lifecycle", "查询已有办理记录。", {"query_span": {"type": "string"}, "transaction_handle": {"type": "string"}}, ["query_span"]),
     executor=execute,
+    contract_version='2',
+    planning_contract=scoped_runtime_read_contract(
+        output_name="transaction_lifecycle", output_type="VerifiedTransactionLifecycleSnapshot",
+        proof_source="transaction_authority",
+    ),
     presentation_contract='runtime.transaction_status@1',
     public_label=None,
 )

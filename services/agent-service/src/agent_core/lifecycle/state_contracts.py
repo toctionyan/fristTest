@@ -14,7 +14,7 @@ GROUP_TO_KEYS: dict[str, set[str]] = {
     # them after producing a verified customer-visible conclusion.
     "outcome": {"runtime_outcome", "presentation"},
     "loop": {"current_turn_plan", "loop_plans", "capability_surface", "execution_permits", "turn_match_proofs", "agent_loop_step", "agent_loop_max_steps", "agent_loop_seen_calls", "answer_protocol_retry", "goal_declaration_retry", "clarification_scope_retry", "history_recall_evidence_binding", "deferred_terminal_calls", "execution_dispositions", "latest_execution_disposition", "model_mode_restriction", "model_call_budget", "model_call_trace"},
-    "workflow": {"semantic_proposal", "frozen_semantic_contract", "frozen_plan_definition", "plan_run", "grounded_execution_plan", "pretool_shadow_plan", "pretool_shadow_comparisons", "goal_blockers", "goal_records", "focus_state"},
+    "workflow": {"semantic_proposal", "frozen_semantic_contract", "frozen_plan_definition", "plan_run", "grounded_execution_plan", "pretool_shadow_plan", "pretool_execution_policy", "pretool_shadow_comparisons", "goal_blockers", "goal_records", "goal_output_refs", "focus_state"},
     "task_board": {"task_board", "current_turn_task_ids"},
     "transaction": {"action_queue", "action_gateway_result", "focused_draft_id", "active_draft_id", "pending_confirmation_id", "pending_confirmation_version", "response_contract", "commit_authority", "approval_result", "offer_execution_result", "transaction_reconciliation"},
     "audit": {"conversation_event_log", "audit_snapshot"},
