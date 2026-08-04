@@ -69,7 +69,9 @@ jobs:
           }
           actual = {
               line[3:].strip()
-              for line in subprocess.check_output(['git', 'status', '--short'], text=True).splitlines()
+              for line in subprocess.check_output(
+                  ['git', 'status', '--short', '--untracked-files=all'], text=True
+              ).splitlines()
               if line.strip()
           }
           assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
