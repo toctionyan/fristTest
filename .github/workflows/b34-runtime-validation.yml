@@ -32,3 +32,5 @@ jobs:
           name: b35-runtime-validation-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           path: ${{ runner.temp }}/b35-evidence
+
+# Validation revision: runner-continuation-fix-v1
