@@ -1,0 +1,49 @@
+name: Publish B35 staged goal progression v5
+
+on:
+  push:
+    branches: [agent/b35-quick-repair-publisher-20260804]
+    paths:
+      - candidate-validation/b35-quick-repair/terminal-status-part-*.b64
+      - candidate-validation/b35-quick-repair/run-v5.sh
+      - .github/workflows/publish-b35-staged-goal-progression-v5.yml
+  pull_request:
+    branches: [agent/b34-resilient-task-harness-final-20260804]
+    paths:
+      - candidate-validation/b35-quick-repair/terminal-status-part-*.b64
+      - candidate-validation/b35-quick-repair/run-v5.sh
+      - .github/workflows/publish-b35-staged-goal-progression-v5.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b35-staged-goal-progression-v5
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout publisher payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-quick-repair-publisher-20260804
+          fetch-depth: 0
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Authenticate, validate, and publish five-layer B35 candidate
+        run: bash candidate-validation/b35-quick-repair/run-v5.sh
+
+      - name: Upload focused evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b35-v5-focused-evidence-${{ github.sha }}
+          path: /tmp/b35-evidence
+          if-no-files-found: warn
+          retention-days: 14
