@@ -22,7 +22,7 @@ jobs:
       - name: Checkout B28 candidate plus B33 validation payload
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Reconstruct and verify B33 runtime patch
+      - name: Reconstruct and verify B33 runtime files
         shell: bash
         run: |
           set -euo pipefail
@@ -46,14 +46,13 @@ jobs:
           CONFLICT_PATH="services/agent-service/src/agent_core/runtime/capability_gate.py"
           git apply --check --exclude="${CONFLICT_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
           git apply --exclude="${CONFLICT_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
-
           base64 --decode candidate-validation/b33-file-overrides/capability_gate.py.xz.b64 \
             | xz -dc > "${CONFLICT_PATH}"
-          echo "e1533722e87a7a2376e565f48a3e9a4457449ff742e02f73f20941d5fe7e5e2e  ${CONFLICT_PATH}" | sha256sum -c -
 
+          test "$(wc -l < candidate-validation/B33_FILE_SHA256SUMS.txt)" -eq 48
+          sha256sum -c candidate-validation/B33_FILE_SHA256SUMS.txt
           git diff --check
           git diff --name-only | sort | tee "${RUNNER_TEMP}/b33-changed-files.txt"
-          test "$(wc -l < "${RUNNER_TEMP}/b33-changed-files.txt")" -eq 48
 
       - name: Set up Python 3.12.13
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
