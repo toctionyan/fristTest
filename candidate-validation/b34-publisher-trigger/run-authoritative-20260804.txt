@@ -1,0 +1,1 @@
+Trigger fail-closed publication of the authenticated B34 package to agent/b34-resilient-task-harness-authoritative-20260804.
