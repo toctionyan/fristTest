@@ -48,18 +48,44 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Prepare stable quality target identity
+      - name: Prepare stable quality target and 548-file baseline identity
         run: |
           "${pythonLocation}/bin/python" - <<'PY'
           from pathlib import Path
 
           source_path = Path('publisher/candidate-validation/b35-governance-closure/run-governance-closure.sh')
           source = source_path.read_text(encoding='utf-8')
-          old = '--ref "${EXPECTED_TARGET_SHA}+${PATCH_SHA}"'
-          new = '--ref "b35-governance-closure-248f84417d30a511"'
-          assert source.count(old) == 1, source.count(old)
+          replacements = [
+              (
+                  '--ref "${EXPECTED_TARGET_SHA}+${PATCH_SHA}"',
+                  '--ref "b35-governance-closure-248f84417d30a511"',
+              ),
+              (
+                  'assert len(product) == 547, len(product)',
+                  'assert len(product) == 548, len(product)',
+              ),
+              (
+                  "'file_count': 547,",
+                  "'file_count': 548,",
+              ),
+              (
+                  "'product_baseline_file_count': 547,",
+                  "'product_baseline_file_count': 548,",
+              ),
+              (
+                  "'- Product baseline: 547 files\\n'",
+                  "'- Product baseline: 548 files\\n'",
+              ),
+              (
+                  "'product_files': 547",
+                  "'product_files': 548",
+              ),
+          ]
+          for old, new in replacements:
+              assert source.count(old) == 1, (old, source.count(old))
+              source = source.replace(old, new)
           Path('/tmp/run-b35-governance-closure.sh').write_text(
-              source.replace(old, new), encoding='utf-8'
+              source, encoding='utf-8'
           )
           PY
           bash -n /tmp/run-b35-governance-closure.sh
