@@ -1,0 +1,29 @@
+diff --git a/services/agent-service/tests/architecture/test_quality_loop_governance.py b/services/agent-service/tests/architecture/test_quality_loop_governance.py
+index ef2c3b8..05f6750 100644
+--- a/services/agent-service/tests/architecture/test_quality_loop_governance.py
++++ b/services/agent-service/tests/architecture/test_quality_loop_governance.py
+@@ -122,8 +122,22 @@ def test_strong_context_gate_rejects_missing_runtime_goal_binding() -> None:
+ 
+ def test_strong_context_gate_rejects_semantically_swapped_goal_bindings() -> None:
+     verifier, contract, case_id = _first_semantic_turn()
+-    calls = contract["model_steps"][1]["tool_calls"]
+-    calls[0]["args"]["goal_ids"], calls[1]["args"]["goal_ids"] = calls[1]["args"]["goal_ids"], calls[0]["args"]["goal_ids"]
++    bound_calls = [
++        call
++        for step in contract["model_steps"][1:]
++        for call in step["tool_calls"]
++        if len(call.get("args", {}).get("goal_ids", [])) == 1
++    ]
++    first, second = next(
++        (left, right)
++        for index, left in enumerate(bound_calls)
++        for right in bound_calls[index + 1 :]
++        if left["args"]["goal_ids"] != right["args"]["goal_ids"]
++    )
++    first["args"]["goal_ids"], second["args"]["goal_ids"] = (
++        second["args"]["goal_ids"],
++        first["args"]["goal_ids"],
++    )
+     errors = _turn_errors(verifier, contract, case_id)
+     assert any(error.startswith("semantic_runtime_goal_binding_mismatch:") for error in errors)
+ 
