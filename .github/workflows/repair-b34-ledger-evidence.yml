@@ -1,0 +1,76 @@
+name: Repair B34 task-ledger evidence reference
+
+on:
+  pull_request:
+    branches: [agent/b34-publisher-20260804]
+    paths:
+      - candidate-validation/b34-ledger-repair-trigger/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-b34-ledger-evidence
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TARGET_BRANCH: agent/b34-resilient-task-harness-authoritative-20260804
+      EXPECTED_HEAD: a9fe2aefbf71b8a2b00a63f9613d7e7775ac5328
+      OLD_REF: services/agent-service/tests/architecture/test_quality_loop_governance.py
+      NEW_REF: governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/focused-tests.json
+
+    steps:
+      - name: Checkout exact B34 source branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Enforce branch identity and repair evidence reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(git rev-parse HEAD)"
+          if [[ "${current}" != "${EXPECTED_HEAD}" ]]; then
+            echo "Refusing unexpected B34 head: ${current}" >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('governance/task-ledger.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          issue = next((row for row in payload.get('known_issues', []) if row.get('issue_id') == 'ISSUE-REL-001'), None)
+          if issue is None:
+              raise SystemExit('ISSUE-REL-001 is missing')
+          refs = list(issue.get('evidence_refs') or [])
+          old = 'services/agent-service/tests/architecture/test_quality_loop_governance.py'
+          new = 'governance/repair-cases/repair-v20.17-b27-host-release-readiness/evidence/focused-tests.json'
+          if old not in refs:
+              raise SystemExit(f'expected mutable evidence ref is missing: {refs}')
+          refs = [new if item == old else item for item in refs]
+          if len(refs) != len(set(refs)):
+              raise SystemExit('replacement produced duplicate evidence refs')
+          issue['evidence_refs'] = refs
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+          test -f "${NEW_REF}"
+          python -B scripts/verify_task_ledger.py
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "${changed}" = 'governance/task-ledger.json'
+
+      - name: Commit fail-closed ledger repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'B34 Governance Repair'
+          git config user.email 'actions@users.noreply.github.com'
+          git add governance/task-ledger.json
+          git commit -m 'B34: bind closed issue to immutable evidence'
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
