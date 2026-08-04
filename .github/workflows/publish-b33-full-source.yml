@@ -1,0 +1,95 @@
+name: Publish B33 full source
+
+on:
+  push:
+    branches:
+      - agent/b33-actions-validation-v2-20260804
+    paths:
+      - .github/workflows/publish-b33-full-source.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b33-full-source-20260804
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout validation carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct hash-locked B33 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          PARTS="candidate-validation/b33-runtime-patch-xz"
+          {
+            head -c 12000 "${PARTS}/part-00.b64"
+            head -c 12000 "${PARTS}/part-01.b64"
+            head -c 6000 "${PARTS}/part-02.b64"
+            head -c 6000 "${PARTS}/part-03.b64"
+            head -c 6000 "${PARTS}/part-04.b64"
+            head -c 6000 "${PARTS}/part-05.b64"
+            head -c 6000 "${PARTS}/part-06.b64"
+            head -c 400 "${PARTS}/part-07.b64"
+          } > "${RUNNER_TEMP}/b33-runtime.patch.xz.b64"
+          test "$(wc -c < "${RUNNER_TEMP}/b33-runtime.patch.xz.b64")" -eq 54400
+          base64 --decode "${RUNNER_TEMP}/b33-runtime.patch.xz.b64" > "${RUNNER_TEMP}/b33-runtime.patch.xz"
+          xz --test "${RUNNER_TEMP}/b33-runtime.patch.xz"
+          xz -dc "${RUNNER_TEMP}/b33-runtime.patch.xz" > "${RUNNER_TEMP}/b33-runtime.patch"
+          echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" | sha256sum -c -
+          cp candidate-validation/B33_FILE_SHA256SUMS.txt "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt"
+          test "$(wc -l < "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt")" -eq 48
+
+      - name: Build direct B33 source branch
+        shell: bash
+        env:
+          B33_BASE_COMMIT: e6c2c4d3df6baceaff258b4be6af8062c8448334
+          B33_TARGET_BRANCH: agent/b33-full-source-20260804
+        run: |
+          set -euo pipefail
+          git cat-file -e "${B33_BASE_COMMIT}^{commit}"
+          git checkout --detach "${B33_BASE_COMMIT}"
+          git reset --hard "${B33_BASE_COMMIT}"
+          git clean -fdx
+          git apply --check "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply "${RUNNER_TEMP}/b33-runtime.patch"
+          sha256sum -c "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt"
+          git diff --check
+
+          cat > B33_SOURCE_VERSION.md <<'EOF'
+          # Current source authority
+
+          - Version: `v20.17-b33`
+          - Candidate: `Stage 5 controlled Target DSL`
+          - Date: `2026-08-04`
+          - Local delivery ZIP SHA-256: `bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195`
+          - Runtime/test files upgraded from B28: `48`
+          - Production certification: `not closed`
+
+          This branch contains the direct source and test files. It is not a patch-carrier branch.
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${B33_TARGET_BRANCH}"
+          git add -A
+          git commit -m "Publish v20.17-b33 full source authority"
+          git push --force-with-lease origin "HEAD:refs/heads/${B33_TARGET_BRANCH}"
+
+      - name: Publish summary
+        run: |
+          {
+            echo '## B33 full-source publication'
+            echo '- Target branch: `agent/b33-full-source-20260804`'
+            echo '- Source version: `v20.17-b33`'
+            echo '- Direct runtime/test files: `48`'
+            echo '- Production closed: `false`'
+          } >> "${GITHUB_STEP_SUMMARY}"
