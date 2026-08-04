@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "stage": "B35 Staged Goal Progression",
+  "status": "FOCUSED_GITHUB_VALIDATED",
+  "source_fingerprint": "bc2c6f12ea38143f8fc48a07ebd5fb419d2c04d52b8867f9ad0e17dcbd606770",
+  "fixed_quick_failure_count": 16,
+  "focused_test_count": 149,
+  "changed_file_count": 8,
+  "product_baseline_file_count": 547,
+  "remaining_must_close": [
+    "WP-08",
+    "WP-09"
+  ],
+  "production_closed": false
+}

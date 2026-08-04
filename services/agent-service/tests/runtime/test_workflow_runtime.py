@@ -381,3 +381,119 @@ def test_submission_unknown_routes_to_reconciliation_failure_type_not_environmen
     assert workflow["steps"][0]["status"] == StepStatus.SUBMISSION_UNKNOWN.value
     assert workflow["steps"][0]["failure_type"] == FailureType.SUBMISSION_UNKNOWN.value
     assert workflow["status"] == WorkflowStatus.SUBMISSION_UNKNOWN.value
+
+
+def test_partial_frontier_plan_blocks_downstream_goal_without_rejecting_upstream_dispatch():
+    text = "查一下订单，再查物流"
+    state = _state(text=text)
+    install_test_semantic_contract(state, {
+        "turn": 1,
+        "user_text": text,
+        "goals": [
+            {
+                "goal_id": "g1",
+                "description": "查订单",
+                "evidence_span": "查一下订单",
+                "requested_effect": requested_effect_for_tool("list_orders"),
+                "required": True,
+                "depends_on": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "查物流",
+                "evidence_span": "查物流",
+                "requested_effect": requested_effect_for_tool("get_order_logistics"),
+                "required": True,
+                "depends_on": ["g1"],
+            },
+        ],
+    })
+    state["goal_records"] = [
+        {"goal_id": "g1", "lifecycle": "ACTIVE"},
+        {"goal_id": "g2", "lifecycle": "ACTIVE"},
+    ]
+    plan = _build_loop_plan(
+        state,
+        text,
+        [{
+            "id": "orders",
+            "name": "list_orders",
+            "args": {
+                "goal_ids": ["g1"],
+                "target": {"mode": "all_orders"},
+                "expected_shape": "collection",
+                "reference_span": "查一下订单",
+            },
+        }],
+        "",
+        capability_registry=get_runtime_registry().capabilities,
+    )
+
+    workflow = build_workflow_plan(state=state, turn_plan=plan, user_text=text)
+
+    goals = {row["goal_id"]: row for row in workflow["goals"]}
+    assert workflow["validation"]["status"] == "ACCEPTED"
+    assert goals["g1"]["coverage_status"] == "PENDING"
+    assert goals["g2"]["coverage_status"] == "BLOCKED"
+    assert goals["g2"]["satisfaction_proof"] == {
+        "kind": "declared_goal_dependency_pause",
+        "goal_id": "g2",
+        "missing_dependency_goal_ids": ["g1"],
+        "goal_remains_incomplete": True,
+    }
+
+
+def test_durable_completed_upstream_goal_allows_next_frontier_plan_without_replaying_tool():
+    text = "查一下订单，再查物流"
+    state = _state(text=text)
+    install_test_semantic_contract(state, {
+        "turn": 1,
+        "user_text": text,
+        "goals": [
+            {
+                "goal_id": "g1",
+                "description": "查订单",
+                "evidence_span": "查一下订单",
+                "requested_effect": requested_effect_for_tool("list_orders"),
+                "required": True,
+                "depends_on": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "查物流",
+                "evidence_span": "查物流",
+                "requested_effect": requested_effect_for_tool("get_order_logistics"),
+                "required": True,
+                "depends_on": ["g1"],
+            },
+        ],
+    })
+    state["goal_records"] = [
+        {"goal_id": "g1", "lifecycle": "COMPLETED"},
+        {"goal_id": "g2", "lifecycle": "ACTIVE"},
+    ]
+    plan = _build_loop_plan(
+        state,
+        text,
+        [{
+            "id": "logistics",
+            "name": "get_order_logistics",
+            "args": {
+                "goal_ids": ["g2"],
+                "target": {"mode": "entity_match", "order_id_span": "10001"},
+                "expected_shape": "single",
+                "reference_span": "查物流",
+            },
+        }],
+        "",
+        capability_registry=get_runtime_registry().capabilities,
+    )
+
+    workflow = build_workflow_plan(state=state, turn_plan=plan, user_text=text)
+
+    goals = {row["goal_id"]: row for row in workflow["goals"]}
+    assert workflow["validation"]["status"] == "ACCEPTED"
+    assert [row["tool_name"] for row in workflow["steps"]] == ["get_order_logistics"]
+    assert goals["g1"]["coverage_status"] == "COVERED"
+    assert goals["g1"]["satisfaction_proof"]["kind"] == "durable_goal_lifecycle_completed"
+    assert goals["g2"]["coverage_status"] == "PENDING"

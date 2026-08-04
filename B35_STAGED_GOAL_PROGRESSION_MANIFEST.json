@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "stage": "B35 Staged Goal Progression",
+  "change_id": "repair-v20.17-b35-staged-goal-progression",
+  "base_sha": "4172bdb36fd3a6f356421c2a048e0585de22a154",
+  "patch_sha256": "d7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081",
+  "correction_patch_sha256": "28bacbf83cf05c4ebc5be1967a895868684f3b1ce7c13ac2b098cc4b36973fb8",
+  "contract_closure_patch_sha256": "18b964e205658e7f4b2ee4b9b10c7f4493533f17ea123476ae412f90be45364e",
+  "terminal_evidence_patch_sha256": "03009ffaedb71c40fcb6fdb6e9409694efd46d021c4771f50ce860db3a64a1de",
+  "terminal_status_patch_sha256": "5d9bdd9575c4e1fadb43d48fc2b51d4c791b76fac78e5adcfbdf861a2d647de7",
+  "source_fingerprint": "bc2c6f12ea38143f8fc48a07ebd5fb419d2c04d52b8867f9ad0e17dcbd606770",
+  "changed_file_count": 8,
+  "files": {
+    "services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json": {
+      "sha256": "8f1a2604987e219fd772c0bb93ed6d38a30174c46e7a3b5cf537249af36d9c1d",
+      "size": 603486
+    },
+    "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json": {
+      "sha256": "3316987b4dcf7fb6115fe17a04f2dd33a0a0926a8ba45dba2cc88845490b3c14",
+      "size": 96950
+    },
+    "services/agent-service/src/agent_core/kernel/plan_projection_contract.py": {
+      "sha256": "f62e0874c0ace36f728630ad73a778fe2cd6610f94501194aace37d8a057d39b",
+      "size": 25046
+    },
+    "services/agent-service/src/agent_core/lifecycle/workflow_runtime.py": {
+      "sha256": "b66725ead754d65b363821b2dbed4f1458b578942a8fe420a0a8b627458728ea",
+      "size": 65926
+    },
+    "services/agent-service/tests/runtime/test_workflow_runtime.py": {
+      "sha256": "35716e2b2270ce1f30cbc57511836ed3d6288f69e0495a61e70b2570d73f7fcf",
+      "size": 20252
+    },
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": {
+      "sha256": "547a57a2e4655590c037ae0120126471aa7a67e6825877d44422805e277b3b7c",
+      "size": 78626
+    },
+    "services/agent-service/src/agent_core/context/visible_result_refs.py": {
+      "sha256": "8163b877007764b9d9a50beec67ccd51a40e83fe5c19897e8a055a9622130c60",
+      "size": 24341
+    },
+    "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py": {
+      "sha256": "0402ab93beeccfa712eb9015dfdf67a11f44cbfe41030098aaa9e25c22d1a07c",
+      "size": 36393
+    }
+  },
+  "production_closed": false
+}

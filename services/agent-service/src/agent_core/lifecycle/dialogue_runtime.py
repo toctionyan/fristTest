@@ -132,11 +132,23 @@ def _workflow_repair_tools(
         for name in list(row.get("completion_tools") or [])
         if str(name)
     }
+    pending_goals_by_id = {
+        str(goal.get("goal_id") or ""): goal
+        for goal in pending_rows
+        if str(goal.get("goal_id") or "")
+    }
     unsupported_tools = {
         str(name)
         for row in list(surface.get("goals") or [])
         if isinstance(row, dict)
         and str(row.get("goal_id") or "") in pending_goal_ids
+        # Clarification is itself a supported terminal outcome.  A missing
+        # business completion capability must not turn a clarification-only
+        # retry into an unsupported-request surface.
+        and str(
+            (pending_goals_by_id.get(str(row.get("goal_id") or "")) or {}).get("goal_type")
+            or ""
+        ).lower() != "clarification"
         and str(row.get("status") or "") in {"absent_proven", "completion_capability_absent"}
         for name in list(row.get("candidate_tools") or [])
         if str(name)
