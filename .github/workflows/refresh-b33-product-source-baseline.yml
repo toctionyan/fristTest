@@ -54,7 +54,7 @@ jobs:
               "schema_version": 2,
               "generated_from": "v20.17-b33-full-source-20260804",
               "source_release_sha256": "bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195",
-              "generated_at": "2026-08-04T08:50:00Z",
+              "generated_at": "2026-08-04T08:54:00Z",
               "protected_roots": list(protected_roots),
               "file_count": len(files),
               "files": files,
