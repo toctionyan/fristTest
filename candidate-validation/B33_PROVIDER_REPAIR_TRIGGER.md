@@ -6,3 +6,4 @@ This test-only marker triggers the governed provider-schema projection repair fo
 - Provider projection limit remains below 12,000 bytes.
 - Target branch: `agent/b33-full-source-20260804`.
 - Production closed: `false`.
+- Retry: path normalization fixed with `git apply -p4`.
