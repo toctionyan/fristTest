@@ -43,12 +43,12 @@ jobs:
             | gzip -dc > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" \
             | sha256sum --check --strict
-          git apply --check "${RUNNER_TEMP}/b33-runtime.patch"
-          git apply "${RUNNER_TEMP}/b33-runtime.patch"
-          git diff --name-only -- services/agent-service/src services/agent-service/tests \
+          git apply --3way --check "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply --3way "${RUNNER_TEMP}/b33-runtime.patch"
+          git diff --name-only HEAD -- services/agent-service/src services/agent-service/tests \
             | LC_ALL=C sort > "${RUNNER_TEMP}/b33-evidence/changed-paths.txt"
           test "$(wc -l < "${RUNNER_TEMP}/b33-evidence/changed-paths.txt")" -eq 48
-          git diff --check
+          git diff --check HEAD
 
       - name: Bootstrap locked uv
         run: >-
@@ -100,6 +100,7 @@ jobs:
             echo "base_ref=${GITHUB_BASE_REF}"
             echo "head_ref=${GITHUB_HEAD_REF}"
             echo "patch_sha256=af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89"
+            echo "merge_mode=git-apply-3way"
             echo "production_closed=false"
           } > "${RUNNER_TEMP}/b33-evidence/run-binding.txt"
 
