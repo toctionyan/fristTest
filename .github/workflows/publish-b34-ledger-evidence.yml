@@ -57,7 +57,7 @@ jobs:
           cp /tmp/issue-rel-001-oracle-current.json "$destination"
           git apply --check /tmp/task-ledger.patch
           git apply /tmp/task-ledger.patch
-          python - <<'PY'
+          python -B - <<'PY'
           import hashlib
           import importlib.util
           import json
