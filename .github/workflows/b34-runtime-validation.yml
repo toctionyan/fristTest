@@ -1,4 +1,4 @@
-name: B34 GitHub Regression Closure Validation
+name: B35 Staged Goal Progression Validation
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  validate-b34-runtime:
+  validate-b35-runtime:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -23,12 +23,12 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
-      - name: Validate B34 candidate
-        run: bash candidate-validation/run-b34-validation.sh
-      - name: Upload B34 validation evidence
+      - name: Validate B35 candidate
+        run: bash candidate-validation/run-b35-validation.sh
+      - name: Upload B35 validation evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: b34-runtime-validation-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          name: b35-runtime-validation-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
-          path: ${{ runner.temp }}/b34-evidence
+          path: ${{ runner.temp }}/b35-evidence
