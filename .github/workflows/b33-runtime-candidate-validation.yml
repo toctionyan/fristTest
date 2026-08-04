@@ -26,6 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/b33-evidence"
+          target='services/agent-service/src/agent_core/runtime/capability_gate.py'
           cat \
             candidate-validation/b33-runtime-patch/part-000.b64 \
             candidate-validation/b33-runtime-patch/part-001.b64 \
@@ -43,8 +44,27 @@ jobs:
             | gzip -dc > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" \
             | sha256sum --check --strict
-          git apply --3way --check "${RUNNER_TEMP}/b33-runtime.patch"
+
+          set +e
           git apply --3way "${RUNNER_TEMP}/b33-runtime.patch"
+          apply_rc=$?
+          set -e
+
+          if git ls-files -u -- "$target" | grep -q .; then
+            git show ":1:${target}" > "${RUNNER_TEMP}/b33-evidence/capability_gate.base.py"
+            git show ":2:${target}" > "${RUNNER_TEMP}/b33-evidence/capability_gate.repository.py"
+            git show ":3:${target}" > "${RUNNER_TEMP}/b33-evidence/capability_gate.b33.py"
+            cp "$target" "${RUNNER_TEMP}/b33-evidence/capability_gate.conflict.py"
+            git diff --cc -- "$target" > "${RUNNER_TEMP}/b33-evidence/capability_gate.conflict.diff"
+            {
+              echo 'status=merge_conflict'
+              echo "path=${target}"
+              echo "apply_rc=${apply_rc}"
+            } > "${RUNNER_TEMP}/b33-evidence/merge-status.txt"
+            exit 86
+          fi
+
+          test "$apply_rc" -eq 0
           git diff --name-only HEAD -- services/agent-service/src services/agent-service/tests \
             | LC_ALL=C sort > "${RUNNER_TEMP}/b33-evidence/changed-paths.txt"
           test "$(wc -l < "${RUNNER_TEMP}/b33-evidence/changed-paths.txt")" -eq 48
