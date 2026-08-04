@@ -6,12 +6,13 @@
   "fixed_quick_failure_count": 17,
   "focused_test_count": 149,
   "changed_file_count": 9,
-  "product_baseline_file_count": 548,
+  "product_baseline_file_count": 547,
   "remaining_must_close": [
     "WP-08",
     "WP-09"
   ],
   "production_closed": false,
   "adversarial_counterexample_test_count": 137,
-  "repository_quick_status": "PASS"
+  "repository_quick_status": "PASS",
+  "clean_tree_product_baseline_status": "PASS"
 }

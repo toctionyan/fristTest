@@ -6,6 +6,7 @@
 - Focused Quick cases and adjacent counterexamples: 149 passed
 - Full adversarial counterexample suite: 137 passed
 - Repository Quality Quick: PASS
-- Product baseline: 548 files
+- Product baseline: 547 files
+- Clean-tree product baseline (runtime artifacts excluded): PASS
 - WP-08 / WP-09 remain open
 - `production_closed=false`

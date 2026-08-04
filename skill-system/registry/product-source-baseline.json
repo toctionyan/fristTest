@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_from": "v20.17-b35-governance-counterexample-closure-github-candidate",
+  "generated_from": "v20.17-b35-clean-tree-product-baseline-candidate",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-04T15:13:13Z",
+  "generated_at": "2026-08-04T15:28:21Z",
   "protected_roots": [
     "services",
     "web",
     "contracts"
   ],
-  "file_count": 548,
+  "file_count": 547,
   "files": {
     "services/agent-service/.env.example": "8e6c360b58b57e325c562cdebc13a4ca736e193cef530826ee25eb498fcaa3f8",
     "services/agent-service/.gitignore": "865aff3868d71c17bb463346cf6483752f4fb778bce2528b84dcd9584b2157bd",
@@ -98,7 +98,6 @@
     "services/agent-service/requirements-dev.txt": "a5964c7dd3d7c2ff81a34a011a19e9ee2295bb9d119eb377ac26cf48bde9e420",
     "services/agent-service/requirements-optional.txt": "92f763835ee5306323bcd52ff6fcb48ab435e7304e53bc561affa71f542ce71e",
     "services/agent-service/requirements.txt": "2f00223453215e63737bab4e4003e7e6cf07ab977ce243546e4a11499175d1ec",
-    "services/agent-service/runtime/vector-store/vector_store.db": "a3abbbfd1484e1702704db0a8a812c8983bdd44c9c3c60828ab16c89d3c12cbe",
     "services/agent-service/scripts/audit_structured_result_release.py": "c41b72a89f63f9ac09f87202cc9829eba14ecdd49a862a4e9bcfb52180c58e2c",
     "services/agent-service/scripts/bootstrap.sh": "df08ebc49f5e47d694a398e6c62cf40625bfbadd6f927271fd1716c961156628",
     "services/agent-service/scripts/ingest_docs.py": "8e5f7a7675a7e5546a47f840e428a53801287888f61c7c3b60d330b1c1d3c107",
