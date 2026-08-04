@@ -27,6 +27,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/b33-evidence"
           target='services/agent-service/src/agent_core/runtime/capability_gate.py'
+          known_whitespace='services/agent-service/tests/runtime/test_stage1_known_architecture_gaps.py'
           cat \
             candidate-validation/b33-runtime-patch/part-000.b64 \
             candidate-validation/b33-runtime-patch/part-001.b64 \
@@ -87,6 +88,18 @@ jobs:
 
           echo "ac55da9e9395971da39ba9d92b799dacc70f24430d889e430a48dc0bdd589c6b  ${target}" \
             | sha256sum --check --strict
+
+          TARGET="$known_whitespace" "${pythonLocation}/bin/python" - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["TARGET"])
+          path.write_bytes(path.read_bytes().rstrip() + b"\n")
+          PY
+          echo "fa1204cdb888aede72d73544eaf38dd5742ef16fb82686d96526ce82674944c6  ${known_whitespace}" \
+            | sha256sum --check --strict
+          git add "$known_whitespace"
+
           git diff --name-only HEAD -- services/agent-service/src services/agent-service/tests \
             | LC_ALL=C sort > "${RUNNER_TEMP}/b33-evidence/changed-paths.txt"
           test "$(wc -l < "${RUNNER_TEMP}/b33-evidence/changed-paths.txt")" -eq 48
@@ -143,6 +156,7 @@ jobs:
             echo "head_ref=${GITHUB_HEAD_REF}"
             echo "patch_sha256=af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89"
             echo "capability_gate_merged_sha256=ac55da9e9395971da39ba9d92b799dacc70f24430d889e430a48dc0bdd589c6b"
+            echo "stage1_test_normalized_sha256=fa1204cdb888aede72d73544eaf38dd5742ef16fb82686d96526ce82674944c6"
             echo "merge_mode=git-apply-3way-plus-explicit-single-conflict-resolution"
             echo "production_closed=false"
           } > "${RUNNER_TEMP}/b33-evidence/run-binding.txt"
