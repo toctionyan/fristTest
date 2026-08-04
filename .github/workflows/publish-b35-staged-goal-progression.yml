@@ -30,6 +30,8 @@ jobs:
       BASE_PATCH_SHA: d7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081
       CORRECTION_PAYLOAD_SHA: 9034d35599ee2cd5b3a751de1714415fe4a24f00a807135e5ce62bde33b82a4a
       CORRECTION_PATCH_SHA: 28bacbf83cf05c4ebc5be1967a895868684f3b1ce7c13ac2b098cc4b36973fb8
+      CONTRACT_PAYLOAD_SHA: 84519eb2d6e825d0ae335bbd80b59826072238be95e074d420b1fcb33c3b930f
+      CONTRACT_PATCH_SHA: 18b964e205658e7f4b2ee4b9b10c7f4493533f17ea123476ae412f90be45364e
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -41,7 +43,7 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Authenticate both immutable patches
+      - name: Authenticate three immutable patches
         run: |
           set -euo pipefail
           cat candidate-validation/b35-quick-repair/part-*.b64 > /tmp/base.b64
@@ -60,6 +62,14 @@ jobs:
           tar -xJf /tmp/correction.tar.xz -C /tmp/correction-payload
           echo "${CORRECTION_PATCH_SHA}  /tmp/correction-payload/b35-quick-correction.patch" | sha256sum --check --strict
 
+          cat candidate-validation/b35-quick-repair/contract-closure-part-*.b64 > /tmp/contract-closure.b64
+          base64 --decode /tmp/contract-closure.b64 > /tmp/contract-closure.tar.xz
+          echo "${CONTRACT_PAYLOAD_SHA}  /tmp/contract-closure.tar.xz" | sha256sum --check --strict
+          xz --test /tmp/contract-closure.tar.xz
+          mkdir -p /tmp/contract-closure-payload
+          tar -xJf /tmp/contract-closure.tar.xz -C /tmp/contract-closure-payload
+          echo "${CONTRACT_PATCH_SHA}  /tmp/contract-closure-payload/b35-quick-contract-closure.patch" | sha256sum --check --strict
+
           git fetch origin "${TARGET_BRANCH}" --no-tags
           test "$(git rev-parse FETCH_HEAD)" = "${EXPECTED_TARGET_SHA}"
 
@@ -72,6 +82,8 @@ jobs:
           git apply /tmp/base-payload/b35-quick-repair.patch
           git apply --check /tmp/correction-payload/b35-quick-correction.patch
           git apply /tmp/correction-payload/b35-quick-correction.patch
+          git apply --check /tmp/contract-closure-payload/b35-quick-contract-closure.patch
+          git apply /tmp/contract-closure-payload/b35-quick-contract-closure.patch
           "${pythonLocation}/bin/python" - <<'PY'
           import subprocess
           expected = {
@@ -146,14 +158,14 @@ jobs:
           import project_compatibility
           product=project_compatibility.snapshot(root)
           assert len(product)==547,len(product)
-          baseline={'schema_version':2,'generated_from':'v20.17-b35-staged-goal-progression-github-candidate','source_release_sha256':fingerprint,'generated_at':'2026-08-04T13:30:00Z','protected_roots':list(project_compatibility.PROTECTED_NAMES),'file_count':547,'files':product}
+          baseline={'schema_version':2,'generated_from':'v20.17-b35-staged-goal-progression-github-candidate','source_release_sha256':fingerprint,'generated_at':'2026-08-04T14:05:00Z','protected_roots':list(project_compatibility.PROTECTED_NAMES),'file_count':547,'files':product}
           (root/'skill-system/registry/product-source-baseline.json').write_text(json.dumps(baseline,ensure_ascii=False,indent=2)+'\n')
-          manifest={'schema_version':1,'stage':'B35 Staged Goal Progression','change_id':'repair-v20.17-b35-staged-goal-progression','base_sha':'4172bdb36fd3a6f356421c2a048e0585de22a154','patch_sha256':'d7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081','correction_patch_sha256':'28bacbf83cf05c4ebc5be1967a895868684f3b1ce7c13ac2b098cc4b36973fb8','source_fingerprint':fingerprint,'changed_file_count':8,'files':records,'production_closed':False}
+          manifest={'schema_version':1,'stage':'B35 Staged Goal Progression','change_id':'repair-v20.17-b35-staged-goal-progression','base_sha':'4172bdb36fd3a6f356421c2a048e0585de22a154','patch_sha256':'d7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081','correction_patch_sha256':'28bacbf83cf05c4ebc5be1967a895868684f3b1ce7c13ac2b098cc4b36973fb8','contract_closure_patch_sha256':'18b964e205658e7f4b2ee4b9b10c7f4493533f17ea123476ae412f90be45364e','source_fingerprint':fingerprint,'changed_file_count':8,'files':records,'production_closed':False}
           (root/'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
           summary={'schema_version':1,'stage':'B35 Staged Goal Progression','status':'FOCUSED_GITHUB_VALIDATED','source_fingerprint':fingerprint,'fixed_quick_failure_count':16,'changed_file_count':8,'product_baseline_file_count':547,'remaining_must_close':['WP-08','WP-09'],'production_closed':False}
           (root/'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
           release=root/'release'; release.mkdir(exist_ok=True)
-          (release/'B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md').write_text(f'# B35 Staged Goal Progression Validation\n\n- Source fingerprint: `{fingerprint}`\n- Protected source changes: 8\n- Previously failing Quick cases and adjacent counterexamples: PASS\n- Product baseline: 547 files\n- WP-08 / WP-09 remain open\n- `production_closed=false`\n')
+          (release/'B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md').write_text(f'# B35 Staged Goal Progression Validation\n\n- Source fingerprint: `{fingerprint}`\n- Protected source changes: 8\n- Immutable patch layers: 3\n- Previously failing Quick cases and adjacent counterexamples: PASS\n- Product baseline: 547 files\n- WP-08 / WP-09 remain open\n- `production_closed=false`\n')
           print(json.dumps({'source_fingerprint':fingerprint,'product_files':547},indent=2))
           PY
           "${pythonLocation}/bin/python" -B scripts/verify_task_ledger.py | tee /tmp/b35-evidence/task-ledger.log
