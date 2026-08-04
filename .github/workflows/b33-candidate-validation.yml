@@ -1,0 +1,117 @@
+name: B33 candidate validation
+
+on:
+  push:
+    branches:
+      - agent/b33-controlled-target-dsl-validation-20260804
+  pull_request:
+    branches:
+      - agent/b28-repository-onboarding
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-b33-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout B28 candidate plus B33 validation payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Reconstruct and verify B33 runtime patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b33-runtime-patch-xz/part-*.b64 | tr -d '\n' | base64 --decode > "${RUNNER_TEMP}/b33-runtime.patch.xz"
+          xz --test "${RUNNER_TEMP}/b33-runtime.patch.xz"
+          xz -dc "${RUNNER_TEMP}/b33-runtime.patch.xz" > "${RUNNER_TEMP}/b33-runtime.patch"
+          echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" | sha256sum -c -
+          git apply --check "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply "${RUNNER_TEMP}/b33-runtime.patch"
+          git diff --check
+          git diff --name-only | sort | tee "${RUNNER_TEMP}/b33-changed-files.txt"
+          test "$(wc -l < "${RUNNER_TEMP}/b33-changed-files.txt")" -eq 48
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent dependencies
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Compile B33 runtime sources
+        run: >-
+          services/agent-service/.venv/bin/python -B -m compileall -q
+          services/agent-service/src/agent_core
+          services/agent-service/src/agent_modules
+
+      - name: Run Stage 1-5 focused contracts
+        working-directory: services/agent-service
+        run: |
+          set -o pipefail
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_stage1_known_architecture_gaps.py \
+            tests/runtime/test_stage2_p0_safety_boundaries.py \
+            tests/runtime/test_stage3_entity_authority.py \
+            tests/runtime/test_stage4_goal_output_refs.py \
+            tests/runtime/test_stage5_controlled_target_dsl.py \
+            tests/runtime/test_capability_contract_v2.py \
+            tests/runtime/test_capability_target_schema.py \
+            tests/runtime/test_pretool_execution_policy.py \
+            | tee "${RUNNER_TEMP}/b33-focused-pytest.log"
+
+      - name: Run affected runtime and strong-context regression
+        working-directory: services/agent-service
+        run: |
+          set -o pipefail
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_similar_capability_rejection.py \
+            tests/runtime/test_workflow_runtime.py \
+            tests/context/test_runtime_result_ref_pipeline.py \
+            tests/context/test_parameterized_capability_alignment.py \
+            tests/context/test_context_bundle_runtime.py \
+            tests/context/test_strong_context_case_execution.py \
+            | tee "${RUNNER_TEMP}/b33-regression-pytest.log"
+
+      - name: Run architecture boundaries
+        run: |
+          set -o pipefail
+          services/agent-service/.venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            services/agent-service/tests/architecture/test_kernel_registry_injection_scc.py \
+            services/agent-service/tests/architecture/test_resource_registry_injection_scc.py \
+            services/agent-service/tests/architecture/test_runtime_boundaries.py \
+            --deselect services/agent-service/tests/architecture/test_runtime_boundaries.py::test_graph_requires_explicit_runtime_dependencies \
+            | tee "${RUNNER_TEMP}/b33-architecture-pytest.log"
+          services/agent-service/.venv/bin/python -B scripts/verify_architecture.py
+          services/agent-service/.venv/bin/python -B scripts/verify_module_closure.py
+          services/agent-service/.venv/bin/python -B architecture-skill/scripts/verify_convergence.py --workspace-root "${GITHUB_WORKSPACE}"
+
+      - name: Run Skill control plane regression
+        run: |
+          set -o pipefail
+          services/agent-service/.venv/bin/python -B -m pytest -q -p no:cacheprovider skill-system/tests \
+            | tee "${RUNNER_TEMP}/b33-skill-pytest.log"
+
+      - name: Upload B33 validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b33-candidate-validation-evidence
+          path: |
+            ${{ runner.temp }}/b33-runtime.patch
+            ${{ runner.temp }}/b33-changed-files.txt
+            ${{ runner.temp }}/b33-focused-pytest.log
+            ${{ runner.temp }}/b33-regression-pytest.log
+            ${{ runner.temp }}/b33-architecture-pytest.log
+            ${{ runner.temp }}/b33-skill-pytest.log
