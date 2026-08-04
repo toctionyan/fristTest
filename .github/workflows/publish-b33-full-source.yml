@@ -32,7 +32,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct hash-locked B33 patch
+      - name: Reconstruct hash-locked B33 inputs
         shell: bash
         run: |
           set -euo pipefail
@@ -52,6 +52,12 @@ jobs:
           xz --test "${RUNNER_TEMP}/b33-runtime.patch.xz"
           xz -dc "${RUNNER_TEMP}/b33-runtime.patch.xz" > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" | sha256sum -c -
+
+          base64 --decode candidate-validation/b33-file-overrides/capability_gate.py.xz.b64 \
+            > "${RUNNER_TEMP}/capability_gate.py.xz"
+          xz --test "${RUNNER_TEMP}/capability_gate.py.xz"
+          xz -dc "${RUNNER_TEMP}/capability_gate.py.xz" > "${RUNNER_TEMP}/capability_gate.py"
+
           cp candidate-validation/B33_FILE_SHA256SUMS.txt "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt"
           test "$(wc -l < "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt")" -eq 48
 
@@ -60,14 +66,16 @@ jobs:
         env:
           B33_BASE_COMMIT: e6c2c4d3df6baceaff258b4be6af8062c8448334
           B33_TARGET_BRANCH: agent/b33-full-source-20260804
+          CAPABILITY_GATE_PATH: services/agent-service/src/agent_core/runtime/capability_gate.py
         run: |
           set -euo pipefail
           git cat-file -e "${B33_BASE_COMMIT}^{commit}"
           git checkout --detach "${B33_BASE_COMMIT}"
           git reset --hard "${B33_BASE_COMMIT}"
           git clean -fdx
-          git apply --check "${RUNNER_TEMP}/b33-runtime.patch"
-          git apply "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply --check --exclude="${CAPABILITY_GATE_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply --exclude="${CAPABILITY_GATE_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
+          cp "${RUNNER_TEMP}/capability_gate.py" "${CAPABILITY_GATE_PATH}"
           sha256sum -c "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt"
           git diff --check
 
