@@ -14,10 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  correct-quality-mode-boundary:
+  refresh-protected-source-identity:
     runs-on: ubuntu-24.04
     outputs:
       b35_sha: ${{ steps.publish.outputs.b35_sha }}
+      source_fingerprint: ${{ steps.publish.outputs.source_fingerprint }}
     steps:
       - name: Checkout governed B35 candidate branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -26,81 +27,173 @@ jobs:
           path: source
           fetch-depth: 0
 
-      - name: Publish exact integration/release ownership correction
+      - name: Refresh exact B35 manifest, baseline and report
         id: publish
         env:
           TARGET_BRANCH: agent/b35-staged-goal-progression-20260804
-          EXPECTED_PREVIOUS_HEAD: 68673a936a8c6adf5394cc65cccf29db4589341c
+          EXPECTED_PREVIOUS_HEAD: 6362453e774808d8d98f921fcb83c9d3e570fd93
+          MODE_BOUNDARY_COMMIT: 80189ed6a6e583f0d219a2cf6054f0ea87c3a4d2
+          SYSTEMIC_TEST_COMMIT: 6362453e774808d8d98f921fcb83c9d3e570fd93
         run: |
           set -euo pipefail
           current_head="$(git -C source rev-parse HEAD)"
+          test "${current_head}" = "${EXPECTED_PREVIOUS_HEAD}"
+          test -z "$(git -C source status --short)"
+          export GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
           python3 -B - <<'PY'
-          import copy
+          from __future__ import annotations
+
+          import hashlib
           import json
+          import os
+          import sys
           from pathlib import Path
 
-          path = Path('source/governance/quality-loop-policy.json')
-          payload = json.loads(path.read_text(encoding='utf-8'))
-          before = copy.deepcopy(payload)
-          target_ids = {
-              'configured-model-browser-conversation',
-              'configured-model-browser-campaign',
+          root = Path('source').resolve()
+          manifest_path = root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json'
+          summary_path = root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json'
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          report_path = root / 'release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md'
+          policy_path = root / 'governance/quality-loop-policy.json'
+          systemic_test = 'services/agent-service/tests/architecture/test_systemic_operational_closure.py'
+          runtime_db = 'services/agent-service/runtime/vector-store/vector_store.db'
+
+          policy = json.loads(policy_path.read_text(encoding='utf-8'))
+          steps = {step['id']: step for step in policy['steps']}
+          assert steps['configured-model-browser-conversation']['modes'] == ['release']
+          assert steps['configured-model-browser-campaign']['modes'] == ['release']
+          test_source = (root / systemic_test).read_text(encoding='utf-8')
+          assert 'assert set(gate["modes"]) == {"release"}' in test_source
+          assert 'assert set(gate["modes"]) == {"integration"}' not in test_source
+          assert not (root / runtime_db).exists()
+
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          changed = list(manifest['files'])
+          assert len(changed) == 9, changed
+          assert systemic_test not in changed
+          changed.append(systemic_test)
+
+          records: dict[str, dict[str, object]] = {}
+          identity = hashlib.sha256()
+          for relative in changed:
+              data = (root / relative).read_bytes()
+              digest = hashlib.sha256(data).hexdigest()
+              records[relative] = {'sha256': digest, 'size': len(data)}
+              identity.update(f'{relative}\0{digest}\n'.encode())
+          fingerprint = identity.hexdigest()
+
+          sys.path.insert(0, str(root / 'skill-system/controller'))
+          import project_compatibility  # type: ignore
+
+          product = project_compatibility.snapshot(root)
+          assert len(product) == 547, len(product)
+          assert runtime_db not in product
+          expected_test_hash = records[systemic_test]['sha256']
+          assert product[systemic_test] == expected_test_hash
+
+          baseline = {
+              'schema_version': 2,
+              'generated_from': 'v20.17-b35-integration-boundary-closure-candidate',
+              'source_release_sha256': fingerprint,
+              'generated_at': os.environ['GENERATED_AT'],
+              'protected_roots': list(project_compatibility.PROTECTED_NAMES),
+              'file_count': 547,
+              'files': product,
           }
-          steps = {step['id']: step for step in payload['steps']}
-          assert target_ids <= steps.keys(), sorted(target_ids - steps.keys())
-          modes = {step_id: steps[step_id].get('modes') for step_id in target_ids}
-          allowed = ({'integration'}, {'release'})
-          assert all(set(value or []) in allowed and len(value or []) == 1 for value in modes.values()), modes
-          assert len({tuple(value or []) for value in modes.values()}) == 1, modes
+          baseline_path.write_text(
+              json.dumps(baseline, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
 
-          if next(iter(modes.values())) == ['integration']:
-              for step_id in target_ids:
-                  steps[step_id]['modes'] = ['release']
-              for index, step in enumerate(payload['steps']):
-                  if step['id'] in target_ids:
-                      payload['steps'][index] = steps[step['id']]
-              untouched_before = {
-                  step['id']: step for step in before['steps'] if step['id'] not in target_ids
-              }
-              untouched_after = {
-                  step['id']: step for step in payload['steps'] if step['id'] not in target_ids
-              }
-              assert untouched_after == untouched_before
-              path.write_text(
-                  json.dumps(payload, ensure_ascii=False, indent=2) + '\n',
-                  encoding='utf-8',
-              )
-              print('B35 quality mode boundary correction prepared')
-          else:
-              print('B35 quality mode boundary already corrected')
+          manifest['source_fingerprint'] = fingerprint
+          manifest['changed_file_count'] = 10
+          manifest['files'] = records
+          manifest['integration_release_boundary_commit_sha'] = os.environ['MODE_BOUNDARY_COMMIT']
+          manifest['systemic_test_alignment_commit_sha'] = os.environ['SYSTEMIC_TEST_COMMIT']
+          manifest['production_closed'] = False
+          manifest_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
 
-          verified = json.loads(path.read_text(encoding='utf-8'))
-          verified_steps = {step['id']: step for step in verified['steps']}
-          for step_id in target_ids:
-              assert verified_steps[step_id]['modes'] == ['release']
+          summary = json.loads(summary_path.read_text(encoding='utf-8'))
+          summary['source_fingerprint'] = fingerprint
+          summary['changed_file_count'] = 10
+          summary['product_baseline_file_count'] = 547
+          summary['clean_tree_product_baseline_status'] = 'PASS'
+          summary['integration_release_boundary_status'] = 'PENDING_EXACT_INTEGRATION'
+          summary['production_closed'] = False
+          summary_path.write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+
+          report = report_path.read_text(encoding='utf-8')
+          lines = report.splitlines()
+          rewritten: list[str] = []
+          for line in lines:
+              if line.startswith('- Source fingerprint:'):
+                  rewritten.append(f'- Source fingerprint: `{fingerprint}`')
+              elif line.startswith('- Protected source changes:'):
+                  rewritten.append('- Protected source changes: 10')
+              else:
+                  rewritten.append(line)
+          additions = [
+              '- Configured-model Chromium gates assigned to protected release mode: PASS',
+              f'- Integration/release boundary correction commit: `{os.environ["MODE_BOUNDARY_COMMIT"]}`',
+              f'- Systemic governance expectation alignment commit: `{os.environ["SYSTEMIC_TEST_COMMIT"]}`',
+              '- Exact deterministic integration revalidation: PENDING',
+          ]
+          for addition in additions:
+              if addition not in rewritten:
+                  rewritten.insert(-2, addition)
+          report_path.write_text('\n'.join(rewritten) + '\n', encoding='utf-8')
+
+          Path('/tmp/b35-source-fingerprint.txt').write_text(fingerprint, encoding='utf-8')
+          print(json.dumps({
+              'source_fingerprint': fingerprint,
+              'protected_source_files': len(changed),
+              'product_files': len(product),
+          }, indent=2))
           PY
 
-          if ! git -C source diff --quiet; then
-            test "${current_head}" = "${EXPECTED_PREVIOUS_HEAD}"
-            test "$(git -C source diff --name-only)" = "governance/quality-loop-policy.json"
-            git -C source diff --check
-            git -C source config user.name github-actions[bot]
-            git -C source config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git -C source add governance/quality-loop-policy.json
-            git -C source commit -m "Move configured-model browser gates to release"
-            git -C source push origin "HEAD:${TARGET_BRANCH}"
-          else
-            changed_paths="$(git -C source diff --name-only "${EXPECTED_PREVIOUS_HEAD}..HEAD")"
-            test "${changed_paths}" = "governance/quality-loop-policy.json"
-          fi
+          git -C source diff --check
+          git -C source add \
+            B35_STAGED_GOAL_PROGRESSION_MANIFEST.json \
+            B35_STAGED_GOAL_PROGRESSION_SUMMARY.json \
+            release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md \
+            skill-system/registry/product-source-baseline.json
+          python3 -B - <<'PY'
+          import subprocess
+          expected = {
+              'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json',
+              'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json',
+              'release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md',
+              'skill-system/registry/product-source-baseline.json',
+          }
+          actual = set(subprocess.check_output(
+              ['git', '-C', 'source', 'diff', '--cached', '--name-only'],
+              text=True,
+          ).splitlines())
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          print('B35 protected-source identity refresh surface: 4/4 PASS')
+          PY
+
+          git -C source config user.name github-actions[bot]
+          git -C source config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C source commit -m "Refresh B35 protected-source identity"
+          git -C source push origin "HEAD:${TARGET_BRANCH}" \
+            --force-with-lease="${TARGET_BRANCH}:${EXPECTED_PREVIOUS_HEAD}"
 
           b35_sha="$(git -C source rev-parse HEAD)"
-          test "${b35_sha}" != "${EXPECTED_PREVIOUS_HEAD}"
+          source_fingerprint="$(cat /tmp/b35-source-fingerprint.txt)"
           echo "b35_sha=${b35_sha}" >> "${GITHUB_OUTPUT}"
-          echo "Published/verified B35 policy correction at ${b35_sha}"
+          echo "source_fingerprint=${source_fingerprint}" >> "${GITHUB_OUTPUT}"
+          echo "Published B35 identity refresh at ${b35_sha} (${source_fingerprint})"
 
   integration:
-    needs: correct-quality-mode-boundary
+    needs: refresh-protected-source-identity
     permissions:
       contents: read
     runs-on: ubuntu-24.04
@@ -120,10 +213,10 @@ jobs:
           --health-retries 20
 
     steps:
-      - name: Checkout corrected exact B35 source Head
+      - name: Checkout refreshed exact B35 source Head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.correct-quality-mode-boundary.outputs.b35_sha }}
+          ref: ${{ needs.refresh-protected-source-identity.outputs.b35_sha }}
           path: source
           fetch-depth: 1
 
@@ -140,8 +233,8 @@ jobs:
 
       - name: Verify exact clean-tree source and mode identity
         env:
-          EXPECTED_HEAD: ${{ needs.correct-quality-mode-boundary.outputs.b35_sha }}
-          EXPECTED_FINGERPRINT: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
+          EXPECTED_HEAD: ${{ needs.refresh-protected-source-identity.outputs.b35_sha }}
+          EXPECTED_FINGERPRINT: ${{ needs.refresh-protected-source-identity.outputs.source_fingerprint }}
         run: |
           set -euo pipefail
           test "$(git -C source rev-parse HEAD)" = "${EXPECTED_HEAD}"
@@ -153,6 +246,7 @@ jobs:
 
           root = Path('source')
           baseline = json.loads((root / 'skill-system/registry/product-source-baseline.json').read_text(encoding='utf-8'))
+          manifest = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json').read_text(encoding='utf-8'))
           summary = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').read_text(encoding='utf-8'))
           policy = json.loads((root / 'governance/quality-loop-policy.json').read_text(encoding='utf-8'))
           steps = {step['id']: step for step in policy['steps']}
@@ -160,14 +254,17 @@ jobs:
           assert baseline['file_count'] == 547, baseline['file_count']
           assert runtime_db not in baseline['files'], runtime_db
           assert baseline['source_release_sha256'] == os.environ['EXPECTED_FINGERPRINT']
+          assert manifest['source_fingerprint'] == os.environ['EXPECTED_FINGERPRINT']
+          assert manifest['changed_file_count'] == 10
           assert summary['source_fingerprint'] == os.environ['EXPECTED_FINGERPRINT']
+          assert summary['changed_file_count'] == 10
           assert summary['product_baseline_file_count'] == 547
           assert summary['clean_tree_product_baseline_status'] == 'PASS'
           assert summary['repository_quick_status'] == 'PASS'
           assert summary['production_closed'] is False
           assert steps['configured-model-browser-conversation']['modes'] == ['release']
           assert steps['configured-model-browser-campaign']['modes'] == ['release']
-          print('Exact B35 clean-tree and quality-mode identity: PASS')
+          print('Exact B35 clean-tree, protected-source and quality-mode identity: PASS')
           PY
 
       - name: Bootstrap locked uv
@@ -196,7 +293,7 @@ jobs:
         working-directory: source
         env:
           QUALITY_TARGET: ${{ github.workspace }}/source/.quality/targets/quality-target-integration.md
-          B35_HEAD: ${{ needs.correct-quality-mode-boundary.outputs.b35_sha }}
+          B35_HEAD: ${{ needs.refresh-protected-source-identity.outputs.b35_sha }}
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
