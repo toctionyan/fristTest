@@ -7,14 +7,102 @@ on:
       - .github/workflows/validate-b35-exact-source-integration.yml
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: validate-b35-exact-source-integration-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
+  correct-quality-mode-boundary:
+    runs-on: ubuntu-24.04
+    outputs:
+      b35_sha: ${{ steps.publish.outputs.b35_sha }}
+    steps:
+      - name: Checkout governed B35 candidate branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-staged-goal-progression-20260804
+          path: source
+          fetch-depth: 0
+
+      - name: Publish exact integration/release ownership correction
+        id: publish
+        env:
+          TARGET_BRANCH: agent/b35-staged-goal-progression-20260804
+          EXPECTED_PREVIOUS_HEAD: 68673a936a8c6adf5394cc65cccf29db4589341c
+        run: |
+          set -euo pipefail
+          current_head="$(git -C source rev-parse HEAD)"
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          import copy
+          import json
+          from pathlib import Path
+
+          path = Path('source/governance/quality-loop-policy.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          before = copy.deepcopy(payload)
+          target_ids = {
+              'configured-model-browser-conversation',
+              'configured-model-browser-campaign',
+          }
+          steps = {step['id']: step for step in payload['steps']}
+          assert target_ids <= steps.keys(), sorted(target_ids - steps.keys())
+          modes = {step_id: steps[step_id].get('modes') for step_id in target_ids}
+          allowed = ({'integration'}, {'release'})
+          assert all(set(value or []) in allowed and len(value or []) == 1 for value in modes.values()), modes
+          assert len({tuple(value or []) for value in modes.values()}) == 1, modes
+
+          if next(iter(modes.values())) == ['integration']:
+              for step_id in target_ids:
+                  steps[step_id]['modes'] = ['release']
+              for index, step in enumerate(payload['steps']):
+                  if step['id'] in target_ids:
+                      payload['steps'][index] = steps[step['id']]
+              untouched_before = {
+                  step['id']: step for step in before['steps'] if step['id'] not in target_ids
+              }
+              untouched_after = {
+                  step['id']: step for step in payload['steps'] if step['id'] not in target_ids
+              }
+              assert untouched_after == untouched_before
+              path.write_text(
+                  json.dumps(payload, ensure_ascii=False, indent=2) + '\n',
+                  encoding='utf-8',
+              )
+              print('B35 quality mode boundary correction prepared')
+          else:
+              print('B35 quality mode boundary already corrected')
+
+          verified = json.loads(path.read_text(encoding='utf-8'))
+          verified_steps = {step['id']: step for step in verified['steps']}
+          for step_id in target_ids:
+              assert verified_steps[step_id]['modes'] == ['release']
+          PY
+
+          if ! git -C source diff --quiet; then
+            test "${current_head}" = "${EXPECTED_PREVIOUS_HEAD}"
+            test "$(git -C source diff --name-only)" = "governance/quality-loop-policy.json"
+            git -C source diff --check
+            git -C source config user.name github-actions[bot]
+            git -C source config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git -C source add governance/quality-loop-policy.json
+            git -C source commit -m "Move configured-model browser gates to release"
+            git -C source push origin "HEAD:${TARGET_BRANCH}"
+          else
+            changed_paths="$(git -C source diff --name-only "${EXPECTED_PREVIOUS_HEAD}..HEAD")"
+            test "${changed_paths}" = "governance/quality-loop-policy.json"
+          fi
+
+          b35_sha="$(git -C source rev-parse HEAD)"
+          test "${b35_sha}" != "${EXPECTED_PREVIOUS_HEAD}"
+          echo "b35_sha=${b35_sha}" >> "${GITHUB_OUTPUT}"
+          echo "Published/verified B35 policy correction at ${b35_sha}"
+
   integration:
+    needs: correct-quality-mode-boundary
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     services:
       pgvector:
@@ -32,10 +120,10 @@ jobs:
           --health-retries 20
 
     steps:
-      - name: Checkout exact B35 source Head
+      - name: Checkout corrected exact B35 source Head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 68673a936a8c6adf5394cc65cccf29db4589341c
+          ref: ${{ needs.correct-quality-mode-boundary.outputs.b35_sha }}
           path: source
           fetch-depth: 1
 
@@ -50,9 +138,9 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Verify exact clean-tree source identity
+      - name: Verify exact clean-tree source and mode identity
         env:
-          EXPECTED_HEAD: 68673a936a8c6adf5394cc65cccf29db4589341c
+          EXPECTED_HEAD: ${{ needs.correct-quality-mode-boundary.outputs.b35_sha }}
           EXPECTED_FINGERPRINT: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
         run: |
           set -euo pipefail
@@ -66,6 +154,8 @@ jobs:
           root = Path('source')
           baseline = json.loads((root / 'skill-system/registry/product-source-baseline.json').read_text(encoding='utf-8'))
           summary = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').read_text(encoding='utf-8'))
+          policy = json.loads((root / 'governance/quality-loop-policy.json').read_text(encoding='utf-8'))
+          steps = {step['id']: step for step in policy['steps']}
           runtime_db = 'services/agent-service/runtime/vector-store/vector_store.db'
           assert baseline['file_count'] == 547, baseline['file_count']
           assert runtime_db not in baseline['files'], runtime_db
@@ -75,7 +165,9 @@ jobs:
           assert summary['clean_tree_product_baseline_status'] == 'PASS'
           assert summary['repository_quick_status'] == 'PASS'
           assert summary['production_closed'] is False
-          print('Exact B35 clean-tree identity: PASS')
+          assert steps['configured-model-browser-conversation']['modes'] == ['release']
+          assert steps['configured-model-browser-campaign']['modes'] == ['release']
+          print('Exact B35 clean-tree and quality-mode identity: PASS')
           PY
 
       - name: Bootstrap locked uv
@@ -104,12 +196,14 @@ jobs:
         working-directory: source
         env:
           QUALITY_TARGET: ${{ github.workspace }}/source/.quality/targets/quality-target-integration.md
-        run: >-
-          "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py
-          --output "$QUALITY_TARGET"
-          --ref "b35-exact-integration-68673a936a8c6adf"
-          --workflow quality-integration
-          --claims-source governance/claims/v20.6.2-project-integration-certification.json
+          B35_HEAD: ${{ needs.correct-quality-mode-boundary.outputs.b35_sha }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
+            --output "${QUALITY_TARGET}" \
+            --ref "b35-exact-integration-${B35_HEAD:0:16}" \
+            --workflow quality-integration \
+            --claims-source governance/claims/v20.6.2-project-integration-certification.json
 
       - name: Start deterministic model and both services
         working-directory: source
