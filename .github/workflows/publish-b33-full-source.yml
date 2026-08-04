@@ -6,10 +6,16 @@ on:
       - agent/b33-actions-validation-v2-20260804
     paths:
       - .github/workflows/publish-b33-full-source.yml
+  pull_request:
+    branches:
+      - agent/b28-repository-onboarding
+    paths:
+      - .github/workflows/publish-b33-full-source.yml
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
   group: publish-b33-full-source-20260804
@@ -17,6 +23,7 @@ concurrency:
 
 jobs:
   publish:
+    if: github.repository == 'toctionyan/fristTest'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
