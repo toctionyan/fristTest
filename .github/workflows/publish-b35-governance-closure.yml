@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-b35-governance-counterexample-closure
+  group: publish-b35-governance-counterexample-closure-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
