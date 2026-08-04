@@ -25,8 +25,13 @@ git diff --name-only HEAD -- services/agent-service/src services/agent-service/t
 replacement = '''git apply "${RUNNER_TEMP}/b34-overlay.patch"
 
 cat \\
-  candidate-validation/b35-staged-goal-progression/part-000.b64 \\
-  candidate-validation/b35-staged-goal-progression/part-001.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-000.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-001.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-002.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-003.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-004.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-005.b64 \\
+  candidate-validation/b35-staged-goal-progression/segment-006.b64 \\
   | base64 --decode | gzip -dc > "${RUNNER_TEMP}/b35-overlay.patch"
 echo "8e2b09a7d33c67557c1ada1bf9e1d8728213bfe09bfdd3de2e94e3fb081cff5e  ${RUNNER_TEMP}/b35-overlay.patch" \\
   | sha256sum --check --strict
