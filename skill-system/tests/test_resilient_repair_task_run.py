@@ -118,13 +118,8 @@ def _install_orchestrator(workspace: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     shutil.copytree(ROOT / "scripts/quality_control", workspace / "scripts/quality_control")
-    for controller_name in (
-        "progress.py",
-        "trusted_judge.py",
-        "fixer_env.py",
-        "issue_state.py",
-        "task_run.py",
-    ):
+    orchestrator = _load_script("repair_loop.py")
+    for controller_name in orchestrator.REPAIR_RUNTIME_CONTROLLER_FILES:
         source = ROOT / "skill-system/controller" / controller_name
         destination = workspace / "skill-system/controller" / controller_name
         destination.parent.mkdir(parents=True, exist_ok=True)

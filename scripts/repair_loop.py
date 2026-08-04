@@ -24,6 +24,15 @@ if str(SCRIPTS) not in sys.path:
 
 import quality_loop  # noqa: E402
 
+REPAIR_RUNTIME_CONTROLLER_FILES = (
+    "progress.py",
+    "trusted_judge.py",
+    "fixer_env.py",
+    "issue_state.py",
+    "task_run.py",
+)
+
+
 CONTROL_PLANE_DIR = SCRIPTS.parent / "skill-system" / "controller"
 if str(CONTROL_PLANE_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROL_PLANE_DIR))
