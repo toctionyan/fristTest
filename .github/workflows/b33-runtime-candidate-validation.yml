@@ -26,7 +26,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/b33-evidence"
-          cat candidate-validation/b33-runtime-patch/part-*.b64 \
+          cat \
+            candidate-validation/b33-runtime-patch/part-000.b64 \
+            candidate-validation/b33-runtime-patch/part-001.b64 \
+            candidate-validation/b33-runtime-patch/part-002.b64 \
+            candidate-validation/b33-runtime-patch/part-003.b64 \
+            candidate-validation/b33-runtime-patch/part-004.b64 \
+            candidate-validation/b33-runtime-patch/part-005.b64 \
+            candidate-validation/b33-runtime-patch/part-006-seg-000.b64 \
+            candidate-validation/b33-runtime-patch/part-006-seg-001.b64 \
+            candidate-validation/b33-runtime-patch/part-006-seg-002.b64 \
+            candidate-validation/b33-runtime-patch/part-006-seg-003.b64 \
+            candidate-validation/b33-runtime-patch/part-007.b64 \
+            candidate-validation/b33-runtime-patch/part-008.b64 \
             | base64 --decode \
             | gzip -dc > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" \
