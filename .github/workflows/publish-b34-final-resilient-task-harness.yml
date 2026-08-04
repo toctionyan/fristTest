@@ -178,6 +178,8 @@ jobs:
             skill-system/controller/task_run_cli.py \
             skill-system/controller/project_compatibility.py
 
+          find scripts skill-system/controller -type d -name __pycache__ -prune -exec rm -rf {} +
+
       - id: publish
         name: Commit and publish direct B34 source branch
         if: steps.authority.outputs.mode == 'publish'
