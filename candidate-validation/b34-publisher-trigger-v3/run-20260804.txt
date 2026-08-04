@@ -1,0 +1,1 @@
+Trigger corrected fail-closed publication of the authenticated B34 source tree.
