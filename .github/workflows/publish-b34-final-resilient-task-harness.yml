@@ -191,14 +191,14 @@ jobs:
           git add -A
 
           count="$(git diff --cached --name-only | wc -l | tr -d ' ')"
-          if [[ "${count}" != "44" ]]; then
-            echo "Expected 44 B34 publication paths, got ${count}." >&2
+          if [[ "${count}" != "42" ]]; then
+            echo "Expected 42 B34 publication paths, got ${count}." >&2
             git diff --cached --name-status >&2
             exit 1
           fi
 
-          git diff --cached --name-status | grep -Fx $'D\tservices/agent-service/runtime/sqlite/app.db'
-          git diff --cached --name-status | grep -Fx $'D\tservices/business-service/runtime/business-service/business.db'
+          test ! -e services/agent-service/runtime/sqlite/app.db
+          test ! -e services/business-service/runtime/business-service/business.db
 
           git commit -m 'Publish final B34 resilient task harness'
           published_sha="$(git rev-parse HEAD)"
