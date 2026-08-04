@@ -14,6 +14,8 @@ B34 fixes the governed repair-loop class of premature termination and lost-progr
 - CLI `inspect` and `guard` commands for machine-readable status and CI gating.
 - Exact workspace fingerprint required before reusing an existing run-summary.
 - Single authoritative `REPAIR_RUNTIME_CONTROLLER_FILES` dependency manifest owned by `repair_loop.py`; minimal workspace fixtures consume that manifest instead of maintaining divergent file lists.
+- Historical issue evidence is bound to an immutable B34 repair-case record instead of a mutable architecture test source.
+- The protected product-source baseline is regenerated from the exact 546-file B34 candidate snapshot after the governed test change.
 
 ## Validation
 
@@ -34,6 +36,16 @@ The fail-closed publisher reconstructed the exact three-file dependency-closure 
 - B34 TaskRun, CLI and real interruption-recovery group: **17 passed**.
 
 Only after both groups passed was the direct-source commit `685b2af7e9a1da55ec2993525493f322bd9a9ba3` published to `agent/b34-resilient-task-harness-20260804`.
+
+### GitHub governance-authority correction
+
+The B34 publisher kept the historical B28 evidence archive unchanged, replaced the mutable `ISSUE-REL-001` architecture-test reference with an immutable B34 repair-case evidence record, regenerated the protected-source baseline from the exact candidate tree, and then ran:
+
+- Authoritative Task Ledger validation: **PASS**.
+- Project compatibility against 546 protected files: **PASS**.
+- Complete Skill control-plane profile: **PASS**.
+
+Only after all three checks passed was direct-source commit `07ac4a1a4fc16a7b0dc7c02dac1e67fd760a729e` published.
 
 ## Real interruption proof
 
