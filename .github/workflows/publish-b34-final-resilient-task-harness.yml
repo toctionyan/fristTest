@@ -29,8 +29,12 @@ jobs:
       EXPECTED_TARGET_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
       TARGET_BRANCH: agent/b34-resilient-task-harness-final-20260804
       OVERLAY_SHA: a4c771dc9ed99faa806d859c5017bb7dc5065d2417fe15ce99a0b6fd0a1663ff
-      FINAL_MANIFEST_SHA: f2a7b4b872b1e82f272fbcd4f6f0debc51d4c51f04ca3b0e3c0272685e7bfd6d
-      BASELINE_SHA: 7a247873e59791e404fc9e464c7b0fbbc8ce9e8a1319f8c358c0b52798f01652
+      CORRECTION_SHA: 9c6d1d5f53681361fdf42ab47c88a48f0c6403c9b86f6204ca69c4a0129655da
+      FINAL_MANIFEST_SHA: 4af6b4a95cf67099c1d69e388e3d83e8a12ab919e0d55c082850e22901749472
+      BASELINE_SHA: 36829d99f2b4738823b41e1a866baaa50c30fa27d1e28ddb2b532f64ae2bc5dd
+      LEDGER_SHA: 17c009b9e67f8f3e61e8f77bd161747ddbedbf47ee81b3dd4625254d531dd958
+      ENV_EVIDENCE_SHA: 7964116c3e1cd01951389e3bbb2db9d4ac4585a3cedbe2f22b5c592d9098adfb
+      REL_EVIDENCE_SHA: 664f54f8477846f7ad15a362595e68d2e920b55cbddf330adc0ed1b64718b134
 
     steps:
       - name: Checkout immutable publisher payload
@@ -39,13 +43,18 @@ jobs:
           ref: agent/b34-final-publisher-20260804
           fetch-depth: 0
 
-      - name: Authenticate final overlay
+      - name: Authenticate base and correction overlays
         run: |
           set -euo pipefail
           cat candidate-validation/b34-final-publisher/part-*.b64 > /tmp/b34-overlay.tar.xz.b64
           base64 --decode /tmp/b34-overlay.tar.xz.b64 > /tmp/b34-overlay.tar.xz
           echo "${OVERLAY_SHA}  /tmp/b34-overlay.tar.xz" | sha256sum --check --strict
           xz --test /tmp/b34-overlay.tar.xz
+
+          cat candidate-validation/b34-final-publisher/correction-part-*.b64 > /tmp/b34-correction.tar.xz.b64
+          base64 --decode /tmp/b34-correction.tar.xz.b64 > /tmp/b34-correction.tar.xz
+          echo "${CORRECTION_SHA}  /tmp/b34-correction.tar.xz" | sha256sum --check --strict
+          xz --test /tmp/b34-correction.tar.xz
 
       - id: authority
         name: Enforce clean target authority
@@ -81,10 +90,14 @@ jobs:
           rm -rf /tmp/b34-final
           git worktree add --detach /tmp/b34-final "${BASE_SHA}"
           tar -xJf /tmp/b34-overlay.tar.xz -C /tmp/b34-final
+          tar -xJf /tmp/b34-correction.tar.xz -C /tmp/b34-final
           cd /tmp/b34-final
 
           echo "${FINAL_MANIFEST_SHA}  B34_RESILIENT_TASK_HARNESS_MANIFEST.json" | sha256sum --check --strict
           echo "${BASELINE_SHA}  skill-system/registry/product-source-baseline.json" | sha256sum --check --strict
+          echo "${LEDGER_SHA}  governance/task-ledger.json" | sha256sum --check --strict
+          echo "${ENV_EVIDENCE_SHA}  governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/blocked-by-environment.json" | sha256sum --check --strict
+          echo "${REL_EVIDENCE_SHA}  governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json" | sha256sum --check --strict
 
           python - <<'PY'
           from __future__ import annotations
@@ -106,6 +119,7 @@ jobs:
           print('B34 manifest verification: 34/34 PASS')
           PY
 
+          python scripts/verify_task_ledger.py
           python skill-system/controller/project_compatibility.py
           python -m compileall -q \
             scripts/repair_loop.py \
@@ -123,8 +137,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           count="$(git diff --cached --name-only | wc -l | tr -d ' ')"
-          if [[ "${count}" != "36" ]]; then
-            echo "Expected 36 B34 publication paths, got ${count}." >&2
+          if [[ "${count}" != "39" ]]; then
+            echo "Expected 39 B34 publication paths, got ${count}." >&2
             git diff --cached --name-only >&2
             exit 1
           fi
