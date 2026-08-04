@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "dimension": "focused-tests",
+  "status": "PASS",
+  "results": [
+    {
+      "suite": "skill-system/tests",
+      "passed": 144,
+      "failed": 0
+    },
+    {
+      "suite": "repair-loop focused architecture/governance",
+      "passed": 8,
+      "failed": 0,
+      "deselected": 28
+    }
+  ],
+  "closed_counterexamples": [
+    "interrupted fixer replay",
+    "out-of-scope drift",
+    "no-progress retry loop",
+    "fake persisted completion",
+    "duplicate Judge execution",
+    "stale writer"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "dimension": "regression",
+  "status": "PASS",
+  "results": [
+    {
+      "suite": "Stage 1-5 core runtime",
+      "passed": 96,
+      "failed": 0
+    },
+    {
+      "suite": "broad context transaction governance",
+      "passed": 607,
+      "failed": 0,
+      "deselected": 4,
+      "deselection_reason": "protected real-model smoke requires local langchain_core/langgraph"
+    }
+  ]
+}

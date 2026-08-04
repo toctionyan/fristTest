@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "classification": "execution-orchestration-safety-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A governed repair task may be interrupted at any point, but recovery must resume from durable evidence and success must be impossible until every required gate is proven.",
+    "actual": "The previous orchestrator stored progress primarily in process memory. Repeated evidence acquisition could make no progress, a fixer could be replayed after interruption, and no persisted completion guard rejected a fabricated or premature COMPLETED state.",
+    "evidence_refs": [
+      "scripts/repair_loop.py",
+      "skill-system/controller/task_run.py",
+      "services/agent-service/tests/architecture/test_resilient_repair_task_run.py"
+    ]
+  },
+  "violated_invariants": [
+    "No required gate may be replaced by conversational confidence.",
+    "A mutating fixer must be at-most-once across recoverable interruption windows.",
+    "Repeated no-progress actions must switch strategy or stop as BLOCKED.",
+    "COMPLETED must be derived from durable evidence, not a model or caller decision."
+  ],
+  "affected_boundaries": [
+    "repair-loop orchestration",
+    "durable checkpoint authority",
+    "completion and retry guards"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "repair_plan_sha256": "226caefc2692ff7ed5eb0b71efdd79d6f713b1499154456e5ecaa2e2f7c762f9",
+  "plan_review_sha256": "aa9cfd586cfdba26562d2332d343dc748c2901c92bab79283fa1a86bbd60d3f8",
+  "baseline_manifest_sha256": "5a99d62b68474abcbbdb0236eb8516015d7fb4ce8c0358b107b68973ad758616",
+  "allowed_paths": [
+    "governance/task-run.schema.json",
+    "scripts/repair_loop.py",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py",
+    "skill-system/controller/task_run.py",
+    "skill-system/controller/task_run_cli.py",
+    "skill-system/tests/test_resilient_repair_task_run.py",
+    "skill-system/tests/test_task_run.py",
+    "skill-system/tests/test_task_run_cli.py",
+    "scripts/verify_b34_resilient_task_harness.py",
+    "release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md",
+    "B34_RESILIENT_TASK_HARNESS_SUMMARY.json",
+    "B34_RESILIENT_TASK_HARNESS_MANIFEST.json",
+    "b34-resilient-task-harness-change-contract.json",
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/**"
+  ],
+  "forbidden_paths": [
+    "services/business-service/**",
+    "services/agent-service/src/agent_core/**",
+    "services/agent-service/src/agent_modules/**",
+    ".github/**"
+  ],
+  "required_tests": {
+    "control_plane": "all skill-system tests",
+    "interruption_counterexamples": "process crash, drift, no-progress retry, persisted fake completion and Judge evidence reuse",
+    "regression": "Stage 1-5 plus context/transaction/governance impact",
+    "static": "architecture, module closure, version consistency, convergence"
+  },
+  "baseline_source_fingerprint": "22fd2bc9accf67878e43d7b7a4c75aeb554c4a3df5f2386c92cd8ab986884422",
+  "issued_by": "execution-safety-plan-reviewer",
+  "expires_after": "single-B34-verification",
+  "status": "ACTIVE",
+  "permit_digest": "9c103d001710f39924bd9a527de5d7ce5052e627bf6f8dbb0bc9f4ddfb510817"
+}

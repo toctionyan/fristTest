@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "root_cause_proof_sha256": "57626ff65abdcc098d5db5cea8c4abeb5ead2d9c1dbbf3dde01cecd2b0a29635",
+  "status": "APPROVED",
+  "strategy": "Introduce an isolated durable TaskRun control plane and integrate it around the existing repair orchestrator without modifying product Agent or transaction behavior.",
+  "changes": [
+    {
+      "path": "governance/task-run.schema.json",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "scripts/repair_loop.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "services/agent-service/tests/architecture/test_resilient_repair_task_run.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "skill-system/controller/task_run.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "skill-system/controller/task_run_cli.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "skill-system/tests/test_resilient_repair_task_run.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "skill-system/tests/test_task_run.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "skill-system/tests/test_task_run_cli.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "scripts/verify_b34_resilient_task_harness.py",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "B34_RESILIENT_TASK_HARNESS_SUMMARY.json",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "B34_RESILIENT_TASK_HARNESS_MANIFEST.json",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    },
+    {
+      "path": "b34-resilient-task-harness-change-contract.json",
+      "responsibility": "resilient task harness implementation, tests or delivery evidence",
+      "reason": "approved B34 scope"
+    }
+  ],
+  "unchanged_boundaries": [
+    "No customer-Agent capability, prompt, target or transaction semantics change.",
+    "Business Service and persistent business facts are unchanged.",
+    "B33 Stage 1-5 authority boundaries remain unchanged."
+  ],
+  "forbidden_repairs": [
+    "Do not treat max retries as success.",
+    "Do not silently accept out-of-scope workspace drift.",
+    "Do not replay a fixer merely because the previous process ended.",
+    "Do not bypass or weaken existing quality tests."
+  ],
+  "required_invariants": [
+    "Every terminal success condition has non-empty evidence.",
+    "Persisted COMPLETED state is revalidated on load.",
+    "Only the FIXER_RUNNING crash window permits controlled in-scope reconciliation.",
+    "Same action/state attempts are bounded per strategy.",
+    "BLOCKED records attempted strategies and a next action."
+  ],
+  "rollback_plan": "Restore scripts/repair_loop.py and the modified architecture test from B33, then delete the new TaskRun schema/controller/CLI/tests and B34 delivery records. No business or database migration is involved."
+}

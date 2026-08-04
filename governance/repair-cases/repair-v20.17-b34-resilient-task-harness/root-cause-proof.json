@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "failure_case_sha256": "61f97885539fee32a55522fbda60da1b6b8c30c521047deb076cc1baa4c11cd4",
+  "decision": "PROVEN",
+  "root_cause": "The repair controller lacked a durable task-run state machine binding immutable inputs, workspace fingerprints, action attempts, blockers and evidence-complete termination. Therefore an external interruption could erase the continuation point while repeated tool calls and final rendering remained unconstrained by a persisted completion contract.",
+  "causal_chain": [
+    "The fixer or Judge can produce a durable side effect immediately before the host process stops.",
+    "Without a checkpoint ledger, the next invocation cannot distinguish already-applied work from work that never ran.",
+    "Without action fingerprints and budgets, identical no-progress calls can repeat indefinitely.",
+    "Without a Completion Guard that revalidates persisted state, an unfinished or tampered task can appear complete."
+  ],
+  "rejected_hypotheses": [
+    "Increasing the maximum Loop count fixes interruption recovery.",
+    "A chat summary is a sufficient checkpoint authority.",
+    "Retrying the same GitHub/log action indefinitely is safe.",
+    "A status string of COMPLETED is sufficient evidence of closure."
+  ],
+  "evidence_refs": [
+    "skill-system/controller/task_run.py",
+    "scripts/repair_loop.py"
+  ]
+}

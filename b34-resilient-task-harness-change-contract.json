@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "stage": "B34 Resilient Task Harness",
+  "base": "B33 Stage 5 Controlled Target DSL",
+  "goal": "Prevent premature termination and make governed repair tasks resumable after process, connector or conversation interruption.",
+  "completion_conditions": [
+    "inputs_validated",
+    "source_changed",
+    "targeted_validation_resolved",
+    "full_regression_passed",
+    "issues_closed"
+  ],
+  "retry_policy": "The same action and state are bounded per strategy; exhaustion switches to a declared fallback or records BLOCKED.",
+  "resume_policy": "Immutable binding plus exact workspace fingerprint; only FIXER_RUNNING may reconcile an in-scope source mutation after interruption.",
+  "completion_policy": "COMPLETED requires evidence on every required condition and a final COMPLETED checkpoint with evidence.",
+  "unchanged_authorities": [
+    "Product Agent runtime semantics",
+    "Business Service business-fact authority",
+    "transaction Draft/Grant/Commit/Receipt authority",
+    "Stage 1-5 Goal, entity, output and Target DSL semantics"
+  ],
+  "production_closed": false
+}

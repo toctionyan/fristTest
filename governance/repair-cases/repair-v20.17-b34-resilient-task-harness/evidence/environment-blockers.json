@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "dimension": "production-environment",
+  "status": "BLOCKED_BY_ENVIRONMENT",
+  "production_closed": false,
+  "blockers": [
+    "local Python 3.13.5 differs from locked Python 3.12.13",
+    "langchain_core and langgraph unavailable locally",
+    "real provider/PostgreSQL/browser/restart/concurrency/host certification not executed"
+  ]
+}

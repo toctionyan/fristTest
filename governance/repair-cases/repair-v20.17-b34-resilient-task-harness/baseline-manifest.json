@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_type": "baseline-manifest",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "base": "B33 Stage 5 Controlled Target DSL",
+  "baseline_source_fingerprint": "22fd2bc9accf67878e43d7b7a4c75aeb554c4a3df5f2386c92cd8ab986884422",
+  "files": {
+    "governance/task-run.schema.json": {
+      "sha256": null,
+      "state": "ABSENT"
+    },
+    "scripts/repair_loop.py": {
+      "sha256": "b4c84a45eb9141df6f971260ecc93a4d0dfc49cb654d95d7a038bb4a1b974ae8",
+      "state": "PRESENT"
+    },
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": {
+      "sha256": "b91f86993e2f395b5f5519b1a23895de73a12ca7986ae2190016a68911f8a68d",
+      "state": "PRESENT"
+    },
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": {
+      "sha256": null,
+      "state": "ABSENT"
+    },
+    "skill-system/controller/task_run.py": {
+      "sha256": null,
+      "state": "ABSENT"
+    },
+    "skill-system/controller/task_run_cli.py": {
+      "sha256": null,
+      "state": "ABSENT"
+    },
+    "skill-system/tests/test_resilient_repair_task_run.py": {
+      "sha256": null,
+      "state": "ABSENT"
+    },
+    "skill-system/tests/test_task_run.py": {
+      "sha256": null,
+      "state": "ABSENT"
+    },
+    "skill-system/tests/test_task_run_cli.py": {
+      "sha256": null,
+      "state": "ABSENT"
+    }
+  }
+}

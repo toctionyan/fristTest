@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "permit_digest": "9c103d001710f39924bd9a527de5d7ce5052e627bf6f8dbb0bc9f4ddfb510817",
+  "diff_review_sha256": "587a40605d14f971ae1c8ecac87a40d15c7269601ef354b71c015bf52cb1ddaa",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED_LOCAL_HARNESS",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "575774870d87c24f2db800b9dd4bbd9bd628f889e15c2ca8017b0abe4399f96c",
+  "evidence": [
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/focused-tests.json",
+      "evidence_sha256": "7eaede94d4bb1fd29ed2749a51f58023902c935e34e8c19881d24df55a6e45d8"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/regression.json",
+      "evidence_sha256": "5b937f675c46e6c4b1ff0741ceed3f5bdbaf0e24b675eea5339bba46bc9f95e5"
+    },
+    {
+      "dimension": "static_gates",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/static-gates.json",
+      "evidence_sha256": "8304e3c6baa77c1ffe56702ec259bc6439225f0607c2989f37db15f4b7c94f4b"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/runtime-trace.json",
+      "evidence_sha256": "28af9ec1bb98132a5bcefdb448b9d568a2996b6a95e52339f105b330a8212bc2"
+    },
+    {
+      "dimension": "production_environment",
+      "status": "BLOCKED_BY_ENVIRONMENT",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/environment-blockers.json",
+      "evidence_sha256": "e5c4b371fc653a59bad3f3ad3909afddc5da1fc6a049411c069a8b95470594ef"
+    },
+    {
+      "dimension": "candidate_verifier",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/verifier-summary.json",
+      "evidence_sha256": "e7017138651e7f692006299d95b84d75ab00bce47161430f04214347f1a76ac7"
+    }
+  ],
+  "residual_risks": [
+    "External platform interruption cannot be prevented; durable recovery is the guarantee.",
+    "Production provider/PostgreSQL/browser/host certification remains open."
+  ],
+  "production_closed": false
+}
