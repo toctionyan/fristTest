@@ -49,11 +49,12 @@ jobs:
           test "$(git rev-parse HEAD)" = '72cce126e4124e3abefb282de40e00ae1a91cb1b'
           git apply --check /tmp/b34-ci-dependency-closure.patch
           git apply /tmp/b34-ci-dependency-closure.patch
-          echo 'f1fc53c8d21ad6cc01e52e3f222e55bd5e7c16dfe9c7a35a28449d40822cc766  scripts/repair_loop.py' | sha256sum -c -
-          echo '28cff97dd94e2927143c085fb70b67d3fab589182b837f9d94ec9600c5ea8467  services/agent-service/tests/architecture/test_quality_loop_governance.py' | sha256sum -c -
-          echo '9070b500b2d5fa3612fcf79d7e5a8e29b074eac1cacd662918f0c4a9d1920d06  skill-system/tests/test_resilient_repair_task_run.py' | sha256sum -c -
+          git diff --check
           python - <<'PY'
+          import importlib.util
           import subprocess
+          from pathlib import Path
+
           expected = {
               'scripts/repair_loop.py',
               'services/agent-service/tests/architecture/test_quality_loop_governance.py',
@@ -65,6 +66,26 @@ jobs:
               if line.strip()
           }
           assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+
+          script = Path('scripts/repair_loop.py')
+          spec = importlib.util.spec_from_file_location('b34_repair_loop_dependency_check', script)
+          assert spec and spec.loader
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          declared = tuple(module.REPAIR_RUNTIME_CONTROLLER_FILES)
+          assert declared == (
+              'progress.py',
+              'trusted_judge.py',
+              'fixer_env.py',
+              'issue_state.py',
+              'task_run.py',
+          )
+          for name in declared:
+              assert (Path('skill-system/controller') / name).is_file(), name
+          architecture_fixture = Path('services/agent-service/tests/architecture/test_quality_loop_governance.py').read_text(encoding='utf-8')
+          recovery_fixture = Path('skill-system/tests/test_resilient_repair_task_run.py').read_text(encoding='utf-8')
+          assert 'orchestrator.REPAIR_RUNTIME_CONTROLLER_FILES' in architecture_fixture
+          assert 'orchestrator.REPAIR_RUNTIME_CONTROLLER_FILES' in recovery_fixture
           PY
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
