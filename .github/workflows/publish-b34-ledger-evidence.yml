@@ -53,6 +53,7 @@ jobs:
           test "$(git rev-parse HEAD)" = 'b7f23a4ebdc89712b5898eaa3ba42a1453f5e8e2'
           destination='governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json'
           test ! -e "$destination"
+          mkdir -p "$(dirname "$destination")"
           cp /tmp/issue-rel-001-oracle-current.json "$destination"
           git apply --check /tmp/task-ledger.patch
           git apply /tmp/task-ledger.patch
