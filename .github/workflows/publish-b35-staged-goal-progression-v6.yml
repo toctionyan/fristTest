@@ -1,0 +1,60 @@
+name: Publish B35 staged goal progression v6
+
+on:
+  push:
+    branches: [agent/b35-quick-repair-publisher-20260804]
+    paths:
+      - .github/workflows/publish-b35-staged-goal-progression-v6.yml
+  pull_request:
+    branches: [agent/b34-resilient-task-harness-final-20260804]
+    paths:
+      - .github/workflows/publish-b35-staged-goal-progression-v6.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b35-staged-goal-progression-v6
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout publisher payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-quick-repair-publisher-20260804
+          fetch-depth: 0
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Prepare cache-clean five-layer publisher
+        run: |
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+          source = Path('candidate-validation/b35-quick-repair/run-v5.sh').read_text(encoding='utf-8')
+          needle = "git clean -fdX\ngit add -A"
+          replacement = """git clean -fdX
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f \\( -name '*.pyc' -o -name '*.pyo' \\) -delete
+          git add -A"""
+          assert source.count(needle) == 1, source.count(needle)
+          Path('/tmp/run-v6.sh').write_text(source.replace(needle, replacement), encoding='utf-8')
+          PY
+          bash -n /tmp/run-v6.sh
+
+      - name: Authenticate, validate, and publish cache-clean B35 candidate
+        run: bash /tmp/run-v6.sh
+
+      - name: Upload focused evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b35-v6-focused-evidence-${{ github.sha }}
+          path: /tmp/b35-evidence
+          if-no-files-found: warn
+          retention-days: 14
