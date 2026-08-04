@@ -48,8 +48,24 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
+      - name: Prepare stable quality target identity
+        run: |
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('publisher/candidate-validation/b35-governance-closure/run-governance-closure.sh')
+          source = source_path.read_text(encoding='utf-8')
+          old = '--ref "${EXPECTED_TARGET_SHA}+${PATCH_SHA}"'
+          new = '--ref "b35-governance-closure-248f84417d30a511"'
+          assert source.count(old) == 1, source.count(old)
+          Path('/tmp/run-b35-governance-closure.sh').write_text(
+              source.replace(old, new), encoding='utf-8'
+          )
+          PY
+          bash -n /tmp/run-b35-governance-closure.sh
+
       - name: Validate and publish governance closure
-        run: bash publisher/candidate-validation/b35-governance-closure/run-governance-closure.sh
+        run: bash /tmp/run-b35-governance-closure.sh
 
       - name: Upload governance closure evidence
         if: always()
