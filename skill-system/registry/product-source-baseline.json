@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_from": "v20.17-b35-staged-goal-progression-github-candidate",
-  "source_release_sha256": "bc2c6f12ea38143f8fc48a07ebd5fb419d2c04d52b8867f9ad0e17dcbd606770",
-  "generated_at": "2026-08-04T14:35:00Z",
+  "generated_from": "v20.17-b35-governance-counterexample-closure-github-candidate",
+  "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
+  "generated_at": "2026-08-04T15:13:13Z",
   "protected_roots": [
     "services",
     "web",
     "contracts"
   ],
-  "file_count": 547,
+  "file_count": 548,
   "files": {
     "services/agent-service/.env.example": "8e6c360b58b57e325c562cdebc13a4ca736e193cef530826ee25eb498fcaa3f8",
     "services/agent-service/.gitignore": "865aff3868d71c17bb463346cf6483752f4fb778bce2528b84dcd9584b2157bd",
@@ -98,6 +98,7 @@
     "services/agent-service/requirements-dev.txt": "a5964c7dd3d7c2ff81a34a011a19e9ee2295bb9d119eb377ac26cf48bde9e420",
     "services/agent-service/requirements-optional.txt": "92f763835ee5306323bcd52ff6fcb48ab435e7304e53bc561affa71f542ce71e",
     "services/agent-service/requirements.txt": "2f00223453215e63737bab4e4003e7e6cf07ab977ce243546e4a11499175d1ec",
+    "services/agent-service/runtime/vector-store/vector_store.db": "a3abbbfd1484e1702704db0a8a812c8983bdd44c9c3c60828ab16c89d3c12cbe",
     "services/agent-service/scripts/audit_structured_result_release.py": "c41b72a89f63f9ac09f87202cc9829eba14ecdd49a862a4e9bcfb52180c58e2c",
     "services/agent-service/scripts/bootstrap.sh": "df08ebc49f5e47d694a398e6c62cf40625bfbadd6f927271fd1716c961156628",
     "services/agent-service/scripts/ingest_docs.py": "8e5f7a7675a7e5546a47f840e428a53801287888f61c7c3b60d330b1c1d3c107",
@@ -401,7 +402,7 @@
     "services/agent-service/tests/architecture/test_protected_model_stub_contract.py": "7d3b8e1c1213c950cd8ad113c34bea6723eea931befc8f3b77efcb4d37a1d547",
     "services/agent-service/tests/architecture/test_python_test_runner.py": "e1120705cb96a07800af83eb7c6abccd9291c8bfc13d5eb476dc93e551da2bbc",
     "services/agent-service/tests/architecture/test_quality_loop_controller.py": "f0117991f8a36a35593ce20607f548baf8bcf29ece93818cc1df48cacf58d565",
-    "services/agent-service/tests/architecture/test_quality_loop_governance.py": "28cff97dd94e2927143c085fb70b67d3fab589182b837f9d94ec9600c5ea8467",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": "52a97aff34feb31a8ebd88bf131f9ac74e9727f786dc7a366442b9fc09cc918c",
     "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py": "ce79becc2dae5d6956fbcfb16fb3eb5fdda45f8444bf28a472ed85ca7b3ad325",
     "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": "c83ca593edcb2af8a6b004fd8111ee4322916c199260c05a16070f5a1ad5bddf",
     "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py": "1fcb435afc2fbbaf267ebd3d487d8d147ac772ff15f09b3026678ad50e097601",

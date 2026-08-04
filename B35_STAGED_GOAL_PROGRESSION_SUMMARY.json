@@ -1,15 +1,17 @@
 {
   "schema_version": 1,
   "stage": "B35 Staged Goal Progression",
-  "status": "FOCUSED_GITHUB_VALIDATED",
-  "source_fingerprint": "bc2c6f12ea38143f8fc48a07ebd5fb419d2c04d52b8867f9ad0e17dcbd606770",
-  "fixed_quick_failure_count": 16,
+  "status": "FULL_QUICK_GITHUB_VALIDATED",
+  "source_fingerprint": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
+  "fixed_quick_failure_count": 17,
   "focused_test_count": 149,
-  "changed_file_count": 8,
-  "product_baseline_file_count": 547,
+  "changed_file_count": 9,
+  "product_baseline_file_count": 548,
   "remaining_must_close": [
     "WP-08",
     "WP-09"
   ],
-  "production_closed": false
+  "production_closed": false,
+  "adversarial_counterexample_test_count": 137,
+  "repository_quick_status": "PASS"
 }

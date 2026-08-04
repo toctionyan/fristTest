@@ -1,9 +1,11 @@
 # B35 Staged Goal Progression Validation
 
-- Source fingerprint: `bc2c6f12ea38143f8fc48a07ebd5fb419d2c04d52b8867f9ad0e17dcbd606770`
-- Protected source changes: 8
-- Immutable patch layers: 5
+- Source fingerprint: `2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047`
+- Protected source changes: 9
+- Immutable patch layers: 6
 - Focused Quick cases and adjacent counterexamples: 149 passed
-- Product baseline: 547 files
+- Full adversarial counterexample suite: 137 passed
+- Repository Quality Quick: PASS
+- Product baseline: 548 files
 - WP-08 / WP-09 remain open
 - `production_closed=false`

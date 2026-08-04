@@ -8,8 +8,8 @@
   "contract_closure_patch_sha256": "18b964e205658e7f4b2ee4b9b10c7f4493533f17ea123476ae412f90be45364e",
   "terminal_evidence_patch_sha256": "03009ffaedb71c40fcb6fdb6e9409694efd46d021c4771f50ce860db3a64a1de",
   "terminal_status_patch_sha256": "5d9bdd9575c4e1fadb43d48fc2b51d4c791b76fac78e5adcfbdf861a2d647de7",
-  "source_fingerprint": "bc2c6f12ea38143f8fc48a07ebd5fb419d2c04d52b8867f9ad0e17dcbd606770",
-  "changed_file_count": 8,
+  "source_fingerprint": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
+  "changed_file_count": 9,
   "files": {
     "services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json": {
       "sha256": "8f1a2604987e219fd772c0bb93ed6d38a30174c46e7a3b5cf537249af36d9c1d",
@@ -42,7 +42,12 @@
     "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py": {
       "sha256": "0402ab93beeccfa712eb9015dfdf67a11f44cbfe41030098aaa9e25c22d1a07c",
       "size": 36393
+    },
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": {
+      "sha256": "52a97aff34feb31a8ebd88bf131f9ac74e9727f786dc7a366442b9fc09cc918c",
+      "size": 39556
     }
   },
-  "production_closed": false
+  "production_closed": false,
+  "governance_counterexample_patch_sha256": "248f84417d30a5119ce2f038a07ccab1c717d87e87c50fa53889e24632ccfb11"
 }
