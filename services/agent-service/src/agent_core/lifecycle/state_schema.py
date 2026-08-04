@@ -203,6 +203,12 @@ def migrate_checkpoint_state(state: dict[str, Any] | None) -> tuple[dict[str, An
                 discarded_fields.append(f"{key}:non_authoritative_same_turn_projection")
                 source[key] = None
 
+    if not isinstance(source.get("goal_output_refs"), list):
+        source["goal_output_refs"] = []
+        if from_version < CURRENT_STATE_SCHEMA_VERSION:
+            changed = True
+            migrated_fields.append("goal_output_refs:additive_default")
+
     # Additive transaction-focus cutover inside State Schema v2. Older
     # checkpoints contain only active_draft_id. Once focused_draft_id exists,
     # even an explicit null is authoritative and the compatibility projection

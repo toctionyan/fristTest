@@ -25,6 +25,7 @@ from agent_core.lifecycle.goal_lifecycle import (
 )
 from agent_core.lifecycle.semantic_state_changes import apply_focus_change
 from agent_core.lifecycle.goal_blockers import apply_blocker_resolutions
+from agent_core.lifecycle.goal_outputs import record_goal_outputs_from_tool_result
 from agent_core.lifecycle.workflow_runtime import (
     build_workflow_plan,
     complete_plan_run_step_result,
@@ -184,6 +185,7 @@ def execute_agent_loop_calls_node(
     goal_declaration: dict[str, Any] | None = None
     goal_blockers = [deepcopy(row) for row in list(state.get("goal_blockers") or []) if isinstance(row, dict)]
     goal_records = [deepcopy(row) for row in list(state.get("goal_records") or []) if isinstance(row, dict)]
+    goal_output_refs = [deepcopy(row) for row in list(state.get("goal_output_refs") or []) if isinstance(row, dict)]
     focus_state = deepcopy(state.get("focus_state")) if isinstance(state.get("focus_state"), dict) else None
     execution_dispositions = list(state.get("execution_dispositions") or [])
     latest_execution_disposition = state.get("latest_execution_disposition") if isinstance(state.get("latest_execution_disposition"), dict) else None
@@ -400,6 +402,22 @@ def execute_agent_loop_calls_node(
                         result["execution_permit"] = decision.execution_permit
                 additions = result.pop("ledger_entries", []) if isinstance(result, dict) else []
                 ledger = append_entries(ledger, additions)
+                if isinstance(result, dict) and result.get("ok"):
+                    goal_output_refs = record_goal_outputs_from_tool_result(
+                        goal_output_refs,
+                        state={
+                            **state,
+                            "artifact_ledger": ledger,
+                            "frozen_semantic_contract": frozen_semantic_contract,
+                        },
+                        capability_registry=capability_registry,
+                        tool_name=name,
+                        goal_ids=[str(value) for value in list(call.get("_goal_ids") or []) if str(value)],
+                        effect_id=str(call.get("_effect_id") or ""),
+                        result=result,
+                        ledger_additions=additions,
+                        merged_ledger=ledger,
+                    )
                 for source in list(result.get("sources") or []) if isinstance(result, dict) else []:
                     if isinstance(source, dict) and source not in sources:
                         sources.append(source)
@@ -562,6 +580,7 @@ def execute_agent_loop_calls_node(
         "grounded_execution_plan": grounded_execution_plan,
         "goal_blockers": goal_blockers,
         "goal_records": goal_records,
+        "goal_output_refs": goal_output_refs,
         "focus_state": focus_state,
         "execution_permits": execution_permits,
         "turn_match_proofs": turn_match_proofs,

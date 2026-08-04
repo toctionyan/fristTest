@@ -112,3 +112,103 @@ def test_business_record_list_contract_accepts_one_or_collection(tool_name: str)
         {**base, "expected_shape": "collection"},
         capability_registry=registry,
     ) == []
+
+
+def test_controlled_pipeline_schema_accepts_typed_composition() -> None:
+    target = {
+        "mode": "pipeline",
+        "source_kind": "all_orders",
+        "steps": [
+            {
+                "op": "filter",
+                "predicate": {
+                    "field": "amount",
+                    "comparison": "gte",
+                    "value": 200,
+                    "source_span": "金额不低于200元",
+                    "value_span": "200",
+                },
+            },
+            {
+                "op": "filter",
+                "predicate": {
+                    "field": "status",
+                    "comparison": "eq",
+                    "value": "已签收",
+                    "source_span": "已签收",
+                    "value_span": "已签收",
+                },
+            },
+            {"op": "sort", "field": "amount", "direction": "desc", "source_span": "最贵"},
+            {"op": "take", "limit": 2, "source_span": "两个", "value_span": "2"},
+        ],
+    }
+    assert _errors(target) == []
+
+
+def test_controlled_pipeline_schema_accepts_verified_collection_source() -> None:
+    target = {
+        "mode": "pipeline",
+        "source_kind": "collection",
+        "source_handle": "result:visible-orders",
+        "steps": [
+            {
+                "op": "filter",
+                "predicate": {
+                    "field": "product_name",
+                    "comparison": "contains",
+                    "value": "键盘",
+                    "source_span": "包含键盘",
+                    "value_span": "键盘",
+                },
+            }
+        ],
+    }
+    assert _errors(target) == []
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        {
+            "mode": "pipeline",
+            "source_kind": "all_orders",
+            "steps": [{"op": "filter", "predicate": {"field": "paid_amount", "comparison": "gte", "value": 200, "source_span": "200以上", "value_span": "200"}}],
+        },
+        {
+            "mode": "pipeline",
+            "source_kind": "all_orders",
+            "steps": [{"op": "filter", "predicate": {"field": "amount", "comparison": "gte", "value": "200", "source_span": "200以上", "value_span": "200"}}],
+        },
+        {
+            "mode": "pipeline",
+            "source_kind": "all_orders",
+            "steps": [{"op": "filter", "predicate": {"field": "amount", "comparison": "gte", "value": 200, "source_span": "200以上", "value_span": "200", "sql": "DROP TABLE orders"}}],
+        },
+        {
+            "mode": "pipeline",
+            "source_kind": "collection",
+            "steps": [{"op": "take", "limit": 1, "source_span": "1个", "value_span": "1"}],
+        },
+        {
+            "mode": "pipeline",
+            "source_kind": "all_orders",
+            "steps": [{"op": "take", "limit": 1, "source_span": "1个", "value_span": "1"}] * 9,
+        },
+    ],
+)
+def test_controlled_pipeline_schema_rejects_unregistered_or_untyped_expressions(target: dict) -> None:
+    assert _errors(target) == ["$.target: one_of_mismatch"]
+
+
+def test_generic_schema_runtime_enforces_number_type() -> None:
+    from agent_core.runtime.capability_gate import _validate_value
+
+    schema = {"type": "number", "minimum": 0, "maximum": 500}
+    assert _validate_value("200", schema) == ["$: expected_number"]
+    assert _validate_value(True, schema) == ["$: expected_number"]
+    assert _validate_value(-1, schema) == ["$: minimum"]
+    assert _validate_value(501.0, schema) == ["$: maximum"]
+    assert _validate_value(float("nan"), schema) == ["$: non_finite_number"]
+    assert _validate_value(float("inf"), schema) == ["$: non_finite_number"]
+    assert _validate_value(200.5, schema) == []

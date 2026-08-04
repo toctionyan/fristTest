@@ -291,15 +291,183 @@ def planning_schemas() -> list[dict[str, Any]]:
     return [deepcopy(DECLARE_TURN_GOALS_SCHEMA)]
 
 
+def _unique_provider_values(values: list[Any]) -> list[Any]:
+    """Return JSON-like values in stable first-seen order."""
+    output: list[Any] = []
+    for value in values:
+        if value not in output:
+            output.append(value)
+    return output
+
+
+def _provider_union_discriminators(variants: list[dict[str, Any]]) -> list[str]:
+    """Find properties that carry a const in every object variant."""
+    common: set[str] | None = None
+    ordered: list[str] = []
+    for variant in variants:
+        properties = variant.get("properties")
+        if not isinstance(properties, dict):
+            return []
+        names = {
+            str(name)
+            for name, schema in properties.items()
+            if isinstance(schema, dict) and "const" in schema
+        }
+        common = names if common is None else common & names
+        for name in properties:
+            if name in names and name not in ordered:
+                ordered.append(str(name))
+    return [name for name in ordered if common and name in common]
+
+
+def _merge_provider_property_schemas(
+    raw_schemas: list[dict[str, Any]],
+    *,
+    property_name: str,
+) -> dict[str, Any]:
+    """Build a permissive provider guide while canonical Runtime remains strict.
+
+    A provider projection is only an input hint.  When union variants disagree
+    on a field type or constraints, this function widens the projection instead
+    of selecting one variant and accidentally making another valid Runtime form
+    impossible for the model to emit.
+    """
+    schemas = [
+        _compact_provider_discriminated_unions(schema)
+        for schema in raw_schemas
+        if isinstance(schema, dict)
+    ]
+    if not schemas:
+        return {}
+    if all(schema == schemas[0] for schema in schemas):
+        return schemas[0]
+
+    output: dict[str, Any] = {}
+    types = _unique_provider_values(
+        [schema.get("type") for schema in schemas if schema.get("type") is not None]
+    )
+    if len(types) == 1:
+        output["type"] = types[0]
+
+    # An enum is safe only when every alternative is itself enum/const-bound.
+    # Otherwise retaining the narrow enum would reject valid number/date/text
+    # variants in the provider-facing guide.
+    if all("const" in schema or isinstance(schema.get("enum"), list) for schema in schemas):
+        enum_values: list[Any] = []
+        for schema in schemas:
+            if "const" in schema:
+                enum_values.append(schema["const"])
+            else:
+                enum_values.extend(schema.get("enum") or [])
+        enum_values = _unique_provider_values(enum_values)
+        if enum_values:
+            output["enum"] = enum_values
+
+    if len(types) == 1 and types[0] == "array":
+        item_schemas = [
+            schema["items"]
+            for schema in schemas
+            if isinstance(schema.get("items"), dict)
+        ]
+        if item_schemas:
+            output["items"] = _merge_provider_property_schemas(
+                item_schemas,
+                property_name=f"{property_name}.items",
+            )
+        minimums = [
+            schema["minItems"]
+            for schema in schemas
+            if isinstance(schema.get("minItems"), int)
+        ]
+        maximums = [
+            schema["maxItems"]
+            for schema in schemas
+            if isinstance(schema.get("maxItems"), int)
+        ]
+        if minimums:
+            output["minItems"] = min(minimums)
+        if maximums:
+            output["maxItems"] = max(maximums)
+        if any(schema.get("uniqueItems") is True for schema in schemas):
+            output["uniqueItems"] = True
+    elif len(types) == 1 and types[0] == "object":
+        property_order: list[str] = []
+        for schema in schemas:
+            for name in (schema.get("properties") or {}):
+                if name not in property_order:
+                    property_order.append(str(name))
+        properties: dict[str, Any] = {}
+        for name in property_order:
+            alternatives = [
+                schema["properties"][name]
+                for schema in schemas
+                if isinstance(schema.get("properties"), dict)
+                and isinstance(schema["properties"].get(name), dict)
+            ]
+            properties[name] = _merge_provider_property_schemas(
+                alternatives,
+                property_name=name,
+            )
+        output["properties"] = properties
+        required_sets = [set(schema.get("required") or []) for schema in schemas]
+        common_required = set.intersection(*required_sets) if required_sets else set()
+        output["required"] = [
+            name for name in property_order if name in common_required
+        ]
+        output["additionalProperties"] = False
+    elif len(types) > 1:
+        output["description"] = (
+            f"{property_name} 的类型由判别字段决定；Runtime 按严格合同校验。"
+        )
+
+    if len(types) == 1 and types[0] in {"integer", "number"}:
+        minimums = [
+            schema["minimum"]
+            for schema in schemas
+            if isinstance(schema.get("minimum"), (int, float))
+        ]
+        maximums = [
+            schema["maximum"]
+            for schema in schemas
+            if isinstance(schema.get("maximum"), (int, float))
+        ]
+        if minimums:
+            output["minimum"] = min(minimums)
+        if maximums:
+            output["maximum"] = max(maximums)
+    if len(types) == 1 and types[0] == "string":
+        minimums = [
+            schema["minLength"]
+            for schema in schemas
+            if isinstance(schema.get("minLength"), int)
+        ]
+        maximums = [
+            schema["maxLength"]
+            for schema in schemas
+            if isinstance(schema.get("maxLength"), int)
+        ]
+        if minimums:
+            output["minLength"] = min(minimums)
+        if maximums:
+            output["maxLength"] = max(maximums)
+
+    descriptions = _unique_provider_values(
+        [schema.get("description") for schema in schemas if schema.get("description")]
+    )
+    if len(descriptions) == 1 and "description" not in output:
+        output["description"] = descriptions[0]
+    return output
+
+
 def _compact_provider_discriminated_unions(value: Any) -> Any:
     """Flatten repeated discriminated unions only on the provider projection.
 
     OpenAI-compatible function calling has no shared-schema facility across
-    tools.  Repeating the full Target ``oneOf`` in every capability consumed
-    tens of thousands of input characters on every loop iteration.  The
-    CapabilityRegistry retains the canonical strict schema and CapabilityGate
-    still validates candidates against it before issuing a permit; this compact
-    projection only guides the model and cannot weaken runtime enforcement.
+    tools. Repeating strict Target and pipeline ``oneOf`` variants in every
+    capability consumes substantial input context. The CapabilityRegistry keeps
+    the canonical strict schema and CapabilityGate validates candidates against
+    it before issuing a permit. This widened projection only guides the model;
+    it cannot weaken Runtime enforcement.
     """
     if isinstance(value, list):
         return [_compact_provider_discriminated_unions(item) for item in value]
@@ -307,41 +475,26 @@ def _compact_provider_discriminated_unions(value: Any) -> Any:
         return value
 
     variants = value.get("oneOf")
-    is_mode_union = (
-        value.get("type") == "object"
-        and isinstance(variants, list)
+    object_variants = (
+        variants
+        if isinstance(variants, list)
         and bool(variants)
         and all(
             isinstance(variant, dict)
             and isinstance(variant.get("properties"), dict)
-            and isinstance(variant["properties"].get("mode"), dict)
-            and "const" in variant["properties"]["mode"]
             for variant in variants
         )
+        else []
     )
-    if is_mode_union:
-        properties: dict[str, Any] = {}
-        required_sets: list[set[str]] = []
-        for variant in variants:
-            variant_properties = variant["properties"]
-            required_sets.append(set(variant.get("required") or []))
-            for name, raw_schema in variant_properties.items():
-                if name in properties or not isinstance(raw_schema, dict):
-                    continue
-                properties[name] = {
-                    key: item for key, item in raw_schema.items() if key != "const"
-                }
-        common_required = set.intersection(*required_sets) if required_sets else set()
-        return {
-            "type": "object",
-            "description": "按固定 Target 判别联合填写；字段组合由 Runtime 严格校验。",
-            "properties": {
-                name: _compact_provider_discriminated_unions(schema)
-                for name, schema in properties.items()
-            },
-            "required": [name for name in properties if name in common_required],
-            "additionalProperties": False,
-        }
+    if object_variants:
+        merged = _merge_provider_property_schemas(
+            object_variants,
+            property_name="union",
+        )
+        merged["description"] = str(value.get("description") or "").strip() or (
+            "按判别字段填写；字段组合由 Runtime 严格校验。"
+        )
+        return merged
 
     return {
         key: _compact_provider_discriminated_unions(item)

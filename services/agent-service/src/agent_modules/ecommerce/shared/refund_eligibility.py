@@ -35,7 +35,7 @@ def execute_evaluate_refund_eligibility(state: dict[str, Any], args: dict[str, A
             return error
     # The current Planner decides whether this is a qualification question;
     # the program has already verified question_span belongs to the user text.
-    target, target_error = _target_members(state, args.get("target") if isinstance(args.get("target"), dict) else {}, expected_shape="one", allowed_resource_types={"order"})
+    target, target_error = _target_members(state, args.get("target") if isinstance(args.get("target"), dict) else {}, expected_shape="one", allowed_resource_types={"order"}, target_authority="decision")
     if target_error:
         return target_error
     assert target is not None

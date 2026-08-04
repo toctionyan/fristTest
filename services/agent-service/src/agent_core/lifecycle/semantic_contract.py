@@ -14,6 +14,7 @@ from agent_core.kernel.semantic_contract import (
     FROZEN_SEMANTIC_CONTRACT_VERSION,
     assert_semantic_contract_integrity,
     compute_semantic_digest,
+    find_goal_dependency_cycle,
     semantic_contract_integrity,
     semantic_goals,
 )
@@ -106,6 +107,9 @@ def freeze_semantic_contract(
         unknown = [item for item in goal["depends_on"] if item not in known]
         if unknown:
             raise ValueError(f"unknown_goal_dependency:{goal['goal_id']}:{','.join(unknown)}")
+    cycle = find_goal_dependency_cycle(normalized_goals)
+    if cycle:
+        raise ValueError(f"goal_dependency_cycle:{'->'.join(cycle)}")
 
     contract: dict[str, Any] = {
         "version": FROZEN_SEMANTIC_CONTRACT_VERSION,
@@ -177,6 +181,7 @@ __all__ = [
     "FROZEN_SEMANTIC_CONTRACT_VERSION",
     "assert_semantic_contract_integrity",
     "compute_semantic_digest",
+    "find_goal_dependency_cycle",
     "freeze_semantic_contract",
     "goal_declaration_projection_from_contract",
     "normalize_requested_effect",

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import action_draft_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -21,6 +22,8 @@ DEFINITION = EcommerceCapabilityDefinition(
     exclusion_examples=('售后进度', '换货进度', '维修进度', '退款申请'),
     schema=draft_schema("prepare_after_sales_request", "生成售后申请 Draft，不直接写业务。", {"service_type": {"type": "string", "enum": ["repair", "exchange", "return", "general"]}, "service_type_span": {"type": "string"}}),
     executor=execute,
+    contract_version='2',
+    planning_contract=action_draft_contract(operation="after_sales", receipt_type="AfterSalesReceipt"),
     presentation_contract='commerce.next_actions@1',
     public_label='售后申请',
 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import policy_consult_contract
 from .schema_common import TARGET_SCHEMA, function_schema
 from .execution_adapter import execute_one
 
@@ -28,6 +29,8 @@ DEFINITION = EcommerceCapabilityDefinition(
         ["target", "reference_span", "issue_span", "question_span"],
     ),
     executor=execute,
+    contract_version='2',
+    planning_contract=policy_consult_contract(policy_type="after_sales", output_type="VerifiedAfterSalesPolicyAdvice"),
     presentation_contract="commerce.advisory@1",
     public_label="订单售后政策咨询",
 )

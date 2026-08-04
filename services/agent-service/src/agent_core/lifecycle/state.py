@@ -56,15 +56,20 @@ class State(TypedDict, total=False):
     frozen_plan_definition: dict[str, Any] | None
     plan_run: dict[str, Any] | None
     grounded_execution_plan: dict[str, Any] | None
-    # Pre-tool plan is diagnostic shadow evidence only. It cannot dispatch,
-    # create permits, mutate semantics or replace grounded_execution_plan.
+    # Pre-tool topology remains diagnostic evidence. The separate execution
+    # policy may narrow only the next provider Tool surface; it cannot dispatch,
+    # create permits, resolve targets, mutate semantics or replace the formal plan.
     pretool_shadow_plan: dict[str, Any] | None
+    pretool_execution_policy: dict[str, Any] | None
     pretool_shadow_comparisons: list[dict[str, Any]]
     # Multiple goal-scoped blockers may coexist and are the only durable
     # clarification authority in State Schema v2.
     goal_blockers: list[dict[str, Any]]
     # Durable semantic goal lifecycle. It is not a business/transaction state.
     goal_records: list[dict[str, Any]]
+    # Typed, verified outputs produced by completed Goals. These are planning
+    # evidence only and always reference active ledger artifacts.
+    goal_output_refs: list[dict[str, Any]]
     focus_state: dict[str, Any] | None
     # Exact per-turn capability discovery evidence. This is not semantic or
     # business authority; it must nevertheless be a declared graph channel so

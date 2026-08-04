@@ -18,6 +18,7 @@ from typing import Any
 
 from agent_core.business import ActorContext, get_business_port
 from agent_modules.ecommerce.contracts import public_capability_labels
+from agent_modules.ecommerce.target_dsl import TargetDslError, apply_pipeline
 from agent_core.config import retrieval_min_score, retrieval_top_k
 from agent_core.composition import get_runtime_registry as _runtime_registry
 from agent_core.business import BusinessServiceError
@@ -167,30 +168,85 @@ def _list_orders(state: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, 
         return _business_service_error("BUSINESS_READ_FAILED", exc), []
 
 
-def _match_orders(rows: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+def _order_match_proof(
+    *,
+    basis: str,
+    rows: list[dict[str, Any]],
+    source_span: str,
+    verified_for_write: bool,
+) -> dict[str, Any]:
+    return {
+        "basis": str(basis),
+        "source_span": str(source_span),
+        "verified_for_write": bool(verified_for_write),
+        "candidate_only": not bool(verified_for_write),
+        "matched_order_ids": [str(row.get("order_id") or "") for row in rows],
+    }
+
+
+def _match_orders_with_proof(
+    rows: list[dict[str, Any]], text: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return catalog candidates together with their authority level.
+
+    Exact identifiers and direct catalog containment are deterministic scoped
+    matches.  Classifier aliases and longest-common-span matching are recall
+    aids only: they may help a read path present candidates, but they must not
+    silently become a verified write target.
+    """
     needle = _normal(text)
     if not needle:
-        return []
+        return [], _order_match_proof(
+            basis="empty", rows=[], source_span=text, verified_for_write=False,
+        )
+
     digits = re.sub(r"\D", "", needle)
+    if digits:
+        exact_ids = [row for row in rows if str(row.get("order_id") or "") == digits]
+        if exact_ids:
+            return exact_ids, _order_match_proof(
+                basis="exact_order_id", rows=exact_ids, source_span=text, verified_for_write=True,
+            )
+
     needles = {needle}
     if len(needle) >= 2 and needle.endswith(("子", "儿")):
         needles.add(needle[:-1])
-    matched: list[dict[str, Any]] = []
-    for row in rows:
-        values = [str(row.get("order_id") or ""), str(row.get("product_name") or ""), str(row.get("product_id") or "")]
-        if digits and str(row.get("order_id") or "") == digits:
-            matched.append(row)
-            continue
-        if any(candidate and (candidate in _normal(value) or _normal(value) in candidate) for candidate in needles for value in values if _normal(value)):
-            matched.append(row)
-    if matched:
-        return matched
 
-    # A planner may copy the complete predicate phrase into attribute_span
-    # ("键盘售后政策") rather than only the entity token ("键盘").  Resolve
-    # such spans exclusively against the finite, user-scoped catalog.  Keep
-    # every equally good match so expected_shape still forces clarification
-    # when the reference is not unique.
+    canonical_in_span: list[dict[str, Any]] = []
+    scoped_substring: list[dict[str, Any]] = []
+    for row in rows:
+        values = [
+            _normal(row.get("product_name")),
+            _normal(row.get("product_id")),
+        ]
+        values = [value for value in values if value]
+        if any(len(value) >= 2 and value in needle for value in values):
+            canonical_in_span.append(row)
+            continue
+        if any(
+            len(candidate) >= 2 and candidate in value
+            for candidate in needles
+            for value in values
+        ):
+            scoped_substring.append(row)
+
+    if canonical_in_span:
+        return canonical_in_span, _order_match_proof(
+            basis="canonical_catalog_value",
+            rows=canonical_in_span,
+            source_span=text,
+            verified_for_write=True,
+        )
+    if scoped_substring:
+        return scoped_substring, _order_match_proof(
+            basis="scoped_catalog_substring",
+            rows=scoped_substring,
+            source_span=text,
+            verified_for_write=True,
+        )
+
+    # Chinese classifier aliases (for example, “杯子”) are useful recall
+    # evidence, not a sufficient authority proof for a state-changing action.
     embedded_classifier_aliases = {
         needle[index - 1]
         for index, char in enumerate(needle)
@@ -206,7 +262,12 @@ def _match_orders(rows: list[dict[str, Any]], text: str) -> list[dict[str, Any]]
             )
         ]
         if alias_matches:
-            return alias_matches
+            return alias_matches, _order_match_proof(
+                basis="classifier_alias_recall",
+                rows=alias_matches,
+                source_span=text,
+                verified_for_write=False,
+            )
 
     def longest_common_span(left: str, right: str) -> int:
         if not left or not right:
@@ -233,7 +294,19 @@ def _match_orders(rows: list[dict[str, Any]], text: str) -> list[dict[str, Any]]
         for row in rows
     ]
     best = max((score for _, score in scored), default=0)
-    return [row for row, score in scored if best >= 2 and score == best]
+    fuzzy = [row for row, score in scored if best >= 2 and score == best]
+    return fuzzy, _order_match_proof(
+        basis="fuzzy_lexical_recall" if fuzzy else "no_match",
+        rows=fuzzy,
+        source_span=text,
+        verified_for_write=False,
+    )
+
+
+def _match_orders(rows: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """Compatibility read surface; authority-sensitive callers use the proof."""
+    matched, _ = _match_orders_with_proof(rows, text)
+    return matched
 
 
 _ORDER_STATUS_VALUES = {"待付款", "已付款", "待发货", "已发货", "运输中", "已签收", "已取消"}
@@ -436,7 +509,14 @@ def _make_order_artifacts(state: dict[str, Any], rows: list[dict[str, Any]], *, 
     return artifacts, _dedup(handles), labels
 
 
-def _target_members(state: dict[str, Any], target: dict[str, Any], *, expected_shape: str, allowed_resource_types: set[str]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def _target_members(
+    state: dict[str, Any],
+    target: dict[str, Any],
+    *,
+    expected_shape: str,
+    allowed_resource_types: set[str],
+    target_authority: str = "read",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Evaluate a model-selected, generic contextual plan.
 
     This function does not inspect natural-language pronouns.  It validates
@@ -448,6 +528,10 @@ def _target_members(state: dict[str, Any], target: dict[str, Any], *, expected_s
     scope = scope_for_state(state)
     additions: list[dict[str, Any]] = []
     member_handles: list[str] = []
+    match_proof: dict[str, Any] | None = None
+    pipeline_proof: list[dict[str, Any]] = []
+    if target_authority not in {"read", "decision", "write"}:
+        return None, _error("INVALID_TARGET_AUTHORITY", "目标解析权威级别无效。")
 
     if mode == "all_orders":
         listed, _ = _list_orders(state)
@@ -459,7 +543,7 @@ def _target_members(state: dict[str, Any], target: dict[str, Any], *, expected_s
             evidence = _require_span(state, attribute_span, field="商品筛选")
             if evidence:
                 return None, evidence
-            rows = _match_orders(rows, attribute_span)
+            rows, match_proof = _match_orders_with_proof(rows, attribute_span)
         status, status_error = _structured_status_filter(state, target)
         if status_error:
             return None, status_error
@@ -476,7 +560,7 @@ def _target_members(state: dict[str, Any], target: dict[str, Any], *, expected_s
         listed, _ = _list_orders(state)
         if not listed.get("ok"):
             return None, listed
-        rows = _match_orders(list(listed.get("rows") or []), attribute_span)
+        rows, match_proof = _match_orders_with_proof(list(listed.get("rows") or []), attribute_span)
         arts, handles, _ = _make_order_artifacts(state, rows, source="contextual_entity_match")
         additions.extend(arts)
         member_handles = handles
@@ -570,8 +654,91 @@ def _target_members(state: dict[str, Any], target: dict[str, Any], *, expected_s
             member_handles = [handle for handle, _ in sorted(records, key=lambda row: (row[1] is None, row[1]), reverse=direction == "desc")]
         else:
             return None, _error("INVALID_SET_OPERATION", "当前不支持该集合操作。")
+    elif mode == "pipeline":
+        source_kind = str(target.get("source_kind") or "")
+        rows = []
+        records: list[tuple[str, dict[str, Any]]] = []
+        if source_kind == "all_orders":
+            listed, _ = _list_orders(state)
+            if not listed.get("ok"):
+                return None, listed
+            rows = list(listed.get("rows") or [])
+            arts, handles, _ = _make_order_artifacts(state, rows, source="contextual_pipeline_root")
+            additions.extend(arts)
+            records = [(handle, dict(row)) for handle, row in zip(handles, rows)]
+        elif source_kind == "collection":
+            source_handle = str(target.get("source_handle") or "").strip()
+            source_members, source_error = _collection_members(
+                state,
+                source_handle,
+                allowed_resource_types=allowed_resource_types,
+            )
+            if source_error:
+                return None, source_error
+            for handle in list(source_members or []):
+                row, row_error, fresh_entries, _ = _fresh_order_from_handle(
+                    state, handle, source="contextual_pipeline_collection"
+                )
+                if row_error:
+                    return None, row_error
+                additions.extend(fresh_entries)
+                if row is not None:
+                    rows.append(dict(row))
+                    records.append((handle, dict(row)))
+        else:
+            return None, _error("TARGET_DSL_SOURCE_NOT_ALLOWED", "Pipeline 来源必须是全部订单或已验证集合。")
+        raw_steps = target.get("steps")
+        if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 8 or any(not isinstance(step, dict) for step in raw_steps):
+            return None, _error("TARGET_DSL_PIPELINE_INVALID", "Pipeline 必须包含 1 到 8 个结构化步骤。")
+        steps = [dict(step) for step in raw_steps]
+        try:
+            records, pipeline_proof = apply_pipeline(
+                records,
+                steps,
+                user_input=str(state.get("current_user_input") or ""),
+            )
+        except TargetDslError as exc:
+            return None, _error(exc.code, exc.message)
+        member_handles = [handle for handle, _ in records]
+        rows = [dict(row) for _, row in records]
+        unsafe_write_steps = [
+            proof
+            for proof in pipeline_proof
+            if proof.get("op") == "filter"
+            and proof.get("field") in {"order_id", "product_name"}
+            and proof.get("comparison") == "contains"
+        ]
+        match_proof = {
+            "basis": "controlled_target_pipeline",
+            "source_span": " | ".join(str(item.get("source_span") or "") for item in pipeline_proof),
+            "verified_for_write": not bool(unsafe_write_steps),
+            "candidate_only": bool(unsafe_write_steps),
+            "matched_order_ids": [str(row.get("order_id") or "") for _, row in records],
+            "pipeline": deepcopy(pipeline_proof),
+        }
     else:
         return None, _error("INVALID_CONTEXT_TARGET", "当前不支持该上下文目标类型。")
+
+    if (
+        target_authority in {"decision", "write"}
+        and match_proof is not None
+        and member_handles
+        and not bool(match_proof.get("verified_for_write"))
+    ):
+        candidates = [
+            {
+                "order_id": str(item.get("order_id") or ""),
+                "label": str(item.get("product_name") or item.get("order_id") or "订单"),
+            }
+            for item in rows
+        ]
+        error = _error(
+            "CONTEXT_TARGET_NOT_VERIFIED_FOR_WRITE",
+            "当前对象只来自模糊候选召回，必须由用户明确选择后才能办理。",
+            candidates=candidates,
+        )
+        error["match_proof"] = dict(match_proof)
+        return None, error
 
     members: list[dict[str, Any]] = []
     for handle in _dedup(member_handles):
@@ -588,7 +755,7 @@ def _target_members(state: dict[str, Any], target: dict[str, Any], *, expected_s
         return None, _error("CONTEXT_TARGET_NOT_UNIQUE", "当前引用对应多个对象，请明确范围或对象。", candidates=[{"handle": item["handle"], "label": item.get("label")} for item in members])
     if expected_shape not in {"one", "collection"}:
         return None, _error("INVALID_EXPECTED_SHAPE", "目标范围必须声明为单个对象或集合。")
-    return {"member_handles": member_handles, "members": members, "entries": additions, "mode": mode, "target": deepcopy(target)}, None
+    return {"member_handles": member_handles, "members": members, "entries": additions, "mode": mode, "target": deepcopy(target), "target_authority": target_authority, "match_proof": deepcopy(match_proof) if match_proof else None, "pipeline_proof": deepcopy(pipeline_proof)}, None
 
 
 def _fresh_order_rows_for_target(state: dict[str, Any], target_info: dict[str, Any], *, source: str) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], dict[str, Any] | None, list[str]]:
@@ -612,7 +779,18 @@ def _fresh_order_rows_for_target(state: dict[str, Any], target_info: dict[str, A
 
 
 def _result_payload(capability: str, *, target_info: dict[str, Any], handles: list[str], labels: list[str], scope: dict[str, str], state: dict[str, Any], additions: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    result = result_entry(capability=capability, member_handles=handles, labels=labels, scope=scope, turn=_turn(state), source_target={"mode": target_info.get("mode"), "target": target_info.get("target")})
+    result = result_entry(
+        capability=capability,
+        member_handles=handles,
+        labels=labels,
+        scope=scope,
+        turn=_turn(state),
+        source_target={
+            "mode": target_info.get("mode"),
+            "target": target_info.get("target"),
+            "match_proof": target_info.get("match_proof"),
+        },
+    )
     return result, [*additions, result]
 
 

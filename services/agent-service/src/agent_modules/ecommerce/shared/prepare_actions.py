@@ -318,9 +318,10 @@ def _target_set_from_info(state: dict[str, Any], target_info: dict[str, Any], *,
         "set_operation": "set_operation",
         "all_orders": "all_orders",
         "entity_match": "entity_match",
+        "pipeline": "controlled_pipeline",
     }
     evidence = list(target_info.get("member_handles") or [])
-    for key in ("left_handle", "right_handle"):
+    for key in ("left_handle", "right_handle", "source_handle"):
         if target.get(key):
             evidence.append(str(target.get(key)))
     return TargetResolver(_runtime_registry().resources).from_verified_members(
@@ -367,6 +368,7 @@ def _prepare_ecommerce_operation(state: dict[str, Any], args: dict[str, Any], *,
         args.get("target") if isinstance(args.get("target"), dict) else {},
         expected_shape="collection",
         allowed_resource_types={"order"},
+        target_authority="write",
     )
     if target_error:
         return _runtime_result(state, tool_name, target_error)
