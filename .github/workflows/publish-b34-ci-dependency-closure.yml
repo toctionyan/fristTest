@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           (
             cd target/services/agent-service
-            .venv/bin/python -B -m pytest -q \
+            PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
               tests/runtime/test_goal_binding_counterexamples.py \
               tests/runtime/test_semantic_grounding_read.py \
               tests/runtime/test_similar_capability_rejection.py \
