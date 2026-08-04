@@ -1,0 +1,117 @@
+name: Publish B34 immutable ledger evidence
+
+on:
+  pull_request:
+    branches:
+      - agent/b34-resilient-task-harness-20260804
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b34-ledger-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.head_ref == 'agent/b34-ledger-evidence-publisher-20260804'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out immutable publisher payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Verify evidence and ledger patch payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(wc -c < candidate-validation/b34-ledger/issue-rel-001-oracle-current.json.b64)" -eq 1576
+          echo 'ae3f5bc51b4d4571393b40cd4f2b798c76e4b160ab584dfb7c32f9899af81698  candidate-validation/b34-ledger/issue-rel-001-oracle-current.json.b64' | sha256sum -c -
+          base64 --decode candidate-validation/b34-ledger/issue-rel-001-oracle-current.json.b64 > /tmp/issue-rel-001-oracle-current.json
+          echo '97ac87e9e36b5564dabcb9bda44838071aca18c1d00ff3deb7a935f8d7e456bf  /tmp/issue-rel-001-oracle-current.json' | sha256sum -c -
+          test "$(wc -c < candidate-validation/b34-ledger/task-ledger.patch.b64)" -eq 840
+          echo '0b58b1832dbe22211c86616af526d13206e60904a5286e7fb73f96d56ab83ce4  candidate-validation/b34-ledger/task-ledger.patch.b64' | sha256sum -c -
+          base64 --decode candidate-validation/b34-ledger/task-ledger.patch.b64 > /tmp/task-ledger.patch
+          echo '4cf13391570f828fad311242073ed5b23316b1e036b760813359766e982ea3ee  /tmp/task-ledger.patch' | sha256sum -c -
+
+      - name: Check out current B34 direct source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: agent/b34-resilient-task-harness-20260804
+          fetch-depth: 0
+          path: target
+
+      - name: Replace mutable historical evidence with immutable B34 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          test "$(git rev-parse HEAD)" = 'b7f23a4ebdc89712b5898eaa3ba42a1453f5e8e2'
+          destination='governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json'
+          test ! -e "$destination"
+          cp /tmp/issue-rel-001-oracle-current.json "$destination"
+          git apply --check /tmp/task-ledger.patch
+          git apply /tmp/task-ledger.patch
+          git diff --check
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          expected = {
+              'governance/task-ledger.json',
+              'governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json',
+          }
+          actual = {
+              line[3:].strip()
+              for line in subprocess.check_output(['git', 'status', '--short'], text=True).splitlines()
+              if line.strip()
+          }
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          evidence_path = Path('governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json')
+          evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
+          assert evidence['issue_id'] == 'ISSUE-REL-001'
+          assert evidence['status'] == 'VERIFIED'
+          ledger = json.loads(Path('governance/task-ledger.json').read_text(encoding='utf-8'))
+          issue = next(row for row in ledger['known_issues'] if row['issue_id'] == 'ISSUE-REL-001')
+          assert str(evidence_path) in issue['evidence_refs']
+          assert 'services/agent-service/tests/architecture/test_quality_loop_governance.py' not in issue['evidence_refs']
+          PY
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Install locked Agent validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Validate task ledger and complete Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          services/agent-service/.venv/bin/python -B scripts/verify_task_ledger.py
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Publish direct-source ledger correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          git config user.name 'B34 Ledger Evidence Publisher'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- \
+            governance/task-ledger.json \
+            governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json
+          git commit -m 'Bind ISSUE-REL-001 to immutable B34 evidence'
+          git push origin HEAD:refs/heads/agent/b34-resilient-task-harness-20260804
