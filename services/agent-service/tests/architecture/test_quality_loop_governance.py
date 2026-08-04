@@ -900,7 +900,7 @@ def test_repair_orchestrator_builds_stable_issue_records(tmp_path: Path) -> None
         root / "scripts" / "quality_control",
         workspace / "scripts" / "quality_control",
     )
-    for controller_name in ("progress.py", "trusted_judge.py", "fixer_env.py", "issue_state.py"):
+    for controller_name in ("progress.py", "trusted_judge.py", "fixer_env.py", "issue_state.py", "task_run.py"):
         source = root / "skill-system/controller" / controller_name
         destination = workspace / "skill-system/controller" / controller_name
         destination.parent.mkdir(parents=True, exist_ok=True)

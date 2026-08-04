@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "dimension": "runtime-trace",
+  "status": "PASS",
+  "states": [
+    "CREATED",
+    "RUNNING",
+    "REPAIRING",
+    "VALIDATING",
+    "COMPLETED"
+  ],
+  "recovery_rules": {
+    "FIXER_RUNNING": "reconcile only in-scope source changes from frozen baseline; never blindly replay",
+    "existing_judge_summary": "reuse compatible durable summary without another Judge execution",
+    "strategy_exhaustion": "record BLOCKED with attempted strategies and next action",
+    "completion": "all required conditions plus final checkpoint evidence"
+  }
+}

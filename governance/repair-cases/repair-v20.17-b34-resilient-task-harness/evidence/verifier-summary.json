@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "dimension": "candidate-verifier",
+  "status": "PASS",
+  "production_closed": false,
+  "checks": [
+    {
+      "name": "task_run_control_plane",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "20 passed in 6.26s"
+    },
+    {
+      "name": "repair_loop_interruption_contracts",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "4 passed in 6.37s"
+    },
+    {
+      "name": "stage1_stage5_core_regression",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "96 passed in 0.73s"
+    },
+    {
+      "name": "architecture",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "}"
+    },
+    {
+      "name": "module_closure",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "}"
+    },
+    {
+      "name": "version_consistency",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "}"
+    },
+    {
+      "name": "convergence",
+      "status": "PASS",
+      "returncode": 0,
+      "summary": "}"
+    }
+  ],
+  "environment": {
+    "name": "production_environment_closure",
+    "status": "BLOCKED_BY_ENVIRONMENT",
+    "required_for_candidate": false,
+    "production_closed": false,
+    "blockers": [
+      "missing Python modules: langchain_core, langgraph",
+      "locked Python is 3.12.13; current interpreter is 3.13.5",
+      "real DeepSeek/OpenAI provider certification not executed locally",
+      "managed PostgreSQL/pgvector recovery not executed locally",
+      "dual-service browser and concurrency certification not executed locally"
+    ]
+  }
+}

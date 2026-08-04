@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "candidate": "B34 Resilient Task Harness",
+  "base": "B33 Stage 5 Controlled Target DSL",
+  "status": "GOVERNED_B34_RESILIENT_TASK_HARNESS_CANDIDATE",
+  "production_closed": false,
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "permit_digest": "9c103d001710f39924bd9a527de5d7ce5052e627bf6f8dbb0bc9f4ddfb510817",
+  "validation": {
+    "skill_control_plane": "144 passed",
+    "focused_repair_loop": "8 passed, 28 deselected",
+    "stage1_stage5": "96 passed",
+    "broad_impact": "607 passed, 4 environment-dependent deselected",
+    "static_gates": "PASS"
+  },
+  "environment_status": "BLOCKED_BY_ENVIRONMENT for production certification only"
+}
