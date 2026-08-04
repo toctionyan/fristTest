@@ -3,7 +3,7 @@ name: B33 candidate validation
 on:
   push:
     branches:
-      - agent/b33-controlled-target-dsl-validation-20260804
+      - agent/b33-actions-validation-20260804
   pull_request:
     branches:
       - agent/b28-repository-onboarding
@@ -26,7 +26,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat candidate-validation/b33-runtime-patch-xz/part-*.b64 | tr -d '\n' | base64 --decode > "${RUNNER_TEMP}/b33-runtime.patch.xz"
+          PARTS="candidate-validation/b33-runtime-patch-xz"
+          {
+            head -c 12000 "${PARTS}/part-00.b64"
+            head -c 12000 "${PARTS}/part-01.b64"
+            head -c 6000 "${PARTS}/part-02.b64"
+            head -c 6000 "${PARTS}/part-03.b64"
+            head -c 6000 "${PARTS}/part-04.b64"
+            head -c 6000 "${PARTS}/part-05.b64"
+            head -c 6000 "${PARTS}/part-06.b64"
+            head -c 400 "${PARTS}/part-07.b64"
+          } > "${RUNNER_TEMP}/b33-runtime.patch.xz.b64"
+          test "$(wc -c < "${RUNNER_TEMP}/b33-runtime.patch.xz.b64")" -eq 54400
+          base64 --decode "${RUNNER_TEMP}/b33-runtime.patch.xz.b64" > "${RUNNER_TEMP}/b33-runtime.patch.xz"
           xz --test "${RUNNER_TEMP}/b33-runtime.patch.xz"
           xz -dc "${RUNNER_TEMP}/b33-runtime.patch.xz" > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" | sha256sum -c -
@@ -109,6 +121,8 @@ jobs:
         with:
           name: b33-candidate-validation-evidence
           path: |
+            ${{ runner.temp }}/b33-runtime.patch.xz.b64
+            ${{ runner.temp }}/b33-runtime.patch.xz
             ${{ runner.temp }}/b33-runtime.patch
             ${{ runner.temp }}/b33-changed-files.txt
             ${{ runner.temp }}/b33-focused-pytest.log
