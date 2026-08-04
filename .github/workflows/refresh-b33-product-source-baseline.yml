@@ -1,0 +1,82 @@
+name: Refresh B33 product source baseline
+
+on:
+  push:
+    branches:
+      - agent/b33-actions-validation-v2-20260804
+    paths:
+      - .github/workflows/refresh-b33-product-source-baseline.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-b33-product-source-baseline
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout direct B33 source branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b33-full-source-20260804
+          fetch-depth: 0
+
+      - name: Generate B33 protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          protected_roots = ("services", "web", "contracts")
+          ignored_parts = {".venv", "node_modules", "__pycache__"}
+          files: dict[str, str] = {}
+          for name in protected_roots:
+              protected_root = root / name
+              if not protected_root.exists():
+                  continue
+              for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
+                  if any(part in ignored_parts for part in path.parts):
+                      continue
+                  files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          payload = {
+              "schema_version": 2,
+              "generated_from": "v20.17-b33-full-source-20260804",
+              "source_release_sha256": "bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195",
+              "generated_at": "2026-08-04T08:50:00Z",
+              "protected_roots": list(protected_roots),
+              "file_count": len(files),
+              "files": files,
+          }
+          target = root / "skill-system/registry/product-source-baseline.json"
+          target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps({"status": "GENERATED", "file_count": len(files)}, indent=2))
+          PY
+
+          python -B skill-system/controller/project_compatibility.py
+          git diff --check
+
+      - name: Publish refreshed B33 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add skill-system/registry/product-source-baseline.json
+          if git diff --cached --quiet; then
+            echo "B33 baseline already current"
+            exit 0
+          fi
+          git commit -m "Refresh product source baseline for v20.17-b33"
+          git push origin HEAD:refs/heads/agent/b33-full-source-20260804
