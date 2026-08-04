@@ -58,6 +58,25 @@ jobs:
           xz --test "${RUNNER_TEMP}/capability_gate.py.xz"
           xz -dc "${RUNNER_TEMP}/capability_gate.py.xz" > "${RUNNER_TEMP}/capability_gate.py"
 
+          DIALOGUE_PARTS="candidate-validation/b33-file-overrides/dialogue-runtime"
+          {
+            head -c 3000 "${DIALOGUE_PARTS}/part-00.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-01.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-02.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-03.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-04.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-05.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-06.b64"
+            head -c 3000 "${DIALOGUE_PARTS}/part-07.b64"
+            head -c 972 "${DIALOGUE_PARTS}/part-08.b64"
+          } > "${RUNNER_TEMP}/dialogue_runtime.py.xz.b64"
+          test "$(wc -c < "${RUNNER_TEMP}/dialogue_runtime.py.xz.b64")" -eq 24972
+          base64 --decode "${RUNNER_TEMP}/dialogue_runtime.py.xz.b64" > "${RUNNER_TEMP}/dialogue_runtime.py.xz"
+          echo "2ca2eacc8c5878bfd46b13ad8334cc4abfcc9ec1014e3c83238db25f74011e8e  ${RUNNER_TEMP}/dialogue_runtime.py.xz" | sha256sum -c -
+          xz --test "${RUNNER_TEMP}/dialogue_runtime.py.xz"
+          xz -dc "${RUNNER_TEMP}/dialogue_runtime.py.xz" > "${RUNNER_TEMP}/dialogue_runtime.py"
+          echo "3ee79f8430ae1ffca0a177ef6b117240807c0ce926ba6563cd3d3a2703879faf  ${RUNNER_TEMP}/dialogue_runtime.py" | sha256sum -c -
+
           cp candidate-validation/B33_FILE_SHA256SUMS.txt "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt"
           test "$(wc -l < "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt")" -eq 48
 
@@ -67,15 +86,23 @@ jobs:
           B33_BASE_COMMIT: e6c2c4d3df6baceaff258b4be6af8062c8448334
           B33_TARGET_BRANCH: agent/b33-full-source-20260804
           CAPABILITY_GATE_PATH: services/agent-service/src/agent_core/runtime/capability_gate.py
+          DIALOGUE_RUNTIME_PATH: services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
         run: |
           set -euo pipefail
           git cat-file -e "${B33_BASE_COMMIT}^{commit}"
           git checkout --detach "${B33_BASE_COMMIT}"
           git reset --hard "${B33_BASE_COMMIT}"
           git clean -fdx
-          git apply --check --exclude="${CAPABILITY_GATE_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
-          git apply --exclude="${CAPABILITY_GATE_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply --check \
+            --exclude="${CAPABILITY_GATE_PATH}" \
+            --exclude="${DIALOGUE_RUNTIME_PATH}" \
+            "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply \
+            --exclude="${CAPABILITY_GATE_PATH}" \
+            --exclude="${DIALOGUE_RUNTIME_PATH}" \
+            "${RUNNER_TEMP}/b33-runtime.patch"
           cp "${RUNNER_TEMP}/capability_gate.py" "${CAPABILITY_GATE_PATH}"
+          cp "${RUNNER_TEMP}/dialogue_runtime.py" "${DIALOGUE_RUNTIME_PATH}"
           sha256sum -c "${RUNNER_TEMP}/B33_FILE_SHA256SUMS.txt"
           git diff --check
 
