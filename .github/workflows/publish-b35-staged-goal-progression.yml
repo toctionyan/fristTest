@@ -1,0 +1,289 @@
+name: Publish B35 staged goal progression
+
+on:
+  push:
+    branches:
+      - agent/b35-quick-repair-publisher-20260804
+    paths:
+      - candidate-validation/b35-quick-repair/**
+      - .github/workflows/publish-b35-staged-goal-progression.yml
+  pull_request:
+    branches:
+      - agent/b34-resilient-task-harness-final-20260804
+    paths:
+      - candidate-validation/b35-quick-repair/**
+      - .github/workflows/publish-b35-staged-goal-progression.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b35-staged-goal-progression
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      BASE_SHA: 4172bdb36fd3a6f356421c2a048e0585de22a154
+      EXPECTED_TARGET_SHA: 4172bdb36fd3a6f356421c2a048e0585de22a154
+      TARGET_BRANCH: agent/b35-staged-goal-progression-20260804
+      PAYLOAD_SHA: cf5b408255863adc4fd9f2931e60d5946d6839433f6ad398bca188171e2b00ac
+      PATCH_SHA: d7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081
+
+    steps:
+      - name: Checkout immutable publisher payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-quick-repair-publisher-20260804
+          fetch-depth: 0
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Authenticate locked repair payload
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b35-quick-repair/part-*.b64 > /tmp/b35-payload.tar.xz.b64
+          base64 --decode /tmp/b35-payload.tar.xz.b64 > /tmp/b35-payload.tar.xz
+          echo "${PAYLOAD_SHA}  /tmp/b35-payload.tar.xz" | sha256sum --check --strict
+          xz --test /tmp/b35-payload.tar.xz
+          rm -rf /tmp/b35-payload
+          mkdir -p /tmp/b35-payload
+          tar -xJf /tmp/b35-payload.tar.xz -C /tmp/b35-payload
+          echo "${PATCH_SHA}  /tmp/b35-payload/b35-quick-repair.patch" | sha256sum --check --strict
+
+      - id: authority
+        name: Enforce clean B35 target authority
+        run: |
+          set -euo pipefail
+          git fetch origin "${TARGET_BRANCH}" --no-tags
+          target_sha="$(git rev-parse FETCH_HEAD)"
+          echo "target_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
+          if [[ "${target_sha}" != "${EXPECTED_TARGET_SHA}" ]]; then
+            echo "Refusing to overwrite ${TARGET_BRANCH}: expected ${EXPECTED_TARGET_SHA}, got ${target_sha}." >&2
+            exit 1
+          fi
+
+      - name: Materialize exact B34 base and apply six-file patch
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/b35-source
+          git worktree add --detach /tmp/b35-source "${BASE_SHA}"
+          cd /tmp/b35-source
+          git apply --check /tmp/b35-payload/b35-quick-repair.patch
+          git apply /tmp/b35-payload/b35-quick-repair.patch
+
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          expected = {
+              'services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json',
+              'services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json',
+              'services/agent-service/src/agent_core/kernel/plan_projection_contract.py',
+              'services/agent-service/src/agent_core/lifecycle/workflow_runtime.py',
+              'services/agent-service/tests/runtime/test_workflow_runtime.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+          }
+          actual = {
+              line.strip()
+              for line in subprocess.check_output(
+                  ['git', 'diff', '--name-only', 'HEAD'], text=True
+              ).splitlines()
+              if line.strip()
+          }
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          for raw in expected:
+              assert Path(raw).is_file(), raw
+          print('Authenticated B35 source scope: 6/6 PASS')
+          PY
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r /tmp/b35-source/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent Service environment
+        run: |
+          set -euo pipefail
+          cd /tmp/b35-source/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run the failed Quick cases and adjacent counterexamples
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/b35-evidence
+          cd /tmp/b35-source/services/agent-service
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/context/test_conversation_regression_suite_execution.py \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_goal_coverage_runtime.py::test_plain_content_protocol_retry_forces_a_bound_terminal_tool_call \
+            tests/runtime/test_workflow_runtime.py \
+            tests/runtime/test_pretool_execution_policy.py \
+            tests/runtime/test_goal_binding_counterexamples.py \
+            2>&1 | tee /tmp/b35-evidence/focused-tests.log
+
+      - name: Generate locked B35 evidence and 547-file product baseline
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          cd /tmp/b35-source
+          "${pythonLocation}/bin/python" - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          protected = [
+              'services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json',
+              'services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json',
+              'services/agent-service/src/agent_core/kernel/plan_projection_contract.py',
+              'services/agent-service/src/agent_core/lifecycle/workflow_runtime.py',
+              'services/agent-service/tests/runtime/test_workflow_runtime.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+          ]
+          records = {}
+          fingerprint = hashlib.sha256()
+          for raw in protected:
+              path = root / raw
+              data = path.read_bytes()
+              digest = hashlib.sha256(data).hexdigest()
+              records[raw] = {'sha256': digest, 'size': len(data)}
+              fingerprint.update(raw.encode('utf-8'))
+              fingerprint.update(b'\0')
+              fingerprint.update(digest.encode('ascii'))
+              fingerprint.update(b'\n')
+          source_fingerprint = fingerprint.hexdigest()
+
+          sys.path.insert(0, str(root / 'skill-system/controller'))
+          import project_compatibility  # type: ignore
+
+          product_files = project_compatibility.snapshot(root)
+          assert len(product_files) == 547, len(product_files)
+          baseline = {
+              'schema_version': 2,
+              'generated_from': 'v20.17-b35-staged-goal-progression-github-candidate',
+              'source_release_sha256': source_fingerprint,
+              'generated_at': '2026-08-04T13:30:00Z',
+              'protected_roots': list(project_compatibility.PROTECTED_NAMES),
+              'file_count': len(product_files),
+              'files': product_files,
+          }
+          (root / 'skill-system/registry/product-source-baseline.json').write_text(
+              json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+
+          manifest = {
+              'schema_version': 1,
+              'stage': 'B35 Staged Goal Progression',
+              'change_id': 'repair-v20.17-b35-staged-goal-progression',
+              'base_sha': '4172bdb36fd3a6f356421c2a048e0585de22a154',
+              'patch_sha256': 'd7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081',
+              'source_fingerprint': source_fingerprint,
+              'changed_file_count': len(records),
+              'files': records,
+              'production_closed': False,
+          }
+          (root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          summary = {
+              'schema_version': 1,
+              'stage': 'B35 Staged Goal Progression',
+              'status': 'FOCUSED_GITHUB_VALIDATED',
+              'source_fingerprint': source_fingerprint,
+              'fixed_quick_failure_count': 16,
+              'changed_file_count': len(records),
+              'product_baseline_file_count': len(product_files),
+              'task_ledger_remaining_must_close': ['WP-08', 'WP-09'],
+              'production_closed': False,
+          }
+          (root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          report = f'''# B35 Staged Goal Progression Validation\n\n- Base B34 commit: `4172bdb36fd3a6f356421c2a048e0585de22a154`\n- Locked patch: `d7c60a0dee7f8d44364d3f3a2c6970915142ef29935f5e0d4d92ac24a4a89081`\n- Source fingerprint: `{source_fingerprint}`\n- Protected source changes: 6 files\n- GitHub product baseline: 547 files\n- Previously failing Quick cases: 16\n- Focused and adjacent tests: PASS before this report was generated\n- WP-08 / WP-09: not closed\n- `production_closed=false`\n\nThe repair stages dependent goals across pre-tool frontiers, preserves durable upstream completion, splits scripted dependent calls, and prevents clarification-only retries from exposing the unsupported-request reporter.\n'''
+          release = root / 'release'
+          release.mkdir(parents=True, exist_ok=True)
+          (release / 'B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md').write_text(
+              report, encoding='utf-8'
+          )
+          print(json.dumps({'source_fingerprint': source_fingerprint, 'protected_files': 6, 'product_files': 547}, indent=2))
+          PY
+
+          "${pythonLocation}/bin/python" -B scripts/verify_task_ledger.py | tee /tmp/b35-evidence/task-ledger.log
+          "${pythonLocation}/bin/python" -B skill-system/controller/project_compatibility.py | tee /tmp/b35-evidence/project-compatibility.log
+
+      - name: Enforce exact ten-path publication surface
+        run: |
+          set -euo pipefail
+          cd /tmp/b35-source
+          git clean -fdX
+          git add -A
+          "${pythonLocation}/bin/python" - <<'PY'
+          import subprocess
+
+          expected = {
+              'services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json',
+              'services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json',
+              'services/agent-service/src/agent_core/kernel/plan_projection_contract.py',
+              'services/agent-service/src/agent_core/lifecycle/workflow_runtime.py',
+              'services/agent-service/tests/runtime/test_workflow_runtime.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'skill-system/registry/product-source-baseline.json',
+              'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json',
+              'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json',
+              'release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md',
+          }
+          actual = {
+              line.strip()
+              for line in subprocess.check_output(
+                  ['git', 'diff', '--cached', '--name-only'], text=True
+              ).splitlines()
+              if line.strip()
+          }
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          print('B35 publication surface: 10/10 PASS')
+          PY
+
+      - id: publish
+        name: Commit and publish B35 candidate source
+        run: |
+          set -euo pipefail
+          cd /tmp/b35-source
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Publish B35 staged goal progression repair'
+          published_sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}" \
+            --force-with-lease="${TARGET_BRANCH}:${EXPECTED_TARGET_SHA}"
+          echo "published_sha=${published_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload B35 focused evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b35-focused-evidence-${{ github.sha }}
+          path: /tmp/b35-evidence
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record result
+        if: always()
+        run: |
+          {
+            echo '## B35 staged goal progression publication'
+            echo "- previous target: ${{ steps.authority.outputs.target_sha }}"
+            echo "- published commit: ${{ steps.publish.outputs.published_sha }}"
+            echo "- target branch: ${TARGET_BRANCH}"
+          } >> "${GITHUB_STEP_SUMMARY}"
