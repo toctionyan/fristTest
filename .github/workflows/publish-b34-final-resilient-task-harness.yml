@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       BASE_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
-      OLD_TARGET_SHA: 72cce126e4124e3abefb282de40e00ae1a91cb1b
-      TARGET_BRANCH: agent/b34-resilient-task-harness-20260804
+      EXPECTED_TARGET_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
+      TARGET_BRANCH: agent/b34-resilient-task-harness-final-20260804
       OVERLAY_SHA: a4c771dc9ed99faa806d859c5017bb7dc5065d2417fe15ce99a0b6fd0a1663ff
       FINAL_MANIFEST_SHA: f2a7b4b872b1e82f272fbcd4f6f0debc51d4c51f04ca3b0e3c0272685e7bfd6d
       BASELINE_SHA: 7a247873e59791e404fc9e464c7b0fbbc8ce9e8a1319f8c358c0b52798f01652
@@ -48,14 +48,14 @@ jobs:
           xz --test /tmp/b34-overlay.tar.xz
 
       - id: authority
-        name: Enforce obsolete target authority
+        name: Enforce clean target authority
         run: |
           set -euo pipefail
           git fetch origin "${TARGET_BRANCH}" --no-tags
           target_sha="$(git rev-parse FETCH_HEAD)"
           echo "target_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
 
-          if [[ "${target_sha}" == "${OLD_TARGET_SHA}" ]]; then
+          if [[ "${target_sha}" == "${EXPECTED_TARGET_SHA}" ]]; then
             echo "mode=publish" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -71,7 +71,7 @@ jobs:
             fi
           fi
 
-          echo "Refusing to overwrite ${TARGET_BRANCH}: expected obsolete ${OLD_TARGET_SHA} or authenticated final B34, got ${target_sha}." >&2
+          echo "Refusing to overwrite ${TARGET_BRANCH}: expected clean base ${EXPECTED_TARGET_SHA} or authenticated final B34, got ${target_sha}." >&2
           exit 1
 
       - name: Materialize and verify final B34
@@ -131,7 +131,7 @@ jobs:
           git commit -m 'Publish final B34 resilient task harness'
           published_sha="$(git rev-parse HEAD)"
           git push origin "HEAD:refs/heads/${TARGET_BRANCH}" \
-            --force-with-lease="${TARGET_BRANCH}:${OLD_TARGET_SHA}"
+            --force-with-lease="${TARGET_BRANCH}:${EXPECTED_TARGET_SHA}"
           echo "published_sha=${published_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Record publication result
