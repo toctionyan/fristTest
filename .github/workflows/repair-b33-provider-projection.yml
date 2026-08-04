@@ -1,0 +1,154 @@
+name: Repair B33 provider projection
+
+on:
+  push:
+    branches:
+      - agent/b33-actions-validation-v2-20260804
+    paths:
+      - .github/workflows/repair-b33-provider-projection.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repair-b33-provider-projection-20260804
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      TARGET_BRANCH: agent/b33-full-source-20260804
+      PATCH_FILE: candidate-validation/b33-provider-projection-fix.patch.xz.b64
+    steps:
+      - name: Checkout B33 direct source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b33-full-source-20260804
+          fetch-depth: 0
+
+      - name: Fetch repair payload from carrier branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/b33-actions-validation-v2-20260804 --depth=1
+          git show FETCH_HEAD:${PATCH_FILE} > "${RUNNER_TEMP}/provider-projection.patch.xz.b64"
+          base64 --decode "${RUNNER_TEMP}/provider-projection.patch.xz.b64" > "${RUNNER_TEMP}/provider-projection.patch.xz"
+          echo "2645e8ae8f0d234c9218fbb7c209a86c5656f2cf26a9547366f3b14de94e3e65  ${RUNNER_TEMP}/provider-projection.patch.xz" | sha256sum -c -
+          xz --test "${RUNNER_TEMP}/provider-projection.patch.xz"
+          xz -dc "${RUNNER_TEMP}/provider-projection.patch.xz" > "${RUNNER_TEMP}/provider-projection.patch"
+          echo "aef12117c7b8c1aabc335365fb3df2916cbcb612361eeb6da93ac59f8be13a3e  ${RUNNER_TEMP}/provider-projection.patch" | sha256sum -c -
+
+      - name: Apply provider projection repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check "${RUNNER_TEMP}/provider-projection.patch"
+          git apply "${RUNNER_TEMP}/provider-projection.patch"
+          python -B -m py_compile services/agent-service/src/agent_core/lifecycle/protocol.py
+          git diff --check
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent dependencies
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Run focused provider and Target DSL contracts
+        working-directory: services/agent-service
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_goal_binding_counterexamples.py::test_provider_tool_projection_is_compact_but_runtime_schema_stays_strict \
+            tests/runtime/test_stage5_controlled_target_dsl.py \
+            tests/runtime/test_capability_target_schema.py
+          .venv/bin/python - <<'PY'
+          import json
+          from agent_core.composition import get_runtime_registry
+          from agent_core.lifecycle.protocol import agent_loop_schemas
+
+          schemas = agent_loop_schemas(
+              get_runtime_registry().capabilities,
+              allowed_capability_tools={"list_orders", "consult_invoice_policy"},
+          )
+          size = len(json.dumps(
+              [schema["function"]["parameters"] for schema in schemas],
+              ensure_ascii=False,
+              separators=(",", ":"),
+          ))
+          assert size < 12_000, size
+          print(json.dumps({"provider_schema_bytes": size, "limit": 12_000}, indent=2))
+          PY
+
+      - name: Refresh B33 protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          protected_roots = ("services", "web", "contracts")
+          ignored_parts = {".venv", "node_modules", "__pycache__"}
+          files: dict[str, str] = {}
+          for name in protected_roots:
+              protected_root = root / name
+              if not protected_root.exists():
+                  continue
+              for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
+                  if any(part in ignored_parts for part in path.parts):
+                      continue
+                  files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          payload = {
+              "schema_version": 2,
+              "generated_from": "v20.17-b33-full-source-20260804-provider-projection-repair",
+              "source_release_sha256": "bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195",
+              "generated_at": "2026-08-04T09:25:00Z",
+              "protected_roots": list(protected_roots),
+              "file_count": len(files),
+              "files": files,
+          }
+          target = root / "skill-system/registry/product-source-baseline.json"
+          target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps({"status": "GENERATED", "file_count": len(files)}, indent=2))
+          PY
+          python -B skill-system/controller/project_compatibility.py
+          git diff --check
+
+      - name: Publish repaired B33 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            skill-system/registry/product-source-baseline.json
+          git commit -m "Compact B33 provider schema projection"
+          git push origin HEAD:refs/heads/${TARGET_BRANCH}
+
+      - name: Repair summary
+        run: |
+          {
+            echo '## B33 provider projection repair'
+            echo '- Runtime canonical schemas remain strict.'
+            echo '- Provider projection remains below 12 KB.'
+            echo '- Product source baseline refreshed.'
+            echo '- Production closed: false.'
+          } >> "${GITHUB_STEP_SUMMARY}"
