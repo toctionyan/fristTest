@@ -51,11 +51,11 @@ text = text.replace(
 focused = '  tests/runtime/test_goal_binding_counterexamples.py::test_provider_tool_projection_is_compact_but_runtime_schema_stays_strict\n'
 if text.count(focused) != 1:
     raise SystemExit("unexpected focused test insertion point")
-text = text.replace(
-    focused,
-    focused + '  tests/runtime/test_workflow_runtime.py\n',
-    1,
+replacement_focused = (
+    '  tests/runtime/test_goal_binding_counterexamples.py::test_provider_tool_projection_is_compact_but_runtime_schema_stays_strict \\\n'
+    '  tests/runtime/test_workflow_runtime.py\n'
 )
+text = text.replace(focused, replacement_focused, 1)
 path.write_text(text, encoding="utf-8")
 PY
 
