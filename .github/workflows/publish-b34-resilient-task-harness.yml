@@ -1,0 +1,142 @@
+name: Publish B34 resilient task harness
+
+on:
+  pull_request:
+    branches:
+      - agent/b33-full-source-20260804
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b34-resilient-task-harness
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.head_ref == 'agent/b34-resilient-task-harness-publisher-20260804'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out immutable publisher payload
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Reconstruct and verify B34 overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-overlay/part-*.b64 > /tmp/b34-overlay.b64
+          test "$(wc -c < /tmp/b34-overlay.b64)" -eq 26912
+          echo 'af8047cd44d08e2bce6dac4cb41f5fa7a1956853a42fe72285280249a6b3d73e  /tmp/b34-overlay.b64' | sha256sum -c -
+          base64 --decode /tmp/b34-overlay.b64 > /tmp/b34-overlay.tar.xz
+          echo 'b16c46d963f90b2a907716ed002f523382ad6e905ff47187247ff776c7e50b46  /tmp/b34-overlay.tar.xz' | sha256sum -c -
+          mkdir -p /tmp/b34-overlay
+          tar -tJf /tmp/b34-overlay.tar.xz | python -c 'import sys; from pathlib import PurePosixPath; entries=[line.strip() for line in sys.stdin if line.strip()]; assert entries; assert all(not PurePosixPath(x).is_absolute() and ".." not in PurePosixPath(x).parts for x in entries)'
+          tar -xJf /tmp/b34-overlay.tar.xz -C /tmp/b34-overlay
+
+      - name: Check out latest provider-fixed B33 target
+        uses: actions/checkout@v4
+        with:
+          ref: agent/b34-resilient-task-harness-20260804
+          fetch-depth: 0
+          path: target
+
+      - name: Apply only B34 governance overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          expected_parent='5b8e9d71c596fefdc59766bc47773f750549e952'
+          current_head="$(git rev-parse HEAD)"
+          if git log -1 --pretty=%s | grep -qx 'Add B34 resilient task harness'; then
+            echo 'B34 direct-source commit already exists; publisher is idempotent.'
+            exit 0
+          fi
+          test "$current_head" = "$expected_parent"
+          cp -a /tmp/b34-overlay/. .
+          cat > /tmp/b34-files.sha256 <<'EOF'
+          91d73a29820d96c895f414cd3e8b64b93ffc575e824a0f0d385b4164d1ee836e  scripts/repair_loop.py
+          93bef54fa654714d035282ee665924d1c16337fb1cfbc1ea9ee34672d12cafd4  skill-system/controller/task_run.py
+          5feb6147e1be188c8ec683572bb95893585e23a8e07c606e245a05abce07cfda  skill-system/controller/task_run_cli.py
+          d8ac86e9892c926b269440b00161bc8ea879cdc7886c2abbc1032b10230c1400  skill-system/tests/test_task_run.py
+          f72cf4d4eba92b04f90e062b31178d1b923bfa0815e45c4d19825dbe71ad6753  skill-system/tests/test_task_run_cli.py
+          482bc9b5f10a55ea699d6200aca75ec7cacab6b431d1d4d74c3b210137881cf7  skill-system/tests/test_resilient_repair_task_run.py
+          e4995c38418b0a2372bc3e6f70b17e0fb972d40fce1f9891094a9c7cbd5c191e  governance/task-run.schema.json
+          4a159d30b6a0b83ad58adb5b72f80a8e3c74a613e3a52b1d368348d33ffb3320  scripts/verify_b34_resilient_task_harness.py
+          69d59b71b36894f1ccb1615b8cd7a2a156d6ae58fefc2a7509198e90baec5851  release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md
+          248e5b8ce6f10f8e544c26f9c9192b5ba95fbc02ce6741cf495941fe16eac85c  B34_RESILIENT_TASK_HARNESS_SUMMARY.json
+          9fea2288a88b15989cb912e36c592bb26628162752b4aea911094b01ae9a793f  B34_RESILIENT_TASK_HARNESS_MANIFEST.json
+          39f1062f007735fbd5e4082200b0b23203417a2628bbc68753cab26b0785eb32  b34-resilient-task-harness-change-contract.json
+          EOF
+          sed -i 's/^          //' /tmp/b34-files.sha256
+          sha256sum -c /tmp/b34-files.sha256
+          echo 'a680960ec639ffa3b7229443259e18834b1e63a1ef7e858c12bd245b07a504a9  services/agent-service/src/agent_core/lifecycle/protocol.py' | sha256sum -c -
+          python - <<'PY'
+          import subprocess
+          expected = {
+              'scripts/repair_loop.py',
+              'skill-system/controller/task_run.py',
+              'skill-system/controller/task_run_cli.py',
+              'skill-system/tests/test_task_run.py',
+              'skill-system/tests/test_task_run_cli.py',
+              'skill-system/tests/test_resilient_repair_task_run.py',
+              'governance/task-run.schema.json',
+              'scripts/verify_b34_resilient_task_harness.py',
+              'release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md',
+              'B34_RESILIENT_TASK_HARNESS_SUMMARY.json',
+              'B34_RESILIENT_TASK_HARNESS_MANIFEST.json',
+              'b34-resilient-task-harness-change-contract.json',
+          }
+          actual = {
+              line[3:].strip()
+              for line in subprocess.check_output(['git', 'status', '--short'], text=True).splitlines()
+              if line.strip()
+          }
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          PY
+
+      - name: Run focused interruption and completion-guard tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          python -m pip install --disable-pip-version-check -q pytest
+          PYTHONDONTWRITEBYTECODE=1 python -m pytest -q \
+            skill-system/tests/test_task_run.py \
+            skill-system/tests/test_task_run_cli.py \
+            skill-system/tests/test_resilient_repair_task_run.py
+          python -m compileall -q \
+            skill-system/controller/task_run.py \
+            skill-system/controller/task_run_cli.py \
+            scripts/repair_loop.py
+
+      - name: Publish direct B34 source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          if git diff --quiet && test -z "$(git status --porcelain)"; then
+            echo 'No publication change required.'
+            exit 0
+          fi
+          git config user.name 'B34 Governance Publisher'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- \
+            scripts/repair_loop.py \
+            skill-system/controller/task_run.py \
+            skill-system/controller/task_run_cli.py \
+            skill-system/tests/test_task_run.py \
+            skill-system/tests/test_task_run_cli.py \
+            skill-system/tests/test_resilient_repair_task_run.py \
+            governance/task-run.schema.json \
+            scripts/verify_b34_resilient_task_harness.py \
+            release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md \
+            B34_RESILIENT_TASK_HARNESS_SUMMARY.json \
+            B34_RESILIENT_TASK_HARNESS_MANIFEST.json \
+            b34-resilient-task-harness-change-contract.json
+          git commit -m 'Add B34 resilient task harness'
+          git push origin HEAD:refs/heads/agent/b34-resilient-task-harness-20260804
