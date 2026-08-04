@@ -42,8 +42,15 @@ jobs:
           xz --test "${RUNNER_TEMP}/b33-runtime.patch.xz"
           xz -dc "${RUNNER_TEMP}/b33-runtime.patch.xz" > "${RUNNER_TEMP}/b33-runtime.patch"
           echo "af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89  ${RUNNER_TEMP}/b33-runtime.patch" | sha256sum -c -
-          git apply --check "${RUNNER_TEMP}/b33-runtime.patch"
-          git apply "${RUNNER_TEMP}/b33-runtime.patch"
+
+          CONFLICT_PATH="services/agent-service/src/agent_core/runtime/capability_gate.py"
+          git apply --check --exclude="${CONFLICT_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
+          git apply --exclude="${CONFLICT_PATH}" "${RUNNER_TEMP}/b33-runtime.patch"
+
+          base64 --decode candidate-validation/b33-file-overrides/capability_gate.py.xz.b64 \
+            | xz -dc > "${CONFLICT_PATH}"
+          echo "e1533722e87a7a2376e565f48a3e9a4457449ff742e02f73f20941d5fe7e5e2e  ${CONFLICT_PATH}" | sha256sum -c -
+
           git diff --check
           git diff --name-only | sort | tee "${RUNNER_TEMP}/b33-changed-files.txt"
           test "$(wc -l < "${RUNNER_TEMP}/b33-changed-files.txt")" -eq 48
