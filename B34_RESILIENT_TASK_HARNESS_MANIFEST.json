@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "stage": "B34 Resilient Task Harness",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "required_files": {
+    "scripts/repair_loop.py": {
+      "sha256": "91d73a29820d96c895f414cd3e8b64b93ffc575e824a0f0d385b4164d1ee836e",
+      "size": 40155
+    },
+    "skill-system/controller/task_run.py": {
+      "sha256": "93bef54fa654714d035282ee665924d1c16337fb1cfbc1ea9ee34672d12cafd4",
+      "size": 17989
+    },
+    "skill-system/controller/task_run_cli.py": {
+      "sha256": "5feb6147e1be188c8ec683572bb95893585e23a8e07c606e245a05abce07cfda",
+      "size": 2421
+    },
+    "skill-system/tests/test_task_run.py": {
+      "sha256": "d8ac86e9892c926b269440b00161bc8ea879cdc7886c2abbc1032b10230c1400",
+      "size": 11028
+    },
+    "skill-system/tests/test_task_run_cli.py": {
+      "sha256": "f72cf4d4eba92b04f90e062b31178d1b923bfa0815e45c4d19825dbe71ad6753",
+      "size": 3029
+    },
+    "skill-system/tests/test_resilient_repair_task_run.py": {
+      "sha256": "482bc9b5f10a55ea699d6200aca75ec7cacab6b431d1d4d74c3b210137881cf7",
+      "size": 11193
+    },
+    "governance/task-run.schema.json": {
+      "sha256": "e4995c38418b0a2372bc3e6f70b17e0fb972d40fce1f9891094a9c7cbd5c191e",
+      "size": 2079
+    },
+    "scripts/verify_b34_resilient_task_harness.py": {
+      "sha256": "4a159d30b6a0b83ad58adb5b72f80a8e3c74a613e3a52b1d368348d33ffb3320",
+      "size": 5870
+    },
+    "release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md": {
+      "sha256": "69d59b71b36894f1ccb1615b8cd7a2a156d6ae58fefc2a7509198e90baec5851",
+      "size": 2580
+    },
+    "B34_RESILIENT_TASK_HARNESS_SUMMARY.json": {
+      "sha256": "248e5b8ce6f10f8e544c26f9c9192b5ba95fbc02ce6741cf495941fe16eac85c",
+      "size": 1746
+    },
+    "b34-resilient-task-harness-change-contract.json": {
+      "sha256": "39f1062f007735fbd5e4082200b0b23203417a2628bbc68753cab26b0785eb32",
+      "size": 845
+    }
+  },
+  "required_file_count": 11,
+  "verification_script": "scripts/verify_b34_resilient_task_harness.py",
+  "governance_case": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness",
+  "production_closed": false
+}
