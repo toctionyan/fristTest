@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "stage": "B34 Resilient Task Harness",
+  "base": "B33 Stage 5 Controlled Target DSL",
+  "status": "CANDIDATE_VALIDATED",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "permit_digest": "02440d894e67906d8c4fc7872dffd4c3db352302f11f8d06799d2c187fc01b82",
+  "features": [
+    "durable TaskRun state machine",
+    "atomic JSON checkpoints with revision guard",
+    "evidence-backed Completion Guard",
+    "action fingerprint and bounded fallback",
+    "FIXER_RUNNING interruption reconciliation",
+    "inspect/guard CLI",
+    "machine-readable JSON schema"
+  ],
+  "tests": {
+    "focused": "17 passed",
+    "skill_control_plane": "141 passed",
+    "quality_loop_regression": "73 passed, 4 deselected because local langchain_core is unavailable"
+  },
+  "static_gates": {
+    "skill_profile": "PASS",
+    "quality_toolchain": "PASS",
+    "architecture": "PASS",
+    "module_closure": "PASS",
+    "version_consistency": "PASS",
+    "convergence": "PASS"
+  },
+  "environment_blocked": {
+    "langchain_core_available": false,
+    "environment_blocked_tests": [
+      "test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_tools",
+      "test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording",
+      "test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching",
+      "test_protected_model_smoke_rejects_duplicate_goal_ids_and_wrong_base_response"
+    ],
+    "environment_block_reason": "local interpreter does not provide langchain_core; GitHub locked runtime must execute these four unrelated smoke tests"
+  },
+  "governance_closure_record": "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/closure-matrix.json",
+  "production_closed": false
+}

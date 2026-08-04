@@ -415,7 +415,7 @@
       "description": "The release workflow oracle now tracks the current protected runtime steps and no longer references the removed Start actual protected-profile services step.",
       "evidence_refs": [
         "skill-system/tests/test_stage6_host_release_readiness.py",
-        "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+        "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json",
         ".github/workflows/release.yml"
       ]
     },
