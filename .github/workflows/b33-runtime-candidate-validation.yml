@@ -1,4 +1,4 @@
-name: B33 Runtime Candidate Validation
+name: B34 GitHub Regression Closure Validation
 
 on:
   pull_request:
@@ -10,10 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  validate-b33-runtime:
+  validate-b34-runtime:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
+      APP_PROFILE: local
       PYTHONPATH: ${{ github.workspace }}/services/agent-service:${{ github.workspace }}/services/agent-service/src
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -27,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/b33-evidence"
+          mkdir -p "${RUNNER_TEMP}/b34-evidence"
           target='services/agent-service/src/agent_core/runtime/capability_gate.py'
           known_whitespace='services/agent-service/tests/runtime/test_stage1_known_architecture_gaps.py'
           cat \
@@ -52,7 +53,6 @@ jobs:
           git apply --3way "${RUNNER_TEMP}/b33-runtime.patch"
           apply_rc=$?
           set -e
-
           unmerged="$(git diff --name-only --diff-filter=U)"
           if [ -n "$unmerged" ]; then
             test "$unmerged" = "$target"
@@ -82,19 +82,17 @@ jobs:
               echo "path=${target}"
               echo "initial_apply_rc=${apply_rc}"
               echo 'resolution=repository_release_scope_plus_b33_pipeline_frontier'
-            } > "${RUNNER_TEMP}/b33-evidence/merge-status.txt"
+            } > "${RUNNER_TEMP}/b34-evidence/merge-status.txt"
           else
             test "$apply_rc" -eq 0
-            echo 'status=clean_three_way_apply' > "${RUNNER_TEMP}/b33-evidence/merge-status.txt"
+            echo 'status=clean_three_way_apply' > "${RUNNER_TEMP}/b34-evidence/merge-status.txt"
           fi
-
           echo "ac55da9e9395971da39ba9d92b799dacc70f24430d889e430a48dc0bdd589c6b  ${target}" \
             | sha256sum --check --strict
 
           TARGET="$known_whitespace" "${pythonLocation}/bin/python" - <<'PY'
           import os
           from pathlib import Path
-
           path = Path(os.environ["TARGET"])
           path.write_bytes(path.read_bytes().rstrip() + b"\n")
           PY
@@ -102,9 +100,22 @@ jobs:
             | sha256sum --check --strict
           git add "$known_whitespace"
 
+      - name: Apply SHA-bound B34 regression closure overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            candidate-validation/b34-regression-overlay/part-000.b64 \
+            candidate-validation/b34-regression-overlay/part-001.b64 \
+            | base64 --decode \
+            | gzip -dc > "${RUNNER_TEMP}/b34-overlay.patch"
+          echo "1685bf02375e9f583fc107408fd88e132d5366d3c8932c68ab342865eb9974fc  ${RUNNER_TEMP}/b34-overlay.patch" \
+            | sha256sum --check --strict
+          git apply --check "${RUNNER_TEMP}/b34-overlay.patch"
+          git apply "${RUNNER_TEMP}/b34-overlay.patch"
           git diff --name-only HEAD -- services/agent-service/src services/agent-service/tests \
-            | LC_ALL=C sort > "${RUNNER_TEMP}/b33-evidence/changed-paths.txt"
-          test "$(wc -l < "${RUNNER_TEMP}/b33-evidence/changed-paths.txt")" -eq 48
+            | LC_ALL=C sort > "${RUNNER_TEMP}/b34-evidence/changed-paths.txt"
+          test "$(wc -l < "${RUNNER_TEMP}/b34-evidence/changed-paths.txt")" -eq 50
           git diff --check HEAD
 
       - name: Bootstrap locked uv
@@ -116,20 +127,20 @@ jobs:
       - name: Install locked Agent dependencies
         run: cd services/agent-service && uv sync --locked --all-groups
 
-      - name: Run B33 focused architecture contracts
+      - name: Run Stage 1-5 focused architecture contracts
         working-directory: services/agent-service
         run: |
           set -euo pipefail
-          mkdir -p "${RUNNER_TEMP}/b33-evidence"
           uv run pytest -q \
-            --junitxml="${RUNNER_TEMP}/b33-evidence/focused-junit.xml" \
+            --junitxml="${RUNNER_TEMP}/b34-evidence/focused-junit.xml" \
             tests/runtime/test_stage1_known_architecture_gaps.py \
             tests/runtime/test_stage2_p0_safety_boundaries.py \
             tests/runtime/test_stage3_entity_authority.py \
             tests/runtime/test_stage4_goal_output_refs.py \
             tests/runtime/test_stage5_controlled_target_dsl.py \
             tests/runtime/test_pretool_execution_policy.py \
-            tests/runtime/test_capability_target_schema.py
+            tests/runtime/test_capability_target_schema.py \
+            tests/runtime/test_goal_binding_counterexamples.py::test_provider_tool_projection_is_compact_but_runtime_schema_stays_strict
 
       - name: Run Agent non-integration regression
         working-directory: services/agent-service
@@ -137,12 +148,7 @@ jobs:
           set -euo pipefail
           uv run pytest -q \
             -m "not integration and not preprod" \
-            --junitxml="${RUNNER_TEMP}/b33-evidence/agent-regression-junit.xml"
-
-      - name: Diagnose Agent regression failures
-        if: failure()
-        working-directory: services/agent-service
-        run: bash ../../candidate-validation/b33-diagnose-regression.sh "${RUNNER_TEMP}/b33-evidence"
+            --junitxml="${RUNNER_TEMP}/b34-evidence/agent-regression-junit.xml"
 
       - name: Run architecture gates
         if: always()
@@ -163,19 +169,19 @@ jobs:
             echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
             echo "base_ref=${GITHUB_BASE_REF}"
             echo "head_ref=${GITHUB_HEAD_REF}"
-            echo "patch_sha256=af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89"
+            echo "b33_patch_sha256=af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89"
+            echo "b34_overlay_sha256=1685bf02375e9f583fc107408fd88e132d5366d3c8932c68ab342865eb9974fc"
             echo "capability_gate_merged_sha256=ac55da9e9395971da39ba9d92b799dacc70f24430d889e430a48dc0bdd589c6b"
-            echo "stage1_test_normalized_sha256=fa1204cdb888aede72d73544eaf38dd5742ef16fb82686d96526ce82674944c6"
+            echo "app_profile=${APP_PROFILE}"
             echo "pythonpath=${PYTHONPATH}"
-            echo "merge_mode=git-apply-3way-plus-explicit-single-conflict-resolution"
             echo "production_closed=false"
-          } > "${RUNNER_TEMP}/b33-evidence/run-binding.txt"
+          } > "${RUNNER_TEMP}/b34-evidence/run-binding.txt"
 
-      - name: Upload B33 validation evidence
+      - name: Upload B34 validation evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: b33-runtime-validation-evidence-attempt-${{ github.run_attempt }}
+          name: b34-runtime-validation-evidence-attempt-${{ github.run_attempt }}
           overwrite: true
           if-no-files-found: error
-          path: ${{ runner.temp }}/b33-evidence
+          path: ${{ runner.temp }}/b34-evidence
