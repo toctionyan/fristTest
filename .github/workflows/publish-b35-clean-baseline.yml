@@ -48,8 +48,41 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
+      - name: Prepare idempotent clean-tree correction
+        run: |
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('publisher/candidate-validation/b35-clean-baseline/run-clean-baseline-correction.sh')
+          source = source_path.read_text(encoding='utf-8')
+          old = """assert report.count('- Product baseline: 548 files') == 1
+          report = report.replace('- Product baseline: 548 files', '- Product baseline: 547 files')
+          if '- Clean-tree product baseline (runtime artifacts excluded): PASS' not in report:
+              report = report.replace(
+                  '- Product baseline: 547 files\\n',
+                  '- Product baseline: 547 files\\n- Clean-tree product baseline (runtime artifacts excluded): PASS\\n',
+              )"""
+          new = """count_548 = report.count('- Product baseline: 548 files')
+          count_547 = report.count('- Product baseline: 547 files')
+          assert (count_548, count_547) in {(1, 0), (0, 1)}, (count_548, count_547)
+          if count_548 == 1:
+              report = report.replace('- Product baseline: 548 files', '- Product baseline: 547 files')
+          marker = '- Clean-tree product baseline (runtime artifacts excluded): PASS'
+          if marker not in report:
+              assert report.count('- Product baseline: 547 files\\n') == 1
+              report = report.replace(
+                  '- Product baseline: 547 files\\n',
+                  '- Product baseline: 547 files\\n' + marker + '\\n',
+              )"""
+          assert source.count(old) == 1, source.count(old)
+          Path('/tmp/run-clean-baseline-correction.sh').write_text(
+              source.replace(old, new), encoding='utf-8'
+          )
+          PY
+          bash -n /tmp/run-clean-baseline-correction.sh
+
       - name: Validate and publish clean-tree baseline correction
-        run: bash publisher/candidate-validation/b35-clean-baseline/run-clean-baseline-correction.sh
+        run: bash /tmp/run-clean-baseline-correction.sh
 
       - name: Upload clean baseline evidence
         if: always()
