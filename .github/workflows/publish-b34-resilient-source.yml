@@ -1,0 +1,164 @@
+name: Publish B34 resilient task harness source
+
+on:
+  pull_request:
+    branches:
+      - agent/b34-publisher-20260804
+    paths:
+      - candidate-validation/b34-publisher-trigger/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b34-resilient-source
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BASE_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
+      TARGET_BRANCH: agent/b34-resilient-task-harness-20260804
+      B64_SHA256: 5b6e8359e0d97aec6e3392fc2d5d19e6ff5fb66e240c990f369bf3d2e72da1cc
+      XZ_SHA256: 7d635657a52141befd5c3880941bbc6ad5ea7844a9760e7160c9755451fc4a40
+      PATCH_SHA256: c97e20637630ad6ff68d3070612003ac2435b34ae96d153f8ba9dc0c6dd54374
+      MANIFEST_SHA256: ddff2865a69e6a3d7ef4a7864c81079c51885467cdba1f1d77c98d14d9970ad0
+
+    steps:
+      - name: Checkout immutable publisher payload
+        uses: actions/checkout@v4
+        with:
+          ref: agent/b34-publisher-20260804
+          fetch-depth: 0
+
+      - name: Reconstruct and authenticate authoritative patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-publisher-v2/part-*.b64 > /tmp/b34.patch.xz.b64
+          echo "${B64_SHA256}  /tmp/b34.patch.xz.b64" | sha256sum --check --strict
+          base64 --decode /tmp/b34.patch.xz.b64 > /tmp/b34.patch.xz
+          echo "${XZ_SHA256}  /tmp/b34.patch.xz" | sha256sum --check --strict
+          xz --decompress --stdout /tmp/b34.patch.xz > /tmp/b34.patch
+          echo "${PATCH_SHA256}  /tmp/b34.patch" | sha256sum --check --strict
+
+      - name: Enforce target branch authority
+        id: authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${TARGET_BRANCH}" --no-tags
+          target_sha="$(git rev-parse FETCH_HEAD)"
+          echo "target_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
+
+          if [[ "${target_sha}" == "${BASE_SHA}" ]]; then
+            echo "mode=publish" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          rm -rf /tmp/b34-existing
+          git worktree add --detach /tmp/b34-existing "${target_sha}"
+          if [[ -f /tmp/b34-existing/B34_RESILIENT_TASK_HARNESS_MANIFEST.json ]]; then
+            actual="$(sha256sum /tmp/b34-existing/B34_RESILIENT_TASK_HARNESS_MANIFEST.json | awk '{print $1}')"
+            if [[ "${actual}" == "${MANIFEST_SHA256}" ]]; then
+              echo "B34 is already published at ${target_sha}; treating this run as idempotent."
+              echo "mode=already-published" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+
+          echo "Refusing to overwrite ${TARGET_BRANCH}: expected ${BASE_SHA} or the authenticated B34 manifest, got ${target_sha}." >&2
+          exit 1
+
+      - name: Materialize authenticated B34 source tree
+        if: steps.authority.outputs.mode == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/b34-source
+          git worktree add --detach /tmp/b34-source "${BASE_SHA}"
+          cd /tmp/b34-source
+          git apply --check /tmp/b34.patch
+          git apply /tmp/b34.patch
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('/tmp/b34-source')
+          manifest_path = root / 'B34_RESILIENT_TASK_HARNESS_MANIFEST.json'
+          expected_manifest = 'ddff2865a69e6a3d7ef4a7864c81079c51885467cdba1f1d77c98d14d9970ad0'
+          actual_manifest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+          if actual_manifest != expected_manifest:
+              raise SystemExit(f'manifest hash mismatch: {actual_manifest}')
+
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          errors = []
+          for rel, metadata in manifest['files'].items():
+              path = root / rel
+              if not path.is_file():
+                  errors.append(f'missing:{rel}')
+                  continue
+              size = path.stat().st_size
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if size != metadata['size']:
+                  errors.append(f'size:{rel}:{size}!={metadata["size"]}')
+              if digest != metadata['sha256']:
+                  errors.append(f'sha256:{rel}:{digest}!={metadata["sha256"]}')
+          if errors:
+              raise SystemExit('\n'.join(errors))
+          print(f'Authenticated {len(manifest["files"])} B34 manifest files.')
+          PY
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          for rel in (
+              'scripts/repair_loop.py',
+              'scripts/verify_b34_resilient_task_harness.py',
+              'skill-system/controller/task_run.py',
+              'skill-system/controller/task_run_cli.py',
+          ):
+              ast.parse(Path(rel).read_text(encoding='utf-8'), filename=rel)
+          print('Python syntax validation passed.')
+          PY
+
+          changed_count="$(git status --short | wc -l | tr -d ' ')"
+          if [[ "${changed_count}" != "28" ]]; then
+            echo "Expected exactly 28 B34 source/governance paths, got ${changed_count}." >&2
+            git status --short >&2
+            exit 1
+          fi
+
+      - name: Commit and publish direct source branch
+        if: steps.authority.outputs.mode == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/b34-source
+          git config user.name "B34 Source Publisher"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "B34: add resilient task harness"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
+
+      - name: Record publication result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${TARGET_BRANCH}" --no-tags
+          published_sha="$(git rev-parse FETCH_HEAD)"
+          {
+            echo "## B34 source publication"
+            echo ""
+            echo "- Mode: \`${{ steps.authority.outputs.mode }}\`"
+            echo "- Target branch: \`${TARGET_BRANCH}\`"
+            echo "- Published SHA: \`${published_sha}\`"
+            echo "- Base SHA: \`${BASE_SHA}\`"
+            echo "- Patch SHA-256: \`${PATCH_SHA256}\`"
+            echo "- Manifest SHA-256: \`${MANIFEST_SHA256}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
