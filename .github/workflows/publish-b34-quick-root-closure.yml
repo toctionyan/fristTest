@@ -1,0 +1,150 @@
+name: Publish B34 Quick root closure
+
+on:
+  pull_request:
+    branches:
+      - agent/b34-resilient-task-harness-20260804
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b34-quick-root-closure
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.head_ref == 'agent/b34-quick-root-closure-publisher-20260804'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out immutable repair payload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-quick-closure/part-*.b64 > /tmp/b34-quick-closure.patch.b64
+          test "$(wc -c < /tmp/b34-quick-closure.patch.b64)" -eq 11040
+          echo '9a0ace534d68c9a7a3d58cdf2454d145785158c9277d6e24fe5c7d2a847cd277  /tmp/b34-quick-closure.patch.b64' | sha256sum -c -
+          base64 --decode /tmp/b34-quick-closure.patch.b64 > /tmp/b34-quick-closure.patch
+          test "$(wc -c < /tmp/b34-quick-closure.patch)" -eq 8279
+          echo 'b906f934adbe8f05bf0df8d328b5a7f9eee732348f87d4d9b3572d67f1a0369f  /tmp/b34-quick-closure.patch' | sha256sum -c -
+
+      - name: Check out current B34 direct source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: agent/b34-resilient-task-harness-20260804
+          fetch-depth: 0
+          path: target
+
+      - name: Apply root repair and regenerate protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          test "$(git rev-parse HEAD)" = '083785f704fa639c1258841866c54b811c4899b6'
+          git apply --check /tmp/b34-quick-closure.patch
+          git apply /tmp/b34-quick-closure.patch
+          python -B - <<'PY'
+          import hashlib
+          import importlib.util
+          import json
+          import subprocess
+          from pathlib import Path
+
+          root = Path.cwd()
+          compatibility_path = root / 'skill-system/controller/project_compatibility.py'
+          spec = importlib.util.spec_from_file_location('b34_quick_project_compatibility', compatibility_path)
+          assert spec and spec.loader
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          files = module.snapshot(root)
+          assert len(files) == 547, len(files)
+          canonical = json.dumps(files, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+          baseline = {
+              'schema_version': 2,
+              'generated_from': 'v20.17-b34-quick-root-closure',
+              'source_release_sha256': hashlib.sha256(canonical).hexdigest(),
+              'generated_at': '2026-08-04T12:30:00Z',
+              'protected_roots': ['services', 'web', 'contracts'],
+              'file_count': len(files),
+              'files': files,
+          }
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          expected = {
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'services/agent-service/tests/support/conversation_case_fixtures.py',
+              'services/agent-service/tests/support/conversation_case_runner.py',
+              'services/agent-service/tests/support/scripted_chat_model.py',
+              'services/agent-service/tests/support/test_scripted_chat_model.py',
+              'skill-system/registry/product-source-baseline.json',
+          }
+          actual = {
+              line[3:].strip()
+              for line in subprocess.check_output(
+                  ['git', 'status', '--short', '--untracked-files=all'], text=True
+              ).splitlines()
+              if line.strip()
+          }
+          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
+          PY
+          git diff --check
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run conversation, semantic, terminal and ResultRef closure tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target/services/agent-service
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
+            tests/support/test_scripted_chat_model.py \
+            tests/context/test_conversation_regression_suite_execution.py \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_goal_coverage_runtime.py::test_plain_content_protocol_retry_forces_a_bound_terminal_tool_call \
+            tests/context/test_runtime_result_ref_pipeline.py \
+            tests/context/test_stage3_referent_sets.py
+
+      - name: Validate protected source and complete Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Publish direct-source closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target
+          git config user.name 'B34 Quick Closure Publisher'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/tests/support/conversation_case_fixtures.py \
+            services/agent-service/tests/support/conversation_case_runner.py \
+            services/agent-service/tests/support/scripted_chat_model.py \
+            services/agent-service/tests/support/test_scripted_chat_model.py \
+            skill-system/registry/product-source-baseline.json
+          git commit -m 'Close B34 provider-frontier conversation regressions'
+          git push origin HEAD:refs/heads/agent/b34-resilient-task-harness-20260804
