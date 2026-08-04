@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      PYTHONPATH: ${{ github.workspace }}/services/agent-service/src
+      PYTHONPATH: ${{ github.workspace }}/services/agent-service:${{ github.workspace }}/services/agent-service/src
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -139,7 +139,13 @@ jobs:
             -m "not integration and not preprod" \
             --junitxml="${RUNNER_TEMP}/b33-evidence/agent-regression-junit.xml"
 
+      - name: Diagnose Agent regression failures
+        if: failure()
+        working-directory: services/agent-service
+        run: bash ../../candidate-validation/b33-diagnose-regression.sh "${RUNNER_TEMP}/b33-evidence"
+
       - name: Run architecture gates
+        if: always()
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B scripts/verify_architecture.py
@@ -154,6 +160,7 @@ jobs:
           {
             echo "repository=${GITHUB_REPOSITORY}"
             echo "commit=${GITHUB_SHA}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
             echo "base_ref=${GITHUB_BASE_REF}"
             echo "head_ref=${GITHUB_HEAD_REF}"
             echo "patch_sha256=af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89"
@@ -168,6 +175,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: b33-runtime-validation-evidence
+          name: b33-runtime-validation-evidence-attempt-${{ github.run_attempt }}
+          overwrite: true
           if-no-files-found: error
           path: ${{ runner.temp }}/b33-evidence
