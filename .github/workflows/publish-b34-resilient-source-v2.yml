@@ -1,0 +1,133 @@
+name: Publish B34 resilient task harness source v2
+
+on:
+  pull_request:
+    branches: [agent/b34-publisher-20260804]
+    paths:
+      - candidate-validation/b34-publisher-trigger-v3/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b34-resilient-source-v2
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BASE_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
+      TARGET_BRANCH: agent/b34-resilient-task-harness-authoritative-20260804
+      B64_SHA256: 5b6e8359e0d97aec6e3392fc2d5d19e6ff5fb66e240c990f369bf3d2e72da1cc
+      XZ_SHA256: 7d635657a52141befd5c3880941bbc6ad5ea7844a9760e7160c9755451fc4a40
+      PATCH_SHA256: c97e20637630ad6ff68d3070612003ac2435b34ae96d153f8ba9dc0c6dd54374
+      MANIFEST_SHA256: ddff2865a69e6a3d7ef4a7864c81079c51885467cdba1f1d77c98d14d9970ad0
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b34-publisher-20260804
+          fetch-depth: 0
+
+      - name: Authenticate payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-publisher-v2/part-*.b64 > /tmp/b34.patch.xz.b64
+          echo "${B64_SHA256}  /tmp/b34.patch.xz.b64" | sha256sum -c --strict
+          base64 -d /tmp/b34.patch.xz.b64 > /tmp/b34.patch.xz
+          echo "${XZ_SHA256}  /tmp/b34.patch.xz" | sha256sum -c --strict
+          xz -dc /tmp/b34.patch.xz > /tmp/b34.patch
+          echo "${PATCH_SHA256}  /tmp/b34.patch" | sha256sum -c --strict
+
+      - name: Verify clean target authority
+        id: authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${TARGET_BRANCH}" --no-tags
+          current="$(git rev-parse FETCH_HEAD)"
+          if [[ "${current}" == "${BASE_SHA}" ]]; then
+            echo 'publish=true' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          rm -rf /tmp/b34-existing
+          git worktree add --detach /tmp/b34-existing "${current}"
+          if [[ -f /tmp/b34-existing/B34_RESILIENT_TASK_HARNESS_MANIFEST.json ]]; then
+            actual="$(sha256sum /tmp/b34-existing/B34_RESILIENT_TASK_HARNESS_MANIFEST.json | awk '{print $1}')"
+            if [[ "${actual}" == "${MANIFEST_SHA256}" ]]; then
+              echo 'publish=false' >> "${GITHUB_OUTPUT}"
+              echo "Already published at ${current}."
+              exit 0
+            fi
+          fi
+          echo "Refusing target drift: ${current}" >&2
+          exit 1
+
+      - name: Build and verify direct B34 source tree
+        if: steps.authority.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/b34-source
+          git worktree add --detach /tmp/b34-source "${BASE_SHA}"
+          cd /tmp/b34-source
+          git apply --check /tmp/b34.patch
+          git apply /tmp/b34.patch
+          python - <<'PY'
+          import ast, hashlib, json
+          from pathlib import Path
+          root = Path('/tmp/b34-source')
+          manifest_path = root / 'B34_RESILIENT_TASK_HARNESS_MANIFEST.json'
+          expected = 'ddff2865a69e6a3d7ef4a7864c81079c51885467cdba1f1d77c98d14d9970ad0'
+          if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != expected:
+              raise SystemExit('manifest hash mismatch')
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          errors = []
+          for rel, meta in manifest['files'].items():
+              path = root / rel
+              if not path.is_file():
+                  errors.append(f'missing:{rel}')
+                  continue
+              if path.stat().st_size != meta['size']:
+                  errors.append(f'size:{rel}')
+              if hashlib.sha256(path.read_bytes()).hexdigest() != meta['sha256']:
+                  errors.append(f'sha256:{rel}')
+          for rel in ('scripts/repair_loop.py','scripts/verify_b34_resilient_task_harness.py','skill-system/controller/task_run.py','skill-system/controller/task_run_cli.py'):
+              ast.parse((root / rel).read_text(encoding='utf-8'), filename=rel)
+          if errors:
+              raise SystemExit('\n'.join(errors))
+          print(f'Authenticated {len(manifest["files"])} manifest files and Python syntax.')
+          PY
+          { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u > /tmp/b34-paths.txt
+          count="$(wc -l < /tmp/b34-paths.txt | tr -d ' ')"
+          if [[ "${count}" != '28' ]]; then
+            echo "Expected 28 actual paths, got ${count}." >&2
+            cat /tmp/b34-paths.txt >&2
+            exit 1
+          fi
+
+      - name: Commit and publish
+        if: steps.authority.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/b34-source
+          git config user.name 'B34 Source Publisher'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'B34: add resilient task harness'
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
+
+      - name: Verify published manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${TARGET_BRANCH}" --no-tags
+          rm -rf /tmp/b34-final
+          git worktree add --detach /tmp/b34-final FETCH_HEAD
+          actual="$(sha256sum /tmp/b34-final/B34_RESILIENT_TASK_HARNESS_MANIFEST.json | awk '{print $1}')"
+          test "${actual}" = "${MANIFEST_SHA256}"
+          echo "Published $(git -C /tmp/b34-final rev-parse HEAD) with manifest ${actual}." >> "${GITHUB_STEP_SUMMARY}"
