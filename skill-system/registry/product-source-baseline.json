@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "v20.17-b33-full-source-20260804-provider-projection-repair",
-  "source_release_sha256": "bcae862e7467a18f19e5fc16f12460909b416959d430743623e532ce5e4a1195",
-  "generated_at": "2026-08-04T09:25:00Z",
+  "generated_from": "v20.17-b34-resilient-task-harness-ledger-evidence",
+  "source_release_sha256": "9c63ea43418518c4157872b6b9248dddbd3e6dc7ea7f7f6a75649225e59ddaf2",
+  "generated_at": "2026-08-04T11:10:00Z",
   "protected_roots": [
     "services",
     "web",
@@ -401,7 +401,7 @@
     "services/agent-service/tests/architecture/test_protected_model_stub_contract.py": "7d3b8e1c1213c950cd8ad113c34bea6723eea931befc8f3b77efcb4d37a1d547",
     "services/agent-service/tests/architecture/test_python_test_runner.py": "e1120705cb96a07800af83eb7c6abccd9291c8bfc13d5eb476dc93e551da2bbc",
     "services/agent-service/tests/architecture/test_quality_loop_controller.py": "f0117991f8a36a35593ce20607f548baf8bcf29ece93818cc1df48cacf58d565",
-    "services/agent-service/tests/architecture/test_quality_loop_governance.py": "b91f86993e2f395b5f5519b1a23895de73a12ca7986ae2190016a68911f8a68d",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": "28cff97dd94e2927143c085fb70b67d3fab589182b837f9d94ec9600c5ea8467",
     "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py": "ce79becc2dae5d6956fbcfb16fb3eb5fdda45f8444bf28a472ed85ca7b3ad325",
     "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py": "1fcb435afc2fbbaf267ebd3d487d8d147ac772ff15f09b3026678ad50e097601",
     "services/agent-service/tests/architecture/test_runtime_boundaries.py": "0380d409c626d3cc3ded334c2fb9d14df2b83590a2c584b30a87f721bde6450a",
