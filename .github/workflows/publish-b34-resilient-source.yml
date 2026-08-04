@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 20
     env:
       BASE_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
-      TARGET_BRANCH: agent/b34-resilient-task-harness-20260804
+      TARGET_BRANCH: agent/b34-resilient-task-harness-authoritative-20260804
       B64_SHA256: 5b6e8359e0d97aec6e3392fc2d5d19e6ff5fb66e240c990f369bf3d2e72da1cc
       XZ_SHA256: 7d635657a52141befd5c3880941bbc6ad5ea7844a9760e7160c9755451fc4a40
       PATCH_SHA256: c97e20637630ad6ff68d3070612003ac2435b34ae96d153f8ba9dc0c6dd54374
