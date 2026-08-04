@@ -7,6 +7,12 @@ on:
     paths:
       - candidate-validation/b34-final-publisher/**
       - .github/workflows/publish-b34-final-resilient-task-harness.yml
+  pull_request:
+    branches:
+      - agent/b33-full-source-20260804
+    paths:
+      - candidate-validation/b34-final-publisher/**
+      - .github/workflows/publish-b34-final-resilient-task-harness.yml
 
 permissions:
   contents: read
