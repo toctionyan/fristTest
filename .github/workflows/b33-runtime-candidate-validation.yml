@@ -13,6 +13,8 @@ jobs:
   validate-b33-runtime:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      PYTHONPATH: ${{ github.workspace }}/services/agent-service/src
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -157,6 +159,7 @@ jobs:
             echo "patch_sha256=af58c9e2262eaaf945b9c893624bc726ac619f832cb962e8209e61da1ca7bd89"
             echo "capability_gate_merged_sha256=ac55da9e9395971da39ba9d92b799dacc70f24430d889e430a48dc0bdd589c6b"
             echo "stage1_test_normalized_sha256=fa1204cdb888aede72d73544eaf38dd5742ef16fb82686d96526ce82674944c6"
+            echo "pythonpath=${PYTHONPATH}"
             echo "merge_mode=git-apply-3way-plus-explicit-single-conflict-resolution"
             echo "production_closed=false"
           } > "${RUNNER_TEMP}/b33-evidence/run-binding.txt"
