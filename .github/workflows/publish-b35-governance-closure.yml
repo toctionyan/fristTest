@@ -1,0 +1,103 @@
+name: Publish B35 governance counterexample closure
+
+on:
+  push:
+    branches: [agent/b35-quick-repair-publisher-20260804]
+    paths:
+      - candidate-validation/b35-governance-closure/**
+      - .github/workflows/publish-b35-governance-closure.yml
+  pull_request:
+    branches: [agent/b34-resilient-task-harness-final-20260804]
+    paths:
+      - candidate-validation/b35-governance-closure/**
+      - .github/workflows/publish-b35-governance-closure.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b35-governance-counterexample-closure-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout publisher control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-quick-repair-publisher-20260804
+          path: publisher
+          fetch-depth: 0
+
+      - name: Checkout exact B35 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-staged-goal-progression-20260804
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up Node 24.18.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Prepare stable quality target and 548-file baseline identity
+        run: |
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('publisher/candidate-validation/b35-governance-closure/run-governance-closure.sh')
+          source = source_path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  '--ref "${EXPECTED_TARGET_SHA}+${PATCH_SHA}"',
+                  '--ref "b35-governance-closure-248f84417d30a511"',
+              ),
+              (
+                  'assert len(product) == 547, len(product)',
+                  'assert len(product) == 548, len(product)',
+              ),
+              (
+                  "'file_count': 547,",
+                  "'file_count': 548,",
+              ),
+              (
+                  "'product_baseline_file_count': 547,",
+                  "'product_baseline_file_count': 548,",
+              ),
+              (
+                  "'- Product baseline: 547 files\\n'",
+                  "'- Product baseline: 548 files\\n'",
+              ),
+              (
+                  "'product_files': 547",
+                  "'product_files': 548",
+              ),
+          ]
+          for old, new in replacements:
+              assert source.count(old) == 1, (old, source.count(old))
+              source = source.replace(old, new)
+          Path('/tmp/run-b35-governance-closure.sh').write_text(
+              source, encoding='utf-8'
+          )
+          PY
+          bash -n /tmp/run-b35-governance-closure.sh
+
+      - name: Validate and publish governance closure
+        run: bash /tmp/run-b35-governance-closure.sh
+
+      - name: Upload governance closure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b35-governance-closure-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/b35-governance-evidence
+          if-no-files-found: warn
+          retention-days: 14

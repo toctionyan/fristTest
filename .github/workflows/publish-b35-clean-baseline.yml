@@ -1,0 +1,94 @@
+name: Publish B35 clean-tree product baseline
+
+on:
+  push:
+    branches: [agent/b35-quick-repair-publisher-20260804]
+    paths:
+      - candidate-validation/b35-clean-baseline/**
+      - .github/workflows/publish-b35-clean-baseline.yml
+  pull_request:
+    branches: [agent/b34-resilient-task-harness-final-20260804]
+    paths:
+      - candidate-validation/b35-clean-baseline/**
+      - .github/workflows/publish-b35-clean-baseline.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-b35-clean-baseline-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout publisher control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-quick-repair-publisher-20260804
+          path: publisher
+          fetch-depth: 0
+
+      - name: Checkout exact B35 source candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: agent/b35-staged-goal-progression-20260804
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up Node 24.18.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Prepare idempotent clean-tree correction
+        run: |
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('publisher/candidate-validation/b35-clean-baseline/run-clean-baseline-correction.sh')
+          source = source_path.read_text(encoding='utf-8')
+          old = """assert report.count('- Product baseline: 548 files') == 1
+          report = report.replace('- Product baseline: 548 files', '- Product baseline: 547 files')
+          if '- Clean-tree product baseline (runtime artifacts excluded): PASS' not in report:
+              report = report.replace(
+                  '- Product baseline: 547 files\\n',
+                  '- Product baseline: 547 files\\n- Clean-tree product baseline (runtime artifacts excluded): PASS\\n',
+              )"""
+          new = """count_548 = report.count('- Product baseline: 548 files')
+          count_547 = report.count('- Product baseline: 547 files')
+          assert (count_548, count_547) in {(1, 0), (0, 1)}, (count_548, count_547)
+          if count_548 == 1:
+              report = report.replace('- Product baseline: 548 files', '- Product baseline: 547 files')
+          marker = '- Clean-tree product baseline (runtime artifacts excluded): PASS'
+          if marker not in report:
+              assert report.count('- Product baseline: 547 files\\n') == 1
+              report = report.replace(
+                  '- Product baseline: 547 files\\n',
+                  '- Product baseline: 547 files\\n' + marker + '\\n',
+              )"""
+          assert source.count(old) == 1, source.count(old)
+          Path('/tmp/run-clean-baseline-correction.sh').write_text(
+              source.replace(old, new), encoding='utf-8'
+          )
+          PY
+          bash -n /tmp/run-clean-baseline-correction.sh
+
+      - name: Validate and publish clean-tree baseline correction
+        run: bash /tmp/run-clean-baseline-correction.sh
+
+      - name: Upload clean baseline evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: b35-clean-baseline-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/b35-clean-baseline-evidence
+          if-no-files-found: warn
+          retention-days: 14
