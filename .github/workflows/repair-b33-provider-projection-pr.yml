@@ -71,6 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PYTHONPATH=src
           .venv/bin/python -B -m pytest -q -p no:cacheprovider \
             tests/runtime/test_goal_binding_counterexamples.py::test_provider_tool_projection_is_compact_but_runtime_schema_stays_strict \
             tests/runtime/test_stage5_controlled_target_dsl.py \
