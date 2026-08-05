@@ -1,0 +1,166 @@
+name: governed-ci-failure-ingest
+
+on:
+  workflow_run:
+    workflows:
+      - quality
+      - wp08-full-stack-certification
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-ci-failure-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout trusted ingestion control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout failed source as untrusted data
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download failed-run artifacts as untrusted evidence
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: incoming/artifacts
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Download failed-run logs as untrusted evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/logs
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/logs" > incoming/logs.zip; then
+            unzip -q incoming/logs.zip -d incoming/logs || true
+          else
+            rm -f incoming/logs.zip
+          fi
+
+      - name: Capture source PR changed-file metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          if [[ -n "${SOURCE_PR_NUMBER}" && "${SOURCE_PR_NUMBER}" != "0" ]]; then
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}/files" \
+              --jq '.[].filename' | jq -R -s 'split("\n")[:-1]' > incoming/changed-files.json
+          else
+            printf '[]\n' > incoming/changed-files.json
+          fi
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Ingest failure and create durable TaskRun
+        id: ingest
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest.py
+          --event "$GITHUB_EVENT_PATH"
+          --workspace candidate
+          --artifacts incoming/artifacts
+          --logs incoming/logs
+          --changed-files incoming/changed-files.json
+          --output incoming/failure-case.json
+          --task-run incoming/task-run.json
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload governed failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-failure-${{ github.event.workflow_run.id }}
+          path: |
+            incoming/failure-case.json
+            incoming/task-run.json
+            incoming/changed-files.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create or update governed failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+          CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
+          REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
+          FAILURE_SIGNATURE: ${{ steps.ingest.outputs.failure_signature }}
+        run: |
+          set -euo pipefail
+          TITLE="[governed-ci-failure] run ${SOURCE_RUN_ID}"
+          EXISTING=$(gh issue list --state open --search "${TITLE} in:title" \
+            --json number --jq '.[0].number // empty')
+          if [[ "${REPAIR_ALLOWED}" == "true" ]]; then
+            NEXT_ACTION="READY_FOR_REPAIR_STAGE_2"
+          else
+            NEXT_ACTION="BLOCKED_FOR_DIAGNOSIS"
+          fi
+          BODY=$(cat <<EOF
+          GitHub failure evidence was ingested automatically.
+
+          - Source run: ${SOURCE_URL}
+          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Classification: \`${CLASSIFICATION}\`
+          - Failure signature: \`${FAILURE_SIGNATURE}\`
+          - Automatic source repair authorized by ingestion: \`${REPAIR_ALLOWED}\`
+          - Next action: \`${NEXT_ACTION}\`
+          - Evidence artifact: \`governed-ci-failure-${SOURCE_RUN_ID}\`
+          - production_closed: false
+
+          This Stage-1 bridge only receives, redacts, classifies, and records evidence.
+          It does not read production Environment secrets, modify source, push a branch,
+          create a pull request, merge main, or claim production closure.
+          EOF
+          )
+          if [[ -n "${EXISTING}" ]]; then
+            gh issue comment "${EXISTING}" --body "${BODY}"
+          else
+            gh issue create --title "${TITLE}" --body "${BODY}"
+          fi
+
+      - name: Publish ingestion summary
+        env:
+          CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
+          REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          {
+            echo "## Governed CI failure ingestion"
+            echo
+            echo "- Source Run ID: \`${SOURCE_RUN_ID}\`"
+            echo "- Classification: \`${CLASSIFICATION}\`"
+            echo "- Ready for Stage 2 repair: \`${REPAIR_ALLOWED}\`"
+            echo "- Source changes: none"
+            echo "- production_closed: false"
+          } >> "$GITHUB_STEP_SUMMARY"
