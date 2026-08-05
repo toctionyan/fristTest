@@ -65,6 +65,19 @@ def test_path_normalization_does_not_hide_traversal(tmp_path: Path) -> None:
         MODULE.validate_allowed_paths(tmp_path, ["/services/a.py"])
 
 
+def test_symlink_candidate_is_rejected_before_resolution(tmp_path: Path) -> None:
+    source = tmp_path / "services" / "real.py"
+    source.parent.mkdir()
+    source.write_text("x = 1\n", encoding="utf-8")
+    link = tmp_path / "services" / "alias.py"
+    try:
+        link.symlink_to(source)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
+    with pytest.raises(MODULE.FixerError):
+        MODULE.validate_allowed_paths(tmp_path, ["services/alias.py"])
+
+
 def test_model_cannot_expand_immutable_repair_scope(tmp_path: Path) -> None:
     source = tmp_path / "services" / "a.py"
     other = tmp_path / "services" / "b.py"
