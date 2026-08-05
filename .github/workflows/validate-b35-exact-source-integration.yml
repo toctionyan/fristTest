@@ -63,7 +63,7 @@ jobs:
               'skill-system/registry/product-source-baseline.json',
           }
           actual_paths = set(subprocess.check_output(
-              ['git', '-C', 'source', 'diff', '--name-only'],
+              ['git', '-C', 'source', 'diff', '--cached', '--name-only'],
               text=True,
           ).splitlines())
           assert actual_paths == expected_paths, {
@@ -99,7 +99,7 @@ jobs:
           print('Canonical B35 authority and evidence restoration prepared: PASS')
           PY
 
-          git -C source diff --check
+          git -C source diff --cached --check
           git -C source config user.name github-actions[bot]
           git -C source config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C source add \
