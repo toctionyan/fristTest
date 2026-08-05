@@ -105,6 +105,15 @@ def _refresh_goal_coverage(
     goals: list[dict[str, Any]],
     steps: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Derive goal coverage while preserving staged dependency semantics.
+
+    A provider call may legally contain only the current capability frontier.
+    Required downstream goals therefore remain BLOCKED until their declared
+    Goal dependencies are covered; they are not treated as malformed plans for
+    lacking a completion step in the current invocation. Durable completed
+    Goals remain covered across revised PlanDefinitions.
+    """
+
     output: list[dict[str, Any]] = []
     for goal in goals:
         row = deepcopy(goal)
@@ -123,11 +132,15 @@ def _refresh_goal_coverage(
         terminal_tools = {
             str(name) for name in list(row.get("covered_by_terminal_tools") or [])
         }
+        proof = row.get("satisfaction_proof") if isinstance(row.get("satisfaction_proof"), dict) else {}
+        durable_completed = str(proof.get("kind") or "") == "durable_goal_lifecycle_completed"
         clarification_pause = (
             "ask_user_clarification" in terminal_tools
             and str(row.get("goal_type") or "") != "clarification"
         )
-        if clarification_pause:
+        if durable_completed:
+            row["coverage_status"] = "COVERED"
+        elif clarification_pause:
             row["coverage_status"] = "BLOCKED"
         elif not covered and not terminal_tools:
             row["coverage_status"] = _RUNTIME_GOAL_COVERAGE_PENDING
@@ -149,6 +162,38 @@ def _refresh_goal_coverage(
         else:
             row["coverage_status"] = _RUNTIME_GOAL_COVERAGE_PENDING
         output.append(row)
+
+    # Dependency blocking is derived from the same Goal graph and current
+    # projection. Iterate to a fixed point so multi-hop chains remain blocked
+    # until every upstream Goal is covered.
+    by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in output
+        if str(row.get("goal_id") or "")
+    }
+    changed = True
+    while changed:
+        changed = False
+        for row in output:
+            if str(row.get("coverage_status") or "") != _RUNTIME_GOAL_COVERAGE_PENDING:
+                continue
+            missing = [
+                str(value)
+                for value in list(row.get("depends_on") or [])
+                if str(value)
+                and str((by_id.get(str(value)) or {}).get("coverage_status") or "") != "COVERED"
+            ]
+            if missing and not list(row.get("covered_by_step_ids") or []):
+                row["coverage_status"] = "BLOCKED"
+                proof = row.get("satisfaction_proof") if isinstance(row.get("satisfaction_proof"), dict) else {}
+                if str(proof.get("kind") or "") != "clarification_pause":
+                    row["satisfaction_proof"] = {
+                        "kind": "declared_goal_dependency_pause",
+                        "goal_id": str(row.get("goal_id") or ""),
+                        "missing_dependency_goal_ids": missing,
+                        "goal_remains_incomplete": True,
+                    }
+                changed = True
     return output
 
 
