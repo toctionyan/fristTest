@@ -41,7 +41,7 @@ ENVIRONMENT_TERMS = (
     "no space left on device",
     "runner lost communication",
 )
-TIMEOUT_TERMS = ("timed out", "timeout", "deadline exceeded")
+TIMEOUT_TERMS = ("timed out", "deadline exceeded", "exit code 124", "operation was canceled")
 PROTECTED_PREFIXES = (
     "governance/",
     "skill-system/",
@@ -121,7 +121,7 @@ def _safe_candidate(path: str, workspace: Path) -> bool:
 
 def extract_candidate_paths(text: str, workspace: Path, changed_files: Iterable[str] = ()) -> list[str]:
     found: list[str] = []
-    for raw in list(changed_files) + PATH_PATTERN.findall(text):
+    for raw in PATH_PATTERN.findall(text) + list(changed_files):
         path = str(raw).strip().lstrip("./")
         if _safe_candidate(path, workspace) and path not in found:
             found.append(path)
@@ -210,7 +210,8 @@ def build_report(
 
     failures, excerpts = _summary_failures(artifact_files)
     combined = "\n".join(text for _path, text in artifact_files)
-    classification = classify(workflow_name, conclusion, combined, failures)
+    diagnostics = "\n".join([str(row.get("summary") or "") for row in failures] + excerpts)
+    classification = classify(workflow_name, conclusion, diagnostics, failures)
     candidates = extract_candidate_paths(combined, workspace, changed_files)
     same_repository = bool(repo_name and head_repo == repo_name)
     protected_source = any(path in PROTECTED_EXACT or path.startswith(PROTECTED_PREFIXES) for path in candidates)
