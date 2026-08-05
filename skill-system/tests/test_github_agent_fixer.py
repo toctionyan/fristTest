@@ -26,6 +26,25 @@ def test_parse_fenced_model_json() -> None:
     assert payload["root_cause"] == "x"
 
 
+def test_review_decision_is_normalized() -> None:
+    assert MODULE._decision({"decision": " approve "}) == "APPROVE"
+    assert MODULE._decision({"decision": "REJECT"}) == "REJECT"
+
+
+def test_multi_role_repair_contract_is_explicit() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    for role in (
+        "failure-explorer",
+        "repair-plan-reviewer",
+        "restricted-fixer",
+        "diff-integrity-reviewer",
+    ):
+        assert role in text
+    assert "model_call_count\": 4" in text
+    assert "independent repair-plan reviewer rejected" in text
+    assert "independent diff-integrity reviewer rejected" in text
+
+
 def test_minimal_allowed_patch_passes() -> None:
     patch = "\n".join(
         [
