@@ -1,0 +1,98 @@
+de, 0, local.stderr)
++            _git(workspace, "add", "source.txt")
++            _git(workspace, "commit", "-q", "-m", "candidate")
++            candidate_sha = _git(workspace, "rev-parse", "HEAD")
+ 
+             admitted = subprocess.run(
+                 [
+@@ -89,7 +144,7 @@
+                     "--state",
+                     str(state),
+                     "--head-sha",
+-                    "b" * 40,
++                    candidate_sha,
+                     "--changed-path",
+                     "source.txt",
+                 ],
+@@ -105,84 +160,120 @@
+ 
+     def test_cli_stops_on_first_failed_local_gate(self) -> None:
+         with TemporaryDirectory() as directory:
+-            workspace = Path(directory)
+-            (workspace / "source.txt").write_text("candidate\n", encoding="utf-8")
+-            spec = self._spec(workspace)
++            root = Path(directory)
++            workspace, spec = self._workspace_and_spec(root)
+             payload = json.loads(spec.read_text(encoding="utf-8"))
+             payload["gates"][0]["argv"] = [sys.executable, "-c", "raise SystemExit(7)"]
+             spec.write_text(json.dumps(payload), encoding="utf-8")
+             state = workspace / ".quality/task-run.json"
+-            subprocess.run(
+-                [sys.executable, str(SCRIPT), "init", "--workspace", str(workspace), "--spec", str(spec), "--state", str(state)],
+-                cwd=ROOT,
+-                check=True,
+-                capture_output=True,
+-                text=True,
+-            )
++            initialized = self._init(workspace, spec, state)
++            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+             (workspace / "source.txt").write_text("candidate-updated\n", encoding="utf-8")
+-            local = subprocess.run(
++            local = self._run_local(workspace, spec, state)
++            self.assertEqual(local.returncode, 1)
++            payload = json.loads(local.stdout)
++            self.assertEqual(payload["phase"], "LOCAL_TARGETED_FAILED")
++            self.assertFalse(payload["conditions"]["local_targeted_green"])
++
++    def test_cli_rejects_task_spec_drift_after_init(self) -> None:
++        with TemporaryDirectory() as directory:
++            root = Path(directory)
++            workspace, spec = self._workspace_and_spec(root)
++            state = workspace / ".quality/task-run.json"
++            initialized = self._init(workspace, spec, state)
++            self.assertEqual(initialized.returncode, 0, initialized.stderr)
++            payload = json.loads(spec.read_text(encoding="utf-8"))
++            payload["gates"][0]["timeout_seconds"] = 99
++            spec.write_text(json.dumps(payload), encoding="utf-8")
++            run = self._run_local(workspace, spec, state)
++            self.assertEqual(run.returncode, 78)
++            result = json.loads(run.stdout)
++            self.assertIn("task spec changed", result["error"])
++
++    def test_cli_init_rejects_non_git_workspace(self) -> None:
++        with TemporaryDirectory() as directory:
++            root = Path(directory)
++            workspace = root / "plain"
++            workspace.mkdir(parents=True)
++            (workspace / "source.txt").write_text("baseline\n", encoding="utf-8")
++            _, template = self._workspace_and_spec(root / "template")
++            spec = root / "task.json"
++            spec.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
++            state = workspace / ".quality/task-run.json"
++            initialized = self._init(workspace, spec, state)
++            self.assertEqual(initialized.returncode, 78)
++            payload = json.loads(initialized.stdout)
++            self.assertIn("Git identity check failed", payload["error"])
++
++    def test_cli_init_rejects_base_sha_mismatch(self) -> None:
++        with TemporaryDirectory() as directory:
++            root = Path(directory)
++            workspace, spec = self._workspace_and_spec(root)
++            payload = json.loads(spec.read_text(encoding="utf-8"))
++            payload["base_sha"] = "a" * 40
++            spec.write_text(json.dumps(payload), encoding="utf-8")
++            initialized = self._init(workspace, spec, workspace / ".quality/task-run.json")
++            self.assertEqual(initialized.returncode, 78)
++            result = json.loads(initialized.stdout)
++            self.assertIn("Git identity check failed", result["error"])
++
++    def test_cli_init_rejects_branch_mismatch(self) -> None:
++        with TemporaryDirectory() as directory:
++            root = Path(directory)
++            workspace, spec = self._workspace_and_spec(root)
++            payload = json.loads(spec.read_text(encoding="utf-8"))
++            payload["branch"] = "agent/different-branch"
++            spec.write_text(json.dumps(payload), encoding="utf-8")
++            initialized = self._init(workspace, spec, workspace / ".quality/task-run.json")
++            self.assertEqual(initialized.returncode, 78)
++            result = jso
