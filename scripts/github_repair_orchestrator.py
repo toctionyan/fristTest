@@ -22,7 +22,13 @@ for entry in (str(CONTROL), str(SCRIPTS)):
         sys.path.insert(0, entry)
 
 from task_run import TaskRunStore  # type: ignore  # noqa: E402
-from github_agent_fixer import FixerError, ModelConfig, fingerprint, repair_round  # noqa: E402
+from github_agent_fixer import (  # noqa: E402
+    FixerError,
+    ModelConfig,
+    fingerprint,
+    repair_round,
+    validate_allowed_paths,
+)
 
 MAX_CYCLES = 8
 
@@ -84,7 +90,22 @@ def _validate_failure_case(report: dict[str, Any], workspace: Path) -> tuple[str
     paths = tuple(str(item) for item in report.get("candidate_paths") or [])
     if not paths:
         raise OrchestratorError("failure evidence does not identify a repair path")
-    return paths
+    return validate_allowed_paths(workspace, paths)
+
+
+def _validate_task_binding(task: TaskRunStore, report: dict[str, Any]) -> None:
+    binding = task.payload.get("binding") if isinstance(task.payload.get("binding"), dict) else {}
+    expected = {
+        "repository": report.get("repository"),
+        "workflow_name": report.get("workflow_name"),
+        "workflow_run_id": str(report.get("workflow_run_id")),
+        "workflow_run_attempt": str(report.get("workflow_run_attempt")),
+        "head_sha": report.get("head_sha"),
+        "failure_signature": report.get("failure_signature"),
+    }
+    mismatched = [key for key, value in expected.items() if str(binding.get(key)) != str(value)]
+    if mismatched:
+        raise OrchestratorError(f"Stage-1 TaskRun binding mismatch: {mismatched}")
 
 
 def _open_task(path: Path) -> TaskRunStore:
@@ -157,6 +178,7 @@ def run_stage2(
     cycles: list[dict[str, Any]] = []
 
     try:
+        _validate_task_binding(task, report)
         allowed_paths = _validate_failure_case(report, workspace)
         config = config or ModelConfig.from_environment()
     except (OSError, json.JSONDecodeError, OrchestratorError, FixerError) as exc:
