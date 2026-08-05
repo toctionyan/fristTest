@@ -31,18 +31,38 @@ def test_json_fence_is_accepted_but_schema_is_still_required() -> None:
         MODULE.parse_change_payload('{"summary":"missing changes"}')
 
 
-def test_allowed_paths_are_existing_text_files_and_never_governance(tmp_path: Path) -> None:
+def test_allowed_paths_are_existing_product_source_files(tmp_path: Path) -> None:
     source = tmp_path / "services" / "a.py"
     source.parent.mkdir()
     source.write_text("x = 1\n", encoding="utf-8")
     assert MODULE.validate_allowed_paths(tmp_path, ["services/a.py"]) == ("services/a.py",)
+
     protected = tmp_path / "governance" / "policy.json"
     protected.parent.mkdir()
     protected.write_text("{}\n", encoding="utf-8")
     with pytest.raises(MODULE.FixerError):
         MODULE.validate_allowed_paths(tmp_path, ["governance/policy.json"])
+
+    test_file = tmp_path / "services" / "tests" / "test_a.py"
+    test_file.parent.mkdir()
+    test_file.write_text("def test_a(): pass\n", encoding="utf-8")
     with pytest.raises(MODULE.FixerError):
-        MODULE.validate_allowed_paths(tmp_path, ["../escape.py"])
+        MODULE.validate_allowed_paths(tmp_path, ["services/tests/test_a.py"])
+
+    manifest = tmp_path / "services" / "package.json"
+    manifest.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(MODULE.FixerError):
+        MODULE.validate_allowed_paths(tmp_path, ["services/package.json"])
+
+
+def test_path_normalization_does_not_hide_traversal(tmp_path: Path) -> None:
+    source = tmp_path / "services" / "a.py"
+    source.parent.mkdir()
+    source.write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(MODULE.FixerError):
+        MODULE.validate_allowed_paths(tmp_path, ["services/../services/a.py"])
+    with pytest.raises(MODULE.FixerError):
+        MODULE.validate_allowed_paths(tmp_path, ["/services/a.py"])
 
 
 def test_model_cannot_expand_immutable_repair_scope(tmp_path: Path) -> None:
