@@ -13,11 +13,20 @@ WORKFLOW_MINIMUM_MODE = {
     "quality-quick": "quick",
     "quality-integration": "integration",
     "release-quality": "release",
+    "governed-ci-repair-stage3": "quick",
 }
 
 WORKFLOW_CLAIM_GATES = {
     "quality-static": ["architecture-convergence", "version-consistency"],
     "quality-quick": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites",
+        "frontend-vitest",
+        "coverage-baseline",
+        "full-lifecycle-canary",
+        "product-browser-journey",
+    ],
+    "governed-ci-repair-stage3": [
         "adversarial-runtime-counterexamples",
         "python-test-suites",
         "frontend-vitest",
