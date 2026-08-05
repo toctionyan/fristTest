@@ -2,38 +2,6 @@ name: wp08-full-stack-certification
 
 "on":
   workflow_dispatch:
-    inputs:
-      provider:
-        description: Official model provider
-        required: true
-        type: choice
-        options:
-          - openai
-          - deepseek
-      model:
-        description: Current official provider model ID
-        required: true
-        type: string
-      embedding_model:
-        description: OpenAI-compatible embedding model
-        required: true
-        default: text-embedding-3-small
-        type: string
-      embedding_dimension:
-        description: Embedding vector dimension
-        required: true
-        default: '1536'
-        type: string
-      resume_run_id:
-        description: Optional prior WP-08 workflow run ID from the same repository and commit
-        required: false
-        default: ''
-        type: string
-      resume_run_attempt:
-        description: Prior run attempt used in the artifact name
-        required: false
-        default: '1'
-        type: string
 
 permissions:
   contents: read
@@ -96,19 +64,142 @@ jobs:
           echo "PRODUCTION_CERTIFICATION_TOOLCHAIN_EVIDENCE=$TOOLCHAIN_EVIDENCE" >> "$GITHUB_ENV"
           echo "PRODUCTION_CERTIFICATION_TOOLCHAIN_FINGERPRINT=$TOOLCHAIN_FINGERPRINT" >> "$GITHUB_ENV"
           echo "PRODUCTION_CERTIFICATION_RUN_IDENTITY_FINGERPRINT=$RUN_IDENTITY_FINGERPRINT" >> "$GITHUB_ENV"
+      - name: Resolve protected environment configuration
+        env:
+          CONFIG_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
+          CONFIG_MODEL_ID: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
+          CONFIG_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+          CONFIG_EMBEDDING_PROVIDER: ${{ vars.EMBEDDING_PROVIDER || vars.PRODUCTION_EMBEDDING_PROVIDER || 'openai' }}
+          CONFIG_EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL || vars.PRODUCTION_EMBEDDING_MODEL || 'text-embedding-3-small' }}
+          CONFIG_EMBEDDING_DIM: ${{ vars.EMBEDDING_DIM || vars.PRODUCTION_EMBEDDING_DIM || '1536' }}
+          CONFIG_EMBEDDING_API_BASE: ${{ vars.EMBEDDING_API_BASE || vars.EMBEDDING_BASE_URL || vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
+          CONFIG_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+          CONFIG_EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
+          CONFIG_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
+          CONFIG_RESUME_RUN_ID: ${{ vars.WP08_RESUME_RUN_ID }}
+          CONFIG_RESUME_RUN_ATTEMPT: ${{ vars.WP08_RESUME_RUN_ATTEMPT || '1' }}
+        run: |
+          set -euo pipefail
+
+          provider="${CONFIG_MODEL_PROVIDER,,}"
+          model_id="$CONFIG_MODEL_ID"
+          model_api_base="${CONFIG_MODEL_API_BASE%/}"
+          embedding_provider="${CONFIG_EMBEDDING_PROVIDER,,}"
+          embedding_model="$CONFIG_EMBEDDING_MODEL"
+          embedding_dim="$CONFIG_EMBEDDING_DIM"
+          embedding_api_base="${CONFIG_EMBEDDING_API_BASE%/}"
+
+          case "$provider" in
+            openai)
+              [[ -n "$model_api_base" ]] || model_api_base="https://api.openai.com/v1"
+              [[ "$model_api_base" == "https://api.openai.com/v1" ]] || {
+                echo "Configured OpenAI certification base must be https://api.openai.com/v1" >&2
+                exit 2
+              }
+              ;;
+            deepseek)
+              [[ -n "$model_api_base" ]] || model_api_base="https://api.deepseek.com"
+              [[ "$model_api_base" == "https://api.deepseek.com" || "$model_api_base" == "https://api.deepseek.com/v1" ]] || {
+                echo "Configured DeepSeek certification base must use the official api.deepseek.com host" >&2
+                exit 2
+              }
+              ;;
+            *)
+              echo "production-certification Environment must define REAL_MODEL_CERTIFICATION_PROVIDER (or PRODUCTION_MODEL_PROVIDER) as openai or deepseek" >&2
+              exit 2
+              ;;
+          esac
+
+          [[ -n "$model_id" ]] || {
+            echo "production-certification Environment must define OPENAI_MODEL (or PRODUCTION_MODEL_ID)" >&2
+            exit 2
+          }
+          [[ -n "$embedding_provider" ]] || {
+            echo "production-certification Environment must define EMBEDDING_PROVIDER" >&2
+            exit 2
+          }
+          [[ -n "$embedding_model" ]] || {
+            echo "production-certification Environment must define EMBEDDING_MODEL" >&2
+            exit 2
+          }
+          [[ "$embedding_dim" =~ ^[1-9][0-9]*$ ]] || {
+            echo "EMBEDDING_DIM must be a positive integer" >&2
+            exit 2
+          }
+          [[ "$embedding_api_base" == https://* ]] || {
+            echo "EMBEDDING_API_BASE must use HTTPS" >&2
+            exit 2
+          }
+          [[ -n "$CONFIG_MODEL_API_KEY" ]] || {
+            echo "PRODUCTION_MODEL_API_KEY Environment secret is missing" >&2
+            exit 2
+          }
+          [[ -n "$CONFIG_EMBEDDING_API_KEY" ]] || {
+            echo "PRODUCTION_EMBEDDING_API_KEY Environment secret is missing" >&2
+            exit 2
+          }
+          [[ -n "$CONFIG_EVIDENCE_SIGNING_KEY" ]] || {
+            echo "QUALITY_EVIDENCE_SIGNING_KEY Environment secret is missing" >&2
+            exit 2
+          }
+
+          {
+            echo "OPENAI_MODEL=$model_id"
+            echo "OPENAI_API_BASE=$model_api_base"
+            echo "REAL_MODEL_CERTIFICATION_PROVIDER=$provider"
+            echo "EMBEDDING_PROVIDER=$embedding_provider"
+            echo "EMBEDDING_MODEL=$embedding_model"
+            echo "EMBEDDING_DIM=$embedding_dim"
+            echo "EMBEDDING_API_BASE=$embedding_api_base"
+            echo "WP08_RESUME_RUN_ID=$CONFIG_RESUME_RUN_ID"
+            echo "WP08_RESUME_RUN_ATTEMPT=$CONFIG_RESUME_RUN_ATTEMPT"
+            echo "WP08_CONFIG_EVIDENCE=${RUNNER_TEMP}/wp08-environment-config.json"
+          } >> "$GITHUB_ENV"
+
+          export RESOLVED_MODEL_PROVIDER="$provider"
+          export RESOLVED_MODEL_ID="$model_id"
+          export RESOLVED_MODEL_API_BASE="$model_api_base"
+          export RESOLVED_EMBEDDING_PROVIDER="$embedding_provider"
+          export RESOLVED_EMBEDDING_MODEL="$embedding_model"
+          export RESOLVED_EMBEDDING_DIM="$embedding_dim"
+          export RESOLVED_EMBEDDING_API_BASE="$embedding_api_base"
+          "${pythonLocation}/bin/python" - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "contract": "wp08-environment-configuration@1",
+              "source": "production-certification-environment",
+              "model_provider": os.environ["RESOLVED_MODEL_PROVIDER"],
+              "model_id": os.environ["RESOLVED_MODEL_ID"],
+              "model_api_base": os.environ["RESOLVED_MODEL_API_BASE"],
+              "embedding_provider": os.environ["RESOLVED_EMBEDDING_PROVIDER"],
+              "embedding_model": os.environ["RESOLVED_EMBEDDING_MODEL"],
+              "embedding_dimension": int(os.environ["RESOLVED_EMBEDDING_DIM"]),
+              "embedding_api_base": os.environ["RESOLVED_EMBEDDING_API_BASE"],
+              "secrets_present": {
+                  "production_model_api_key": True,
+                  "production_embedding_api_key": True,
+                  "quality_evidence_signing_key": True,
+              },
+          }
+          output = Path(os.environ["RUNNER_TEMP"]) / "wp08-environment-config.json"
+          output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
       - name: Download previous WP-08 checkpoint
-        if: ${{ inputs.resume_run_id != '' }}
+        if: ${{ vars.WP08_RESUME_RUN_ID != '' }}
         id: download-resume
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: wp08-full-stack-certification-${{ inputs.resume_run_id }}-${{ inputs.resume_run_attempt }}
+          name: wp08-full-stack-certification-${{ vars.WP08_RESUME_RUN_ID }}-${{ vars.WP08_RESUME_RUN_ATTEMPT || '1' }}
           path: ${{ runner.temp }}/wp08-resume
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.resume_run_id }}
+          run-id: ${{ vars.WP08_RESUME_RUN_ID }}
       - name: Validate and restore previous WP-08 checkpoint
-        if: ${{ inputs.resume_run_id != '' }}
+        if: ${{ vars.WP08_RESUME_RUN_ID != '' }}
         env:
           RESUME_ARTIFACT_ROOT: ${{ runner.temp }}/wp08-resume
           RESUME_EVIDENCE_DIR: ${{ runner.temp }}/wp08-certification-evidence
@@ -120,26 +211,19 @@ jobs:
           --artifact-root "$RESUME_ARTIFACT_ROOT"
           --target-evidence-dir "$RESUME_EVIDENCE_DIR"
           --target-state-file "$RESUME_STATE_FILE"
-          --expected-run-id "${{ inputs.resume_run_id }}"
-          --expected-run-attempt "${{ inputs.resume_run_attempt }}"
+          --expected-run-id "${{ vars.WP08_RESUME_RUN_ID }}"
+          --expected-run-attempt "${{ vars.WP08_RESUME_RUN_ATTEMPT || '1' }}"
           --expected-repository "$GITHUB_REPOSITORY"
           --expected-commit-sha "$GITHUB_SHA"
           --output "$RESUME_PROVENANCE"
       - name: Run resumable WP-08 certification batches
         env:
           OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
-          OPENAI_MODEL: ${{ inputs.model }}
-          OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
-          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
-          EMBEDDING_PROVIDER: openai
           EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
-          EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
-          EMBEDDING_MODEL: ${{ inputs.embedding_model }}
-          EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
           QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
           WP08_EVIDENCE_DIR: ${{ runner.temp }}/wp08-certification-evidence
           WP08_STATE_FILE: ${{ runner.temp }}/wp08-certification-state/wp08-state.json
-          WP08_RESUME_REQUESTED: ${{ inputs.resume_run_id != '' && '1' || '0' }}
+          WP08_RESUME_REQUESTED: ${{ vars.WP08_RESUME_RUN_ID != '' && '1' || '0' }}
         run: |
           RESUME_ARGS=()
           if [[ "$WP08_RESUME_REQUESTED" == "1" ]]; then
@@ -160,6 +244,7 @@ jobs:
             ${{ runner.temp }}/wp08-certification-evidence
             ${{ runner.temp }}/wp08-certification-state
             ${{ runner.temp }}/wp08-toolchain.json
+            ${{ runner.temp }}/wp08-environment-config.json
             ${{ runner.temp }}/wp08-resume-provenance.json
           retention-days: 30
           if-no-files-found: error
