@@ -16,7 +16,8 @@ from repair_governance import TRANSITION_KINDS, load_chain  # type: ignore
 
 PROTECTED_NAMES = ("services", "web", "contracts")
 BASELINE_FILE = Path("skill-system/registry/product-source-baseline.json")
-IGNORED_PARTS = {".venv", "node_modules", "__pycache__"}
+IGNORED_PARTS = {".venv", ".pytest_cache", "node_modules", "__pycache__"}
+PERMIT_BASELINE_STATUSES = {"approved", "implementing", "review", "verified"}
 
 
 def snapshot(root: Path = ROOT) -> dict[str, str]:
@@ -52,13 +53,16 @@ def resolve_baseline(root: Path = ROOT) -> tuple[dict[str, str], str]:
     root = root.resolve()
     active = root / "governance/active-change.json"
     if active.is_file():
-        contract = load_contract(root, require_approved=False)
-        if contract.profile == "skill-only" and contract.target_kind.value in TRANSITION_KINDS:
-            chain = load_chain(root, contract.payload)
-            return (
-                _manifest_product_snapshot(chain.baseline.get("workspace_files")),
-                f"change-permit:{chain.permit_digest}",
-            )
+        active_payload = json.loads(active.read_text(encoding="utf-8"))
+        active_status = str(active_payload.get("status") or "").strip().lower()
+        if active_status in PERMIT_BASELINE_STATUSES:
+            contract = load_contract(root, require_approved=False)
+            if contract.profile == "skill-only" and contract.target_kind.value in TRANSITION_KINDS:
+                chain = load_chain(root, contract.payload)
+                return (
+                    _manifest_product_snapshot(chain.baseline.get("workspace_files")),
+                    f"change-permit:{chain.permit_digest}",
+                )
 
     path = root / BASELINE_FILE
     if not path.is_file():

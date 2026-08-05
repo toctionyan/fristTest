@@ -1,0 +1,22 @@
+{
+  "actual_interruption_recovery": {
+    "description": "An outer execution window terminated final verification after two durable PASS checks. Subsequent invocations skipped durable results and completed all pending checks without restarting from zero.",
+    "prior_task_run": "external-interruption-recovery-task-run.json",
+    "result": "COMPLETED_WITHOUT_REEXECUTING_DURABLE_PASS",
+    "resume_log": "external-interruption-resume.log"
+  },
+  "dimension": "runtime-trace",
+  "schema_version": 1,
+  "status": "PASS",
+  "task_run": {
+    "action_attempts": 10,
+    "blockers": 0,
+    "evidence": "resumable-verification-task-run.json",
+    "phase": "COMPLETED",
+    "required_conditions": 9,
+    "satisfied_conditions": 9,
+    "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+    "status": "COMPLETED",
+    "task_id": "verify-b34-resilient-harness-ffbaf2472a096d405384"
+  }
+}

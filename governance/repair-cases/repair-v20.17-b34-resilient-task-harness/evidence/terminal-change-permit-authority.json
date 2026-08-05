@@ -1,0 +1,44 @@
+{
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "decision": "PASS",
+  "final_resumable_validation": {
+    "broad_regression": "607 passed, 4 environment-deselected",
+    "checks_failed": 0,
+    "checks_passed": 9,
+    "completion_eligible": true,
+    "missing_conditions": [],
+    "skill_control_plane": "148 passed",
+    "source_fingerprint": "295dc5842c0ff230cb32e949579df791c8ba11d22c5830124a15c5ec9b639d08",
+    "stage1_stage5": "96 passed",
+    "status": "COMPLETED",
+    "task_id": "verify-b34-resilient-harness-4685ad6ef492412fb3a8"
+  },
+  "fix": {
+    "active_permit_statuses": [
+      "approved",
+      "implementing",
+      "review",
+      "verified"
+    ],
+    "controller": "skill-system/controller/project_compatibility.py",
+    "counterexample_tests": "skill-system/tests/test_project_compatibility.py",
+    "ignored_runtime_cache": [
+      ".pytest_cache"
+    ],
+    "terminal_statuses_fall_back_to_historical_baseline": [
+      "closed",
+      "rejected"
+    ]
+  },
+  "focused_validation": {
+    "baseline_authority": "historical-registry-baseline",
+    "baseline_file_count": 546,
+    "project_compatibility_status": "PASS",
+    "protected_file_count": 546,
+    "pytest": "5 passed"
+  },
+  "production_closed": false,
+  "record_type": "terminal-change-permit-authority-validation",
+  "root_cause": "project_compatibility treated any existing governance/active-change.json as authoritative even when status was closed or rejected, so a terminal Change Permit permanently shadowed the promoted product-source baseline. It also treated .pytest_cache as product source.",
+  "schema_version": 1
+}

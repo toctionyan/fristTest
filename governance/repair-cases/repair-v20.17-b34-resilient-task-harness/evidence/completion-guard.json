@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "task_id": "verify-b34-resilient-harness-ffbaf2472a096d405384",
+  "task_kind": "b34-resilient-verification",
+  "status": "COMPLETED",
+  "phase": "COMPLETED",
+  "revision": 51,
+  "completion_eligible": true,
+  "missing_conditions": [],
+  "invalid_conditions": [],
+  "checkpoint_count": 32,
+  "action_attempt_count": 10,
+  "blocker_count": 0,
+  "last_checkpoint": {
+    "created_at": "2026-08-04T11:26:50.799863+00:00",
+    "evidence_refs": [
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.result.json",
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.result.json"
+    ],
+    "metadata": {
+      "completion_decision": "COMPLETED"
+    },
+    "phase": "COMPLETED",
+    "sequence": 32,
+    "status": "COMPLETED",
+    "workspace_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824"
+  },
+  "last_action_attempt": {
+    "action_key": "780716e73504f83a23b76831491e64daa9c032b116c3aa9ab90326ba51516792",
+    "created_at": "2026-08-04T11:26:50.792263+00:00",
+    "decision": "RUN",
+    "evidence_refs": [
+      ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.result.json"
+    ],
+    "produced_new_evidence": true,
+    "result_fingerprint": "72b76160bffe45b666a52b261b134aacf35d2a8a3e8178bb3498baa6062e0d19",
+    "sequence": 10,
+    "strategy": "execute-check"
+  },
+  "last_blocker": null,
+  "next_action": "",
+  "updated_at": "2026-08-04T11:26:50.799863+00:00"
+}

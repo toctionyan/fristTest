@@ -1,0 +1,43 @@
+{
+  "allowed_paths": [
+    "governance/task-run.schema.json",
+    "scripts/repair_loop.py",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py",
+    "skill-system/controller/task_run.py",
+    "skill-system/controller/task_run_cli.py",
+    "skill-system/tests/test_resilient_repair_task_run.py",
+    "skill-system/tests/test_task_run.py",
+    "skill-system/tests/test_task_run_cli.py",
+    "skill-system/tests/test_b34_resilient_verifier.py",
+    "scripts/verify_b34_resilient_task_harness.py",
+    "release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md",
+    "B34_RESILIENT_TASK_HARNESS_SUMMARY.json",
+    "B34_RESILIENT_TASK_HARNESS_MANIFEST.json",
+    "b34-resilient-task-harness-change-contract.json",
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/**"
+  ],
+  "baseline_manifest_sha256": "bc5cf95961143022a6983d5cccb9fc10f9cfb0c3e3336f8d16dc54664ce8babb",
+  "baseline_source_fingerprint": "22fd2bc9accf67878e43d7b7a4c75aeb554c4a3df5f2386c92cd8ab986884422",
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "expires_after": "single-B34-verification",
+  "forbidden_paths": [
+    "services/business-service/**",
+    "services/agent-service/src/agent_core/**",
+    "services/agent-service/src/agent_modules/**",
+    ".github/**"
+  ],
+  "issued_by": "execution-safety-plan-reviewer",
+  "permit_digest": "91fd779e088b2a0941140de8c64e6d95e4c9c8ca75bd4f355a3c491379c10a1f",
+  "plan_review_sha256": "2a548e552c67f35f13aa22e9372521b112051647b36762fca3d4c31ffedbb46e",
+  "record_type": "change-permit",
+  "repair_plan_sha256": "6cea3ca8a9c95bc533b27057dc951afb8eb41e21857d4d44ae09fc7693de2742",
+  "required_tests": {
+    "control_plane": "all skill-system tests",
+    "interruption_counterexamples": "process crash, drift, no-progress retry, persisted fake completion and Judge evidence reuse",
+    "regression": "Stage 1-5 plus context/transaction/governance impact",
+    "static": "architecture, module closure, version consistency, convergence"
+  },
+  "schema_version": 1,
+  "status": "ACTIVE"
+}

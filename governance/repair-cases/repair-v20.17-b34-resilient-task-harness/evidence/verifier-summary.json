@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "dimension": "candidate-verifier",
+  "status": "PASS",
+  "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+  "task_run_status": "COMPLETED",
+  "completion_eligible": true,
+  "missing_conditions": [],
+  "invalid_conditions": [],
+  "checks": [
+    {
+      "name": "task_run_control_plane",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 7.754
+    },
+    {
+      "name": "repair_loop_interruption_contracts",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 9.914
+    },
+    {
+      "name": "skill_control_plane",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 22.924
+    },
+    {
+      "name": "stage1_stage5_core_regression",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 2.43
+    },
+    {
+      "name": "broad_context_transaction_governance_regression",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 12.875
+    },
+    {
+      "name": "architecture",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 1.47
+    },
+    {
+      "name": "module_closure",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 0.761
+    },
+    {
+      "name": "version_consistency",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 0.643
+    },
+    {
+      "name": "convergence",
+      "status": "PASS",
+      "returncode": 0,
+      "duration_seconds": 1.216
+    }
+  ],
+  "environment": {
+    "blockers": [
+      "missing Python modules: langchain_core, langgraph",
+      "locked Python is 3.12.13; current interpreter is 3.13.5",
+      "real DeepSeek/OpenAI provider certification not executed locally",
+      "managed PostgreSQL/pgvector recovery not executed locally",
+      "dual-service browser and concurrency certification not executed locally"
+    ],
+    "name": "production_environment_closure",
+    "production_closed": false,
+    "required_for_candidate": false,
+    "status": "BLOCKED_BY_ENVIRONMENT"
+  },
+  "production_closed": false
+}

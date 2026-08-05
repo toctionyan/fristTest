@@ -1,0 +1,31 @@
+{
+  "approved_paths": [
+    "governance/task-run.schema.json",
+    "scripts/repair_loop.py",
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py",
+    "skill-system/controller/task_run.py",
+    "skill-system/controller/task_run_cli.py",
+    "skill-system/tests/test_resilient_repair_task_run.py",
+    "skill-system/tests/test_task_run.py",
+    "skill-system/tests/test_task_run_cli.py",
+    "scripts/verify_b34_resilient_task_harness.py",
+    "release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md",
+    "B34_RESILIENT_TASK_HARNESS_SUMMARY.json",
+    "B34_RESILIENT_TASK_HARNESS_MANIFEST.json",
+    "b34-resilient-task-harness-change-contract.json",
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/**",
+    "skill-system/tests/test_b34_resilient_verifier.py"
+  ],
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "decision": "PASS",
+  "findings": [
+    "The new authority is limited to code-repair task execution, not product business state.",
+    "Mutating replay is prevented while read-only evidence reuse remains idempotent.",
+    "The plan fails closed on drift, stale writers, exhausted strategy budgets and incomplete evidence."
+  ],
+  "record_type": "plan-review",
+  "repair_plan_sha256": "6cea3ca8a9c95bc533b27057dc951afb8eb41e21857d4d44ae09fc7693de2742",
+  "reviewer_role": "execution-safety-plan-reviewer",
+  "schema_version": 1
+}

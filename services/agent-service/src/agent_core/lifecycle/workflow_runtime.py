@@ -434,9 +434,22 @@ def _historical_evidence_satisfaction(
     return None
 
 
+def _completed_goal_ids_from_state(state: dict[str, Any]) -> set[str]:
+    """Return only durable, lifecycle-authoritative completed Goal ids."""
+
+    return {
+        str(row.get("goal_id") or "")
+        for row in list(state.get("goal_records") or [])
+        if isinstance(row, dict)
+        and str(row.get("lifecycle") or "").upper() == "COMPLETED"
+        and str(row.get("goal_id") or "")
+    }
+
+
 def _build_goals(
     state: dict[str, Any], goal_rows: list[dict[str, Any]], steps: list[dict[str, Any]], calls: list[dict[str, Any]]
 ) -> tuple[WorkflowGoal, ...]:
+    completed_goal_ids = _completed_goal_ids_from_state(state)
     terminal_bindings = {
         str(call.get("name") or ""): {str(value) for value in list(call.get("_goal_ids") or []) if str(value)}
         for call in calls
@@ -454,6 +467,13 @@ def _build_goals(
         )
         satisfaction_proof = _historical_evidence_satisfaction(state=state, goal=row, calls=calls)
         clarification_bound = goal_id in terminal_bindings.get("ask_user_clarification", set())
+        declared_dependencies = tuple(
+            str(value) for value in list(row.get("depends_on") or []) if str(value)
+        )
+        missing_dependencies = tuple(
+            value for value in declared_dependencies if value not in completed_goal_ids
+        )
+        durable_completed = goal_id in completed_goal_ids
         # A terminal response closes narrative/clarification goals. Query and
         # consult goals may also close when the exact bound evidence has a
         # current active, scoped, customer-visible proof. Actions never do.
@@ -467,17 +487,34 @@ def _build_goals(
         )
         goal_type = str(row.get("goal_type") or "")
         status = (
-            GoalCoverageStatus.BLOCKED
+            GoalCoverageStatus.COVERED
+            if durable_completed
+            else GoalCoverageStatus.BLOCKED
             if clarification_bound and goal_type != "clarification"
             else GoalCoverageStatus.COVERED
             if covered_terminal
+            else GoalCoverageStatus.BLOCKED
+            if missing_dependencies and not covered_steps
             else GoalCoverageStatus.PENDING
         )
-        if clarification_bound and goal_type != "clarification":
+        if durable_completed:
+            satisfaction_proof = {
+                "kind": "durable_goal_lifecycle_completed",
+                "goal_id": goal_id,
+                "scope_bound": True,
+            }
+        elif clarification_bound and goal_type != "clarification":
             satisfaction_proof = {
                 "kind": "clarification_pause",
                 "terminal_tool": "ask_user_clarification",
                 "goal_id": goal_id,
+                "goal_remains_incomplete": True,
+            }
+        elif missing_dependencies and not covered_steps:
+            satisfaction_proof = {
+                "kind": "declared_goal_dependency_pause",
+                "goal_id": goal_id,
+                "missing_dependency_goal_ids": list(missing_dependencies),
                 "goal_remains_incomplete": True,
             }
         goals.append(WorkflowGoal(

@@ -136,13 +136,17 @@
                       ]
                     },
                     "id": "multi_query_orders_and_logistics:t1:orders"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "get_order_logistics",
                     "args": {
                       "target": {
                         "mode": "collection",
-                        "left_handle": "view:fixture:orders"
+                        "left_handle": "$last_tool.data.result_handle"
                       },
                       "expected_shape": "collection",
                       "reference_span": "查一下我的订单，再查下物流到哪了",
@@ -161,7 +165,7 @@
                     "args": {
                       "answer": "已分别完成订单与物流的只读核验。",
                       "evidence_handles": [
-                        "view:fixture:orders"
+                        "$last_tool.data.result_handle"
                       ],
                       "goal_ids": [
                         "g1",
@@ -739,7 +743,11 @@
                       "action_span": "申请退款",
                       "goal_ids": [
                         "g1"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "鼠标"
+                      }
                     },
                     "id": "multi_order_then_refund_draft:t1:draft"
                   }
@@ -7609,12 +7617,28 @@
                       "summary": "最近那个能退吗",
                       "goals": [
                         {
+                          "goal_id": "g0",
+                          "description": "识别最近购买的订单",
+                          "evidence_span": "最近那个",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "识别最近购买的订单"
+                          }
+                        },
+                        {
                           "goal_id": "g1",
                           "description": "咨询最近订单的退款资格",
                           "evidence_span": "最近那个能退吗",
                           "goal_type": "consult",
                           "required": true,
-                          "depends_on": [],
+                          "depends_on": [
+                            "g0"
+                          ],
                           "requested_effect": {
                             "domain": "refund",
                             "operation": "assess_eligibility",
@@ -7625,6 +7649,29 @@
                       ]
                     },
                     "id": "correction_latest_to_most_expensive:t1:goals"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "set_operation",
+                        "operator": "sort",
+                        "left_handle": "view:fixture:orders",
+                        "sort_field": "created_at",
+                        "sort_direction": "desc",
+                        "sort_span": "最近"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "最近那个",
+                      "goal_ids": [
+                        "g0"
+                      ]
+                    },
+                    "id": "correction_latest_to_most_expensive:t1:sort"
                   }
                 ]
               },
@@ -7658,6 +7705,7 @@
                         "artifact:fixture:order:10003"
                       ],
                       "goal_ids": [
+                        "g0",
                         "g1"
                       ]
                     },
@@ -7667,10 +7715,12 @@
               }
             ],
             "allowed_tools": [
+              "list_orders",
               "evaluate_refund_eligibility",
               "respond_to_user"
             ],
             "required_tools": [
+              "list_orders",
               "evaluate_refund_eligibility",
               "respond_to_user"
             ],
@@ -7679,7 +7729,7 @@
                 "GroundedFinalAnswer"
               ],
               "workflow_levels": [
-                "L0_DIRECT"
+                "L1_LIGHTWEIGHT_PLAN"
               ],
               "workflow_statuses": [
                 "SUCCEEDED"
@@ -7700,7 +7750,7 @@
                 }
               },
               "result_assertions": [],
-              "goal_count": 1
+              "goal_count": 2
             }
           },
           {
@@ -11801,12 +11851,28 @@
                       "summary": "最便宜的那个能退吗？",
                       "goals": [
                         {
+                          "goal_id": "g0",
+                          "description": "识别当前订单中最便宜的订单",
+                          "evidence_span": "最便宜的那个",
+                          "goal_type": "query",
+                          "required": true,
+                          "depends_on": [],
+                          "requested_effect": {
+                            "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "识别当前订单中最便宜的订单"
+                          }
+                        },
+                        {
                           "goal_id": "g1",
                           "description": "咨询最便宜订单的退款资格",
                           "evidence_span": "最便宜的那个能退吗？",
                           "goal_type": "consult",
                           "required": true,
-                          "depends_on": [],
+                          "depends_on": [
+                            "g0"
+                          ],
                           "requested_effect": {
                             "domain": "refund",
                             "operation": "assess_eligibility",
@@ -11836,11 +11902,15 @@
                       "expected_shape": "collection",
                       "reference_span": "最便宜的那个",
                       "goal_ids": [
-                        "g1"
+                        "g0"
                       ]
                     },
                     "id": "visible_superlative_cheapest:t2:sort"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "evaluate_refund_eligibility",
                     "args": {
@@ -11869,6 +11939,7 @@
                         "artifact:fixture:order:10003"
                       ],
                       "goal_ids": [
+                        "g0",
                         "g1"
                       ]
                     },
@@ -11925,7 +11996,7 @@
                   "equals": "无线鼠标"
                 }
               ],
-              "goal_count": 1
+              "goal_count": 2
             }
           }
         ],
@@ -12414,29 +12485,10 @@
                     "name": "list_orders",
                     "args": {
                       "target": {
-                        "mode": "entity_match",
-                        "attribute_span": "耳机"
-                      },
-                      "expected_shape": "collection",
-                      "reference_span": "除了耳机以外的都是什么状态？",
-                      "goal_ids": [
-                        "g1"
-                      ]
-                    },
-                    "id": "visible_set_difference:t2:excluded"
-                  }
-                ]
-              },
-              {
-                "tool_calls": [
-                  {
-                    "name": "list_orders",
-                    "args": {
-                      "target": {
                         "mode": "set_operation",
                         "operator": "difference",
                         "left_handle": "view:fixture:orders",
-                        "right_handle": "$last_tool.data.result_handle"
+                        "right_handle": "artifact:fixture:order:10001"
                       },
                       "expected_shape": "collection",
                       "reference_span": "除了耳机以外的都是什么状态？",
@@ -12479,7 +12531,7 @@
                 "GroundedFinalAnswer"
               ],
               "workflow_levels": [
-                "L1_LIGHTWEIGHT_PLAN"
+                "L0_DIRECT"
               ],
               "workflow_statuses": [
                 "SUCCEEDED"

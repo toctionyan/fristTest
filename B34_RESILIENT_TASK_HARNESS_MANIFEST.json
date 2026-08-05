@@ -1,0 +1,159 @@
+{
+  "base": "B33-stage5-controlled-target-dsl",
+  "changed_file_count": 37,
+  "deleted_files": [],
+  "files": {
+    "B34_RESILIENT_TASK_HARNESS_SUMMARY.json": {
+      "sha256": "bcb25ad40c572cbb8bddfaf41fe9827a04c54a4e400d8506be1a99c053a93816",
+      "size": 1672
+    },
+    "b34-resilient-task-harness-change-contract.json": {
+      "sha256": "d34e866ac832f21e56507b07ea34ea0e8a8a16e3d828296053f0288ca2769cf9",
+      "size": 1109
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/baseline-manifest.json": {
+      "sha256": "bc5cf95961143022a6983d5cccb9fc10f9cfb0c3e3336f8d16dc54664ce8babb",
+      "size": 1494
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/change-permit.json": {
+      "sha256": "dc0bfecb7ef046981238604a7a0f2e138f59fce571fc3091e1f07fe52f1e581e",
+      "size": 2139
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/closure-matrix.json": {
+      "sha256": "f1816a71f6c1e765ddd3488d1e7d0683376c10c77203bbd2c116cc444b4f63cd",
+      "size": 3606
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/diff-review.json": {
+      "sha256": "02765cd6174d978ad1f767de83b5240755067118361d1edab3f76a6b237b4787",
+      "size": 5812
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/completion-guard.json": {
+      "sha256": "9450e263886ca42c5bc114a9a8c029bda2bff8c82d9bba6bc4a39b8f53d053db",
+      "size": 2605
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/environment-blockers.json": {
+      "sha256": "e5c4b371fc653a59bad3f3ad3909afddc5da1fc6a049411c069a8b95470594ef",
+      "size": 365
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/external-interruption-recovery-report.json": {
+      "sha256": "1323f85457cf222ac3e2870486a8e9a6fb9cae5c6c3a89ef4dabb78205a1e608",
+      "size": 7462
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/external-interruption-recovery-task-run.json": {
+      "sha256": "e939430c18dfd28df9bcdd8f38209f4b0c8b0a6ae597b601ea62218be68ebed8",
+      "size": 22869
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/external-interruption-resume.log": {
+      "sha256": "1f5cd382daf3c648adf202a88400cae7ad7bb2c8407e2df7b5a52fdd868f7ff0",
+      "size": 4410
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/focused-tests.json": {
+      "sha256": "c35f607d6e24e9b4efc7829fef136e61be8cc18d0beb0b5c7a5fe66f0929367a",
+      "size": 976
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/regression.json": {
+      "sha256": "ecc7c3383dc7444b5a9d0fd056f9c89c243432602be40150f2a6cb9096c3e4aa",
+      "size": 698
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/resumable-verification-task-run.json": {
+      "sha256": "792b85a28a9bab3a2d24f7cd2f13840b64170e830110db20881d75ba04a8e06c",
+      "size": 24723
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/resumable-verification.json": {
+      "sha256": "0033739ac8da01575271fea32f534cf2c5556f6be7563bade59a4104dd8c0d1c",
+      "size": 7462
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/runtime-trace.json": {
+      "sha256": "6da1776abc06c8711cd454923f675864c429eba9a6327d3de5d4373700d40bcd",
+      "size": 919
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/static-gates.json": {
+      "sha256": "8304e3c6baa77c1ffe56702ec259bc6439225f0607c2989f37db15f4b7c94f4b",
+      "size": 210
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/terminal-change-permit-authority.json": {
+      "sha256": "300d1669560522393f0326b4b85c66c94b05a57da1aae6ab80eed6045dedd3da",
+      "size": 1624
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/verifier-summary.json": {
+      "sha256": "7eaa4f52d6de04a4d1296eb0f6446fd135092eb1e82f605ed90ce207d45d3af2",
+      "size": 2089
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/failure-case.json": {
+      "sha256": "61f97885539fee32a55522fbda60da1b6b8c30c521047deb076cc1baa4c11cd4",
+      "size": 1370
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/plan-review.json": {
+      "sha256": "2a548e552c67f35f13aa22e9372521b112051647b36762fca3d4c31ffedbb46e",
+      "size": 1488
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/repair-plan.json": {
+      "sha256": "6cea3ca8a9c95bc533b27057dc951afb8eb41e21857d4d44ae09fc7693de2742",
+      "size": 4668
+    },
+    "governance/repair-cases/repair-v20.17-b34-resilient-task-harness/root-cause-proof.json": {
+      "sha256": "57626ff65abdcc098d5db5cea8c4abeb5ead2d9c1dbbf3dde01cecd2b0a29635",
+      "size": 1471
+    },
+    "governance/task-run.schema.json": {
+      "sha256": "e4995c38418b0a2372bc3e6f70b17e0fb972d40fce1f9891094a9c7cbd5c191e",
+      "size": 2079
+    },
+    "release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md": {
+      "sha256": "f4905e0106b0bfd4623ad1ff2df21fc6af2b81ddbe2724ea9aba211596866516",
+      "size": 5935
+    },
+    "scripts/repair_loop.py": {
+      "sha256": "f1fc53c8d21ad6cc01e52e3f222e55bd5e7c16dfe9c7a35a28449d40822cc766",
+      "size": 41483
+    },
+    "scripts/verify_b34_resilient_task_harness.py": {
+      "sha256": "cd0e882d830eaa0a4681a402d90165e882c22ac17eaf1b07aade75b27406c9a4",
+      "size": 20029
+    },
+    "services/agent-service/tests/architecture/test_quality_loop_governance.py": {
+      "sha256": "28cff97dd94e2927143c085fb70b67d3fab589182b837f9d94ec9600c5ea8467",
+      "size": 39191
+    },
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": {
+      "sha256": "c83ca593edcb2af8a6b004fd8111ee4322916c199260c05a16070f5a1ad5bddf",
+      "size": 15287
+    },
+    "skill-system/controller/project_compatibility.py": {
+      "sha256": "15024e52715b99be108e5af1f9f18c58d1588b827354bc40586a3bd7f6c037b3",
+      "size": 4458
+    },
+    "skill-system/controller/task_run.py": {
+      "sha256": "052cebdcf901afdf3d17bf21a3a3bf1f6688e0a6574ecda80ad133023491b33e",
+      "size": 19148
+    },
+    "skill-system/controller/task_run_cli.py": {
+      "sha256": "5feb6147e1be188c8ec683572bb95893585e23a8e07c606e245a05abce07cfda",
+      "size": 2421
+    },
+    "skill-system/tests/test_b34_resilient_verifier.py": {
+      "sha256": "3ee3b9cf01ae5f02eff5944e7ee000a9a31dc2359d0e8b5a51427ece7859e2e7",
+      "size": 3432
+    },
+    "skill-system/tests/test_project_compatibility.py": {
+      "sha256": "2042600617154e50fb731fbd2299babed89805d3acde4949a34bc7932cc5bcd4",
+      "size": 7747
+    },
+    "skill-system/tests/test_resilient_repair_task_run.py": {
+      "sha256": "9070b500b2d5fa3612fcf79d7e5a8e29b074eac1cacd662918f0c4a9d1920d06",
+      "size": 10040
+    },
+    "skill-system/tests/test_task_run.py": {
+      "sha256": "d745d4c3c154e3adecbf6deb4c56cfddf47a1dfdc537697246475c338ba3ba42",
+      "size": 15108
+    },
+    "skill-system/tests/test_task_run_cli.py": {
+      "sha256": "f72cf4d4eba92b04f90e062b31178d1b923bfa0815e45c4d19825dbe71ad6753",
+      "size": 3029
+    }
+  },
+  "production_closed": false,
+  "schema_version": 2,
+  "source_fingerprint": "295dc5842c0ff230cb32e949579df791c8ba11d22c5830124a15c5ec9b639d08",
+  "stage": "B34-resilient-task-harness"
+}

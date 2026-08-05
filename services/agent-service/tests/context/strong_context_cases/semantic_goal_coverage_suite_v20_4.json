@@ -140,13 +140,17 @@
                       ]
                     },
                     "id": "s1:orders"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "get_order_logistics",
                     "args": {
                       "target": {
                         "mode": "collection",
-                        "left_handle": "view:fixture:orders"
+                        "left_handle": "$last_tool.data.result_handle"
                       },
                       "expected_shape": "collection",
                       "reference_span": "查下物流到哪了",
@@ -165,7 +169,7 @@
                     "args": {
                       "answer": "已分别核验订单和物流。",
                       "evidence_handles": [
-                        "view:fixture:orders"
+                        "$last_tool.data.result_handle"
                       ],
                       "goal_ids": [
                         "g1",
@@ -372,7 +376,11 @@
                       "reference_span": "鼠标订单的退款记录",
                       "goal_ids": [
                         "g1"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "鼠标订单"
+                      }
                     },
                     "id": "s2:refunds"
                   },
@@ -387,7 +395,11 @@
                       "reference_span": "键盘订单有没有发票",
                       "goal_ids": [
                         "g2"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "键盘订单"
+                      }
                     },
                     "id": "s2:invoices"
                   }
@@ -611,7 +623,11 @@
                       ]
                     },
                     "id": "s3:orders"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "evaluate_refund_eligibility",
                     "args": {
@@ -853,7 +869,11 @@
                       ]
                     },
                     "id": "s4:orders"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "prepare_refund",
                     "args": {
@@ -1108,7 +1128,11 @@
                       ]
                     },
                     "id": "s5:orders"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "prepare_cancel_order",
                     "args": {
@@ -1349,7 +1373,11 @@
                       "reference_span": "查一下鼠标物流",
                       "goal_ids": [
                         "g1"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "鼠标"
+                      }
                     },
                     "id": "s6:logistics"
                   },
@@ -1721,7 +1749,11 @@
                       "reference_span": "退款什么时候到账",
                       "goal_ids": [
                         "g1"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "鼠标订单"
+                      }
                     },
                     "id": "s8:refunds"
                   }
@@ -2071,7 +2103,11 @@
                       "question_span": "能退款吗",
                       "goal_ids": [
                         "g1"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "鼠标订单"
+                      }
                     },
                     "id": "s10:eligibility"
                   }
@@ -2195,11 +2231,28 @@
             "user_text": "把这些订单都取消",
             "goal_oracle": [
               {
+                "oracle_id": "g0",
+                "goal_type": "query",
+                "evidence_span": "这些订单",
+                "required": true,
+                "depends_on": [],
+                "required_tools": [
+                  "list_orders"
+                ],
+                "requested_effect": {
+                  "domain": "order",
+                  "operation": "list",
+                  "object_type": "order"
+                }
+              },
+              {
                 "oracle_id": "g1",
                 "goal_type": "action",
                 "evidence_span": "这些订单都取消",
                 "required": true,
-                "depends_on": [],
+                "depends_on": [
+                  "g0"
+                ],
                 "required_tools": [
                   "prepare_cancel_order"
                 ],
@@ -2219,17 +2272,33 @@
                       "summary": "把这些订单都取消",
                       "goals": [
                         {
-                          "goal_id": "g1",
-                          "description": "处理用户目标：这些订单都取消",
-                          "evidence_span": "这些订单都取消",
-                          "goal_type": "action",
+                          "goal_id": "g0",
+                          "description": "识别用户所指的订单集合",
+                          "evidence_span": "这些订单",
+                          "goal_type": "query",
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
                             "domain": "order",
+                            "operation": "list",
+                            "object_type": "order",
+                            "raw_description": "识别用户所指的订单集合"
+                          }
+                        },
+                        {
+                          "goal_id": "g1",
+                          "description": "取消已识别的订单集合",
+                          "evidence_span": "这些订单都取消",
+                          "goal_type": "action",
+                          "required": true,
+                          "depends_on": [
+                            "g0"
+                          ],
+                          "requested_effect": {
+                            "domain": "order",
                             "operation": "cancel",
                             "object_type": "order",
-                            "raw_description": "处理用户目标：这些订单都取消"
+                            "raw_description": "取消已识别的订单集合"
                           }
                         }
                       ]
@@ -2241,11 +2310,29 @@
               {
                 "tool_calls": [
                   {
+                    "name": "list_orders",
+                    "args": {
+                      "target": {
+                        "mode": "all_orders"
+                      },
+                      "expected_shape": "collection",
+                      "reference_span": "这些订单",
+                      "goal_ids": [
+                        "g0"
+                      ]
+                    },
+                    "id": "semantic_multi_target_cancel_boundary:list"
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
+                  {
                     "name": "prepare_cancel_order",
                     "args": {
                       "target": {
                         "mode": "collection",
-                        "left_handle": "view:fixture:orders"
+                        "left_handle": "$last_tool.data.result_handle"
                       },
                       "reference_span": "这些订单",
                       "action_span": "取消",
@@ -2263,8 +2350,11 @@
                     "name": "respond_to_user",
                     "args": {
                       "answer": "当前写动作一次只能处理一个已验证目标，未创建批量取消申请。",
-                      "evidence_handles": [],
+                      "evidence_handles": [
+                        "$last_tool.data.result_handle"
+                      ],
                       "goal_ids": [
+                        "g0",
                         "g1"
                       ]
                     },
@@ -2274,16 +2364,18 @@
               }
             ],
             "allowed_tools": [
+              "list_orders",
               "prepare_cancel_order",
               "respond_to_user"
             ],
             "required_tools": [
+              "list_orders",
               "prepare_cancel_order",
               "respond_to_user"
             ],
             "expected": {
               "terminal_statuses": [
-                "GeneralFinalAnswer"
+                "GroundedFinalAnswer"
               ],
               "workflow_levels": [
                 "L2_WORKFLOW"
@@ -2311,7 +2403,7 @@
                   "equals": "UNSUPPORTED_TARGET_CARDINALITY"
                 }
               ],
-              "goal_count": 1
+              "goal_count": 2
             }
           }
         ],
@@ -2330,6 +2422,7 @@
         ],
         "preproduction_risk_prototype": true,
         "preproduction_allowed_tools": [
+          "list_orders",
           "prepare_cancel_order"
         ],
         "preproduction_forbidden_tools": [
@@ -2763,10 +2856,18 @@
                       "reference_span": "10002 订单详情",
                       "goal_ids": [
                         "g1"
-                      ]
+                      ],
+                      "context_binding": {
+                        "reference_kind": "explicit_return",
+                        "source_span": "10002"
+                      }
                     },
                     "id": "s14:detail"
-                  },
+                  }
+                ]
+              },
+              {
+                "tool_calls": [
                   {
                     "name": "list_invoices",
                     "args": {
