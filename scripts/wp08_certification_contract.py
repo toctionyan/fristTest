@@ -39,6 +39,7 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
 
     required_fragments = [
         "name: wp08-full-stack-certification",
+        "workflow_dispatch:",
         "runs-on: ubuntu-24.04",
         "environment: production-certification",
         "timeout-minutes: 360",
@@ -47,13 +48,25 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "--require-hashes --only-binary=:all:",
         "scripts/release_toolchain_contract.py",
         "Capture locked release toolchain provenance",
+        "Resolve protected environment configuration",
+        "vars.REAL_MODEL_CERTIFICATION_PROVIDER",
+        "vars.OPENAI_MODEL",
+        "vars.OPENAI_API_BASE",
+        "vars.EMBEDDING_PROVIDER",
+        "vars.EMBEDDING_MODEL",
+        "vars.EMBEDDING_DIM",
+        "vars.EMBEDDING_API_BASE",
+        "secrets.PRODUCTION_MODEL_API_KEY",
+        "secrets.PRODUCTION_EMBEDDING_API_KEY",
+        "secrets.QUALITY_EVIDENCE_SIGNING_KEY",
+        "wp08-environment-config.json",
         "scripts/run_wp08_certification.py",
         "deployment/ci/wp08-certification-batches.json",
         "if: always()",
         "persist-credentials: false",
         "actions: read",
-        "resume_run_id:",
-        "resume_run_attempt:",
+        "vars.WP08_RESUME_RUN_ID",
+        "vars.WP08_RESUME_RUN_ATTEMPT",
         "scripts/prepare_wp08_resume.py",
         "--resume",
         "continue-on-error: true",
@@ -67,6 +80,12 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
     missing = [fragment for fragment in required_fragments if fragment not in text]
     if missing:
         raise WP08ContractError("wp08_workflow_contract_missing", "missing workflow fragments: " + ", ".join(missing))
+
+    if "inputs." in text or "\n    inputs:\n" in text:
+        raise WP08ContractError(
+            "wp08_dispatch_inputs_forbidden",
+            "WP-08 runtime configuration must come from the protected production-certification Environment, not manual dispatch inputs",
+        )
 
     actions = lock.get("github_actions") if isinstance(lock.get("github_actions"), dict) else {}
     for name in (
@@ -144,6 +163,8 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "runner": runner_path.relative_to(root).as_posix(),
         "resume_validator": resume_path.relative_to(root).as_posix(),
         "cross_run_resume": True,
+        "configuration_authority": "production-certification-environment",
+        "dispatch_inputs": False,
         "batch_ids": list(expected),
         "python_version": lock.get("python_version"),
         "node_version": lock.get("node_version"),
