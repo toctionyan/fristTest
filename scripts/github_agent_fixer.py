@@ -121,13 +121,14 @@ def validate_allowed_paths(workspace: Path, paths: Iterable[str]) -> tuple[str, 
             raise FixerError(f"path is outside the automatic product-source repair boundary: {path}")
         if Path(path).suffix.lower() not in SUPPORTED_SUFFIXES:
             raise FixerError(f"unsupported repair file type: {path}")
-        resolved = (root / path).resolve()
+        candidate = root / path
+        if candidate.is_symlink() or not candidate.is_file():
+            raise FixerError(f"repair candidate must be an existing non-symlink file: {path}")
+        resolved = candidate.resolve()
         try:
             resolved.relative_to(root)
         except ValueError as exc:
             raise FixerError(f"path escapes workspace: {path}") from exc
-        if not resolved.is_file() or resolved.is_symlink():
-            raise FixerError(f"repair candidate must be an existing regular file: {path}")
         if path not in normalized:
             normalized.append(path)
     if not normalized:
