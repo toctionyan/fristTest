@@ -27,6 +27,10 @@ DENY_EXACT = {
     "scripts/repair_loop.py",
     "skill-system/registry/product-source-baseline.json",
 }
+SOURCE_SECRET_PATTERNS = (
+    re.compile(r"(?i)(api[_ -]?key|token|secret|password)\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
+)
 WEAKENING_PATTERNS = (
     re.compile(r"^\+.*(?:pytest\.skip|@pytest\.mark\.skip|@pytest\.mark\.xfail|unittest\.skip)", re.I | re.M),
     re.compile(r"^\+.*(?:continue-on-error\s*:\s*true|\|\|\s*true)", re.I | re.M),
@@ -124,6 +128,8 @@ def _source_context(workspace: Path, paths: list[str]) -> str:
             continue
         data = path.read_bytes()[:MAX_FILE_BYTES]
         text = data.decode("utf-8", errors="replace")
+        for pattern in SOURCE_SECRET_PATTERNS:
+            text = pattern.sub("[REDACTED]", text)
         numbered = "\n".join(f"{index:05d}: {line}" for index, line in enumerate(text.splitlines(), start=1))
         blocks.append(f"\n### FILE {relative}\n{numbered}")
     return "\n".join(blocks)
@@ -183,8 +189,14 @@ def main() -> int:
     if not allowed:
         raise SystemExit("no frozen candidate paths are available for automatic repair")
 
-    provider = os.environ.get("GOVERNED_REPAIR_MODEL_PROVIDER", "").strip()
+    provider = os.environ.get("GOVERNED_REPAIR_MODEL_PROVIDER", "").strip().casefold()
     base_url = os.environ.get("GOVERNED_REPAIR_MODEL_API_BASE", "").strip()
+    if not provider and "deepseek.com" in base_url.casefold():
+        provider = "deepseek"
+    elif not provider and "openai.com" in base_url.casefold():
+        provider = "openai"
+    if not base_url:
+        base_url = {"deepseek": "https://api.deepseek.com", "openai": "https://api.openai.com/v1"}.get(provider, "")
     model = os.environ.get("GOVERNED_REPAIR_MODEL", "").strip()
     api_key = os.environ.get("GOVERNED_REPAIR_MODEL_API_KEY", "").strip()
     if not all((provider, base_url, model, api_key)):
