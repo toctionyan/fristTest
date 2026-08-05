@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "claim_set_id": "github-ci-failure-ingest-stage1",
+  "description": "Acceptance claims for event-driven, read-only GitHub CI failure ingestion.",
+  "claims": [
+    {
+      "id": "GITHUB-CI-INGEST-001",
+      "statement": "Failed quality and WP-08 workflow runs are received through workflow_run without a screenshot or manually supplied run ID."
+    },
+    {
+      "id": "GITHUB-CI-INGEST-002",
+      "statement": "Downloaded logs and artifacts are treated as untrusted bounded text and common secret forms are redacted."
+    },
+    {
+      "id": "GITHUB-CI-INGEST-003",
+      "statement": "Failure evidence is bound to repository, workflow, run ID, attempt, commit SHA and failure signature in a durable TaskRun."
+    },
+    {
+      "id": "GITHUB-CI-INGEST-004",
+      "statement": "Environment, timeout, cancellation, approval, runner, fork and unknown failures cannot authorize automatic source repair."
+    },
+    {
+      "id": "GITHUB-CI-INGEST-005",
+      "statement": "Stage 1 does not read production secrets, modify source, push branches, create repair PRs, merge main or set production_closed=true."
+    }
+  ]
+}
