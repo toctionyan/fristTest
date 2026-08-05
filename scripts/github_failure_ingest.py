@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Ingest a failed GitHub Actions workflow_run into governed repair evidence.
 
-The script treats logs and artifacts as untrusted data.  It never executes their
-contents and never prints secrets.  It creates a durable TaskRun checkpoint so a
+The script treats logs and artifacts as untrusted data. It never executes their
+contents and never prints secrets. It creates a durable TaskRun checkpoint so a
 later repair job can resume without screenshots or a manually supplied run ID.
 """
 from __future__ import annotations
@@ -25,6 +25,8 @@ from task_run import TaskRunStore, stable_task_id  # type: ignore  # noqa: E402
 
 SCHEMA = "github-failure-ingest@1"
 FAILED_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure"}
+WATCHED_CODE_WORKFLOWS = {"quality", "skill-self-validation"}
+AUTO_REPAIR_PREFIXES = ("services/", "web/", "contracts/")
 ENVIRONMENT_TERMS = (
     "blocked_by_environment",
     "environment blocker",
@@ -45,6 +47,9 @@ TIMEOUT_TERMS = ("timed out", "deadline exceeded", "exit code 124", "operation w
 PROTECTED_PREFIXES = (
     "governance/",
     "skill-system/",
+    ".github/",
+    "deployment/",
+    "scripts/",
     ".git/",
     ".quality/",
 )
@@ -54,6 +59,7 @@ PROTECTED_EXACT = {
     "scripts/github_agent_fixer.py",
     "scripts/github_repair_orchestrator.py",
     "scripts/github_repair_task.py",
+    "scripts/github_repair_validation.py",
     "scripts/quality_loop.py",
     "scripts/repair_loop.py",
     "skill-system/registry/product-source-baseline.json",
@@ -109,7 +115,11 @@ def _safe_candidate(path: str, workspace: Path) -> bool:
     normalized = path.strip().lstrip("./")
     if not normalized or normalized in PROTECTED_EXACT:
         return False
+    if not any(normalized.startswith(prefix) for prefix in AUTO_REPAIR_PREFIXES):
+        return False
     if any(normalized.startswith(prefix) for prefix in PROTECTED_PREFIXES):
+        return False
+    if re.search(r"(^|/)\.env($|\.)", normalized):
         return False
     resolved = (workspace / normalized).resolve()
     try:
@@ -139,7 +149,12 @@ def _summary_failures(files: list[tuple[Path, str]]) -> tuple[list[dict[str, Any
                 payload = None
             if isinstance(payload, dict):
                 for row in payload.get("results") or []:
-                    if not isinstance(row, dict) or str(row.get("status") or "").upper() not in {"FAIL", "FAILED", "BLOCKED", "BLOCKED_BY_ENVIRONMENT"}:
+                    if not isinstance(row, dict) or str(row.get("status") or "").upper() not in {
+                        "FAIL",
+                        "FAILED",
+                        "BLOCKED",
+                        "BLOCKED_BY_ENVIRONMENT",
+                    }:
                         continue
                     failures.append(
                         {
@@ -172,7 +187,7 @@ def classify(workflow_name: str, conclusion: str, combined_text: str, failures: 
         return "environment"
     if failures:
         return "code_or_contract"
-    if workflow_name == "quality" and conclusion in FAILED_CONCLUSIONS:
+    if workflow_name in WATCHED_CODE_WORKFLOWS and conclusion in FAILED_CONCLUSIONS:
         return "code_or_contract"
     if workflow_name == "wp08-full-stack-certification":
         return "production_diagnostic"
@@ -214,13 +229,11 @@ def build_report(
     classification = classify(workflow_name, conclusion, diagnostics, failures)
     candidates = extract_candidate_paths(combined, workspace, changed_files)
     same_repository = bool(repo_name and head_repo == repo_name)
-    protected_source = any(path in PROTECTED_EXACT or path.startswith(PROTECTED_PREFIXES) for path in candidates)
     repair_allowed = bool(
         conclusion in FAILED_CONCLUSIONS
         and same_repository
         and classification == "code_or_contract"
         and candidates
-        and not protected_source
         and workflow_name != "governed-ci-repair"
     )
 
@@ -252,6 +265,7 @@ def build_report(
         "source_pr_number": source_pr,
         "classification": classification,
         "repair_allowed": repair_allowed,
+        "automatic_repair_roots": list(AUTO_REPAIR_PREFIXES),
         "candidate_paths": candidates,
         "failed_gates": failures,
         "failure_summary": failure_summary,
