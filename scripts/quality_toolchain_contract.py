@@ -45,14 +45,39 @@ def _workflow_actions(text: str) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _quality_action_lock(lock: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    release_actions = lock.get("github_actions")
+    quality_only_actions = lock.get("quality_github_actions", {})
+    if not isinstance(release_actions, Mapping) or not release_actions:
+        raise QualityToolchainError("quality_action_lock_missing", "shared GitHub Action lock is missing")
+    if not isinstance(quality_only_actions, Mapping):
+        raise QualityToolchainError("quality_action_lock_invalid", "quality-only GitHub Action lock is invalid")
+
+    overlap = sorted(set(str(name) for name in release_actions).intersection(str(name) for name in quality_only_actions))
+    if overlap:
+        raise QualityToolchainError(
+            "quality_action_lock_overlap",
+            "quality-only actions must not redefine release actions: " + ", ".join(overlap),
+        )
+
+    combined: dict[str, Mapping[str, Any]] = {}
+    for source_name, source in (("shared", release_actions), ("quality-only", quality_only_actions)):
+        for name, spec in source.items():
+            if not isinstance(spec, Mapping):
+                raise QualityToolchainError(
+                    "quality_action_lock_invalid",
+                    f"invalid {source_name} action lock: {name}",
+                )
+            combined[str(name)] = spec
+    return combined
+
+
 def validate_static(workspace_root: Path) -> dict[str, Any]:
     workspace = workspace_root.resolve()
     lock = _load_json(workspace / "deployment/ci/release-toolchain-lock.json")
     workflow_path = workspace / ".github/workflows/quality.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
-    expected_actions = lock.get("github_actions")
-    if not isinstance(expected_actions, Mapping) or not expected_actions:
-        raise QualityToolchainError("quality_action_lock_missing", "GitHub Action lock is missing")
+    expected_actions = _quality_action_lock(lock)
 
     rows = _workflow_actions(workflow)
     actual: dict[str, list[tuple[str, str]]] = {}
@@ -62,13 +87,11 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
             raise QualityToolchainError(
                 "quality_action_not_sha_pinned", f"quality workflow action {name}@{ref} is not SHA pinned"
             )
-    unexpected = sorted(set(actual).difference(str(name) for name in expected_actions))
+    unexpected = sorted(set(actual).difference(expected_actions))
     if unexpected:
         raise QualityToolchainError("quality_action_set_unlocked", f"unlocked actions: {unexpected}")
     for name, spec in expected_actions.items():
-        if not isinstance(spec, Mapping):
-            raise QualityToolchainError("quality_action_lock_invalid", f"invalid action lock: {name}")
-        matches = actual.get(str(name), [])
+        matches = actual.get(name, [])
         sha = str(spec.get("sha") or "")
         version = str(spec.get("version") or "")
         if not matches or any(ref != sha for ref, _ in matches):
@@ -112,7 +135,7 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         raise QualityToolchainError("quality_postgres_tag_forbidden", "mutable pgvector tag is forbidden")
     if re.search(r"pip\s+install[^\n]*\buv(?:\s|$)", workflow):
         raise QualityToolchainError("quality_uv_unlocked", "unhashed uv installation is forbidden")
-    for job_name, next_job in (("quality-quick", "quality-integration"), ("quality-integration", None)):
+    for job_name, next_job in (("quality-quick", "quality-integration"), ("quality-integration", "governed-failure-stage1")):
         section = workflow.split(f"  {job_name}:", 1)[1]
         if next_job:
             section = section.split(f"  {next_job}:", 1)[0]
@@ -142,6 +165,8 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "uv_version": uv_version,
         "postgres_image": postgres_image,
         "action_count": len(rows),
+        "shared_action_count": len(lock.get("github_actions") or {}),
+        "quality_only_action_count": len(lock.get("quality_github_actions") or {}),
     }
 
 
