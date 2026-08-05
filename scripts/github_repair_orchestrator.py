@@ -33,11 +33,19 @@ def _git_head(workspace: Path) -> str:
     return _run_git(workspace, "rev-parse", "HEAD").stdout.strip()
 
 
+def _git_status(workspace: Path) -> list[str]:
+    return [
+        line
+        for line in _run_git(workspace, "status", "--porcelain=v1", "--untracked-files=all").stdout.splitlines()
+        if line.strip()
+    ]
+
+
 def _git_snapshot(workspace: Path) -> str:
     parts: list[bytes] = []
     for command in (
         ["git", "rev-parse", "HEAD"],
-        ["git", "status", "--porcelain=v1"],
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
         ["git", "diff", "--binary", "--"],
         ["git", "diff", "--cached", "--binary", "--"],
     ):
@@ -143,11 +151,34 @@ def main() -> int:
         "41898282+github-actions[bot]@users.noreply.github.com",
     )
 
+    initial_dirty = _git_status(workspace)
+    if initial_dirty:
+        task.block(
+            code="CANDIDATE_DIRTY_BEFORE_REPAIR",
+            reason="dependency installation or checkout changed the candidate before the trusted fixer ran",
+            attempted_strategies=("clean-checkout", "locked-dependency-install"),
+            next_action="inspect the dirty-path evidence and repair the supply-chain or ignore contract",
+            workspace_fingerprint=_git_snapshot(workspace),
+            evidence_refs=["dirty-paths:" + "|".join(initial_dirty[:40])],
+        )
+        return 10
+
     last_validation_signature = ""
     repeated_failure_count = 0
     for cycle in range(1, min(max(args.max_cycles, 1), 8) + 1):
         cycle_dir = evidence_root / f"cycle-{cycle:02d}"
         cycle_dir.mkdir(parents=True, exist_ok=True)
+        dirty_before_cycle = _git_status(workspace)
+        if dirty_before_cycle:
+            task.block(
+                code="CANDIDATE_DIRTY_BEFORE_MODEL_CALL",
+                reason="the candidate has uncommitted changes before the secret-bearing model call",
+                attempted_strategies=("cycle-cleanliness-check",),
+                next_action="inspect prior cycle evidence before resuming",
+                workspace_fingerprint=_git_snapshot(workspace),
+                evidence_refs=["dirty-paths:" + "|".join(dirty_before_cycle[:40])],
+            )
+            return 10
         before = _git_snapshot(workspace)
         task.checkpoint(
             status="RUNNING",
@@ -181,7 +212,7 @@ def main() -> int:
             task.block(
                 code="MODEL_FIXER_FAILED",
                 reason=f"restricted fixer exited with {fixed.returncode}",
-                attempted_strategies=("openai-compatible-restricted-fixer",),
+                attempted_strategies=("multi-role-openai-compatible-repair",),
                 next_action="inspect the repair evidence; do not weaken the judge or expand scope implicitly",
                 workspace_fingerprint=_git_snapshot(workspace),
                 evidence_refs=[str(fix_result), str(cycle_dir / "fixer.stderr.txt")],
@@ -192,7 +223,7 @@ def main() -> int:
             task.block(
                 code="FIXER_NO_SOURCE_CHANGE",
                 reason="restricted fixer produced no governed source change",
-                attempted_strategies=("openai-compatible-restricted-fixer",),
+                attempted_strategies=("multi-role-openai-compatible-repair",),
                 next_action="change the repair plan or candidate path scope",
                 workspace_fingerprint=patched,
                 evidence_refs=[str(fix_result)],
@@ -224,7 +255,7 @@ def main() -> int:
         )
         task.checkpoint(
             status="VALIDATING",
-            phase="INDEPENDENT_QUICK_VALIDATION",
+            phase="INDEPENDENT_QUICK_AND_INTEGRATION_VALIDATION",
             workspace_fingerprint=after,
             evidence_refs=[str(fix_result), str(target), f"commit:{repair_commit}"],
             metadata={"cycle": cycle},
