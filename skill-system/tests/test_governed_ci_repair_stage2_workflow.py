@@ -32,6 +32,25 @@ def test_stage2_secrets_are_gated_behind_read_only_inspection() -> None:
     assert "secrets.PRODUCTION_MODEL_API_KEY" in repair
 
 
+def test_stage2_uses_low_cost_deepseek_defaults_without_overriding_environment() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert (
+        "GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || "
+        "vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER || 'deepseek' }}"
+    ) in text
+    assert (
+        "GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || "
+        "vars.MODEL_ID || 'deepseek-v4-flash' }}"
+    ) in text
+    assert (
+        "GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || "
+        "vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE || 'https://api.deepseek.com' }}"
+    ) in text
+    assert text.index("vars.REAL_MODEL_CERTIFICATION_PROVIDER") < text.index("'deepseek'")
+    assert text.index("vars.OPENAI_MODEL") < text.index("'deepseek-v4-flash'")
+    assert text.index("vars.OPENAI_API_BASE") < text.index("'https://api.deepseek.com'")
+
+
 def test_stage2_manual_handoff_remains_fail_closed() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert '[[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]' in text
