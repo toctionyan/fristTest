@@ -24,7 +24,7 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
 
 
-def test_git_snapshot_changes_after_committed_repair(tmp_path: Path) -> None:
+def _repo(tmp_path: Path) -> tuple[Path, Path]:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init")
@@ -35,6 +35,11 @@ def test_git_snapshot_changes_after_committed_repair(tmp_path: Path) -> None:
     source.write_text("value = 1\n", encoding="utf-8")
     _git(repo, "add", "services/app.py")
     _git(repo, "commit", "-m", "base")
+    return repo, source
+
+
+def test_git_snapshot_changes_after_committed_repair(tmp_path: Path) -> None:
+    repo, source = _repo(tmp_path)
     before = MODULE._git_snapshot(repo)
 
     source.write_text("value = 2\n", encoding="utf-8")
@@ -48,6 +53,17 @@ def test_git_snapshot_changes_after_committed_repair(tmp_path: Path) -> None:
 
     assert before != after
     assert commit == MODULE._git_head(repo)
-    assert subprocess.run(
-        ["git", "status", "--porcelain=v1"], cwd=repo, check=True, capture_output=True, text=True
-    ).stdout == ""
+    assert MODULE._git_status(repo) == []
+
+
+def test_dirty_candidate_is_visible_before_secret_bearing_repair(tmp_path: Path) -> None:
+    repo, source = _repo(tmp_path)
+    source.write_text("supply_chain_mutation = True\n", encoding="utf-8")
+    assert MODULE._git_status(repo) == [" M services/app.py"]
+
+
+def test_untracked_candidate_file_is_visible_before_secret_bearing_repair(tmp_path: Path) -> None:
+    repo, _source = _repo(tmp_path)
+    unexpected = repo / "services" / "unexpected.py"
+    unexpected.write_text("value = 3\n", encoding="utf-8")
+    assert MODULE._git_status(repo) == ["?? services/unexpected.py"]
