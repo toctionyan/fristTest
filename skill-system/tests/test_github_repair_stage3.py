@@ -31,6 +31,8 @@ def _load(name: str, path: Path):
 STAGE3 = _load("github_repair_stage3", SCRIPTS / "github_repair_stage3.py")
 COMPLETE = _load("github_repair_stage3_complete", SCRIPTS / "github_repair_stage3_complete.py")
 HANDOFF = _load("github_stage2_handoff", SCRIPTS / "github_stage2_handoff.py")
+TREE = _load("github_repair_stage3_tree", SCRIPTS / "github_repair_stage3_tree.py")
+PUBLISH = _load("github_repair_stage3_publish", SCRIPTS / "github_repair_stage3_publish.py")
 
 
 def _git(path: Path, *args: str) -> str:
@@ -134,6 +136,20 @@ def _fixture(tmp_path: Path):
     return workspace, source, stage2_path, patch_path, task_path
 
 
+def _prepare_bound_plan(tmp_path: Path):
+    workspace, source, stage2_path, patch_path, task_path = _fixture(tmp_path)
+    plan_path = tmp_path / "stage3-plan.json"
+    STAGE3.prepare_candidate(
+        workspace=workspace,
+        result_path=stage2_path,
+        task_run_path=task_path,
+        patch_path=patch_path,
+        plan_path=plan_path,
+    )
+    plan = TREE.bind_tree(workspace=workspace, plan_path=plan_path)
+    return workspace, source, stage2_path, patch_path, task_path, plan_path, plan
+
+
 def test_stage2_handoff_binds_patch_and_branch_metadata(tmp_path: Path) -> None:
     _workspace, _source, stage2_path, patch_path, _task_path = _fixture(tmp_path)
     result = json.loads(stage2_path.read_text(encoding="utf-8"))
@@ -143,20 +159,14 @@ def test_stage2_handoff_binds_patch_and_branch_metadata(tmp_path: Path) -> None:
     assert result["repair_base_branch"] == "feature/source"
 
 
-def test_stage3_prepare_applies_exact_patch_and_creates_local_commit(tmp_path: Path) -> None:
-    workspace, source, stage2_path, patch_path, task_path = _fixture(tmp_path)
-    plan_path = tmp_path / "stage3-plan.json"
-    plan = STAGE3.prepare_candidate(
-        workspace=workspace,
-        result_path=stage2_path,
-        task_run_path=task_path,
-        patch_path=patch_path,
-        plan_path=plan_path,
-    )
+def test_stage3_prepare_applies_exact_patch_and_binds_tree(tmp_path: Path) -> None:
+    workspace, source, _stage2, _patch, task_path, _plan_path, plan = _prepare_bound_plan(tmp_path)
     assert source.read_text(encoding="utf-8") == "value = 1\n"
     assert plan["status"] == "CANDIDATE_PREPARED"
     assert plan["targeted_components"] == ["agent-python"]
-    assert _git(workspace, "rev-parse", "HEAD") == plan["candidate_sha"]
+    assert plan["tree_binding_complete"] is True
+    assert plan["validated_parent_sha"] == plan["head_sha"]
+    assert _git(workspace, "rev-parse", "HEAD^{tree}") == plan["validated_tree_sha"]
     assert _git(workspace, "status", "--porcelain") == ""
     task = json.loads(task_path.read_text(encoding="utf-8"))
     assert task["status"] == "VALIDATING"
@@ -209,7 +219,79 @@ def test_quick_evidence_requires_current_completion_eligible_pass(tmp_path: Path
         STAGE3.validate_quick_evidence(summary_path)
 
 
-def test_stage3_completion_uses_legal_task_transition(tmp_path: Path) -> None:
+def test_privileged_publisher_recreates_same_validated_tree(tmp_path: Path) -> None:
+    validation_workspace, _source, _stage2, patch_path, _task, plan_path, plan = _prepare_bound_plan(tmp_path)
+    validation = {
+        "schema": "github-governed-repair-stage3@1",
+        "status": "VALIDATED_FOR_DRAFT_PR",
+        "source_run_id": plan["source_run_id"],
+        "head_sha": plan["head_sha"],
+        "candidate_sha": plan["candidate_sha"],
+        "repair_branch": plan["repair_branch"],
+        "repair_base_branch": plan["repair_base_branch"],
+        "changed_paths": plan["changed_paths"],
+        "targeted_validation_passed": True,
+        "full_validation_passed": True,
+        "quick_loop_status": "CI_VERIFIED",
+        "quick_workspace_snapshot_fingerprint": "s" * 64,
+        "draft_pr_published": False,
+        "production_closed": False,
+    }
+    validation_path = tmp_path / "validation-result.json"
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+
+    publisher = tmp_path / "publisher"
+    _git(tmp_path, "clone", str(validation_workspace), str(publisher))
+    _git(publisher, "checkout", plan["head_sha"])
+    output = tmp_path / "publication-commit.json"
+    result = PUBLISH.prepare_publication(
+        workspace=publisher,
+        plan_path=plan_path,
+        validation_path=validation_path,
+        patch_path=patch_path,
+        output_path=output,
+    )
+    assert result["validated_tree_sha"] == plan["validated_tree_sha"]
+    assert _git(publisher, "rev-parse", "HEAD^{tree}") == plan["validated_tree_sha"]
+    assert _git(publisher, "rev-parse", "HEAD^") == plan["head_sha"]
+    assert result["published_candidate_sha"] != ""
+
+
+def test_publisher_rejects_validation_tree_drift(tmp_path: Path) -> None:
+    validation_workspace, _source, _stage2, patch_path, _task, plan_path, plan = _prepare_bound_plan(tmp_path)
+    plan["validated_tree_sha"] = "0" * 40
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    validation = {
+        "schema": "github-governed-repair-stage3@1",
+        "status": "VALIDATED_FOR_DRAFT_PR",
+        "source_run_id": plan["source_run_id"],
+        "head_sha": plan["head_sha"],
+        "candidate_sha": plan["candidate_sha"],
+        "repair_branch": plan["repair_branch"],
+        "repair_base_branch": plan["repair_base_branch"],
+        "changed_paths": plan["changed_paths"],
+        "targeted_validation_passed": True,
+        "full_validation_passed": True,
+        "quick_loop_status": "CI_VERIFIED",
+        "draft_pr_published": False,
+        "production_closed": False,
+    }
+    validation_path = tmp_path / "validation-result.json"
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    publisher = tmp_path / "publisher"
+    _git(tmp_path, "clone", str(validation_workspace), str(publisher))
+    _git(publisher, "checkout", plan["head_sha"])
+    with pytest.raises(PUBLISH.PublicationError, match="tree mismatch"):
+        PUBLISH.prepare_publication(
+            workspace=publisher,
+            plan_path=plan_path,
+            validation_path=validation_path,
+            patch_path=patch_path,
+            output_path=tmp_path / "publication.json",
+        )
+
+
+def test_stage3_completion_uses_published_tree_and_legal_transition(tmp_path: Path) -> None:
     _workspace, _source, _stage2, _patch, task_path = _fixture(tmp_path)
     task = TaskRunStore(task_path, json.loads(task_path.read_text(encoding="utf-8")))
     task.checkpoint(
@@ -225,25 +307,50 @@ def test_stage3_completion_uses_legal_task_transition(tmp_path: Path) -> None:
         workspace_fingerprint="b" * 64,
         evidence_refs=["quick-summary"],
     )
+    changed = ["services/agent-service/app.py"]
     validation = {
         "schema": "github-governed-repair-stage3@1",
         "status": "VALIDATED_FOR_DRAFT_PR",
+        "source_run_id": "123",
+        "head_sha": "h" * 40,
         "candidate_sha": "c" * 40,
+        "repair_branch": "governed-repair/quality-123",
+        "repair_base_branch": "feature/source",
+        "changed_paths": changed,
         "full_validation_passed": True,
         "quick_workspace_snapshot_fingerprint": "b" * 64,
         "draft_pr_published": False,
         "production_closed": False,
     }
+    publication = {
+        "schema": "github-governed-repair-stage3-publication@1",
+        "status": "PUBLICATION_COMMIT_PREPARED",
+        "source_run_id": "123",
+        "source_head_sha": "h" * 40,
+        "validated_candidate_sha": "c" * 40,
+        "validated_tree_sha": "t" * 40,
+        "published_candidate_sha": "p" * 40,
+        "repair_branch": "governed-repair/quality-123",
+        "repair_base_branch": "feature/source",
+        "changed_paths": changed,
+        "full_validation_passed": True,
+        "draft_pr_published": False,
+        "production_closed": False,
+    }
     validation_path = tmp_path / "validation-result.json"
+    publication_path = tmp_path / "publication-commit.json"
     validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    publication_path.write_text(json.dumps(publication), encoding="utf-8")
     output_path = tmp_path / "publication-result.json"
     completed = COMPLETE.complete_publication(
         validation_result_path=validation_path,
+        publication_commit_path=publication_path,
         task_run_path=task_path,
         pr_url="https://github.com/owner/repo/pull/99",
         output_path=output_path,
     )
     assert completed["status"] == "DRAFT_REPAIR_PR_PUBLISHED"
+    assert completed["published_candidate_sha"] == "p" * 40
     task_payload = json.loads(task_path.read_text(encoding="utf-8"))
     assert task_payload["status"] == "COMPLETED"
     assert task_payload["phase"] == "COMPLETED"
