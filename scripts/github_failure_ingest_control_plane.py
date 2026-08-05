@@ -10,6 +10,8 @@ bounded ingestion controller.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ BRIDGE_PROTECTED_EXACT = {
     "scripts/github_failure_recovery_event.py",
     "scripts/github_failure_sweeper_event.py",
     "scripts/github_quality_failure_event.py",
+    "scripts/github_repair_orchestrator_control_plane.py",
     "scripts/github_stage2_handoff.py",
     "scripts/github_repair_stage3.py",
     "scripts/github_repair_stage3_tree.py",
@@ -85,6 +88,52 @@ def _summary_failures(
     return failures, excerpts
 
 
+def _recompute_failure_signature(report: dict[str, Any]) -> None:
+    report["failure_signature"] = hashlib.sha256(
+        json.dumps(
+            {
+                "workflow": report.get("workflow_name"),
+                "sha": report.get("head_sha"),
+                "classification": report.get("classification"),
+                "gates": report.get("failed_gates") or [],
+                "summary": report.get("failure_summary") or "",
+                "candidate_paths": report.get("candidate_paths") or [],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _scope_candidates_to_changed_evidence(report: dict[str, Any]) -> dict[str, Any]:
+    """Require PR candidates to be both log-derived and changed in that PR.
+
+    Changed-file metadata never creates a candidate. It may only remove unrelated
+    paths that appeared incidentally in logs, stack traces, or verifier commands.
+    Push runs without changed-file metadata retain the base evidence-derived scope.
+    """
+    changed = {
+        base._normalize_repo_path(str(item))
+        for item in report.get("source_changed_files") or []
+        if str(item).strip()
+    }
+    if not changed:
+        return report
+    candidates = [
+        base._normalize_repo_path(str(item))
+        for item in report.get("candidate_paths") or []
+        if str(item).strip()
+    ]
+    scoped = [path for path in candidates if path in changed]
+    if scoped == candidates:
+        return report
+    report["candidate_paths"] = scoped
+    report["repair_allowed"] = bool(report.get("repair_allowed") is True and scoped)
+    _recompute_failure_signature(report)
+    return report
+
+
 def install() -> None:
     """Install the narrow adapter without weakening the base ingestion boundary."""
     base.PROTECTED_EXACT.update(BRIDGE_PROTECTED_EXACT)
@@ -93,11 +142,17 @@ def install() -> None:
 
 def build_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
     install()
-    return base.build_report(*args, **kwargs)
+    return _scope_candidates_to_changed_evidence(base.build_report(*args, **kwargs))
 
 
 def main() -> int:
     install()
+    original_build_report = base.build_report
+
+    def scoped_build_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return _scope_candidates_to_changed_evidence(original_build_report(*args, **kwargs))
+
+    base.build_report = scoped_build_report
     return base.main()
 
 
