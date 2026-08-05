@@ -23,6 +23,11 @@
       "{python}",
       "-B",
       "scripts/verify_task_ledger.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_local_first_governance.py"
     ]
   ]
 }
