@@ -1,0 +1,132 @@
+ut_seconds: float) -> bool:
++    deadline = time.monotonic() + max(timeout_seconds, 0.0)
++    while _process_group_exists(process_group_id):
++        if time.monotonic() >= deadline:
++            return False
++        time.sleep(0.02)
++    return True
++
++
+ def _terminate_process_group(process: subprocess.Popen[str], *, grace_seconds: float = 3.0) -> None:
++    process_group_id = process.pid
+     try:
+-        os.killpg(process.pid, signal.SIGTERM)
++        process.wait(timeout=0)
++    except subprocess.TimeoutExpired:
++        pass
++
++    try:
++        os.killpg(process_group_id, signal.SIGTERM)
+     except ProcessLookupError:
+         return
++    if _wait_for_process_group_exit(process_group_id, grace_seconds):
++        return
++
+     try:
+-        process.wait(timeout=grace_seconds)
+-        return
+-    except subprocess.TimeoutExpired:
+-        pass
+-    try:
+-        os.killpg(process.pid, signal.SIGKILL)
++        os.killpg(process_group_id, signal.SIGKILL)
+     except ProcessLookupError:
+         return
+-    try:
+-        process.wait(timeout=grace_seconds)
+-    except subprocess.TimeoutExpired:
+-        pass
++    _wait_for_process_group_exit(process_group_id, grace_seconds)
+ 
+ 
+ def _run_gate(workspace: Path, row: dict[str, Any], evidence_dir: Path) -> tuple[bool, list[str], dict[str, Any]]:
+@@ -185,12 +293,19 @@
+     workspace = Path(args.workspace).resolve()
+     spec_path = Path(args.spec).resolve()
+     spec = _parse_task_spec(spec_path)
++    git_identity = _verify_git_identity(
++        workspace,
++        expected_base_sha=str(spec["base_sha"]),
++        expected_branch=str(spec["branch"]),
++        require_head_at_base=True,
++        require_clean=True,
++    )
+     state = Path(args.state).resolve()
+     store = create_local_first_task(
+         state,
+         task_id=str(spec["task_id"]),
+         change_id=str(spec["change_id"]),
+-        base_sha=str(spec["base_sha"]),
++        base_sha=str(git_identity["base_sha"]),
+         branch=str(spec["branch"]),
+         patch_owner=str(spec["patch_owner"]),
+         allowed_paths=[str(item) for item in spec["allowed_paths"]],
+@@ -213,6 +328,7 @@
+         local_first_task_spec=str(spec_path),
+         local_first_baseline_manifest=str(baseline_path),
+         local_first_baseline_fingerprint=fingerprint(baseline_files),
++        local_first_git_identity=git_identity,
+     )
+     print(json.dumps(export_status(store), ensure_ascii=False, indent=2))
+     return 0
+@@ -224,6 +340,14 @@
+     spec = _parse_task_spec(Path(args.spec).resolve())
+     if fingerprint(spec) != store.payload["binding"]["target_fingerprint"]:
+         raise ValueError("local-first task spec changed after immutable task creation")
++    git_identity = _verify_git_identity(
++        workspace,
++        expected_base_sha=str(store.payload["binding"]["base_sha"]),
++        expected_branch=str(store.payload["binding"]["branch"]),
++        require_head_at_base=False,
++        require_clean=False,
++    )
++    store.set_metadata(local_first_current_git_identity=git_identity)
+     local = store.payload["metadata"]["local_first"]
+     round_number = int(local["counters"]["local_repair_rounds"]) + 1
+     workspace_fp = _workspace_fingerprint(workspace)
+@@ -273,6 +397,15 @@
+ def command_admit(args: argparse.Namespace) -> int:
+     workspace = Path(args.workspace).resolve()
+     store = _open_task(Path(args.state))
++    git_identity = _verify_git_identity(
++        workspace,
++        expected_base_sha=str(store.payload["binding"]["base_sha"]),
++        expected_branch=str(store.payload["binding"]["branch"]),
++        require_head_at_base=False,
++        require_clean=True,
++        expected_head_sha=str(args.head_sha),
++    )
++    store.set_metadata(local_first_upload_git_identity=git_identity)
+     baseline = _load_baseline_manifest(workspace, store)
+     computed_changed = _changed_paths(baseline, _workspace_snapshot(workspace))
+     supplied_changed = sorted(set(args.changed_path or []))
+--- a/scripts/verify_local_first_governance.py
++++ b/scripts/verify_local_first_governance.py
+@@ -120,6 +120,10 @@
+         "test_new_local_round_invalidates_prior_green_evidence",
+         "test_environment_and_secret_failures_cannot_edit_product_code",
+         "test_cli_rejects_task_spec_drift_after_init",
++        "test_cli_init_rejects_non_git_workspace",
++        "test_cli_init_rejects_base_sha_mismatch",
++        "test_cli_init_rejects_branch_mismatch",
++        "test_cli_admit_rejects_dirty_candidate",
+     ):
+         if scenario not in tests_text:
+             errors.append(f"local-first adversarial test missing: {scenario}")
+--- a/skill-system/tests/test_local_first_loop.py
++++ b/skill-system/tests/test_local_first_loop.py
+@@ -2,6 +2,7 @@
+ 
+ import importlib.util
+ import json
++import os
+ import subprocess
+ import time
+ import sys
+@@ -21,14 +22,50 @@
+     return module
+ 
+ 
++def _git(workspace: Path, *args: str) -> str:
++    completed = subprocess.run(
++        ["git", "-C", str(workspace), *args],
