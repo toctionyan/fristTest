@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a bounded model-repair/independent-validation loop for one GitHub failure."""
+"""Apply one secret-bearing governed repair cycle, then stop for external validation."""
 from __future__ import annotations
 
 import argparse
@@ -56,12 +56,16 @@ def _git_snapshot(workspace: Path) -> str:
     return hashlib.sha256(b"\0".join(parts)).hexdigest()
 
 
-def _failure_signature(stdout: str, stderr: str) -> str:
-    text = (stdout + "\n" + stderr)[-20000:]
-    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
-
-
-def _commit_repair_cycle(workspace: Path, *, cycle: int, run_id: str, allowed_paths: list[str]) -> str:
+def _commit_repair_cycle(
+    workspace: Path,
+    *,
+    cycle: int,
+    task_id: str,
+    origin_sha: str,
+    source_run_id: str,
+    failure_signature: str,
+    allowed_paths: list[str],
+) -> str:
     _run_git(workspace, "add", "--", *allowed_paths)
     staged = [
         line.strip()
@@ -73,40 +77,25 @@ def _commit_repair_cycle(workspace: Path, *, cycle: int, run_id: str, allowed_pa
     outside = sorted(set(staged) - set(allowed_paths))
     if outside:
         raise RuntimeError("repair staging escaped the frozen scope: " + ", ".join(outside))
-    _run_git(
-        workspace,
-        "commit",
-        "-m",
-        f"Governed repair cycle {cycle} for workflow run {run_id}",
+    message = (
+        f"Governed repair cycle {cycle} for workflow run {source_run_id}\n\n"
+        f"Governed-Repair-Task: {task_id}\n"
+        f"Governed-Repair-Origin: {origin_sha}\n"
+        f"Governed-Repair-Cycle: {cycle}\n"
+        f"Governed-Failure-Signature: {failure_signature}\n"
+        f"Governed-Source-Run: {source_run_id}"
     )
+    _run_git(workspace, "commit", "-m", message)
     return _git_head(workspace)
 
 
-def _create_quality_target(workspace: Path, *, source_ref: str) -> Path:
-    target = workspace / ".quality" / "targets" / "governed-repair-quick.md"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-B",
-            "scripts/create_ci_quality_target.py",
-            "--output",
-            str(target.relative_to(workspace)),
-            "--ref",
-            source_ref,
-            "--workflow",
-            "quality-quick",
-            "--claims-source",
-            "governance/claims/v20.6.2-project-quick-certification.json",
-        ],
-        cwd=workspace,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if completed.returncode:
-        raise RuntimeError("failed to create governed repair quality target: " + completed.stderr[-2000:])
-    return target
+def _write_output(path: Path | None, values: dict[str, Any]) -> None:
+    if path is None:
+        return
+    with path.open("a", encoding="utf-8") as handle:
+        for key, value in values.items():
+            text = "true" if value is True else "false" if value is False else str(value)
+            handle.write(f"{key}={text}\n")
 
 
 def main() -> int:
@@ -118,7 +107,6 @@ def main() -> int:
     parser.add_argument("--evidence-root", required=True)
     parser.add_argument("--max-cycles", type=int, default=8)
     parser.add_argument("--github-output")
-    parser.add_argument("--validation-command", nargs=argparse.REMAINDER, required=True)
     args = parser.parse_args()
 
     control = Path(args.control_root).resolve()
@@ -131,18 +119,106 @@ def main() -> int:
     sys.path.insert(0, str(control / "skill-system" / "controller"))
     from task_run import TaskRunStore  # type: ignore
 
-    payload = json.loads(task_path.read_text(encoding="utf-8"))
-    task = TaskRunStore(task_path, payload)
+    failure = _load(failure_path)
+    task = TaskRunStore(task_path, _load(task_path))
     if task.payload.get("status") == "COMPLETED":
         return 0
-    if not args.validation_command:
-        raise SystemExit("validation command is required")
+    if task.payload.get("status") == "BLOCKED":
+        print("governed repair TaskRun is blocked and requires an explicit new target", file=sys.stderr)
+        return 8
 
-    failure = _load(failure_path)
     allowed_paths = [str(item) for item in failure.get("candidate_paths") or []]
     if not allowed_paths:
         raise SystemExit("failure case has no frozen candidate paths")
+    metadata = task.payload.get("metadata") if isinstance(task.payload.get("metadata"), dict) else {}
+    cycle = int(metadata.get("repair_cycle") or 0) + 1
+    maximum = min(max(args.max_cycles, 1), 8)
+    if cycle > maximum:
+        task.block(
+            code="REPAIR_CYCLE_BUDGET_EXHAUSTED",
+            reason=f"repair cycle {cycle} exceeds the bounded maximum {maximum}",
+            attempted_strategies=("cross-workflow-governed-repair",),
+            next_action="review all prior repair and validation evidence before creating a new target",
+            workspace_fingerprint=_git_snapshot(workspace),
+            evidence_refs=[str(failure_path)],
+        )
+        return 8
+
+    dirty = _git_status(workspace)
+    if dirty:
+        task.block(
+            code="CANDIDATE_DIRTY_BEFORE_MODEL_CALL",
+            reason="the candidate has uncommitted changes before the secret-bearing model call",
+            attempted_strategies=("clean-checkout",),
+            next_action="inspect checkout or supply-chain drift before resuming",
+            workspace_fingerprint=_git_snapshot(workspace),
+            evidence_refs=["dirty-paths:" + "|".join(dirty[:40])],
+        )
+        return 10
+
     source_run_id = str(failure.get("workflow_run_id") or "unknown")
+    failure_signature = str(failure.get("failure_signature") or "")
+    binding = task.payload.get("binding") if isinstance(task.payload.get("binding"), dict) else {}
+    origin_sha = str(binding.get("origin_sha") or failure.get("head_sha") or _git_head(workspace))
+    task_id = str(task.payload.get("task_id") or "")
+    before = _git_snapshot(workspace)
+    task.checkpoint(
+        status="REPAIRING",
+        phase="MULTI_ROLE_MODEL_REPAIR",
+        workspace_fingerprint=before,
+        evidence_refs=[str(failure_path)],
+        metadata={"cycle": cycle, "model_roles": 4},
+    )
+
+    cycle_dir = evidence_root / f"cycle-{cycle:02d}"
+    cycle_dir.mkdir(parents=True, exist_ok=True)
+    fix_result = cycle_dir / "fix-result.json"
+    fixed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(control / "scripts" / "github_agent_fixer.py"),
+            "--workspace",
+            str(workspace),
+            "--failure-case",
+            str(failure_path),
+            "--output",
+            str(fix_result),
+        ],
+        cwd=workspace,
+        env=os.environ.copy(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    (cycle_dir / "fixer.stdout.txt").write_text(fixed.stdout, encoding="utf-8")
+    (cycle_dir / "fixer.stderr.txt").write_text(fixed.stderr, encoding="utf-8")
+    if fixed.returncode:
+        task.block(
+            code="MODEL_REPAIR_REJECTED",
+            reason=f"multi-role repair exited with {fixed.returncode}",
+            attempted_strategies=(
+                "failure-explorer",
+                "repair-plan-reviewer",
+                "restricted-fixer",
+                "diff-integrity-reviewer",
+            ),
+            next_action="inspect reviewer and fixer evidence; do not expand scope or weaken the judge",
+            workspace_fingerprint=_git_snapshot(workspace),
+            evidence_refs=[str(fix_result), str(cycle_dir / "fixer.stderr.txt")],
+        )
+        return fixed.returncode
+    if before == _git_snapshot(workspace):
+        task.block(
+            code="FIXER_NO_SOURCE_CHANGE",
+            reason="approved multi-role repair produced no governed source change",
+            attempted_strategies=("multi-role-model-repair",),
+            next_action="require a different root-cause proof before resuming",
+            workspace_fingerprint=before,
+            evidence_refs=[str(fix_result)],
+        )
+        return 4
+
     _run_git(workspace, "config", "user.name", "github-actions[bot]")
     _run_git(
         workspace,
@@ -150,209 +226,79 @@ def main() -> int:
         "user.email",
         "41898282+github-actions[bot]@users.noreply.github.com",
     )
-
-    initial_dirty = _git_status(workspace)
-    if initial_dirty:
+    try:
+        repair_commit = _commit_repair_cycle(
+            workspace,
+            cycle=cycle,
+            task_id=task_id,
+            origin_sha=origin_sha,
+            source_run_id=source_run_id,
+            failure_signature=failure_signature,
+            allowed_paths=allowed_paths,
+        )
+    except RuntimeError as exc:
         task.block(
-            code="CANDIDATE_DIRTY_BEFORE_REPAIR",
-            reason="dependency installation or checkout changed the candidate before the trusted fixer ran",
-            attempted_strategies=("clean-checkout", "locked-dependency-install"),
-            next_action="inspect the dirty-path evidence and repair the supply-chain or ignore contract",
+            code="REPAIR_COMMIT_REJECTED",
+            reason=str(exc),
+            attempted_strategies=("commit-frozen-scope",),
+            next_action="inspect the staged paths and create a new governed target if scope changed",
             workspace_fingerprint=_git_snapshot(workspace),
-            evidence_refs=["dirty-paths:" + "|".join(initial_dirty[:40])],
+            evidence_refs=[str(fix_result)],
         )
-        return 10
+        return 7
 
-    last_validation_signature = ""
-    repeated_failure_count = 0
-    for cycle in range(1, min(max(args.max_cycles, 1), 8) + 1):
-        cycle_dir = evidence_root / f"cycle-{cycle:02d}"
-        cycle_dir.mkdir(parents=True, exist_ok=True)
-        dirty_before_cycle = _git_status(workspace)
-        if dirty_before_cycle:
-            task.block(
-                code="CANDIDATE_DIRTY_BEFORE_MODEL_CALL",
-                reason="the candidate has uncommitted changes before the secret-bearing model call",
-                attempted_strategies=("cycle-cleanliness-check",),
-                next_action="inspect prior cycle evidence before resuming",
-                workspace_fingerprint=_git_snapshot(workspace),
-                evidence_refs=["dirty-paths:" + "|".join(dirty_before_cycle[:40])],
-            )
-            return 10
-        before = _git_snapshot(workspace)
-        task.checkpoint(
-            status="RUNNING",
-            phase="MODEL_FIXER_RUNNING",
-            workspace_fingerprint=before,
-            evidence_refs=[str(failure_path)],
-            metadata={"cycle": cycle},
-        )
-        fix_result = cycle_dir / "fix-result.json"
-        fixed = subprocess.run(
-            [
-                sys.executable,
-                "-B",
-                str(control / "scripts" / "github_agent_fixer.py"),
-                "--workspace",
-                str(workspace),
-                "--failure-case",
-                str(failure_path),
-                "--output",
-                str(fix_result),
-            ],
-            cwd=workspace,
-            env=os.environ.copy(),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        (cycle_dir / "fixer.stdout.txt").write_text(fixed.stdout, encoding="utf-8")
-        (cycle_dir / "fixer.stderr.txt").write_text(fixed.stderr, encoding="utf-8")
-        if fixed.returncode:
-            task.block(
-                code="MODEL_FIXER_FAILED",
-                reason=f"restricted fixer exited with {fixed.returncode}",
-                attempted_strategies=("multi-role-openai-compatible-repair",),
-                next_action="inspect the repair evidence; do not weaken the judge or expand scope implicitly",
-                workspace_fingerprint=_git_snapshot(workspace),
-                evidence_refs=[str(fix_result), str(cycle_dir / "fixer.stderr.txt")],
-            )
-            return fixed.returncode
-        patched = _git_snapshot(workspace)
-        if before == patched:
-            task.block(
-                code="FIXER_NO_SOURCE_CHANGE",
-                reason="restricted fixer produced no governed source change",
-                attempted_strategies=("multi-role-openai-compatible-repair",),
-                next_action="change the repair plan or candidate path scope",
-                workspace_fingerprint=patched,
-                evidence_refs=[str(fix_result)],
-            )
-            return 4
-        try:
-            repair_commit = _commit_repair_cycle(
-                workspace,
-                cycle=cycle,
-                run_id=source_run_id,
-                allowed_paths=allowed_paths,
-            )
-            target = _create_quality_target(workspace, source_ref=repair_commit)
-        except RuntimeError as exc:
-            task.block(
-                code="REPAIR_COMMIT_OR_TARGET_FAILED",
-                reason=str(exc),
-                attempted_strategies=("commit-frozen-scope", "create-quick-target"),
-                next_action="inspect git scope and target-generation evidence",
-                workspace_fingerprint=_git_snapshot(workspace),
-                evidence_refs=[str(fix_result)],
-            )
-            return 7
-
-        after = _git_snapshot(workspace)
-        task.mark_condition(
-            "source_changed",
-            evidence_refs=[str(fix_result), f"commit:{repair_commit}", f"git-snapshot:{after}"],
-        )
-        task.checkpoint(
-            status="VALIDATING",
-            phase="INDEPENDENT_QUICK_AND_INTEGRATION_VALIDATION",
-            workspace_fingerprint=after,
-            evidence_refs=[str(fix_result), str(target), f"commit:{repair_commit}"],
-            metadata={"cycle": cycle},
-        )
-
-        validation_dir = cycle_dir / "validation"
-        validation_dir.mkdir(parents=True, exist_ok=True)
-        env = os.environ.copy()
-        for key in tuple(env):
-            if key.startswith("GOVERNED_REPAIR_MODEL_"):
-                env.pop(key, None)
-        env["QUALITY_EVIDENCE_DIR"] = str(validation_dir)
-        validated = subprocess.run(
-            args.validation_command,
-            cwd=workspace,
-            env=env,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        (cycle_dir / "validation.stdout.txt").write_text(validated.stdout, encoding="utf-8")
-        (cycle_dir / "validation.stderr.txt").write_text(validated.stderr, encoding="utf-8")
-        if validated.returncode == 0:
-            task.mark_condition(
-                "validation_passed",
-                evidence_refs=[
-                    str(cycle_dir / "validation.stdout.txt"),
-                    str(validation_dir),
-                    f"commit:{repair_commit}",
-                ],
-            )
-            task.checkpoint(
-                status="VALIDATING",
-                phase="REPAIR_VALIDATED",
-                workspace_fingerprint=_git_snapshot(workspace),
-                evidence_refs=[str(validation_dir), str(fix_result), f"commit:{repair_commit}"],
-                metadata={"cycle": cycle, "next_action": "publish Draft PR"},
-            )
-            result = {
-                "schema": "github-repair-orchestrator@1",
-                "status": "READY_FOR_DRAFT_PR",
-                "cycle": cycle,
-                "repair_commit": repair_commit,
-                "task_run": str(task_path),
-                "production_closed": False,
-            }
-            (evidence_root / "repair-result.json").write_text(
-                json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            if args.github_output:
-                with Path(args.github_output).open("a", encoding="utf-8") as handle:
-                    handle.write("repair_ready=true\n")
-                    handle.write(f"repair_cycle={cycle}\n")
-                    handle.write(f"repair_commit={repair_commit}\n")
-            return 0
-
-        signature = _failure_signature(validated.stdout, validated.stderr)
-        repeated_failure_count = repeated_failure_count + 1 if signature == last_validation_signature else 1
-        last_validation_signature = signature
-        failure = _load(failure_path)
-        failure["latest_validation"] = {
-            "cycle": cycle,
-            "repair_commit": repair_commit,
-            "returncode": validated.returncode,
-            "failure_signature": signature,
-            "stdout_tail": validated.stdout[-7000:],
-            "stderr_tail": validated.stderr[-7000:],
-        }
-        failure_path.write_text(json.dumps(failure, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        task.checkpoint(
-            status="FAILED_RECOVERABLE",
-            phase="VALIDATION_FAILED",
+    if _git_status(workspace):
+        task.block(
+            code="REPAIR_COMMIT_LEFT_DIRTY_TREE",
+            reason="the frozen repair commit did not consume the entire approved source diff",
+            attempted_strategies=("commit-frozen-scope",),
+            next_action="inspect out-of-scope modifications before validation",
             workspace_fingerprint=_git_snapshot(workspace),
-            evidence_refs=[str(cycle_dir / "validation.stderr.txt"), str(failure_path), f"commit:{repair_commit}"],
-            metadata={"cycle": cycle, "failure_signature": signature},
+            evidence_refs=[f"commit:{repair_commit}", str(fix_result)],
         )
-        if repeated_failure_count >= 2:
-            task.block(
-                code="REPEATED_FAILURE_NO_PROGRESS",
-                reason="the same validation failure signature occurred twice",
-                attempted_strategies=("bounded-model-repair",),
-                next_action="require a new root-cause proof or human review before resuming",
-                workspace_fingerprint=_git_snapshot(workspace),
-                evidence_refs=[str(failure_path)],
-            )
-            return 8
+        return 7
 
-    task.block(
-        code="REPAIR_CYCLE_BUDGET_EXHAUSTED",
-        reason="the eight-cycle repair budget was exhausted without independent validation",
-        attempted_strategies=("bounded-model-repair",),
-        next_action="review evidence and create a new governed repair target",
-        workspace_fingerprint=_git_snapshot(workspace),
-        evidence_refs=[str(evidence_root)],
+    task.mark_condition(
+        "source_changed",
+        evidence_refs=[str(fix_result), f"commit:{repair_commit}"],
     )
-    return 8
+    task.set_metadata(
+        repair_cycle=cycle,
+        repair_commit=repair_commit,
+        last_source_run_id=source_run_id,
+        validation_pending=True,
+    )
+    task.checkpoint(
+        status="WAITING_EXTERNAL_RESULT",
+        phase="VALIDATION_DISPATCH_REQUIRED",
+        workspace_fingerprint=repair_commit,
+        evidence_refs=[str(fix_result), f"commit:{repair_commit}"],
+        metadata={"cycle": cycle, "next_action": "run no-secret Quick and deterministic Integration validation"},
+    )
+    result = {
+        "schema": "github-repair-cycle@1",
+        "status": "VALIDATION_REQUIRED",
+        "task_id": task_id,
+        "cycle": cycle,
+        "repair_commit": repair_commit,
+        "repair_branch": str(failure.get("repair_branch") or ""),
+        "production_closed": False,
+    }
+    (evidence_root / "repair-cycle-result.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    _write_output(
+        Path(args.github_output).resolve() if args.github_output else None,
+        {
+            "repair_ready": True,
+            "repair_cycle": cycle,
+            "repair_commit": repair_commit,
+            "task_id": task_id,
+        },
+    )
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
 
 
 if __name__ == "__main__":
