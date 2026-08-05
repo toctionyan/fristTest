@@ -6,14 +6,20 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "governed-ci-repair-stage2.yml"
 
 
-def test_stage2_is_event_driven_and_consumes_only_stage1_evidence() -> None:
+def test_stage2_consumes_only_bound_stage1_evidence() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "name: governed-ci-repair-stage2" in text
     assert "workflow_run:" in text
     assert "- governed-ci-failure-ingest" in text
-    assert "pattern: governed-ci-failure-*" in text
+    assert "workflow_dispatch:" in text
+    assert "source_run_id:" in text
+    assert "source_run_attempt:" in text
+    assert "stage1_artifact_pattern=governed-ci-failure-*" in text
+    assert "stage1_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" in text
     assert "github.event.workflow_run.conclusion == 'success'" in text
     assert "Stage-1 TaskRun binding mismatch" in text
+    assert "approved source Run ID does not match Stage-1 evidence" in text
+    assert "approved source run attempt does not match Stage-1 evidence" in text
 
 
 def test_stage2_secrets_are_gated_behind_read_only_inspection() -> None:
@@ -24,6 +30,16 @@ def test_stage2_secrets_are_gated_behind_read_only_inspection() -> None:
     assert "needs.inspect.outputs.repair_allowed == 'true'" in repair
     assert "environment: production-certification" in repair
     assert "secrets.PRODUCTION_MODEL_API_KEY" in repair
+
+
+def test_stage2_manual_handoff_remains_fail_closed() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert '[[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]' in text
+    assert '[[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]' in text
+    assert "run-id: ${{ steps.source.outputs.stage1_run_id }}" in text
+    assert "run-id: ${{ needs.inspect.outputs.stage1_run_id }}" in text
+    assert "pattern: ${{ steps.source.outputs.stage1_artifact_pattern }}" in text
+    assert "pattern: ${{ needs.inspect.outputs.stage1_artifact_pattern }}" in text
 
 
 def test_stage2_cannot_publish_or_close_production() -> None:
