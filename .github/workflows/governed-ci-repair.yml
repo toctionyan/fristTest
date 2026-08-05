@@ -207,11 +207,11 @@ jobs:
         run: |
           git -C candidate checkout -B "${REPAIR_BRANCH}" "${SOURCE_SHA}"
           mkdir -p candidate/.quality/targets repair-evidence
-          candidate/services/agent-service/.venv/bin/python -B candidate/scripts/create_ci_quality_target.py \
-            --output candidate/.quality/targets/governed-repair-quick.md \
+          (cd candidate && services/agent-service/.venv/bin/python -B scripts/create_ci_quality_target.py \
+            --output .quality/targets/governed-repair-quick.md \
             --ref "${SOURCE_SHA}" \
-            --workflow governed-ci-repair \
-            --claims-source candidate/governance/claims/v20.6.2-project-quick-certification.json
+            --workflow quality-quick \
+            --claims-source governance/claims/v20.6.2-project-quick-certification.json)
 
       - name: Run bounded governed repair loop
         id: repair
