@@ -6,18 +6,20 @@ on:
       - quality
       - wp08-full-stack-certification
     types: [completed]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: governed-ci-failure-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: governed-ci-failure-${{ github.event_name }}-${{ github.event.workflow_run.id }}-${{ github.event.comment.id }}
   cancel-in-progress: false
 
 jobs:
   ingest:
-    if: github.event.workflow_run.conclusion != 'success'
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success') || (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.author_association == 'OWNER' && startsWith(github.event.comment.body, '/governed-repair-run ')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -33,10 +35,84 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve and bind failed source run
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_ASSOCIATION: ${{ github.event.comment.author_association }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            "${pythonLocation}/bin/python" - "$GITHUB_EVENT_PATH" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          event_path = Path(sys.argv[1])
+          output_path = Path(sys.argv[2])
+          event = json.loads(event_path.read_text(encoding="utf-8"))
+          run = event.get("workflow_run")
+          if not isinstance(run, dict):
+              raise SystemExit("workflow_run event payload is missing")
+          pull_requests = run.get("pull_requests") if isinstance(run.get("pull_requests"), list) else []
+          first_pr = pull_requests[0] if pull_requests and isinstance(pull_requests[0], dict) else {}
+          values = {
+              "source_run_id": str(run.get("id") or ""),
+              "source_run_attempt": str(run.get("run_attempt") or "1"),
+              "source_pr_number": str(first_pr.get("number") or "0"),
+              "head_sha": str(run.get("head_sha") or ""),
+              "workflow_name": str(run.get("name") or ""),
+              "trigger_mode": "workflow_run",
+          }
+          if not values["source_run_id"] or len(values["head_sha"]) != 40:
+              raise SystemExit("workflow_run source identity is invalid")
+          Path("incoming/source-event.json").write_text(
+              json.dumps(event, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with output_path.open("a", encoding="utf-8") as handle:
+              for key, value in values.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+          elif [[ "${EVENT_NAME}" == "issue_comment" ]]; then
+            if [[ "${COMMENT_ASSOCIATION}" != "OWNER" ]]; then
+              echo "Only a repository-owner comment may enter the recovery lane." >&2
+              exit 1
+            fi
+            if [[ ! "${COMMENT_BODY}" =~ ^/governed-repair-run[[:space:]]+([1-9][0-9]*)[[:space:]]*$ ]]; then
+              echo "Recovery command must be exactly: /governed-repair-run <numeric-run-id>" >&2
+              exit 1
+            fi
+            SOURCE_RUN_ID="${BASH_REMATCH[1]}"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${ISSUE_NUMBER}" > incoming/source-pr.json
+            "${pythonLocation}/bin/python" -B control/scripts/github_failure_recovery_event.py \
+              --comment "${COMMENT_BODY}" \
+              --repository "${GITHUB_REPOSITORY}" \
+              --issue-number "${ISSUE_NUMBER}" \
+              --run-json incoming/source-run.json \
+              --pr-json incoming/source-pr.json \
+              --output incoming/source-event.json \
+              --github-output "$GITHUB_OUTPUT"
+            echo "trigger_mode=owner-comment-recovery" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported ingestion event: ${EVENT_NAME}" >&2
+            exit 1
+          fi
+
       - name: Checkout failed source as untrusted data
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.source.outputs.head_sha }}
           path: candidate
           fetch-depth: 1
           persist-credentials: false
@@ -48,12 +124,12 @@ jobs:
           path: incoming/artifacts
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.source.outputs.source_run_id }}
 
       - name: Download failed-run logs as untrusted evidence
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.source_run_id }}
         run: |
           set -euo pipefail
           mkdir -p incoming/logs
@@ -66,7 +142,7 @@ jobs:
       - name: Capture source PR changed-file metadata
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          SOURCE_PR_NUMBER: ${{ steps.source.outputs.source_pr_number }}
         run: |
           set -euo pipefail
           mkdir -p incoming
@@ -77,16 +153,11 @@ jobs:
             printf '[]\n' > incoming/changed-files.json
           fi
 
-      - name: Set up locked Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-
       - name: Ingest failure and create durable TaskRun
         id: ingest
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest_control_plane.py
-          --event "$GITHUB_EVENT_PATH"
+          --event incoming/source-event.json
           --workspace candidate
           --artifacts incoming/artifacts
           --logs incoming/logs
@@ -99,8 +170,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: governed-ci-failure-${{ github.event.workflow_run.id }}
+          name: governed-ci-failure-${{ steps.source.outputs.source_run_id }}
           path: |
+            incoming/source-event.json
             incoming/failure-case.json
             incoming/task-run.json
             incoming/changed-files.json
@@ -110,9 +182,10 @@ jobs:
       - name: Create or update governed failure issue
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
-          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.source.outputs.source_run_attempt }}
+          SOURCE_URL: https://github.com/${{ github.repository }}/actions/runs/${{ steps.source.outputs.source_run_id }}
+          TRIGGER_MODE: ${{ steps.source.outputs.trigger_mode }}
           CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
           REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
           FAILURE_SIGNATURE: ${{ steps.ingest.outputs.failure_signature }}
@@ -131,6 +204,7 @@ jobs:
 
           - Source run: ${SOURCE_URL}
           - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Ingestion trigger: \`${TRIGGER_MODE}\`
           - Classification: \`${CLASSIFICATION}\`
           - Failure signature: \`${FAILURE_SIGNATURE}\`
           - Automatic source repair authorized by ingestion: \`${REPAIR_ALLOWED}\`
@@ -153,12 +227,14 @@ jobs:
         env:
           CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
           REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.source_run_id }}
+          TRIGGER_MODE: ${{ steps.source.outputs.trigger_mode }}
         run: |
           {
             echo "## Governed CI failure ingestion"
             echo
             echo "- Source Run ID: \`${SOURCE_RUN_ID}\`"
+            echo "- Trigger mode: \`${TRIGGER_MODE}\`"
             echo "- Classification: \`${CLASSIFICATION}\`"
             echo "- Ready for Stage 2 repair: \`${REPAIR_ALLOWED}\`"
             echo "- Source changes: none"
