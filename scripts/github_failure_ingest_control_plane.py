@@ -22,10 +22,12 @@ PRODUCT_SOURCE_ROOTS = ("services/", "web/", "contracts/")
 BRIDGE_PROTECTED_EXACT = {
     ".github/workflows/governed-ci-failure-sweeper.yml",
     ".github/workflows/governed-ci-failure-sweeper-wakeup.yml",
+    ".github/workflows/governed-ci-stage2-auto-handoff.yml",
     "scripts/github_failure_ingest_control_plane.py",
     "scripts/github_failure_recovery_event.py",
     "scripts/github_failure_sweeper_event.py",
     "scripts/github_quality_failure_event.py",
+    "scripts/github_stage2_auto_handoff.py",
     "scripts/github_repair_orchestrator_control_plane.py",
     "scripts/github_stage2_handoff.py",
     "scripts/github_repair_stage3.py",
