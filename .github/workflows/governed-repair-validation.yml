@@ -1,0 +1,218 @@
+name: governed-repair-validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      repair_sha:
+        description: Exact governed repair commit
+        required: true
+        type: string
+      bridge_run_id:
+        description: Governed repair workflow run carrying the TaskRun artifact
+        required: true
+        type: string
+      task_id:
+        description: Durable TaskRun identifier
+        required: true
+        type: string
+      source_run_id:
+        description: Original failed workflow run
+        required: true
+        type: string
+      repair_cycle:
+        description: Bounded repair cycle number
+        required: true
+        type: string
+      pr_url:
+        description: Draft repair pull request URL
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: governed-repair-validation-${{ inputs.task_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    services:
+      pgvector:
+        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout trusted control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact repair candidate without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.repair_sha }}
+          path: candidate
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Download cycle TaskRun
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: governed-repair-task-${{ inputs.task_id }}-${{ inputs.source_run_id }}
+          path: task
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.bridge_run_id }}
+
+      - name: Verify candidate and TaskRun identity
+        env:
+          EXPECTED_SHA: ${{ inputs.repair_sha }}
+          EXPECTED_TASK_ID: ${{ inputs.task_id }}
+        run: |
+          ACTUAL_SHA=$(git -C candidate rev-parse HEAD)
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          test "$(jq -r '.task_id' task/task-run.json)" = "${EXPECTED_TASK_ID}"
+          test "$(jq -r '.status' task/task-run.json)" = "WAITING_EXTERNAL_RESULT"
+          test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install candidate validation environments
+        run: |
+          cd candidate/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Verify dependency installation did not mutate tracked source
+        run: |
+          git -C candidate diff --exit-code
+          git -C candidate diff --cached --exit-code
+
+      - name: Run no-secret Quick and deterministic Integration judge
+        id: judge
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          mkdir -p validation-evidence
+          set +e
+          candidate/services/agent-service/.venv/bin/python -B control/scripts/github_repair_validation.py \
+            --workspace candidate \
+            --evidence-dir validation-evidence \
+            > validation-evidence/runner.stdout.txt \
+            2> validation-evidence/runner.stderr.txt
+          CODE=$?
+          set -e
+          cat validation-evidence/runner.stdout.txt
+          cat validation-evidence/runner.stderr.txt >&2
+          printf 'exit_code=%s\n' "${CODE}" >> "$GITHUB_OUTPUT"
+          SIGNATURE=$(cat validation-evidence/runner.stdout.txt validation-evidence/runner.stderr.txt | sha256sum | awk '{print $1}')
+          printf 'failure_signature=%s\n' "${SIGNATURE}" >> "$GITHUB_OUTPUT"
+
+      - name: Record successful validation and complete TaskRun
+        if: steps.judge.outputs.exit_code == '0'
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_task.py
+          --control-root control
+          --workspace candidate
+          --task-run task/task-run.json
+          --result success
+          --validation-evidence validation-evidence
+          --pr-url "${{ inputs.pr_url }}"
+
+      - name: Record recoverable validation failure
+        if: steps.judge.outputs.exit_code != '0'
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_task.py
+          --control-root control
+          --workspace candidate
+          --task-run task/task-run.json
+          --result failure
+          --validation-evidence validation-evidence
+          --failure-signature "${{ steps.judge.outputs.failure_signature }}"
+
+      - name: Write validation context
+        if: always()
+        env:
+          REPAIR_SHA: ${{ inputs.repair_sha }}
+          TASK_ID: ${{ inputs.task_id }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          REPAIR_CYCLE: ${{ inputs.repair_cycle }}
+          PR_URL: ${{ inputs.pr_url }}
+          EXIT_CODE: ${{ steps.judge.outputs.exit_code }}
+        run: |
+          jq -n \
+            --arg repair_sha "$REPAIR_SHA" \
+            --arg task_id "$TASK_ID" \
+            --arg source_run_id "$SOURCE_RUN_ID" \
+            --arg repair_cycle "$REPAIR_CYCLE" \
+            --arg pr_url "$PR_URL" \
+            --arg exit_code "$EXIT_CODE" \
+            '{schema:"governed-repair-validation-context@1",repair_sha:$repair_sha,task_id:$task_id,source_run_id:$source_run_id,repair_cycle:$repair_cycle,pr_url:$pr_url,exit_code:$exit_code,production_closed:false}' \
+            > validation-context.json
+
+      - name: Upload validation evidence and TaskRun
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-repair-validation-${{ inputs.task_id }}-${{ inputs.repair_cycle }}
+          path: |
+            task/task-run.json
+            validation-context.json
+            validation-evidence
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Comment Draft PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ inputs.pr_url }}
+          EXIT_CODE: ${{ steps.judge.outputs.exit_code }}
+          TASK_ID: ${{ inputs.task_id }}
+          REPAIR_CYCLE: ${{ inputs.repair_cycle }}
+        run: |
+          if [[ "$EXIT_CODE" == "0" ]]; then
+            STATUS="PASS: Quick and deterministic Integration are complete"
+          else
+            STATUS="FAIL: the next governed cycle may run from this evidence"
+          fi
+          gh pr comment "$PR_URL" --body "Governed validation cycle \`${REPAIR_CYCLE}\` for TaskRun \`${TASK_ID}\`: **${STATUS}**. Production closure remains false."
+
+      - name: Enforce isolated validation result
+        if: steps.judge.outputs.exit_code != '0'
+        run: exit "${{ steps.judge.outputs.exit_code }}"
