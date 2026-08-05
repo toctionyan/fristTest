@@ -30,23 +30,47 @@ def _load(path: Path) -> dict[str, Any]:
 def complete_publication(
     *,
     validation_result_path: Path,
+    publication_commit_path: Path,
     task_run_path: Path,
     pr_url: str,
     output_path: Path,
 ) -> dict[str, Any]:
-    result = _load(validation_result_path)
-    if result.get("schema") != "github-governed-repair-stage3@1":
+    validation = _load(validation_result_path)
+    publication = _load(publication_commit_path)
+    if validation.get("schema") != "github-governed-repair-stage3@1":
         raise CompletionError("unsupported Stage-3 validation schema")
-    if result.get("status") != "VALIDATED_FOR_DRAFT_PR":
+    if validation.get("status") != "VALIDATED_FOR_DRAFT_PR":
         raise CompletionError("Stage-3 validation result is not publishable")
-    if result.get("full_validation_passed") is not True:
+    if validation.get("full_validation_passed") is not True:
         raise CompletionError("full validation did not pass")
-    if result.get("draft_pr_published") is not False:
+    if validation.get("draft_pr_published") is not False:
         raise CompletionError("Draft PR publication was already asserted")
-    if result.get("production_closed") is not False:
+    if validation.get("production_closed") is not False:
         raise CompletionError("invalid production closure authority")
+    if publication.get("schema") != "github-governed-repair-stage3-publication@1":
+        raise CompletionError("unsupported publication commit schema")
+    if publication.get("status") != "PUBLICATION_COMMIT_PREPARED":
+        raise CompletionError("publication commit was not prepared")
+    if publication.get("full_validation_passed") is not True:
+        raise CompletionError("publication commit is not bound to full validation")
+    if publication.get("draft_pr_published") is not False:
+        raise CompletionError("publication commit already asserts a Draft PR")
+    if publication.get("production_closed") is not False:
+        raise CompletionError("invalid publication closure authority")
     if not pr_url.startswith("https://github.com/") or "/pull/" not in pr_url:
         raise CompletionError("a valid GitHub Draft PR URL is required")
+
+    expected = {
+        "source_run_id": validation.get("source_run_id"),
+        "source_head_sha": validation.get("head_sha"),
+        "validated_candidate_sha": validation.get("candidate_sha"),
+        "repair_branch": validation.get("repair_branch"),
+        "repair_base_branch": validation.get("repair_base_branch"),
+        "changed_paths": validation.get("changed_paths"),
+    }
+    mismatched = [key for key, value in expected.items() if publication.get(key) != value]
+    if mismatched:
+        raise CompletionError(f"validation/publication binding mismatch: {mismatched}")
 
     task_payload = _load(task_run_path)
     task = TaskRunStore(task_run_path.resolve(), task_payload)
@@ -55,31 +79,45 @@ def complete_publication(
     if task.payload.get("phase") != "STAGE3_DRAFT_PR_REQUIRED":
         raise CompletionError("TaskRun phase is not STAGE3_DRAFT_PR_REQUIRED")
 
-    candidate_sha = str(result.get("candidate_sha") or "")
-    snapshot = str(result.get("quick_workspace_snapshot_fingerprint") or "")
-    if not candidate_sha or not snapshot:
-        raise CompletionError("Stage-3 validation evidence lacks candidate identity")
+    validated_candidate_sha = str(validation.get("candidate_sha") or "")
+    published_candidate_sha = str(publication.get("published_candidate_sha") or "")
+    validated_tree_sha = str(publication.get("validated_tree_sha") or "")
+    snapshot = str(validation.get("quick_workspace_snapshot_fingerprint") or "")
+    if not validated_candidate_sha or not published_candidate_sha or not validated_tree_sha or not snapshot:
+        raise CompletionError("Stage-3 evidence lacks candidate/tree identity")
 
     task.mark_condition(
         "draft_pr_published",
-        evidence_refs=[pr_url, f"candidate-sha:{candidate_sha}"],
+        evidence_refs=[
+            pr_url,
+            f"published-candidate-sha:{published_candidate_sha}",
+            f"validated-tree-sha:{validated_tree_sha}",
+        ],
     )
     task.checkpoint(
         status="VALIDATING",
         phase="STAGE3_PUBLICATION_RECORDED",
         workspace_fingerprint=snapshot,
-        evidence_refs=[pr_url, str(validation_result_path)],
-        metadata={"draft_pr_url": pr_url, "candidate_sha": candidate_sha},
+        evidence_refs=[pr_url, str(validation_result_path), str(publication_commit_path)],
+        metadata={
+            "draft_pr_url": pr_url,
+            "validated_candidate_sha": validated_candidate_sha,
+            "published_candidate_sha": published_candidate_sha,
+            "validated_tree_sha": validated_tree_sha,
+        },
     )
     task.complete(
         workspace_fingerprint=snapshot,
-        evidence_refs=[str(validation_result_path), pr_url],
+        evidence_refs=[str(validation_result_path), str(publication_commit_path), pr_url],
     )
 
-    completed = dict(result)
+    completed = dict(validation)
     completed.update(
         {
             "status": "DRAFT_REPAIR_PR_PUBLISHED",
+            "validated_candidate_sha": validated_candidate_sha,
+            "published_candidate_sha": published_candidate_sha,
+            "validated_tree_sha": validated_tree_sha,
             "draft_pr_published": True,
             "draft_pr_url": pr_url,
             "normal_quality_dispatch_requested": True,
@@ -97,6 +135,7 @@ def complete_publication(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--validation-result", required=True)
+    parser.add_argument("--publication-commit", required=True)
     parser.add_argument("--task-run", required=True)
     parser.add_argument("--pr-url", required=True)
     parser.add_argument("--output", required=True)
@@ -104,6 +143,7 @@ def main() -> int:
     try:
         complete_publication(
             validation_result_path=Path(args.validation_result),
+            publication_commit_path=Path(args.publication_commit),
             task_run_path=Path(args.task_run),
             pr_url=args.pr_url,
             output_path=Path(args.output),
