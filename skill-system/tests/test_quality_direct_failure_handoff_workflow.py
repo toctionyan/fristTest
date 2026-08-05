@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = ROOT / ".github" / "workflows" / "quality.yml"
+STAGE2 = ROOT / ".github" / "workflows" / "governed-ci-repair-stage2.yml"
+
+
+def test_quality_workflow_has_terminal_direct_stage1_handoff() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    required = (
+        "governed-failure-stage1:",
+        "always() && github.event_name == 'pull_request'",
+        "needs.skill-control-plane.result == 'failure'",
+        "needs.quality-static.result == 'failure'",
+        "needs.quality-quick.result == 'failure'",
+        "Record direct quality failure receipt",
+        "QUALITY_RUN_RECEIVED",
+        "quality-in-run-stage1",
+        "scripts/github_quality_failure_event.py",
+        "Checkout failed PR head as untrusted data",
+        "Download current-run artifacts as untrusted evidence",
+        "Download completed Quality job logs as untrusted evidence",
+        "scripts/github_failure_ingest_control_plane.py",
+        "governed-ci-quality-stage1-${{ github.run_id }}",
+        "QUALITY_RUN_INGESTED",
+        "Stage 2 started by this job: \\`false\\`",
+        "production_closed: false",
+    )
+    missing = [fragment for fragment in required if fragment not in text]
+    assert not missing, f"missing direct handoff fragments: {missing}"
+
+
+def test_receipt_precedes_all_trusted_and_untrusted_processing() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    receipt = text.index("- name: Record direct quality failure receipt")
+    trusted = text.index("- name: Checkout trusted Stage-1 control plane")
+    bind = text.index("- name: Bind current failed Quality run")
+    candidate = text.index("- name: Checkout failed PR head as untrusted data")
+    artifacts = text.index("- name: Download current-run artifacts as untrusted evidence")
+    logs = text.index("- name: Download completed Quality job logs as untrusted evidence")
+    ingest = text.index("- name: Ingest failure and create durable TaskRun")
+    assert receipt < trusted < bind < candidate < artifacts < logs < ingest
+
+
+def test_skill_control_plane_failure_evidence_is_always_uploaded() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    validate = text.index("- name: Validate Skill control plane")
+    upload = text.index("- name: Upload Skill control-plane evidence")
+    authority = text.index("- name: Validate quality toolchain authority")
+    assert validate < upload < authority
+    assert 'tee "${RUNNER_TEMP}/skill-control-plane.log"' in text
+    assert "name: skill-control-plane-evidence" in text
+    assert "if-no-files-found: warn" in text
+
+
+def test_direct_handoff_has_no_model_or_source_write_authority() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    job = text[text.index("  governed-failure-stage1:") :]
+    forbidden = (
+        "environment: production-certification",
+        "secrets.PRODUCTION_MODEL_API_KEY",
+        "secrets.PRODUCTION_EMBEDDING_API_KEY",
+        "QUALITY_EVIDENCE_SIGNING_KEY",
+        "contents: write",
+        "actions: write",
+        "git push",
+        "gh pr create",
+        "github_repair_orchestrator.py",
+        "github_stage2_handoff.py",
+        "governed-ci-repair-stage2-",
+    )
+    present = [fragment for fragment in forbidden if fragment in job]
+    assert not present, f"direct Stage-1 handoff gained forbidden authority: {present}"
+
+
+def test_direct_handoff_cannot_trigger_stage2_by_workflow_name() -> None:
+    stage2 = STAGE2.read_text(encoding="utf-8")
+    assert "- governed-ci-failure-ingest" in stage2
+    assert "- quality" not in stage2
+    assert "governed-failure-stage1" not in stage2
+
+
+def test_completed_job_logs_are_fetched_by_immutable_current_run_id() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "SOURCE_RUN_ID: ${{ github.run_id }}" in text
+    assert "actions/runs/${SOURCE_RUN_ID}/jobs?filter=latest&per_page=100" in text
+    assert 'select(.status == "completed")' in text
+    assert "actions/jobs/${job_id}/logs" in text
+    assert "steps.source.outputs.source_pr_number" in text
