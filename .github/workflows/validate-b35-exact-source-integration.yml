@@ -7,121 +7,14 @@ on:
       - .github/workflows/validate-b35-exact-source-integration.yml
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: validate-b35-exact-source-integration-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  restore-production-authority-boundary:
-    runs-on: ubuntu-24.04
-    outputs:
-      b35_sha: ${{ steps.restore.outputs.b35_sha }}
-    steps:
-      - name: Checkout governed B35 candidate branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: agent/b35-staged-goal-progression-20260804
-          path: source
-          fetch-depth: 0
-
-      - name: Restore canonical B35 production authority boundary
-        id: restore
-        env:
-          TARGET_BRANCH: agent/b35-staged-goal-progression-20260804
-          EXPECTED_PREVIOUS_HEAD: 065c502d3a0a67834655b927b85dd0fcc5016049
-          CANONICAL_B35_TREE: 68673a936a8c6adf5394cc65cccf29db4589341c
-          EXPECTED_FINGERPRINT: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
-        run: |
-          set -euo pipefail
-          current_head="$(git -C source rev-parse HEAD)"
-          test "${current_head}" = "${EXPECTED_PREVIOUS_HEAD}"
-          test -z "$(git -C source status --short)"
-
-          git -C source checkout "${CANONICAL_B35_TREE}" -- \
-            governance/quality-loop-policy.json \
-            services/agent-service/tests/architecture/test_systemic_operational_closure.py \
-            B35_STAGED_GOAL_PROGRESSION_MANIFEST.json \
-            B35_STAGED_GOAL_PROGRESSION_SUMMARY.json \
-            release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md \
-            skill-system/registry/product-source-baseline.json
-
-          python3 -B - <<'PY'
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-
-          root = Path('source')
-          expected_paths = {
-              'governance/quality-loop-policy.json',
-              'services/agent-service/tests/architecture/test_systemic_operational_closure.py',
-              'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json',
-              'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json',
-              'release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md',
-              'skill-system/registry/product-source-baseline.json',
-          }
-          actual_paths = set(subprocess.check_output(
-              ['git', '-C', 'source', 'diff', '--cached', '--name-only'],
-              text=True,
-          ).splitlines())
-          assert actual_paths == expected_paths, {
-              'expected': sorted(expected_paths),
-              'actual': sorted(actual_paths),
-          }
-
-          policy = json.loads((root / 'governance/quality-loop-policy.json').read_text(encoding='utf-8'))
-          by_id = {step['id']: step for step in policy['steps']}
-          assert by_id['configured-model-browser-conversation']['modes'] == ['integration']
-          assert by_id['configured-model-browser-campaign']['modes'] == ['integration']
-          assert by_id['production-certification-bundle']['modes'] == ['release']
-          assert 'production-certification-bundle' in by_id['clean-release-preflight']['depends_on']
-
-          systemic = (root / 'services/agent-service/tests/architecture/test_systemic_operational_closure.py').read_text(encoding='utf-8')
-          authority = (root / 'services/agent-service/tests/runtime/test_b17a_production_certification_authority.py').read_text(encoding='utf-8')
-          assert 'assert set(gate["modes"]) == {"integration"}' in systemic
-          assert 'assert "release" not in by_id["configured-model-browser-conversation"]["modes"]' in authority
-          assert 'assert "release" not in by_id["configured-model-browser-campaign"]["modes"]' in authority
-
-          manifest = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json').read_text(encoding='utf-8'))
-          summary = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').read_text(encoding='utf-8'))
-          baseline = json.loads((root / 'skill-system/registry/product-source-baseline.json').read_text(encoding='utf-8'))
-          expected_fingerprint = os.environ['EXPECTED_FINGERPRINT']
-          assert manifest['source_fingerprint'] == expected_fingerprint
-          assert manifest['changed_file_count'] == 9
-          assert summary['source_fingerprint'] == expected_fingerprint
-          assert summary['changed_file_count'] == 9
-          assert summary['production_closed'] is False
-          assert baseline['source_release_sha256'] == expected_fingerprint
-          assert baseline['file_count'] == 547
-          assert 'services/agent-service/runtime/vector-store/vector_store.db' not in baseline['files']
-          print('Canonical B35 authority and evidence restoration prepared: PASS')
-          PY
-
-          git -C source diff --cached --check
-          git -C source config user.name github-actions[bot]
-          git -C source config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C source add \
-            governance/quality-loop-policy.json \
-            services/agent-service/tests/architecture/test_systemic_operational_closure.py \
-            B35_STAGED_GOAL_PROGRESSION_MANIFEST.json \
-            B35_STAGED_GOAL_PROGRESSION_SUMMARY.json \
-            release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md \
-            skill-system/registry/product-source-baseline.json
-          git -C source commit -m "Restore B35 production authority boundary"
-          git -C source diff --quiet "${CANONICAL_B35_TREE}" HEAD
-          git -C source push origin "HEAD:${TARGET_BRANCH}" \
-            --force-with-lease="${TARGET_BRANCH}:${EXPECTED_PREVIOUS_HEAD}"
-
-          b35_sha="$(git -C source rev-parse HEAD)"
-          echo "b35_sha=${b35_sha}" >> "${GITHUB_OUTPUT}"
-          echo "Restored canonical B35 tree at ${b35_sha}"
-
   integration:
-    needs: restore-production-authority-boundary
-    permissions:
-      contents: read
     runs-on: ubuntu-24.04
     services:
       pgvector:
@@ -142,9 +35,9 @@ jobs:
       - name: Checkout exact restored B35 source Head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.restore-production-authority-boundary.outputs.b35_sha }}
+          ref: d728f5c501e931b77e889172ca9d2bfe88845270
           path: source
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Set up Python 3.12.13
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -159,7 +52,7 @@ jobs:
 
       - name: Verify exact clean-tree source identity
         env:
-          EXPECTED_HEAD: ${{ needs.restore-production-authority-boundary.outputs.b35_sha }}
+          EXPECTED_HEAD: d728f5c501e931b77e889172ca9d2bfe88845270
           CANONICAL_B35_TREE: 68673a936a8c6adf5394cc65cccf29db4589341c
           EXPECTED_FINGERPRINT: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
         run: |
@@ -189,6 +82,7 @@ jobs:
           assert by_id['configured-model-browser-conversation']['modes'] == ['integration']
           assert by_id['configured-model-browser-campaign']['modes'] == ['integration']
           assert by_id['production-certification-bundle']['modes'] == ['release']
+          assert 'production-certification-bundle' in by_id['clean-release-preflight']['depends_on']
           print('Exact canonical B35 source identity: PASS')
           PY
 
@@ -248,12 +142,11 @@ jobs:
         working-directory: source
         env:
           QUALITY_TARGET: ${{ github.workspace }}/source/.quality/targets/quality-target-integration.md
-          B35_HEAD: ${{ needs.restore-production-authority-boundary.outputs.b35_sha }}
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
             --output "${QUALITY_TARGET}" \
-            --ref "b35-deterministic-integration-${B35_HEAD:0:16}" \
+            --ref "b35-deterministic-integration-d728f5c501e931b7" \
             --workflow quality-integration \
             --claims-source governance/claims/v20.6.2-project-integration-certification.json
 
