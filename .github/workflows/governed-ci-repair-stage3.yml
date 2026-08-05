@@ -262,8 +262,7 @@ jobs:
 
       - name: Complete governed TaskRun after Draft publication
         run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3.py complete
-          --workspace candidate
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_complete.py
           --validation-result stage3-evidence/validation-result.json
           --task-run stage3-evidence/task-run.json
           --pr-url "${{ steps.publish.outputs.pr_url }}"
