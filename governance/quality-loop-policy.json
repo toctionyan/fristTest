@@ -682,7 +682,7 @@
       "id": "configured-model-browser-conversation",
       "name": "configured-model-browser-conversation",
       "modes": [
-        "release"
+        "integration"
       ],
       "kind": "shell",
       "argv": [
@@ -710,7 +710,7 @@
       "id": "configured-model-browser-campaign",
       "name": "configured-model-browser-campaign",
       "modes": [
-        "release"
+        "integration"
       ],
       "kind": "shell",
       "argv": [

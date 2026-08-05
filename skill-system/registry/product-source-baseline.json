@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "v20.17-b35-integration-boundary-closure-candidate",
-  "source_release_sha256": "a3fef2adf53bbae19c13482bee3bb4810423e0115aaf9b82ef44bf07576a5df8",
-  "generated_at": "2026-08-04T23:59:13Z",
+  "generated_from": "v20.17-b35-clean-tree-product-baseline-candidate",
+  "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
+  "generated_at": "2026-08-04T15:28:21Z",
   "protected_roots": [
     "services",
     "web",
@@ -412,7 +412,7 @@
     "services/agent-service/tests/architecture/test_semantic_authority_cutover.py": "809a0bde2124c9163210309f8cbb501f0dc9b77bda3ca5e2427e65d8e1d434a1",
     "services/agent-service/tests/architecture/test_sqlalchemy_transaction_repository.py": "3844fb899a7dfefbbab33325b3b24ebe55b2b96dcea8a3e80783174be5fc318b",
     "services/agent-service/tests/architecture/test_storage_persistence_boundary_scc.py": "9663dfd0ec3c4fb30bc5c16e43b94e1eaf52fea8827d56acbf8cb2145e0b70fd",
-    "services/agent-service/tests/architecture/test_systemic_operational_closure.py": "ed9bf805ab8f62f052a3f956fc0113513eb687e45b8f9065b8c069f50ea1ae31",
+    "services/agent-service/tests/architecture/test_systemic_operational_closure.py": "bb9638d3ad72107becec6a4688cf27f8e3a7cec7e7319af6f6ce93416e447dc3",
     "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py": "987308e87fe35e62a5da9d7364971c57e74e0d739ca0d5163eb93a1fe2dc1250",
     "services/agent-service/tests/architecture/test_utils_scc_extraction.py": "ce66c7f8e99363523d351642a7558b9a75fadb3ca6d754566360942623fb05d9",
     "services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json": "8f1a2604987e219fd772c0bb93ed6d38a30174c46e7a3b5cf537249af36d9c1d",
