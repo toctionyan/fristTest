@@ -14,12 +14,32 @@ def test_stage3_is_event_driven_and_independently_validates_before_publication()
     assert "workflow_run:" in text
     assert "github_repair_stage3.py inspect" in text
     assert "github_repair_stage3.py prepare" in text
+    assert "github_repair_stage3_tree.py" in text
     assert "github_repair_stage3.py targeted" in text
     assert "--mode quick" in text
     assert "github_repair_stage3.py validate" in text
+    assert "github_repair_stage3_publish.py" in text
     assert "github_repair_stage3_complete.py" in text
     assert "gh pr create --draft" in text
     assert "gh workflow run quality.yml" in text
+
+
+def test_validation_job_is_read_only_and_publisher_does_not_run_candidate_code() -> None:
+    text = STAGE3.read_text(encoding="utf-8")
+    validate_start = text.index("  validate:\n")
+    publish_start = text.index("  publish:\n")
+    validate_block = text[validate_start:publish_start]
+    publish_block = text[publish_start:]
+    assert "contents: read" in validate_block
+    assert "contents: write" not in validate_block
+    assert "pull-requests: write" not in validate_block
+    assert "Run fixed targeted regression suites" in validate_block
+    assert "Run independent complete Quick Quality Loop" in validate_block
+    assert "contents: write" in publish_block
+    assert "Recreate and verify the validated tree without running candidate code" in publish_block
+    assert "npm ci" not in publish_block
+    assert "pytest" not in publish_block
+    assert "quality_loop.py" not in publish_block
 
 
 def test_stage3_has_no_model_or_production_secret_access() -> None:
@@ -33,10 +53,12 @@ def test_stage3_has_no_model_or_production_secret_access() -> None:
     assert "production_closed: false" in text
 
 
-def test_stage3_rejects_stale_base_and_never_force_pushes() -> None:
+def test_stage3_rejects_stale_base_branch_collision_and_non_draft_pr() -> None:
     text = STAGE3.read_text(encoding="utf-8")
     assert '"${base_sha}" != "${SOURCE_HEAD_SHA}"' in text
     assert "already points to different evidence" in text
+    assert "existing repair PR is not the expected Draft PR" in text
+    assert ".isDraft == true" in text
     assert "--force" not in text
     assert "--force-with-lease" not in text
 
