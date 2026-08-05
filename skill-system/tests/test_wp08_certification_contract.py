@@ -43,6 +43,8 @@ def test_wp08_certification_assets_follow_locked_authority() -> None:
     result = MODULE.validate_static(WORKSPACE)
     assert result["status"] == "PASS"
     assert result["production_closed"] is False
+    assert result["configuration_authority"] == "production-certification-environment"
+    assert result["dispatch_inputs"] is False
     assert result["batch_ids"] == [
         "protected-environment-preflight",
         "postgres-pgvector-recovery",
@@ -75,7 +77,7 @@ def test_wp08_workflow_rejects_missing_always_upload(tmp_path: Path) -> None:
 
 def test_wp08_config_rejects_unbounded_timeout(tmp_path: Path) -> None:
     root = _copy(tmp_path)
-    config_path = root / "deployment/ci/wp08-certification-batches.json"
+    config_path = root / "deployment" / "ci" / "wp08-certification-batches.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["batches"][0]["timeout_seconds"] = 0
     config_path.write_text(json.dumps(config), encoding="utf-8")
@@ -109,3 +111,29 @@ def test_wp08_static_contract_reports_cross_run_resume() -> None:
     result = MODULE.validate_static(WORKSPACE)
     assert result["cross_run_resume"] is True
     assert result["resume_validator"] == "scripts/prepare_wp08_resume.py"
+
+
+def test_wp08_workflow_rejects_manual_runtime_configuration_inputs(tmp_path: Path) -> None:
+    root = _copy(tmp_path)
+    workflow = root / ".github/workflows/wp08-certification.yml"
+    text = workflow.read_text(encoding="utf-8")
+    text = text.replace(
+        "  workflow_dispatch:\n",
+        "  workflow_dispatch:\n    inputs:\n      model:\n        required: true\n        type: string\n",
+        1,
+    )
+    text = text.replace("vars.OPENAI_MODEL", "inputs.model", 1)
+    workflow.write_text(text, encoding="utf-8")
+    with pytest.raises(MODULE.WP08ContractError) as caught:
+        MODULE.validate_static(root)
+    assert caught.value.code == "wp08_dispatch_inputs_forbidden"
+
+
+def test_wp08_workflow_records_nonsecret_environment_configuration_evidence() -> None:
+    text = (WORKSPACE / ".github/workflows/wp08-certification.yml").read_text(encoding="utf-8")
+    assert "Resolve protected environment configuration" in text
+    assert "wp08-environment-config.json" in text
+    assert "PRODUCTION_MODEL_API_KEY" in text
+    assert "PRODUCTION_EMBEDDING_API_KEY" in text
+    assert "QUALITY_EVIDENCE_SIGNING_KEY" in text
+    assert "inputs." not in text
