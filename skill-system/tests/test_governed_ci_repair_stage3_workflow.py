@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 STAGE2 = ROOT / ".github" / "workflows" / "governed-ci-repair-stage2.yml"
 STAGE3 = ROOT / ".github" / "workflows" / "governed-ci-repair-stage3.yml"
+TARGET_FACTORY = ROOT / "scripts" / "create_ci_quality_target.py"
 
 
 def test_stage3_is_event_driven_and_independently_validates_before_publication() -> None:
@@ -22,6 +23,23 @@ def test_stage3_is_event_driven_and_independently_validates_before_publication()
     assert "github_repair_stage3_complete.py" in text
     assert "gh pr create --draft" in text
     assert "gh workflow run quality.yml" in text
+
+
+def test_stage3_has_an_explicit_complete_quick_target_contract() -> None:
+    workflow = STAGE3.read_text(encoding="utf-8")
+    factory = TARGET_FACTORY.read_text(encoding="utf-8")
+    assert "--workflow governed-ci-repair-stage3" in workflow
+    assert '"governed-ci-repair-stage3": "quick"' in factory
+    assert '"governed-ci-repair-stage3": [' in factory
+    for gate in (
+        "adversarial-runtime-counterexamples",
+        "python-test-suites",
+        "frontend-vitest",
+        "coverage-baseline",
+        "full-lifecycle-canary",
+        "product-browser-journey",
+    ):
+        assert gate in factory
 
 
 def test_validation_job_is_read_only_and_publisher_does_not_run_candidate_code() -> None:
