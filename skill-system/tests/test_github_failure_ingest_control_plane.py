@@ -87,6 +87,28 @@ def test_exact_product_source_drift_marker_authorizes_same_repo_repair(
     ]
 
 
+def test_incidental_verifier_path_is_removed_from_pr_repair_scope(
+    tmp_path: Path,
+) -> None:
+    source = "services/agent-service/app/__init__.py"
+    verifier = "scripts/verify_task_ledger.py"
+    _source(tmp_path, source)
+    _source(tmp_path, verifier)
+    log = (
+        f"product_source_changed:{source}\n"
+        f"python {verifier} failed while reporting {source}\n"
+    )
+    result = MODULE.build_report(
+        _event(),
+        workspace=tmp_path,
+        artifact_files=[(tmp_path / "skill-control-plane.log", log)],
+        changed_files=[source],
+    )
+    assert result["repair_allowed"] is True
+    assert result["candidate_paths"] == [source]
+    assert verifier not in result["candidate_paths"]
+
+
 def test_repeated_control_plane_marker_is_deduplicated(tmp_path: Path) -> None:
     source = "services/agent-service/app/main.py"
     _source(tmp_path, source)
@@ -152,3 +174,4 @@ def test_adapter_protects_all_governed_bridge_entrypoints() -> None:
     MODULE.install()
     for path in MODULE.BRIDGE_PROTECTED_EXACT:
         assert path in MODULE.base.PROTECTED_EXACT
+    assert "scripts/github_repair_orchestrator_control_plane.py" in MODULE.BRIDGE_PROTECTED_EXACT
