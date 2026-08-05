@@ -317,8 +317,8 @@ def main() -> int:
         validation_pending=True,
     )
     task.checkpoint(
-        status="WAITING_EXTERNAL_RESULT",
-        phase="VALIDATION_DISPATCH_REQUIRED",
+        status="VALIDATING",
+        phase="EXTERNAL_VALIDATION_PENDING",
         workspace_fingerprint=repair_commit,
         evidence_refs=[str(fix_result), f"commit:{repair_commit}"],
         metadata={"cycle": cycle, "next_action": "run no-secret Quick and deterministic Integration validation"},
