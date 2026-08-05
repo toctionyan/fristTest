@@ -1,0 +1,53 @@
+name: bootstrap-b36-apply
+
+on:
+  push:
+    branches:
+      - agent/local-first-vcs-binding-b36-20260805
+    paths:
+      - .bootstrap-b36/trigger
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-b36-apply
+  cancel-in-progress: false
+
+jobs:
+  apply-tested-patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout transport branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Reassemble and verify exact patch
+        run: |
+          set -euo pipefail
+          cat .bootstrap-b36/part-* > /tmp/b36.patch
+          echo 'c09393861947eeba6620a90fe779052f261f1b3ac60e77666e34302483fff53c  /tmp/b36.patch' | sha256sum -c -
+          git apply --check /tmp/b36.patch
+          git apply /tmp/b36.patch
+
+      - name: Run exact-base focused verification
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest \
+            skill-system.tests.test_local_first_loop \
+            skill-system.tests.test_local_first_verifier
+          python3 -B scripts/verify_local_first_governance.py
+
+      - name: Replace bootstrap transport with governed patch
+        env:
+          BRANCH: agent/local-first-vcs-binding-b36-20260805
+        run: |
+          set -euo pipefail
+          rm -rf .bootstrap-b36
+          rm -f .github/workflows/bootstrap-b36-apply.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Bind local-first tasks to Git checkout identity'
+          git push origin "HEAD:${BRANCH}"
