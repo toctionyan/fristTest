@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local-first-task.schema.json",
+  "title": "Local-first governed engineering task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "change_id",
+    "base_sha",
+    "branch",
+    "patch_owner",
+    "allowed_paths",
+    "target",
+    "gates"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "change_id": {"type": "string", "minLength": 1},
+    "base_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{7,64}$"},
+    "branch": {"type": "string", "minLength": 1, "not": {"enum": ["main", "master"]}},
+    "patch_owner": {"type": "string", "minLength": 1},
+    "allowed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "expected_changed_paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "target": {"type": "object"},
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "local_repair_rounds": {"type": "integer", "minimum": 1},
+        "local_verification_rounds": {"type": "integer", "minimum": 1},
+        "ci_feedback_rounds": {"type": "integer", "minimum": 0},
+        "no_progress_limit": {"type": "integer", "minimum": 0},
+        "flaky_retries": {"type": "integer", "minimum": 0}
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "argv", "timeout_seconds"],
+        "properties": {
+          "id": {"enum": ["targeted", "module", "static", "quick", "review"]},
+          "argv": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "timeout_seconds": {"type": "integer", "minimum": 1},
+          "env": {
+            "type": "object",
+            "additionalProperties": {"type": ["string", "number", "boolean"]}
+          }
+        }
+      }
+    }
+  }
+}
