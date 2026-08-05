@@ -6,10 +6,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+TRAILER_PATTERN = re.compile(r"^Governed-([A-Za-z-]+):\s*(.+?)\s*$", re.MULTILINE)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -56,14 +59,48 @@ def _git_snapshot(workspace: Path) -> str:
     return hashlib.sha256(b"\0".join(parts)).hexdigest()
 
 
+def _repair_history(workspace: Path) -> list[dict[str, str]]:
+    raw = _run_git(workspace, "log", "--format=%B%x00", "-n", "80").stdout
+    rows: list[dict[str, str]] = []
+    for message in raw.split("\x00"):
+        trailers = {key.casefold(): value.strip() for key, value in TRAILER_PATTERN.findall(message)}
+        if "repair-cycle" in trailers:
+            rows.append(trailers)
+    return rows
+
+
+def _repair_identity(
+    workspace: Path,
+    *,
+    current_task_id: str,
+    current_head: str,
+    current_semantic_signature: str,
+    maximum: int,
+) -> tuple[int, str, str]:
+    history = _repair_history(workspace)
+    cycles = [int(row.get("repair-cycle") or 0) for row in history if str(row.get("repair-cycle") or "").isdigit()]
+    cycle = (max(cycles) if cycles else 0) + 1
+    if cycle > maximum:
+        raise RuntimeError(f"repair cycle {cycle} exceeds bounded maximum {maximum}")
+    latest = history[0] if history else {}
+    previous_signature = str(latest.get("semantic-failure-signature") or "")
+    if previous_signature and previous_signature == current_semantic_signature:
+        raise RuntimeError("the same semantic validation failure occurred after the prior repair cycle")
+    effort_id = str(latest.get("repair-effort") or current_task_id)
+    origin_sha = str(latest.get("repair-origin") or current_head)
+    return cycle, effort_id, origin_sha
+
+
 def _commit_repair_cycle(
     workspace: Path,
     *,
     cycle: int,
+    effort_id: str,
     task_id: str,
     origin_sha: str,
     source_run_id: str,
     failure_signature: str,
+    semantic_failure_signature: str,
     allowed_paths: list[str],
 ) -> str:
     _run_git(workspace, "add", "--", *allowed_paths)
@@ -79,10 +116,12 @@ def _commit_repair_cycle(
         raise RuntimeError("repair staging escaped the frozen scope: " + ", ".join(outside))
     message = (
         f"Governed repair cycle {cycle} for workflow run {source_run_id}\n\n"
+        f"Governed-Repair-Effort: {effort_id}\n"
         f"Governed-Repair-Task: {task_id}\n"
         f"Governed-Repair-Origin: {origin_sha}\n"
         f"Governed-Repair-Cycle: {cycle}\n"
         f"Governed-Failure-Signature: {failure_signature}\n"
+        f"Governed-Semantic-Failure-Signature: {semantic_failure_signature}\n"
         f"Governed-Source-Run: {source_run_id}"
     )
     _run_git(workspace, "commit", "-m", message)
@@ -130,15 +169,23 @@ def main() -> int:
     allowed_paths = [str(item) for item in failure.get("candidate_paths") or []]
     if not allowed_paths:
         raise SystemExit("failure case has no frozen candidate paths")
-    metadata = task.payload.get("metadata") if isinstance(task.payload.get("metadata"), dict) else {}
-    cycle = int(metadata.get("repair_cycle") or 0) + 1
     maximum = min(max(args.max_cycles, 1), 8)
-    if cycle > maximum:
+    task_id = str(task.payload.get("task_id") or "")
+    semantic_signature = str(failure.get("semantic_failure_signature") or failure.get("failure_signature") or "")
+    try:
+        cycle, effort_id, origin_sha = _repair_identity(
+            workspace,
+            current_task_id=task_id,
+            current_head=str(failure.get("head_sha") or _git_head(workspace)),
+            current_semantic_signature=semantic_signature,
+            maximum=maximum,
+        )
+    except RuntimeError as exc:
         task.block(
-            code="REPAIR_CYCLE_BUDGET_EXHAUSTED",
-            reason=f"repair cycle {cycle} exceeds the bounded maximum {maximum}",
+            code="REPAIR_PROGRESS_GUARD_BLOCKED",
+            reason=str(exc),
             attempted_strategies=("cross-workflow-governed-repair",),
-            next_action="review all prior repair and validation evidence before creating a new target",
+            next_action="review prior repair commits and validation evidence before creating a new target",
             workspace_fingerprint=_git_snapshot(workspace),
             evidence_refs=[str(failure_path)],
         )
@@ -158,16 +205,13 @@ def main() -> int:
 
     source_run_id = str(failure.get("workflow_run_id") or "unknown")
     failure_signature = str(failure.get("failure_signature") or "")
-    binding = task.payload.get("binding") if isinstance(task.payload.get("binding"), dict) else {}
-    origin_sha = str(binding.get("origin_sha") or failure.get("head_sha") or _git_head(workspace))
-    task_id = str(task.payload.get("task_id") or "")
     before = _git_snapshot(workspace)
     task.checkpoint(
         status="REPAIRING",
         phase="MULTI_ROLE_MODEL_REPAIR",
         workspace_fingerprint=before,
         evidence_refs=[str(failure_path)],
-        metadata={"cycle": cycle, "model_roles": 4},
+        metadata={"cycle": cycle, "effort_id": effort_id, "model_roles": 4},
     )
 
     cycle_dir = evidence_root / f"cycle-{cycle:02d}"
@@ -230,10 +274,12 @@ def main() -> int:
         repair_commit = _commit_repair_cycle(
             workspace,
             cycle=cycle,
+            effort_id=effort_id,
             task_id=task_id,
             origin_sha=origin_sha,
             source_run_id=source_run_id,
             failure_signature=failure_signature,
+            semantic_failure_signature=semantic_signature,
             allowed_paths=allowed_paths,
         )
     except RuntimeError as exc:
@@ -264,6 +310,8 @@ def main() -> int:
     )
     task.set_metadata(
         repair_cycle=cycle,
+        repair_effort_id=effort_id,
+        repair_origin_sha=origin_sha,
         repair_commit=repair_commit,
         last_source_run_id=source_run_id,
         validation_pending=True,
@@ -276,9 +324,10 @@ def main() -> int:
         metadata={"cycle": cycle, "next_action": "run no-secret Quick and deterministic Integration validation"},
     )
     result = {
-        "schema": "github-repair-cycle@1",
+        "schema": "github-repair-cycle@2",
         "status": "VALIDATION_REQUIRED",
         "task_id": task_id,
+        "repair_effort_id": effort_id,
         "cycle": cycle,
         "repair_commit": repair_commit,
         "repair_branch": str(failure.get("repair_branch") or ""),
@@ -295,6 +344,7 @@ def main() -> int:
             "repair_cycle": cycle,
             "repair_commit": repair_commit,
             "task_id": task_id,
+            "repair_effort_id": effort_id,
         },
     )
     print(json.dumps(result, ensure_ascii=False))
