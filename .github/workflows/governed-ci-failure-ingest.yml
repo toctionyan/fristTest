@@ -25,6 +25,48 @@ jobs:
       issues: write
       pull-requests: read
     steps:
+      - name: Record workflow-run receipt
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          TITLE="[governed-ci-failure] run ${SOURCE_RUN_ID}"
+          EXISTING=$(gh issue list --state open --search "${TITLE} in:title" \
+            --json number --jq '.[0].number // empty')
+          BODY=$(cat <<EOF
+          GitHub emitted a failed workflow-run event and the governed bridge received it.
+
+          - Stage: \`RECEIVED\`
+          - Source workflow: \`${SOURCE_WORKFLOW}\`
+          - Source run: ${SOURCE_URL}
+          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Conclusion: \`${SOURCE_CONCLUSION}\`
+          - Head SHA: \`${SOURCE_SHA}\`
+          - Ingestion classification: pending
+          - Source changes: none
+          - production_closed: false
+
+          This receipt is written before checkout, artifact download, log parsing, or TaskRun creation.
+          It proves event delivery independently from later ingestion success.
+          EOF
+          )
+          if [[ -n "${EXISTING}" ]]; then
+            gh issue comment "${EXISTING}" --body "${BODY}"
+            ISSUE_NUMBER="${EXISTING}"
+          else
+            ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}")
+            ISSUE_NUMBER="${ISSUE_URL##*/}"
+          fi
+          [[ "${ISSUE_NUMBER}" =~ ^[0-9]+$ ]]
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout trusted ingestion control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -107,9 +149,10 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Create or update governed failure issue
+      - name: Finalize governed failure issue
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
           SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           SOURCE_URL: ${{ github.event.workflow_run.html_url }}
@@ -118,17 +161,15 @@ jobs:
           FAILURE_SIGNATURE: ${{ steps.ingest.outputs.failure_signature }}
         run: |
           set -euo pipefail
-          TITLE="[governed-ci-failure] run ${SOURCE_RUN_ID}"
-          EXISTING=$(gh issue list --state open --search "${TITLE} in:title" \
-            --json number --jq '.[0].number // empty')
           if [[ "${REPAIR_ALLOWED}" == "true" ]]; then
             NEXT_ACTION="READY_FOR_REPAIR_STAGE_2"
           else
             NEXT_ACTION="BLOCKED_FOR_DIAGNOSIS"
           fi
           BODY=$(cat <<EOF
-          GitHub failure evidence was ingested automatically.
+          Stage-1 ingestion completed.
 
+          - Stage: \`INGESTED\`
           - Source run: ${SOURCE_URL}
           - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
           - Classification: \`${CLASSIFICATION}\`
@@ -138,29 +179,53 @@ jobs:
           - Evidence artifact: \`governed-ci-failure-${SOURCE_RUN_ID}\`
           - production_closed: false
 
-          This Stage-1 bridge only receives, redacts, classifies, and records evidence.
-          It does not read production Environment secrets, modify source, push a branch,
-          create a pull request, merge main, or claim production closure.
+          Stage 1 only receives, redacts, classifies, and records evidence. It does not read
+          production Environment secrets, modify source, push a branch, create a pull request,
+          merge main, or claim production closure.
           EOF
           )
-          if [[ -n "${EXISTING}" ]]; then
-            gh issue comment "${EXISTING}" --body "${BODY}"
-          else
-            gh issue create --title "${TITLE}" --body "${BODY}"
-          fi
+          gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
+
+      - name: Mark ingestion pipeline failure
+        if: ${{ failure() && steps.receipt.outputs.issue_number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Stage-1 ingestion stopped after the workflow-run receipt.
+
+          - Stage: \`INGESTION_FAILED\`
+          - Source run: ${SOURCE_URL}
+          - Source Run ID: \`${SOURCE_RUN_ID}\`
+          - Automatic repair authorized: false
+          - Source changes: none
+          - production_closed: false
+
+          Inspect the governed-ci-failure-ingest job. The receipt proves event delivery, while
+          this marker proves the failure occurred inside ingestion rather than in the source workflow.
+          EOF
+          )
+          gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
 
       - name: Publish ingestion summary
+        if: always()
         env:
           CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
           REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
         run: |
           {
             echo "## Governed CI failure ingestion"
             echo
             echo "- Source Run ID: \`${SOURCE_RUN_ID}\`"
-            echo "- Classification: \`${CLASSIFICATION}\`"
-            echo "- Ready for Stage 2 repair: \`${REPAIR_ALLOWED}\`"
+            echo "- Receipt issue: \`#${ISSUE_NUMBER}\`"
+            echo "- Classification: \`${CLASSIFICATION:-not-produced}\`"
+            echo "- Ready for Stage 2 repair: \`${REPAIR_ALLOWED:-false}\`"
             echo "- Source changes: none"
             echo "- production_closed: false"
           } >> "$GITHUB_STEP_SUMMARY"
