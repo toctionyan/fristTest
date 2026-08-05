@@ -46,6 +46,27 @@ def test_scope_expansion_is_rejected() -> None:
         MODULE.validate_patch(patch, ["services/app.py"], max_files=2, max_lines=20)
 
 
+def test_exact_allowlist_cannot_authorize_non_product_path() -> None:
+    patch = "diff --git a/scripts/other.py b/scripts/other.py\n--- a/scripts/other.py\n+++ b/scripts/other.py\n@@ -1 +1 @@\n-a=1\n+a=2\n"
+    with pytest.raises(ValueError, match="outside automatic product roots"):
+        MODULE.validate_patch(patch, ["scripts/other.py"], max_files=2, max_lines=20)
+
+
+def test_file_deletion_is_rejected() -> None:
+    patch = "\n".join(
+        [
+            "diff --git a/services/app.py b/services/app.py",
+            "deleted file mode 100644",
+            "--- a/services/app.py",
+            "+++ /dev/null",
+            "@@ -1 +0,0 @@",
+            "-value = 1",
+        ]
+    )
+    with pytest.raises(ValueError, match="cannot create or delete"):
+        MODULE.validate_patch(patch, ["services/app.py"], max_files=2, max_lines=20)
+
+
 def test_test_skip_weakening_is_rejected() -> None:
     patch = "diff --git a/services/test_app.py b/services/test_app.py\n--- a/services/test_app.py\n+++ b/services/test_app.py\n@@ -1 +1,2 @@\n import pytest\n+pytest.skip('ignore', allow_module_level=True)\n"
     with pytest.raises(ValueError, match="weakening"):
