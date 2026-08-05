@@ -35,7 +35,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download Stage-1 governed evidence
+      - name: Download Stage-1 governed evidence when present
+        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: governed-ci-failure-*
@@ -54,9 +55,16 @@ jobs:
         id: inspect
         run: |
           set -euo pipefail
-          failure_case=$(find incoming -type f -name failure-case.json -print -quit)
-          task_run=$(find incoming -type f -name task-run.json -print -quit)
-          [[ -n "${failure_case}" && -n "${task_run}" ]]
+          failure_case=$(find incoming -type f -name failure-case.json -print -quit 2>/dev/null || true)
+          task_run=$(find incoming -type f -name task-run.json -print -quit 2>/dev/null || true)
+          if [[ -z "${failure_case}" || -z "${task_run}" ]]; then
+            echo "repair_allowed=false" >> "$GITHUB_OUTPUT"
+            echo "head_sha=" >> "$GITHUB_OUTPUT"
+            echo "source_run_id=" >> "$GITHUB_OUTPUT"
+            echo "failure_signature=" >> "$GITHUB_OUTPUT"
+            echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" <<'PY'
           import json
           import sys
