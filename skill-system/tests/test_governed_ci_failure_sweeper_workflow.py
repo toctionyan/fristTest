@@ -18,30 +18,46 @@ def test_sweeper_is_automatic_and_bounded() -> None:
         "branches: [main]",
         "workflow_dispatch:",
         "group: governed-ci-failure-sweeper",
+        "Record sweeper activation heartbeat",
+        "[governed-ci-sweeper] heartbeat",
         "Discover newest unprocessed failed PR run",
         'select(.name == "quality")',
+        "actions/runs/${run_id}",
         "scripts/github_failure_sweeper_event.py",
         "Record automatic sweeper receipt",
         "Checkout failed source as untrusted data",
         "scripts/github_failure_ingest_control_plane.py",
         "governed-ci-sweeper-stage1-${{ steps.discover.outputs.source_run_id }}",
         "Stage 2 started by this workflow: \\`false\\`",
+        "Finalize sweeper heartbeat",
         "production_closed: false",
     )
     missing = [fragment for fragment in required if fragment not in text]
     assert not missing, f"missing sweeper fragments: {missing}"
 
 
-def test_receipt_precedes_all_untrusted_processing() -> None:
+def test_heartbeat_and_failure_receipt_precede_untrusted_processing() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
+    heartbeat = text.index("- name: Record sweeper activation heartbeat")
+    checkout = text.index("- name: Checkout trusted sweeper control plane")
     discover = text.index("- name: Discover newest unprocessed failed PR run")
     receipt = text.index("- name: Record automatic sweeper receipt")
     candidate = text.index("- name: Checkout failed source as untrusted data")
     artifacts = text.index("- name: Download failed-run artifacts as untrusted evidence")
     logs = text.index("- name: Download failed-run logs as untrusted evidence")
     ingest = text.index("- name: Ingest failure and create durable TaskRun")
-    assert discover < receipt < candidate < artifacts < logs < ingest
-    assert text.count("gh issue create") == 1
+    assert heartbeat < checkout < discover < receipt < candidate < artifacts < logs < ingest
+    assert text.count("gh issue create") == 2
+
+
+def test_discovery_fetches_full_run_before_reading_pr_binding() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    fetch = text.index('gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"')
+    derive = text.index("pr_number=$(jq -r '.pull_requests[0].number // empty'")
+    pr_fetch = text.index('gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}"')
+    binder = text.index("control/scripts/github_failure_sweeper_event.py")
+    assert fetch < derive < pr_fetch < binder
+    assert 'select((.pull_requests // []) | length > 0)' not in text
 
 
 def test_sweeper_has_no_model_or_source_write_authority() -> None:
@@ -74,3 +90,11 @@ def test_sweeper_deduplicates_and_rejects_recursive_repair_branches() -> None:
     assert "[governed-ci-failure] run ${run_id} in:title" in text
     assert 'startswith("governed-repair/") | not' in text
     assert "No current unprocessed failed PR run was found." in text
+
+
+def test_pipeline_failure_is_reported_on_stable_heartbeat() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "Mark sweeper pipeline failure on heartbeat" in text
+    assert "failure() && steps.heartbeat.outputs.issue_number != ''" in text
+    assert "Pipeline state: \\`${JOB_STATUS}\\`" in text
+    assert "This stable Issue is updated by each scheduled, push, or manual sweep." in text
