@@ -19,9 +19,28 @@ def _load(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _run_git(workspace: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=workspace,
+        text=True,
+        capture_output=True,
+        check=check,
+    )
+
+
+def _git_head(workspace: Path) -> str:
+    return _run_git(workspace, "rev-parse", "HEAD").stdout.strip()
+
+
 def _git_snapshot(workspace: Path) -> str:
     parts: list[bytes] = []
-    for command in (["git", "status", "--porcelain=v1"], ["git", "diff", "--binary", "--"]):
+    for command in (
+        ["git", "rev-parse", "HEAD"],
+        ["git", "status", "--porcelain=v1"],
+        ["git", "diff", "--binary", "--"],
+        ["git", "diff", "--cached", "--binary", "--"],
+    ):
         completed = subprocess.run(command, cwd=workspace, capture_output=True, check=False)
         if completed.returncode:
             raise RuntimeError(f"git snapshot command failed: {' '.join(command)}")
@@ -32,6 +51,54 @@ def _git_snapshot(workspace: Path) -> str:
 def _failure_signature(stdout: str, stderr: str) -> str:
     text = (stdout + "\n" + stderr)[-20000:]
     return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _commit_repair_cycle(workspace: Path, *, cycle: int, run_id: str, allowed_paths: list[str]) -> str:
+    _run_git(workspace, "add", "--", *allowed_paths)
+    staged = [
+        line.strip()
+        for line in _run_git(workspace, "diff", "--cached", "--name-only", "--").stdout.splitlines()
+        if line.strip()
+    ]
+    if not staged:
+        raise RuntimeError("repair patch produced no staged source change")
+    outside = sorted(set(staged) - set(allowed_paths))
+    if outside:
+        raise RuntimeError("repair staging escaped the frozen scope: " + ", ".join(outside))
+    _run_git(
+        workspace,
+        "commit",
+        "-m",
+        f"Governed repair cycle {cycle} for workflow run {run_id}",
+    )
+    return _git_head(workspace)
+
+
+def _create_quality_target(workspace: Path, *, source_ref: str) -> Path:
+    target = workspace / ".quality" / "targets" / "governed-repair-quick.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "scripts/create_ci_quality_target.py",
+            "--output",
+            str(target.relative_to(workspace)),
+            "--ref",
+            source_ref,
+            "--workflow",
+            "quality-quick",
+            "--claims-source",
+            "governance/claims/v20.6.2-project-quick-certification.json",
+        ],
+        cwd=workspace,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode:
+        raise RuntimeError("failed to create governed repair quality target: " + completed.stderr[-2000:])
+    return target
 
 
 def main() -> int:
@@ -54,7 +121,7 @@ def main() -> int:
     evidence_root.mkdir(parents=True, exist_ok=True)
 
     sys.path.insert(0, str(control / "skill-system" / "controller"))
-    from task_run import PrematureCompletionError, TaskRunStore  # type: ignore
+    from task_run import TaskRunStore  # type: ignore
 
     payload = json.loads(task_path.read_text(encoding="utf-8"))
     task = TaskRunStore(task_path, payload)
@@ -63,6 +130,19 @@ def main() -> int:
     if not args.validation_command:
         raise SystemExit("validation command is required")
 
+    failure = _load(failure_path)
+    allowed_paths = [str(item) for item in failure.get("candidate_paths") or []]
+    if not allowed_paths:
+        raise SystemExit("failure case has no frozen candidate paths")
+    source_run_id = str(failure.get("workflow_run_id") or "unknown")
+    _run_git(workspace, "config", "user.name", "github-actions[bot]")
+    _run_git(
+        workspace,
+        "config",
+        "user.email",
+        "41898282+github-actions[bot]@users.noreply.github.com",
+    )
+
     last_validation_signature = ""
     repeated_failure_count = 0
     for cycle in range(1, min(max(args.max_cycles, 1), 8) + 1):
@@ -70,7 +150,7 @@ def main() -> int:
         cycle_dir.mkdir(parents=True, exist_ok=True)
         before = _git_snapshot(workspace)
         task.checkpoint(
-            status="REPAIRING",
+            status="RUNNING",
             phase="MODEL_FIXER_RUNNING",
             workspace_fingerprint=before,
             evidence_refs=[str(failure_path)],
@@ -107,23 +187,46 @@ def main() -> int:
                 evidence_refs=[str(fix_result), str(cycle_dir / "fixer.stderr.txt")],
             )
             return fixed.returncode
-        after = _git_snapshot(workspace)
-        if before == after:
+        patched = _git_snapshot(workspace)
+        if before == patched:
             task.block(
                 code="FIXER_NO_SOURCE_CHANGE",
                 reason="restricted fixer produced no governed source change",
                 attempted_strategies=("openai-compatible-restricted-fixer",),
                 next_action="change the repair plan or candidate path scope",
-                workspace_fingerprint=after,
+                workspace_fingerprint=patched,
                 evidence_refs=[str(fix_result)],
             )
             return 4
-        task.mark_condition("source_changed", evidence_refs=[str(fix_result), f"git-snapshot:{after}"])
+        try:
+            repair_commit = _commit_repair_cycle(
+                workspace,
+                cycle=cycle,
+                run_id=source_run_id,
+                allowed_paths=allowed_paths,
+            )
+            target = _create_quality_target(workspace, source_ref=repair_commit)
+        except RuntimeError as exc:
+            task.block(
+                code="REPAIR_COMMIT_OR_TARGET_FAILED",
+                reason=str(exc),
+                attempted_strategies=("commit-frozen-scope", "create-quick-target"),
+                next_action="inspect git scope and target-generation evidence",
+                workspace_fingerprint=_git_snapshot(workspace),
+                evidence_refs=[str(fix_result)],
+            )
+            return 7
+
+        after = _git_snapshot(workspace)
+        task.mark_condition(
+            "source_changed",
+            evidence_refs=[str(fix_result), f"commit:{repair_commit}", f"git-snapshot:{after}"],
+        )
         task.checkpoint(
             status="VALIDATING",
             phase="INDEPENDENT_QUICK_VALIDATION",
             workspace_fingerprint=after,
-            evidence_refs=[str(fix_result)],
+            evidence_refs=[str(fix_result), str(target), f"commit:{repair_commit}"],
             metadata={"cycle": cycle},
         )
 
@@ -147,19 +250,24 @@ def main() -> int:
         if validated.returncode == 0:
             task.mark_condition(
                 "validation_passed",
-                evidence_refs=[str(cycle_dir / "validation.stdout.txt"), str(validation_dir)],
+                evidence_refs=[
+                    str(cycle_dir / "validation.stdout.txt"),
+                    str(validation_dir),
+                    f"commit:{repair_commit}",
+                ],
             )
             task.checkpoint(
                 status="VALIDATING",
                 phase="REPAIR_VALIDATED",
                 workspace_fingerprint=_git_snapshot(workspace),
-                evidence_refs=[str(validation_dir), str(fix_result)],
+                evidence_refs=[str(validation_dir), str(fix_result), f"commit:{repair_commit}"],
                 metadata={"cycle": cycle, "next_action": "publish Draft PR"},
             )
             result = {
                 "schema": "github-repair-orchestrator@1",
                 "status": "READY_FOR_DRAFT_PR",
                 "cycle": cycle,
+                "repair_commit": repair_commit,
                 "task_run": str(task_path),
                 "production_closed": False,
             }
@@ -171,6 +279,7 @@ def main() -> int:
                 with Path(args.github_output).open("a", encoding="utf-8") as handle:
                     handle.write("repair_ready=true\n")
                     handle.write(f"repair_cycle={cycle}\n")
+                    handle.write(f"repair_commit={repair_commit}\n")
             return 0
 
         signature = _failure_signature(validated.stdout, validated.stderr)
@@ -179,6 +288,7 @@ def main() -> int:
         failure = _load(failure_path)
         failure["latest_validation"] = {
             "cycle": cycle,
+            "repair_commit": repair_commit,
             "returncode": validated.returncode,
             "failure_signature": signature,
             "stdout_tail": validated.stdout[-7000:],
@@ -189,7 +299,7 @@ def main() -> int:
             status="FAILED_RECOVERABLE",
             phase="VALIDATION_FAILED",
             workspace_fingerprint=_git_snapshot(workspace),
-            evidence_refs=[str(cycle_dir / "validation.stderr.txt"), str(failure_path)],
+            evidence_refs=[str(cycle_dir / "validation.stderr.txt"), str(failure_path), f"commit:{repair_commit}"],
             metadata={"cycle": cycle, "failure_signature": signature},
         )
         if repeated_failure_count >= 2:
