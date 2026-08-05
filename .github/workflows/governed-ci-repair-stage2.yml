@@ -83,6 +83,7 @@ jobs:
               and failure.get("same_repository") is True
               and failure.get("classification") == "code_or_contract"
               and failure.get("candidate_paths")
+              and not str(failure.get("head_branch") or "").startswith("governed-repair/")
           )
           with output_path.open("a", encoding="utf-8") as handle:
               handle.write(f"repair_allowed={'true' if repair_allowed else 'false'}\n")
