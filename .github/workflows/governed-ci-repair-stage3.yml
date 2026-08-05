@@ -22,6 +22,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      control_sha: ${{ steps.control.outputs.control_sha }}
       publish_allowed: ${{ steps.inspect.outputs.publish_allowed }}
       head_sha: ${{ steps.inspect.outputs.head_sha }}
       source_run_id: ${{ steps.inspect.outputs.source_run_id }}
@@ -35,6 +36,10 @@ jobs:
           path: control
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Bind trusted Stage-3 control SHA
+        id: control
+        run: echo "control_sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Download Stage-2 repair candidate evidence
         continue-on-error: true
@@ -95,10 +100,10 @@ jobs:
       repair_branch: ${{ steps.validate.outputs.repair_branch }}
       repair_base_branch: ${{ steps.validate.outputs.repair_base_branch }}
     steps:
-      - name: Checkout trusted Stage-3 control plane
+      - name: Checkout bound Stage-3 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ needs.inspect.outputs.control_sha }}
           path: control
           fetch-depth: 1
           persist-credentials: false
@@ -239,10 +244,10 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - name: Checkout trusted Stage-3 publisher
+      - name: Checkout bound Stage-3 publisher
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ needs.inspect.outputs.control_sha }}
           path: control
           fetch-depth: 1
           persist-credentials: false
