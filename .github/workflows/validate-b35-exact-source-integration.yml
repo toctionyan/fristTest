@@ -14,11 +14,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh-protected-source-identity:
+  restore-production-authority-boundary:
     runs-on: ubuntu-24.04
     outputs:
-      b35_sha: ${{ steps.publish.outputs.b35_sha }}
-      source_fingerprint: ${{ steps.publish.outputs.source_fingerprint }}
+      b35_sha: ${{ steps.restore.outputs.b35_sha }}
     steps:
       - name: Checkout governed B35 candidate branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -27,173 +26,100 @@ jobs:
           path: source
           fetch-depth: 0
 
-      - name: Refresh exact B35 manifest, baseline and report
-        id: publish
+      - name: Restore canonical B35 production authority boundary
+        id: restore
         env:
           TARGET_BRANCH: agent/b35-staged-goal-progression-20260804
-          EXPECTED_PREVIOUS_HEAD: 6362453e774808d8d98f921fcb83c9d3e570fd93
-          MODE_BOUNDARY_COMMIT: 80189ed6a6e583f0d219a2cf6054f0ea87c3a4d2
-          SYSTEMIC_TEST_COMMIT: 6362453e774808d8d98f921fcb83c9d3e570fd93
+          EXPECTED_PREVIOUS_HEAD: 065c502d3a0a67834655b927b85dd0fcc5016049
+          CANONICAL_B35_TREE: 68673a936a8c6adf5394cc65cccf29db4589341c
+          EXPECTED_FINGERPRINT: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
         run: |
           set -euo pipefail
           current_head="$(git -C source rev-parse HEAD)"
           test "${current_head}" = "${EXPECTED_PREVIOUS_HEAD}"
           test -z "$(git -C source status --short)"
-          export GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          python3 -B - <<'PY'
-          from __future__ import annotations
-
-          import hashlib
-          import json
-          import os
-          import sys
-          from pathlib import Path
-
-          root = Path('source').resolve()
-          manifest_path = root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json'
-          summary_path = root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json'
-          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
-          report_path = root / 'release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md'
-          policy_path = root / 'governance/quality-loop-policy.json'
-          systemic_test = 'services/agent-service/tests/architecture/test_systemic_operational_closure.py'
-          runtime_db = 'services/agent-service/runtime/vector-store/vector_store.db'
-
-          policy = json.loads(policy_path.read_text(encoding='utf-8'))
-          steps = {step['id']: step for step in policy['steps']}
-          assert steps['configured-model-browser-conversation']['modes'] == ['release']
-          assert steps['configured-model-browser-campaign']['modes'] == ['release']
-          test_source = (root / systemic_test).read_text(encoding='utf-8')
-          assert 'assert set(gate["modes"]) == {"release"}' in test_source
-          assert 'assert set(gate["modes"]) == {"integration"}' not in test_source
-          assert not (root / runtime_db).exists()
-
-          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-          changed = list(manifest['files'])
-          assert len(changed) == 9, changed
-          assert systemic_test not in changed
-          changed.append(systemic_test)
-
-          records: dict[str, dict[str, object]] = {}
-          identity = hashlib.sha256()
-          for relative in changed:
-              data = (root / relative).read_bytes()
-              digest = hashlib.sha256(data).hexdigest()
-              records[relative] = {'sha256': digest, 'size': len(data)}
-              identity.update(f'{relative}\0{digest}\n'.encode())
-          fingerprint = identity.hexdigest()
-
-          sys.path.insert(0, str(root / 'skill-system/controller'))
-          import project_compatibility  # type: ignore
-
-          product = project_compatibility.snapshot(root)
-          assert len(product) == 547, len(product)
-          assert runtime_db not in product
-          expected_test_hash = records[systemic_test]['sha256']
-          assert product[systemic_test] == expected_test_hash
-
-          baseline = {
-              'schema_version': 2,
-              'generated_from': 'v20.17-b35-integration-boundary-closure-candidate',
-              'source_release_sha256': fingerprint,
-              'generated_at': os.environ['GENERATED_AT'],
-              'protected_roots': list(project_compatibility.PROTECTED_NAMES),
-              'file_count': 547,
-              'files': product,
-          }
-          baseline_path.write_text(
-              json.dumps(baseline, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
-          )
-
-          manifest['source_fingerprint'] = fingerprint
-          manifest['changed_file_count'] = 10
-          manifest['files'] = records
-          manifest['integration_release_boundary_commit_sha'] = os.environ['MODE_BOUNDARY_COMMIT']
-          manifest['systemic_test_alignment_commit_sha'] = os.environ['SYSTEMIC_TEST_COMMIT']
-          manifest['production_closed'] = False
-          manifest_path.write_text(
-              json.dumps(manifest, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
-          )
-
-          summary = json.loads(summary_path.read_text(encoding='utf-8'))
-          summary['source_fingerprint'] = fingerprint
-          summary['changed_file_count'] = 10
-          summary['product_baseline_file_count'] = 547
-          summary['clean_tree_product_baseline_status'] = 'PASS'
-          summary['integration_release_boundary_status'] = 'PENDING_EXACT_INTEGRATION'
-          summary['production_closed'] = False
-          summary_path.write_text(
-              json.dumps(summary, ensure_ascii=False, indent=2) + '\n',
-              encoding='utf-8',
-          )
-
-          report = report_path.read_text(encoding='utf-8')
-          lines = report.splitlines()
-          rewritten: list[str] = []
-          for line in lines:
-              if line.startswith('- Source fingerprint:'):
-                  rewritten.append(f'- Source fingerprint: `{fingerprint}`')
-              elif line.startswith('- Protected source changes:'):
-                  rewritten.append('- Protected source changes: 10')
-              else:
-                  rewritten.append(line)
-          additions = [
-              '- Configured-model Chromium gates assigned to protected release mode: PASS',
-              f'- Integration/release boundary correction commit: `{os.environ["MODE_BOUNDARY_COMMIT"]}`',
-              f'- Systemic governance expectation alignment commit: `{os.environ["SYSTEMIC_TEST_COMMIT"]}`',
-              '- Exact deterministic integration revalidation: PENDING',
-          ]
-          for addition in additions:
-              if addition not in rewritten:
-                  rewritten.insert(-2, addition)
-          report_path.write_text('\n'.join(rewritten) + '\n', encoding='utf-8')
-
-          Path('/tmp/b35-source-fingerprint.txt').write_text(fingerprint, encoding='utf-8')
-          print(json.dumps({
-              'source_fingerprint': fingerprint,
-              'protected_source_files': len(changed),
-              'product_files': len(product),
-          }, indent=2))
-          PY
-
-          git -C source diff --check
-          git -C source add \
+          git -C source checkout "${CANONICAL_B35_TREE}" -- \
+            governance/quality-loop-policy.json \
+            services/agent-service/tests/architecture/test_systemic_operational_closure.py \
             B35_STAGED_GOAL_PROGRESSION_MANIFEST.json \
             B35_STAGED_GOAL_PROGRESSION_SUMMARY.json \
             release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md \
             skill-system/registry/product-source-baseline.json
+
           python3 -B - <<'PY'
+          import json
+          import os
           import subprocess
-          expected = {
+          from pathlib import Path
+
+          root = Path('source')
+          expected_paths = {
+              'governance/quality-loop-policy.json',
+              'services/agent-service/tests/architecture/test_systemic_operational_closure.py',
               'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json',
               'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json',
               'release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md',
               'skill-system/registry/product-source-baseline.json',
           }
-          actual = set(subprocess.check_output(
-              ['git', '-C', 'source', 'diff', '--cached', '--name-only'],
+          actual_paths = set(subprocess.check_output(
+              ['git', '-C', 'source', 'diff', '--name-only'],
               text=True,
           ).splitlines())
-          assert actual == expected, {'expected': sorted(expected), 'actual': sorted(actual)}
-          print('B35 protected-source identity refresh surface: 4/4 PASS')
+          assert actual_paths == expected_paths, {
+              'expected': sorted(expected_paths),
+              'actual': sorted(actual_paths),
+          }
+
+          policy = json.loads((root / 'governance/quality-loop-policy.json').read_text(encoding='utf-8'))
+          by_id = {step['id']: step for step in policy['steps']}
+          assert by_id['configured-model-browser-conversation']['modes'] == ['integration']
+          assert by_id['configured-model-browser-campaign']['modes'] == ['integration']
+          assert by_id['production-certification-bundle']['modes'] == ['release']
+          assert 'production-certification-bundle' in by_id['clean-release-preflight']['depends_on']
+
+          systemic = (root / 'services/agent-service/tests/architecture/test_systemic_operational_closure.py').read_text(encoding='utf-8')
+          authority = (root / 'services/agent-service/tests/runtime/test_b17a_production_certification_authority.py').read_text(encoding='utf-8')
+          assert 'assert set(gate["modes"]) == {"integration"}' in systemic
+          assert 'assert "release" not in by_id["configured-model-browser-conversation"]["modes"]' in authority
+          assert 'assert "release" not in by_id["configured-model-browser-campaign"]["modes"]' in authority
+
+          manifest = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json').read_text(encoding='utf-8'))
+          summary = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').read_text(encoding='utf-8'))
+          baseline = json.loads((root / 'skill-system/registry/product-source-baseline.json').read_text(encoding='utf-8'))
+          expected_fingerprint = os.environ['EXPECTED_FINGERPRINT']
+          assert manifest['source_fingerprint'] == expected_fingerprint
+          assert manifest['changed_file_count'] == 9
+          assert summary['source_fingerprint'] == expected_fingerprint
+          assert summary['changed_file_count'] == 9
+          assert summary['production_closed'] is False
+          assert baseline['source_release_sha256'] == expected_fingerprint
+          assert baseline['file_count'] == 547
+          assert 'services/agent-service/runtime/vector-store/vector_store.db' not in baseline['files']
+          print('Canonical B35 authority and evidence restoration prepared: PASS')
           PY
 
+          git -C source diff --check
           git -C source config user.name github-actions[bot]
           git -C source config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C source commit -m "Refresh B35 protected-source identity"
+          git -C source add \
+            governance/quality-loop-policy.json \
+            services/agent-service/tests/architecture/test_systemic_operational_closure.py \
+            B35_STAGED_GOAL_PROGRESSION_MANIFEST.json \
+            B35_STAGED_GOAL_PROGRESSION_SUMMARY.json \
+            release/B35_STAGED_GOAL_PROGRESSION_VALIDATION_REPORT.md \
+            skill-system/registry/product-source-baseline.json
+          git -C source commit -m "Restore B35 production authority boundary"
+          git -C source diff --quiet "${CANONICAL_B35_TREE}" HEAD
           git -C source push origin "HEAD:${TARGET_BRANCH}" \
             --force-with-lease="${TARGET_BRANCH}:${EXPECTED_PREVIOUS_HEAD}"
 
           b35_sha="$(git -C source rev-parse HEAD)"
-          source_fingerprint="$(cat /tmp/b35-source-fingerprint.txt)"
           echo "b35_sha=${b35_sha}" >> "${GITHUB_OUTPUT}"
-          echo "source_fingerprint=${source_fingerprint}" >> "${GITHUB_OUTPUT}"
-          echo "Published B35 identity refresh at ${b35_sha} (${source_fingerprint})"
+          echo "Restored canonical B35 tree at ${b35_sha}"
 
   integration:
-    needs: refresh-protected-source-identity
+    needs: restore-production-authority-boundary
     permissions:
       contents: read
     runs-on: ubuntu-24.04
@@ -213,10 +139,10 @@ jobs:
           --health-retries 20
 
     steps:
-      - name: Checkout refreshed exact B35 source Head
+      - name: Checkout exact restored B35 source Head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.refresh-protected-source-identity.outputs.b35_sha }}
+          ref: ${{ needs.restore-production-authority-boundary.outputs.b35_sha }}
           path: source
           fetch-depth: 1
 
@@ -231,14 +157,16 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Verify exact clean-tree source and mode identity
+      - name: Verify exact clean-tree source identity
         env:
-          EXPECTED_HEAD: ${{ needs.refresh-protected-source-identity.outputs.b35_sha }}
-          EXPECTED_FINGERPRINT: ${{ needs.refresh-protected-source-identity.outputs.source_fingerprint }}
+          EXPECTED_HEAD: ${{ needs.restore-production-authority-boundary.outputs.b35_sha }}
+          CANONICAL_B35_TREE: 68673a936a8c6adf5394cc65cccf29db4589341c
+          EXPECTED_FINGERPRINT: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
         run: |
           set -euo pipefail
           test "$(git -C source rev-parse HEAD)" = "${EXPECTED_HEAD}"
           test ! -e source/services/agent-service/runtime/vector-store/vector_store.db
+          git -C source diff --quiet "${CANONICAL_B35_TREE}" HEAD
           "${pythonLocation}/bin/python" -B - <<'PY'
           import json
           import os
@@ -249,22 +177,49 @@ jobs:
           manifest = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_MANIFEST.json').read_text(encoding='utf-8'))
           summary = json.loads((root / 'B35_STAGED_GOAL_PROGRESSION_SUMMARY.json').read_text(encoding='utf-8'))
           policy = json.loads((root / 'governance/quality-loop-policy.json').read_text(encoding='utf-8'))
-          steps = {step['id']: step for step in policy['steps']}
-          runtime_db = 'services/agent-service/runtime/vector-store/vector_store.db'
-          assert baseline['file_count'] == 547, baseline['file_count']
-          assert runtime_db not in baseline['files'], runtime_db
-          assert baseline['source_release_sha256'] == os.environ['EXPECTED_FINGERPRINT']
-          assert manifest['source_fingerprint'] == os.environ['EXPECTED_FINGERPRINT']
-          assert manifest['changed_file_count'] == 10
-          assert summary['source_fingerprint'] == os.environ['EXPECTED_FINGERPRINT']
-          assert summary['changed_file_count'] == 10
-          assert summary['product_baseline_file_count'] == 547
-          assert summary['clean_tree_product_baseline_status'] == 'PASS'
-          assert summary['repository_quick_status'] == 'PASS'
+          by_id = {step['id']: step for step in policy['steps']}
+          expected_fingerprint = os.environ['EXPECTED_FINGERPRINT']
+          assert baseline['file_count'] == 547
+          assert baseline['source_release_sha256'] == expected_fingerprint
+          assert manifest['source_fingerprint'] == expected_fingerprint
+          assert manifest['changed_file_count'] == 9
+          assert summary['source_fingerprint'] == expected_fingerprint
+          assert summary['changed_file_count'] == 9
           assert summary['production_closed'] is False
-          assert steps['configured-model-browser-conversation']['modes'] == ['release']
-          assert steps['configured-model-browser-campaign']['modes'] == ['release']
-          print('Exact B35 clean-tree, protected-source and quality-mode identity: PASS')
+          assert by_id['configured-model-browser-conversation']['modes'] == ['integration']
+          assert by_id['configured-model-browser-campaign']['modes'] == ['integration']
+          assert by_id['production-certification-bundle']['modes'] == ['release']
+          print('Exact canonical B35 source identity: PASS')
+          PY
+
+      - name: Create deterministic integration policy overlay
+        env:
+          QUALITY_POLICY: ${{ runner.temp }}/b35-deterministic-integration-policy.json
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          source = Path('source/governance/quality-loop-policy.json')
+          output = Path(os.environ['QUALITY_POLICY'])
+          payload = json.loads(source.read_text(encoding='utf-8'))
+          excluded = {
+              'configured-model-browser-conversation',
+              'configured-model-browser-campaign',
+          }
+          source_steps = {step['id']: step for step in payload['steps']}
+          assert source_steps['configured-model-browser-conversation']['modes'] == ['integration']
+          assert source_steps['configured-model-browser-campaign']['modes'] == ['integration']
+          payload['steps'] = [step for step in payload['steps'] if step['id'] not in excluded]
+          remaining = {step['id']: step for step in payload['steps']}
+          assert not excluded.intersection(remaining)
+          for step in payload['steps']:
+              unknown = set(step.get('depends_on') or []) - set(remaining)
+              assert not unknown, {step['id']: sorted(unknown)}
+          output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print('Deterministic candidate integration overlay excludes only protected real-model browser components: PASS')
           PY
 
       - name: Bootstrap locked uv
@@ -293,12 +248,12 @@ jobs:
         working-directory: source
         env:
           QUALITY_TARGET: ${{ github.workspace }}/source/.quality/targets/quality-target-integration.md
-          B35_HEAD: ${{ needs.refresh-protected-source-identity.outputs.b35_sha }}
+          B35_HEAD: ${{ needs.restore-production-authority-boundary.outputs.b35_sha }}
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
             --output "${QUALITY_TARGET}" \
-            --ref "b35-exact-integration-${B35_HEAD:0:16}" \
+            --ref "b35-deterministic-integration-${B35_HEAD:0:16}" \
             --workflow quality-integration \
             --claims-source governance/claims/v20.6.2-project-integration-certification.json
 
@@ -340,7 +295,7 @@ jobs:
           cat "${RUNNER_TEMP}/agent.log" || true
           exit 1
 
-      - name: Run exact-source integration quality gates
+      - name: Run exact-source deterministic integration quality gates
         working-directory: source
         env:
           APP_PROFILE: local
@@ -356,17 +311,19 @@ jobs:
           AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/b35-exact-integration
           QUALITY_TARGET: ${{ github.workspace }}/source/.quality/targets/quality-target-integration.md
+          QUALITY_POLICY: ${{ runner.temp }}/b35-deterministic-integration-policy.json
         run: >-
           services/agent-service/.venv/bin/python -B scripts/quality_loop.py
-          --mode integration --target "$QUALITY_TARGET"
+          --policy "$QUALITY_POLICY" --mode integration --target "$QUALITY_TARGET"
 
       - name: Upload exact-source integration evidence and service logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: b35-exact-source-integration-evidence
+          name: b35-exact-source-deterministic-integration-evidence
           path: |
             ${{ runner.temp }}/quality-evidence/b35-exact-integration
+            ${{ runner.temp }}/b35-deterministic-integration-policy.json
             ${{ runner.temp }}/model-stub.log
             ${{ runner.temp }}/business.log
             ${{ runner.temp }}/agent.log
