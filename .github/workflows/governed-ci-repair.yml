@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - quality
+      - skill-self-validation
       - wp08-full-stack-certification
     types: [completed]
 
@@ -43,13 +44,18 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout failed candidate without credentials
+      - name: Checkout same-repository failed candidate without credentials
+        if: github.event.workflow_run.head_repository.full_name == github.repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           path: candidate
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Prepare non-repairable fork workspace
+        if: github.event.workflow_run.head_repository.full_name != github.repository
+        run: mkdir -p candidate
 
       - name: Download failed-run artifacts
         continue-on-error: true
@@ -151,7 +157,7 @@ jobs:
     environment: production-certification
     permissions:
       contents: write
-      actions: read
+      actions: write
       pull-requests: write
       issues: write
     steps:
@@ -200,18 +206,13 @@ jobs:
           cd ../business-service && uv sync --locked --all-groups
           cd ../agent-service/frontend && npm ci --ignore-scripts=false
 
-      - name: Prepare isolated repair branch and quality target
+      - name: Prepare isolated repair branch
         env:
           REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
           SOURCE_SHA: ${{ needs.ingest.outputs.head_sha }}
         run: |
           git -C candidate checkout -B "${REPAIR_BRANCH}" "${SOURCE_SHA}"
-          mkdir -p candidate/.quality/targets repair-evidence
-          (cd candidate && services/agent-service/.venv/bin/python -B scripts/create_ci_quality_target.py \
-            --output .quality/targets/governed-repair-quick.md \
-            --ref "${SOURCE_SHA}" \
-            --workflow quality-quick \
-            --claims-source governance/claims/v20.6.2-project-quick-certification.json)
+          mkdir -p repair-evidence
 
       - name: Run bounded governed repair loop
         id: repair
@@ -234,25 +235,24 @@ jobs:
           --mode quick
           --target .quality/targets/governed-repair-quick.md
 
-      - name: Validate source diff before publication
+      - name: Validate committed source diff before publication
+        env:
+          SOURCE_SHA: ${{ needs.ingest.outputs.head_sha }}
         run: |
-          git -C candidate diff --check
-          test -n "$(git -C candidate status --porcelain=v1)"
-          if git -C candidate status --porcelain=v1 | grep -E '(^| )((governance|skill-system)/|scripts/(quality_loop|repair_loop|github_)|\.github/workflows/governed-ci-repair\.yml)'; then
+          git -C candidate diff --check "${SOURCE_SHA}..HEAD"
+          test "$(git -C candidate rev-list --count "${SOURCE_SHA}..HEAD")" -gt 0
+          test -z "$(git -C candidate status --porcelain=v1)"
+          git -C candidate diff --name-only "${SOURCE_SHA}..HEAD" > repair-evidence/changed-paths.txt
+          if grep -E '^(governance/|skill-system/|scripts/(quality_loop|repair_loop|github_)|\.github/workflows/governed-ci-repair\.yml$)' repair-evidence/changed-paths.txt; then
             echo "protected control-plane path changed" >&2
             exit 1
           fi
 
-      - name: Commit and push repair branch
+      - name: Push repair branch
         env:
           GH_TOKEN: ${{ github.token }}
           REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
-          SOURCE_RUN_ID: ${{ needs.ingest.outputs.workflow_run_id }}
         run: |
-          git -C candidate config user.name github-actions[bot]
-          git -C candidate config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git -C candidate add --all
-          git -C candidate commit -m "Governed repair for workflow run ${SOURCE_RUN_ID}"
           git -C candidate remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -C candidate push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
 
@@ -279,7 +279,7 @@ jobs:
           - Direct write to protected main: no
           - Automatic production closure: false
 
-          This PR remains Draft for human review. It must pass the repository's normal CI before any later promotion.
+          This PR remains Draft for human review. The normal repository checks are dispatched on the repair branch after publication.
           EOF
           )
           if [[ -n "${EXISTING}" ]]; then
@@ -298,6 +298,14 @@ jobs:
           --workspace candidate
           --task-run incoming/task-run.json
           --pr-url "${{ steps.publish.outputs.pr_url }}"
+
+      - name: Dispatch normal repository checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
+        run: |
+          gh workflow run quality.yml --ref "${REPAIR_BRANCH}"
+          gh workflow run skill-self-validation.yml --ref "${REPAIR_BRANCH}"
 
       - name: Upload repair evidence and TaskRun
         if: always()
