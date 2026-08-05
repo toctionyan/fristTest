@@ -1,0 +1,189 @@
+name: governed-ci-stage2-auto-handoff
+
+on:
+  workflow_run:
+    workflows:
+      - quality
+    types: [completed]
+  schedule:
+    - cron: '*/10 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/governed-ci-stage2-auto-handoff.yml'
+      - 'scripts/github_stage2_auto_handoff.py'
+      - 'scripts/github_failure_ingest_control_plane.py'
+      - 'skill-system/tests/test_github_stage2_auto_handoff.py'
+      - 'skill-system/tests/test_governed_ci_stage2_auto_handoff_workflow.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: governed-ci-stage2-auto-handoff
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout trusted automatic handoff control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Discover newest unprocessed governed Stage-1 failure
+        id: discover
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+          if [[ "${EVENT_NAME}" == "workflow_run" && "${EVENT_RUN_CONCLUSION}" == "failure" ]]; then
+            printf '%s\n' "${EVENT_RUN_ID}" > incoming/candidate-run-ids.txt
+          elif [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            : > incoming/candidate-run-ids.txt
+          else
+            gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+              -f status=completed -f per_page=100 \
+              --jq '.workflow_runs[]
+                | select(.name == "quality")
+                | select(.conclusion == "failure")
+                | select(.event == "pull_request")
+                | select((.head_branch // "") | startswith("governed-repair/") | not)
+                | .id' > incoming/candidate-run-ids.txt
+          fi
+
+          while IFS= read -r run_id; do
+            [[ "${run_id}" =~ ^[1-9][0-9]*$ ]] || continue
+            rm -rf incoming/stage1 incoming/stage1.zip
+
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+              > incoming/source-run.json
+            pr_number=$(jq -r '.pull_requests[0].number // empty' incoming/source-run.json)
+            [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]] || continue
+
+            issue_number=$(gh issue list --state all \
+              --search "[governed-ci-failure] run ${run_id} in:title" \
+              --json number --jq '.[0].number // empty')
+            [[ "${issue_number}" =~ ^[1-9][0-9]*$ ]] || continue
+
+            run_attempt=$(jq -r '.run_attempt // 1' incoming/source-run.json)
+            marker="AUTO_STAGE2_DISPATCHED:${run_id}/${run_attempt}"
+            existing_text=$(gh issue view "${issue_number}" --json body,comments \
+              --jq '[.body, (.comments[].body // "")] | join("\n")')
+            if grep -Fq "${marker}" <<<"${existing_text}"; then
+              continue
+            fi
+
+            artifact_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
+              --jq ".artifacts[]
+                | select(.expired == false)
+                | select(.name == \"governed-ci-quality-stage1-${run_id}\")
+                | .id" | head -n 1)
+            [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]] || continue
+
+            mkdir -p incoming/stage1
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              > incoming/stage1.zip
+            unzip -q incoming/stage1.zip -d incoming/stage1
+
+            failure_case=$(find incoming/stage1 -type f -name failure-case.json -print -quit)
+            task_run=$(find incoming/stage1 -type f -name task-run.json -print -quit)
+            [[ -n "${failure_case}" && -n "${task_run}" ]] || continue
+
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
+              > incoming/source-pr.json
+
+            if "${pythonLocation}/bin/python" -B control/scripts/github_stage2_auto_handoff.py \
+              --repository "${GITHUB_REPOSITORY}" \
+              --run-json incoming/source-run.json \
+              --pr-json incoming/source-pr.json \
+              --failure-case "${failure_case}" \
+              --task-run "${task_run}" \
+              --output incoming/auto-handoff.json \
+              --github-output "$GITHUB_OUTPUT"; then
+              echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < incoming/candidate-run-ids.txt
+
+          echo "No current unprocessed repairable Stage-1 failure was found." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dispatch governed Stage 2 automatically
+        if: steps.discover.outputs.found == 'true'
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.discover.outputs.source_run_attempt }}
+          SOURCE_PR_NUMBER: ${{ steps.discover.outputs.source_pr_number }}
+          FAILURE_SIGNATURE: ${{ steps.discover.outputs.failure_signature }}
+          DISPATCH_MARKER: ${{ steps.discover.outputs.dispatch_marker }}
+          ISSUE_NUMBER: ${{ steps.discover.outputs.issue_number }}
+          BINDING_SHA256: ${{ steps.discover.outputs.binding_sha256 }}
+        run: |
+          set -euo pipefail
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-ci-repair-stage2.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[source_run_id]=${SOURCE_RUN_ID}" \
+            -f "inputs[source_run_attempt]=${SOURCE_RUN_ATTEMPT}"
+
+          BODY=$(cat <<EOF
+          Automatic governed handoff dispatched Stage 2.
+
+          - Marker: \`${DISPATCH_MARKER}\`
+          - Source Quality Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Source PR: \`#${SOURCE_PR_NUMBER}\`
+          - Failure signature: \`${FAILURE_SIGNATURE}\`
+          - Handoff binding SHA-256: \`${BINDING_SHA256}\`
+          - Stage-2 workflow: \`governed-ci-repair-stage2\` from trusted \`main\`
+          - Model Secret read by this handoff workflow: \`false\`
+          - Candidate code executed by this handoff workflow: \`false\`
+          - Source changes: none
+          - production_closed: false
+
+          Stage 2 may now enter the protected Environment and run its bounded repair loop.
+          EOF
+          )
+          gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
+
+      - name: Publish automatic handoff summary
+        if: always()
+        env:
+          FOUND: ${{ steps.discover.outputs.found }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.discover.outputs.source_run_attempt }}
+          ISSUE_NUMBER: ${{ steps.discover.outputs.issue_number }}
+        run: |
+          {
+            echo "## Governed Stage-2 automatic handoff"
+            echo
+            echo "- Repairable Stage-1 failure found: \`${FOUND:-false}\`"
+            echo "- Source Run ID / attempt: \`${SOURCE_RUN_ID:-none}/${SOURCE_RUN_ATTEMPT:-none}\`"
+            echo "- Governed failure Issue: \`#${ISSUE_NUMBER:-none}\`"
+            echo "- Stage 2 dispatch requested: \`${FOUND:-false}\`"
+            echo "- Model Secret read here: \`false\`"
+            echo "- Candidate code executed here: \`false\`"
+            echo "- Source changes: none"
+            echo "- production_closed: false"
+          } >> "$GITHUB_STEP_SUMMARY"
