@@ -6,6 +6,7 @@ on:
       - quality
       - skill-self-validation
       - wp08-full-stack-certification
+      - governed-repair-validation
     types: [completed]
 
 permissions:
@@ -18,7 +19,10 @@ concurrency:
 
 jobs:
   ingest:
-    if: github.event.workflow_run.conclusion != 'success'
+    if: >-
+      github.event.workflow_run.conclusion != 'success' &&
+      (!startsWith(github.event.workflow_run.head_branch, 'governed-repair/') ||
+       github.event.workflow_run.name == 'governed-repair-validation')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -50,7 +54,8 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           path: candidate
-          fetch-depth: 1
+          fetch-depth: 80
+          clean: true
           persist-credentials: false
 
       - name: Prepare non-repairable fork workspace
@@ -76,10 +81,29 @@ jobs:
             unzip -q incoming/logs.zip -d incoming/logs || true
           fi
 
-      - name: Capture original PR changed files
+      - name: Resolve associated pull request
+        id: source_pr
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          NUMBER="${EVENT_PR_NUMBER}"
+          if [[ -z "${NUMBER}" || "${NUMBER}" == "0" ]]; then
+            NUMBER=$(gh pr list --state open --head "${HEAD_BRANCH}" --json number --jq '.[0].number // empty')
+          fi
+          printf 'number=%s\n' "${NUMBER}" >> "$GITHUB_OUTPUT"
+          if [[ -n "${NUMBER}" ]]; then
+            gh pr view "${NUMBER}" --json headRefName,baseRefName \
+              --jq '{number:'"${NUMBER}"',head:.headRefName,base:.baseRefName}' > incoming/pr-context.json
+          else
+            jq -n --arg head "${HEAD_BRANCH}" '{number:0,head:$head,base:"main"}' > incoming/pr-context.json
+          fi
+
+      - name: Capture associated PR changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ steps.source_pr.outputs.number }}
         run: |
           if [[ -n "${SOURCE_PR_NUMBER}" && "${SOURCE_PR_NUMBER}" != "0" ]]; then
             gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}/files" \
@@ -102,6 +126,7 @@ jobs:
           --artifacts incoming/artifacts
           --logs incoming/logs
           --changed-files incoming/changed-files.json
+          --pr-context incoming/pr-context.json
           --output incoming/failure-case.json
           --task-run incoming/task-run.json
           --github-output "$GITHUB_OUTPUT"
@@ -115,6 +140,7 @@ jobs:
             incoming/failure-case.json
             incoming/task-run.json
             incoming/changed-files.json
+            incoming/pr-context.json
           retention-days: 30
           if-no-files-found: error
 
@@ -137,7 +163,7 @@ jobs:
           - Evidence artifact: \`governed-repair-ingest-${SOURCE_RUN_ID}\`
           - Production closure: false
 
-          Environment, secret, timeout, fork, unknown, or protected-control-plane failures are fail-closed and are never converted into source edits.
+          Environment, secret, timeout, interruption, fork, unknown, repeated-failure, or protected-control-plane failures are fail-closed and are never converted into source edits.
           EOF
           )
           if [[ -n "${EXISTING}" ]]; then
@@ -148,32 +174,15 @@ jobs:
 
   repair:
     needs: ingest
-    if: >-
-      needs.ingest.outputs.repair_allowed == 'true' &&
-      (github.event.workflow_run.event != 'pull_request' ||
-       github.event.workflow_run.head_repository.full_name == github.repository)
+    if: needs.ingest.outputs.repair_allowed == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 45
     environment: production-certification
     permissions:
       contents: write
       actions: write
       pull-requests: write
       issues: write
-    services:
-      pgvector:
-        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
-        env:
-          POSTGRES_DB: agent_test
-          POSTGRES_USER: agent
-          POSTGRES_PASSWORD: agent-test-password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U agent -d agent_test"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
     steps:
       - name: Checkout trusted control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -188,7 +197,8 @@ jobs:
         with:
           ref: ${{ needs.ingest.outputs.head_sha }}
           path: candidate
-          fetch-depth: 0
+          fetch-depth: 80
+          clean: true
           persist-credentials: false
 
       - name: Download ingested failure evidence
@@ -197,29 +207,16 @@ jobs:
           name: governed-repair-ingest-${{ needs.ingest.outputs.workflow_run_id }}
           path: incoming
 
+      - name: Add semantic failure signature
+        run: |
+          SEMANTIC=$(jq -c '{workflow_name,classification,failed_gates,failure_summary}' incoming/failure-case.json | sha256sum | awk '{print $1}')
+          jq --arg semantic "$SEMANTIC" '.semantic_failure_signature=$semantic' incoming/failure-case.json > incoming/failure-case.tmp
+          mv incoming/failure-case.tmp incoming/failure-case.json
+
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
-
-      - name: Set up locked Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '24.18.0'
-          package-manager-cache: false
-
-      - name: Bootstrap locked uv
-        run: >-
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
-          --require-hashes --only-binary=:all:
-          -r control/deployment/ci/uv-requirements-linux-x86_64.txt
-
-      - name: Install candidate validation environments without secrets
-        run: |
-          cd candidate/services/agent-service && uv sync --locked --all-groups
-          cd ../business-service && uv sync --locked --all-groups
-          cd ../agent-service/frontend && npm ci --ignore-scripts=false
-          ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Prepare isolated repair branch
         env:
@@ -227,10 +224,11 @@ jobs:
           SOURCE_SHA: ${{ needs.ingest.outputs.head_sha }}
         run: |
           git -C candidate checkout -B "${REPAIR_BRANCH}" "${SOURCE_SHA}"
+          test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
           mkdir -p repair-evidence
 
-      - name: Run bounded governed repair loop
-        id: repair
+      - name: Run one bounded multi-role model repair cycle
+        id: repair_cycle
         env:
           GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
           GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
@@ -245,19 +243,17 @@ jobs:
           --evidence-root repair-evidence
           --max-cycles 8
           --github-output "$GITHUB_OUTPUT"
-          --validation-command
-          services/agent-service/.venv/bin/python -B ../control/scripts/github_repair_validation.py
-          --workspace .
 
-      - name: Validate committed source diff before publication
+      - name: Verify the repair commit is clean and scoped
         env:
           SOURCE_SHA: ${{ needs.ingest.outputs.head_sha }}
         run: |
-          git -C candidate diff --check "${SOURCE_SHA}..HEAD"
+          test "$(git -C candidate rev-parse HEAD)" = "${{ steps.repair_cycle.outputs.repair_commit }}"
           test "$(git -C candidate rev-list --count "${SOURCE_SHA}..HEAD")" -gt 0
-          test -z "$(git -C candidate status --porcelain=v1)"
+          test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
+          git -C candidate diff --check "${SOURCE_SHA}..HEAD"
           git -C candidate diff --name-only "${SOURCE_SHA}..HEAD" > repair-evidence/changed-paths.txt
-          if grep -E '^(governance/|skill-system/|scripts/(quality_loop|repair_loop|github_)|\.github/workflows/governed-ci-repair\.yml$)' repair-evidence/changed-paths.txt; then
+          if grep -E '^(governance/|skill-system/|scripts/|deployment/|\.github/)' repair-evidence/changed-paths.txt; then
             echo "protected control-plane path changed" >&2
             exit 1
           fi
@@ -278,7 +274,7 @@ jobs:
           REPAIR_BASE: ${{ needs.ingest.outputs.repair_base_branch }}
           SOURCE_RUN_ID: ${{ needs.ingest.outputs.workflow_run_id }}
           SOURCE_URL: ${{ github.event.workflow_run.html_url }}
-          CLASSIFICATION: ${{ needs.ingest.outputs.classification }}
+          REPAIR_CYCLE: ${{ steps.repair_cycle.outputs.repair_cycle }}
         run: |
           EXISTING=$(gh pr list --state open --head "${REPAIR_BRANCH}" --json url --jq '.[0].url // empty')
           BODY=$(cat <<EOF
@@ -286,15 +282,14 @@ jobs:
 
           - Automatically ingested source run: ${SOURCE_URL}
           - Source Run ID: \`${SOURCE_RUN_ID}\`
-          - Classification: \`${CLASSIFICATION}\`
-          - Restricted model repair: applied only to frozen candidate paths
-          - Independent Quick plus deterministic integration Quality Loop: PASS
-          - Protected real-model browser gates: left to WP-08
-          - Maximum loop budget: 8 with repeated-failure/no-progress stop
+          - Repair cycle: \`${REPAIR_CYCLE}\` of at most 8
+          - Four-role model governance: explorer → plan reviewer → restricted fixer → diff reviewer
+          - Candidate validation: dispatched to a separate no-secret workflow
           - Direct write to protected main: no
+          - Automatic merge: no
           - Automatic production closure: false
 
-          This PR remains Draft for human review. The normal repository checks are dispatched on the repair branch after publication.
+          This PR remains Draft. Quick and deterministic Integration validation run outside the secret-bearing repair process.
           EOF
           )
           if [[ -n "${EXISTING}" ]]; then
@@ -306,33 +301,35 @@ jobs:
           fi
           echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
 
-      - name: Finalize durable TaskRun
-        run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/github_repair_task.py
-          --control-root control
-          --workspace candidate
-          --task-run incoming/task-run.json
-          --pr-url "${{ steps.publish.outputs.pr_url }}"
-
-      - name: Dispatch normal repository checks
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
-        run: |
-          gh workflow run quality.yml --ref "${REPAIR_BRANCH}" -f integration_profile=skip
-          gh workflow run skill-self-validation.yml --ref "${REPAIR_BRANCH}"
-
-      - name: Upload repair evidence and TaskRun
-        if: always()
+      - name: Upload cycle TaskRun for isolated validation
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: governed-repair-result-${{ needs.ingest.outputs.workflow_run_id }}
+          name: governed-repair-task-${{ steps.repair_cycle.outputs.task_id }}-${{ needs.ingest.outputs.workflow_run_id }}
           path: |
-            incoming/failure-case.json
             incoming/task-run.json
+            incoming/failure-case.json
             repair-evidence
           retention-days: 30
           if-no-files-found: error
+
+      - name: Dispatch isolated no-secret validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
+          REPAIR_COMMIT: ${{ steps.repair_cycle.outputs.repair_commit }}
+          TASK_ID: ${{ steps.repair_cycle.outputs.task_id }}
+          SOURCE_RUN_ID: ${{ needs.ingest.outputs.workflow_run_id }}
+          REPAIR_CYCLE: ${{ steps.repair_cycle.outputs.repair_cycle }}
+          PR_URL: ${{ steps.publish.outputs.pr_url }}
+        run: |
+          gh workflow run governed-repair-validation.yml \
+            --ref "${REPAIR_BRANCH}" \
+            -f repair_sha="${REPAIR_COMMIT}" \
+            -f bridge_run_id="${GITHUB_RUN_ID}" \
+            -f task_id="${TASK_ID}" \
+            -f source_run_id="${SOURCE_RUN_ID}" \
+            -f repair_cycle="${REPAIR_CYCLE}" \
+            -f pr_url="${PR_URL}"
 
       - name: Publish blocked repair issue
         if: failure()
@@ -342,7 +339,7 @@ jobs:
           SOURCE_URL: ${{ github.event.workflow_run.html_url }}
         run: |
           TITLE="[governed-ci-repair] automatic repair ${SOURCE_RUN_ID} blocked"
-          BODY="Automatic repair stopped fail-closed. Source: ${SOURCE_URL}. Inspect artifact governed-repair-result-${SOURCE_RUN_ID}. No protected branch was changed and production closure remains false."
+          BODY="Automatic repair stopped fail-closed. Source: ${SOURCE_URL}. Inspect the governed repair artifacts. No protected branch was changed and production closure remains false."
           EXISTING=$(gh issue list --state open --search "${TITLE} in:title" --json number --jq '.[0].number // empty')
           if [[ -n "${EXISTING}" ]]; then
             gh issue comment "${EXISTING}" --body "${BODY}"
