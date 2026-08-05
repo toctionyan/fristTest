@@ -16,13 +16,15 @@ from typing import Any
 
 SCHEMA = "github-agent-fixer@1"
 MAX_FILE_BYTES = 45_000
-DENY_PREFIXES = ("governance/", "skill-system/", ".quality/", ".git/")
+AUTO_REPAIR_PREFIXES = ("services/", "web/", "contracts/")
+DENY_PREFIXES = ("governance/", "skill-system/", ".github/", "deployment/", "scripts/", ".quality/", ".git/")
 DENY_EXACT = {
     ".github/workflows/governed-ci-repair.yml",
     "scripts/github_failure_ingest.py",
     "scripts/github_agent_fixer.py",
     "scripts/github_repair_orchestrator.py",
     "scripts/github_repair_task.py",
+    "scripts/github_repair_validation.py",
     "scripts/quality_loop.py",
     "scripts/repair_loop.py",
     "skill-system/registry/product-source-baseline.json",
@@ -97,6 +99,8 @@ def patch_paths(patch: str) -> list[str]:
 def validate_patch(patch: str, allowed_paths: list[str], *, max_files: int, max_lines: int) -> list[str]:
     if "GIT binary patch" in patch or "Binary files" in patch:
         raise ValueError("binary patches are not allowed")
+    if any(marker in patch for marker in ("new file mode", "deleted file mode", "--- /dev/null", "+++ /dev/null")):
+        raise ValueError("automatic repair cannot create or delete files")
     if len(patch.splitlines()) > max_lines:
         raise ValueError("patch exceeds the bounded line budget")
     paths = patch_paths(patch)
@@ -106,6 +110,8 @@ def validate_patch(patch: str, allowed_paths: list[str], *, max_files: int, max_
     for path in paths:
         if path not in allowed:
             raise ValueError(f"patch path is outside the frozen repair scope: {path}")
+        if not any(path.startswith(prefix) for prefix in AUTO_REPAIR_PREFIXES):
+            raise ValueError(f"patch path is outside automatic product roots: {path}")
         if path in DENY_EXACT or any(path.startswith(prefix) for prefix in DENY_PREFIXES):
             raise ValueError(f"patch path is protected: {path}")
         if re.search(r"(^|/)\.env($|\.)", path):
