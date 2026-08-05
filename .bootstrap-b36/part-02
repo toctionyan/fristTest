@@ -1,0 +1,140 @@
+
++        text=True,
++        capture_output=True,
++        check=True,
++    )
++    return completed.stdout.strip()
++
++
++def _process_is_live(pid: int) -> bool:
++    stat_path = Path(f"/proc/{pid}/stat")
++    if stat_path.is_file():
++        try:
++            fields = stat_path.read_text(encoding="utf-8").split()
++        except OSError:
++            return False
++        return len(fields) >= 3 and fields[2] != "Z"
++    try:
++        os.kill(pid, 0)
++    except ProcessLookupError:
++        return False
++    return True
++
++
+ class LocalFirstLoopCLITests(unittest.TestCase):
+-    def _spec(self, workspace: Path) -> Path:
++    def _workspace_and_spec(self, root: Path) -> tuple[Path, Path]:
++        workspace = root / "repo"
++        workspace.mkdir(parents=True)
++        _git(workspace, "init", "-q")
++        _git(workspace, "config", "user.email", "local-first@example.invalid")
++        _git(workspace, "config", "user.name", "Local First Test")
++        (workspace / "source.txt").write_text("baseline\n", encoding="utf-8")
++        _git(workspace, "add", "source.txt")
++        _git(workspace, "commit", "-q", "-m", "baseline")
++        _git(workspace, "switch", "-q", "-c", "agent/cli-local-first")
++        base_sha = _git(workspace, "rev-parse", "HEAD")
++
+         gate_command = [sys.executable, "-c", "raise SystemExit(0)"]
+         payload = {
+             "schema_version": 1,
+             "task_id": "cli-local-first",
+             "change_id": "change-cli-local-first",
+-            "base_sha": "a" * 40,
++            "base_sha": base_sha,
+             "branch": "agent/cli-local-first",
+             "patch_owner": "product-implementer",
+             "allowed_paths": ["source.txt"],
+@@ -39,45 +76,63 @@
+                 for gate in ("targeted", "module", "static", "quick", "review")
+             ],
+         }
+-        path = workspace / "task.json"
++        path = root / "task.json"
+         path.write_text(json.dumps(payload), encoding="utf-8")
+-        return path
+-
+-    def test_cli_runs_local_gates_then_admits_upload(self) -> None:
+-        with TemporaryDirectory() as directory:
+-            workspace = Path(directory)
+-            (workspace / "source.txt").write_text("candidate\n", encoding="utf-8")
+-            spec = self._spec(workspace)
+-            state = workspace / ".quality/task-run.json"
+-
+-            init = subprocess.run(
+-                [sys.executable, str(SCRIPT), "init", "--workspace", str(workspace), "--spec", str(spec), "--state", str(state)],
+-                cwd=ROOT,
+-                text=True,
+-                capture_output=True,
+-                check=False,
+-            )
+-            self.assertEqual(init.returncode, 0, init.stderr)
++        return workspace, path
++
++    def _init(self, workspace: Path, spec: Path, state: Path) -> subprocess.CompletedProcess[str]:
++        return subprocess.run(
++            [
++                sys.executable,
++                str(SCRIPT),
++                "init",
++                "--workspace",
++                str(workspace),
++                "--spec",
++                str(spec),
++                "--state",
++                str(state),
++            ],
++            cwd=ROOT,
++            text=True,
++            capture_output=True,
++            check=False,
++        )
++
++    def _run_local(self, workspace: Path, spec: Path, state: Path) -> subprocess.CompletedProcess[str]:
++        return subprocess.run(
++            [
++                sys.executable,
++                str(SCRIPT),
++                "run-local",
++                "--workspace",
++                str(workspace),
++                "--spec",
++                str(spec),
++                "--state",
++                str(state),
++            ],
++            cwd=ROOT,
++            text=True,
++            capture_output=True,
++            check=False,
++        )
++
++    def test_cli_runs_local_gates_then_admits_clean_committed_upload(self) -> None:
++        with TemporaryDirectory() as directory:
++            root = Path(directory)
++            workspace, spec = self._workspace_and_spec(root)
++            state = workspace / ".quality/task-run.json"
++
++            initialized = self._init(workspace, spec, state)
++            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+             (workspace / "source.txt").write_text("candidate-updated\n", encoding="utf-8")
+ 
+-            local = subprocess.run(
+-                [
+-                    sys.executable,
+-                    str(SCRIPT),
+-                    "run-local",
+-                    "--workspace",
+-                    str(workspace),
+-                    "--spec",
+-                    str(spec),
+-                    "--state",
+-                    str(state),
+-                ],
+-                cwd=ROOT,
+-                text=True,
+-                capture_output=True,
+-                check=False,
+-            )
++            local = self._run_local(workspace, spec, state)
+             self.assertEqual(local.returnco
