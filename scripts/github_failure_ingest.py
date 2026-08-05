@@ -92,15 +92,19 @@ def _bounded_text_files(roots: Iterable[Path], *, max_total: int = 1_500_000) ->
     rows: list[tuple[Path, str]] = []
     consumed = 0
     for root in roots:
-        if not root.exists():
+        if not root.exists() or root.is_symlink():
             continue
+        root_resolved = root.resolve()
         candidates = [root] if root.is_file() else sorted(path for path in root.rglob("*") if path.is_file())
         for path in candidates:
             if consumed >= max_total:
                 return rows
+            if path.is_symlink():
+                continue
             try:
+                path.resolve().relative_to(root_resolved if root.is_dir() else root_resolved.parent)
                 data = path.read_bytes()
-            except OSError:
+            except (OSError, ValueError):
                 continue
             if b"\x00" in data[:4096]:
                 continue
@@ -121,7 +125,10 @@ def _safe_candidate(path: str, workspace: Path) -> bool:
         return False
     if re.search(r"(^|/)\.env($|\.)", normalized):
         return False
-    resolved = (workspace / normalized).resolve()
+    unresolved = workspace / normalized
+    if unresolved.is_symlink():
+        return False
+    resolved = unresolved.resolve()
     try:
         resolved.relative_to(workspace.resolve())
     except ValueError:
@@ -181,13 +188,17 @@ def classify(workflow_name: str, conclusion: str, combined_text: str, failures: 
     low = combined_text.casefold()
     if conclusion == "timed_out" or any(term in low for term in TIMEOUT_TERMS):
         return "timeout"
+    if conclusion == "cancelled":
+        return "interrupted"
+    if conclusion in {"action_required", "startup_failure"}:
+        return "environment"
     if any(term in low for term in ENVIRONMENT_TERMS):
         return "environment"
     if any(str(row.get("status") or "").upper() in {"BLOCKED", "BLOCKED_BY_ENVIRONMENT"} for row in failures):
         return "environment"
     if failures:
         return "code_or_contract"
-    if workflow_name in WATCHED_CODE_WORKFLOWS and conclusion in FAILED_CONCLUSIONS:
+    if workflow_name in WATCHED_CODE_WORKFLOWS and conclusion == "failure":
         return "code_or_contract"
     if workflow_name == "wp08-full-stack-certification":
         return "production_diagnostic"
@@ -229,10 +240,12 @@ def build_report(
     classification = classify(workflow_name, conclusion, diagnostics, failures)
     candidates = extract_candidate_paths(combined, workspace, changed_files)
     same_repository = bool(repo_name and head_repo == repo_name)
+    has_diagnostic_evidence = bool(failures or excerpts)
     repair_allowed = bool(
-        conclusion in FAILED_CONCLUSIONS
+        conclusion == "failure"
         and same_repository
         and classification == "code_or_contract"
+        and has_diagnostic_evidence
         and candidates
         and workflow_name != "governed-ci-repair"
     )
@@ -264,6 +277,7 @@ def build_report(
         "same_repository": same_repository,
         "source_pr_number": source_pr,
         "classification": classification,
+        "has_diagnostic_evidence": has_diagnostic_evidence,
         "repair_allowed": repair_allowed,
         "automatic_repair_roots": list(AUTO_REPAIR_PREFIXES),
         "candidate_paths": candidates,
@@ -346,7 +360,10 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
     else:
         task.block(
             code="AUTOMATIC_REPAIR_NOT_AUTHORIZED",
-            reason=f"classification={report['classification']} same_repository={report['same_repository']} candidates={len(report['candidate_paths'])}",
+            reason=(
+                f"classification={report['classification']} same_repository={report['same_repository']} "
+                f"diagnostics={report['has_diagnostic_evidence']} candidates={len(report['candidate_paths'])}"
+            ),
             attempted_strategies=("workflow-run-ingest",),
             next_action="inspect the generated GitHub issue and provision environment or approve a governed repair target",
             workspace_fingerprint=None,
