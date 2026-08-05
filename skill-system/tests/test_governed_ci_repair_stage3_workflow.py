@@ -81,8 +81,11 @@ def test_stage3_rejects_stale_base_branch_collision_and_non_draft_pr() -> None:
     assert "--force-with-lease" not in text
 
 
-def test_stage2_binds_handoff_and_blocks_recursive_repair() -> None:
+def test_stage2_binds_handoff_blocks_recursion_and_skips_without_failure_artifact() -> None:
     text = STAGE2.read_text(encoding="utf-8")
     assert "github_stage2_handoff.py" in text
     assert 'startswith("governed-repair/")' in text
     assert "and not" in text
+    assert "continue-on-error: true" in text
+    assert "No governed failure artifact was produced by Stage 1; Stage 2 skipped." in text
+    assert 'echo "repair_allowed=false"' in text
