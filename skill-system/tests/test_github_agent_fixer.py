@@ -40,7 +40,7 @@ def test_multi_role_repair_contract_is_explicit() -> None:
         "diff-integrity-reviewer",
     ):
         assert role in text
-    assert "model_call_count\": 4" in text
+    assert '"model_call_count": 4' in text
     assert "independent repair-plan reviewer rejected" in text
     assert "independent diff-integrity reviewer rejected" in text
 
