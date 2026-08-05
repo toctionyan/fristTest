@@ -160,6 +160,20 @@ jobs:
       actions: write
       pull-requests: write
       issues: write
+    services:
+      pgvector:
+        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - name: Checkout trusted control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -205,6 +219,7 @@ jobs:
           cd candidate/services/agent-service && uv sync --locked --all-groups
           cd ../business-service && uv sync --locked --all-groups
           cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Prepare isolated repair branch
         env:
@@ -231,9 +246,8 @@ jobs:
           --max-cycles 8
           --github-output "$GITHUB_OUTPUT"
           --validation-command
-          services/agent-service/.venv/bin/python -B scripts/quality_loop.py
-          --mode quick
-          --target .quality/targets/governed-repair-quick.md
+          services/agent-service/.venv/bin/python -B ../control/scripts/github_repair_validation.py
+          --workspace .
 
       - name: Validate committed source diff before publication
         env:
@@ -274,7 +288,8 @@ jobs:
           - Source Run ID: \`${SOURCE_RUN_ID}\`
           - Classification: \`${CLASSIFICATION}\`
           - Restricted model repair: applied only to frozen candidate paths
-          - Independent Quick Quality Loop: PASS
+          - Independent Quick plus deterministic integration Quality Loop: PASS
+          - Protected real-model browser gates: left to WP-08
           - Maximum loop budget: 8 with repeated-failure/no-progress stop
           - Direct write to protected main: no
           - Automatic production closure: false
@@ -304,7 +319,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
         run: |
-          gh workflow run quality.yml --ref "${REPAIR_BRANCH}"
+          gh workflow run quality.yml --ref "${REPAIR_BRANCH}" -f integration_profile=skip
           gh workflow run skill-self-validation.yml --ref "${REPAIR_BRANCH}"
 
       - name: Upload repair evidence and TaskRun
