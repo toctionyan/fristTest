@@ -61,6 +61,31 @@ def test_stage2_manual_handoff_remains_fail_closed() -> None:
     assert "pattern: ${{ needs.inspect.outputs.stage1_artifact_pattern }}" in text
 
 
+def test_stage2_uses_trusted_scope_normalizer() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "control/scripts/github_repair_orchestrator_control_plane.py" in text
+    assert "control/scripts/github_repair_orchestrator.py" not in text
+    assert "normalized-failure-case.json" not in text
+
+
+def test_stage2_publishes_redacted_machine_readable_blocker() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    required = (
+        "Build redacted Stage-2 public summary",
+        "github-stage2-public-summary@1",
+        "from github_failure_ingest import redact",
+        "stage2-evidence/public-summary.json",
+        "Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}",
+        "Stage-2 Run ID / attempt:",
+        "Code:",
+        "Redacted reason:",
+    )
+    missing = [fragment for fragment in required if fragment not in text]
+    assert not missing, f"missing Stage-2 observability fragments: {missing}"
+    assert "reason = redact(" in text
+    assert "[:1000]" in text
+
+
 def test_stage2_cannot_publish_or_close_production() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     forbidden = (
