@@ -60,6 +60,17 @@ def test_validation_job_is_read_only_and_publisher_does_not_run_candidate_code()
     assert "quality_loop.py" not in publish_block
 
 
+def test_stage2_and_stage3_pin_all_split_jobs_to_one_control_sha() -> None:
+    stage2 = STAGE2.read_text(encoding="utf-8")
+    stage3 = STAGE3.read_text(encoding="utf-8")
+    assert "Bind trusted Stage-2 control SHA" in stage2
+    assert "control_sha: ${{ steps.control.outputs.control_sha }}" in stage2
+    assert "ref: ${{ needs.inspect.outputs.control_sha }}" in stage2
+    assert "Bind trusted Stage-3 control SHA" in stage3
+    assert "control_sha: ${{ steps.control.outputs.control_sha }}" in stage3
+    assert stage3.count("ref: ${{ needs.inspect.outputs.control_sha }}") == 2
+
+
 def test_stage3_has_no_model_or_production_secret_access() -> None:
     text = STAGE3.read_text(encoding="utf-8")
     assert "environment: production-certification" not in text
