@@ -1,0 +1,266 @@
+name: governed-ci-failure-sweeper
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/governed-ci-failure-sweeper.yml'
+      - 'scripts/github_failure_sweeper_event.py'
+      - 'scripts/github_failure_ingest_control_plane.py'
+      - 'skill-system/tests/test_github_failure_sweeper_event.py'
+      - 'skill-system/tests/test_governed_ci_failure_sweeper_workflow.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-ci-failure-sweeper
+  cancel-in-progress: false
+
+jobs:
+  sweep-stage1:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout trusted sweeper control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Discover newest unprocessed failed PR run
+        id: discover
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+            -f status=completed -f per_page=100 > incoming/recent-runs.json
+          printf 'found=false\n' >> "$GITHUB_OUTPUT"
+
+          while IFS=$'\t' read -r run_id pr_number; do
+            [[ -n "${run_id}" && -n "${pr_number}" ]] || continue
+            existing=$(gh issue list --state all \
+              --search "[governed-ci-failure] run ${run_id} in:title" \
+              --json number --jq '.[0].number // empty')
+            [[ -z "${existing}" ]] || continue
+
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+              > incoming/source-run-candidate.json
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" \
+              > incoming/source-pr-candidate.json
+
+            if "${pythonLocation}/bin/python" -B control/scripts/github_failure_sweeper_event.py \
+              --repository "${GITHUB_REPOSITORY}" \
+              --run-id "${run_id}" \
+              --pr-number "${pr_number}" \
+              --run-json incoming/source-run-candidate.json \
+              --pr-json incoming/source-pr-candidate.json \
+              --output incoming/source-event.json \
+              --github-output "$GITHUB_OUTPUT"; then
+              mv incoming/source-run-candidate.json incoming/source-run.json
+              mv incoming/source-pr-candidate.json incoming/source-pr.json
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < <(
+            jq -r '
+              .workflow_runs[]
+              | select(.name == "quality")
+              | select(.status == "completed")
+              | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled" or .conclusion == "action_required" or .conclusion == "startup_failure" or .conclusion == "stale")
+              | select((.head_branch // "") | startswith("governed-repair/") | not)
+              | select((.pull_requests // []) | length > 0)
+              | [.id, .pull_requests[0].number]
+              | @tsv
+            ' incoming/recent-runs.json
+          )
+
+          echo "No current unprocessed failed PR run was found." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record automatic sweeper receipt
+        if: steps.discover.outputs.found == 'true'
+        id: receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.discover.outputs.source_run_attempt }}
+          SOURCE_WORKFLOW: ${{ steps.discover.outputs.workflow_name }}
+          SOURCE_CONCLUSION: ${{ steps.discover.outputs.source_conclusion }}
+          SOURCE_SHA: ${{ steps.discover.outputs.head_sha }}
+          SOURCE_URL: ${{ steps.discover.outputs.source_url }}
+        run: |
+          set -euo pipefail
+          TITLE="[governed-ci-failure] run ${SOURCE_RUN_ID}"
+          BODY=$(cat <<EOF
+          The automatic failed-run sweeper discovered and rebound an unprocessed CI failure.
+
+          - Stage: \`SWEEPER_RECEIVED\`
+          - Ingestion trigger: \`scheduled-stage1-sweeper\`
+          - Source workflow: \`${SOURCE_WORKFLOW}\`
+          - Source run: ${SOURCE_URL}
+          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Conclusion: \`${SOURCE_CONCLUSION}\`
+          - Head SHA: \`${SOURCE_SHA}\`
+          - Ingestion classification: pending
+          - Stage 2 started: \`false\`
+          - Source changes: none
+          - production_closed: false
+
+          This receipt is created after same-repository/current-PR identity binding and before
+          candidate checkout, artifact download, log parsing, or TaskRun creation.
+          EOF
+          )
+          ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}")
+          ISSUE_NUMBER="${ISSUE_URL##*/}"
+          [[ "${ISSUE_NUMBER}" =~ ^[0-9]+$ ]]
+          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout failed source as untrusted data
+        if: steps.discover.outputs.found == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.discover.outputs.head_sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download failed-run artifacts as untrusted evidence
+        if: steps.discover.outputs.found == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: incoming/artifacts
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.discover.outputs.source_run_id }}
+
+      - name: Download failed-run logs as untrusted evidence
+        if: steps.discover.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/logs
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/logs" > incoming/logs.zip; then
+            unzip -q incoming/logs.zip -d incoming/logs || true
+          else
+            rm -f incoming/logs.zip
+          fi
+
+      - name: Capture source PR changed-file metadata
+        if: steps.discover.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ steps.discover.outputs.source_pr_number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}/files" \
+            --jq '.[].filename' | jq -R -s 'split("\n")[:-1]' > incoming/changed-files.json
+
+      - name: Ingest failure and create durable TaskRun
+        if: steps.discover.outputs.found == 'true'
+        id: ingest
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest_control_plane.py
+          --event incoming/source-event.json
+          --workspace candidate
+          --artifacts incoming/artifacts
+          --logs incoming/logs
+          --changed-files incoming/changed-files.json
+          --output incoming/failure-case.json
+          --task-run incoming/task-run.json
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload automatic Stage-1 evidence
+        if: ${{ always() && steps.discover.outputs.found == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-sweeper-stage1-${{ steps.discover.outputs.source_run_id }}
+          path: |
+            incoming/source-event.json
+            incoming/failure-case.json
+            incoming/task-run.json
+            incoming/changed-files.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Finalize automatic Stage-1 issue
+        if: ${{ success() && steps.discover.outputs.found == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.discover.outputs.source_run_attempt }}
+          CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
+          REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
+          FAILURE_SIGNATURE: ${{ steps.ingest.outputs.failure_signature }}
+        run: |
+          set -euo pipefail
+          BODY=$(cat <<EOF
+          Automatic Stage-1 sweeper ingestion completed.
+
+          - Stage: \`SWEEPER_INGESTED\`
+          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Classification: \`${CLASSIFICATION}\`
+          - Failure signature: \`${FAILURE_SIGNATURE}\`
+          - Structurally eligible for later repair: \`${REPAIR_ALLOWED}\`
+          - Stage 2 started by this workflow: \`false\`
+          - Evidence artifact: \`governed-ci-sweeper-stage1-${SOURCE_RUN_ID}\`
+          - Source changes: none
+          - production_closed: false
+
+          Stage 4A ends here. A separately governed Stage 4B handoff is required before any
+          production Environment or model Secret can be accessed.
+          EOF
+          )
+          gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
+
+      - name: Mark automatic Stage-1 ingestion failure
+        if: ${{ failure() && steps.receipt.outputs.issue_number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          gh issue comment "${ISSUE_NUMBER}" --body "Automatic Stage-1 sweeping stopped after receipt for run \`${SOURCE_RUN_ID}\`. Stage 2 remains disabled, source changes are none, and \`production_closed=false\`."
+
+      - name: Publish sweeper summary
+        if: always()
+        env:
+          FOUND: ${{ steps.discover.outputs.found }}
+          SOURCE_RUN_ID: ${{ steps.discover.outputs.source_run_id }}
+          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
+          CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
+          REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
+        run: |
+          {
+            echo "## Governed CI failed-run sweeper"
+            echo
+            echo "- Failure found: \`${FOUND:-false}\`"
+            echo "- Source Run ID: \`${SOURCE_RUN_ID:-none}\`"
+            echo "- Receipt issue: \`#${ISSUE_NUMBER:-none}\`"
+            echo "- Classification: \`${CLASSIFICATION:-not-produced}\`"
+            echo "- Structurally eligible for later repair: \`${REPAIR_ALLOWED:-false}\`"
+            echo "- Stage 2 started: \`false\`"
+            echo "- Source changes: none"
+            echo "- production_closed: false"
+          } >> "$GITHUB_STEP_SUMMARY"
