@@ -85,7 +85,7 @@ jobs:
       - name: Ingest failure and create durable TaskRun
         id: ingest
         run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest.py
+          "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest_control_plane.py
           --event "$GITHUB_EVENT_PATH"
           --workspace candidate
           --artifacts incoming/artifacts

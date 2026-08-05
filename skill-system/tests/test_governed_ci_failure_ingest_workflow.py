@@ -18,7 +18,7 @@ def test_failure_ingest_workflow_is_read_only_and_event_driven() -> None:
         "github.event.workflow_run.conclusion != 'success'",
         "actions/download-artifact@",
         "actions/runs/${SOURCE_RUN_ID}/logs",
-        "scripts/github_failure_ingest.py",
+        "scripts/github_failure_ingest_control_plane.py",
         "governed-ci-failure-${{ github.event.workflow_run.id }}",
         "persist-credentials: false",
         "production_closed: false",
@@ -34,3 +34,16 @@ def test_failure_ingest_workflow_is_read_only_and_event_driven() -> None:
     assert "git push" not in text
     assert "gh pr create" not in text
     assert "repair:" not in text
+
+
+def test_control_plane_adapter_is_the_only_ingestion_entrypoint() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    invocation = (
+        '"${pythonLocation}/bin/python" -B '
+        "control/scripts/github_failure_ingest_control_plane.py"
+    )
+    assert text.count(invocation) == 1
+    assert (
+        '"${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest.py'
+        not in text
+    )
