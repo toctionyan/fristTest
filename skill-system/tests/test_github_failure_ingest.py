@@ -49,6 +49,7 @@ def test_quality_failure_is_repairable_with_frozen_candidate_path(tmp_path: Path
     files = [(tmp_path / "run-summary.json", '{"results":[{"id":"unit","status":"FAIL","stderr":"services/agent-service/app/main.py:1 failed"}]}')]
     result = MODULE.build_report(_event(), workspace=tmp_path, artifact_files=files)
     assert result["classification"] == "code_or_contract"
+    assert result["has_diagnostic_evidence"] is True
     assert result["repair_allowed"] is True
     assert result["candidate_paths"] == ["services/agent-service/app/main.py"]
     assert result["automatic_repair_roots"] == ["services/", "web/", "contracts/"]
@@ -70,6 +71,34 @@ def test_skill_self_validation_can_repair_product_path_but_not_skill_control_pla
     assert result["classification"] == "code_or_contract"
     assert result["repair_allowed"] is True
     assert result["candidate_paths"] == ["services/agent-service/app/main.py"]
+
+
+def test_failure_without_logs_or_artifacts_never_guesses_from_changed_files(tmp_path: Path) -> None:
+    product = tmp_path / "services" / "agent-service" / "app" / "main.py"
+    product.parent.mkdir(parents=True)
+    product.write_text("x = 1\n", encoding="utf-8")
+    result = MODULE.build_report(
+        _event(),
+        workspace=tmp_path,
+        artifact_files=[],
+        changed_files=["services/agent-service/app/main.py"],
+    )
+    assert result["classification"] == "code_or_contract"
+    assert result["has_diagnostic_evidence"] is False
+    assert result["repair_allowed"] is False
+
+
+def test_cancelled_run_is_interrupted_not_a_code_repair(tmp_path: Path) -> None:
+    product = tmp_path / "services" / "agent-service" / "app" / "main.py"
+    product.parent.mkdir(parents=True)
+    product.write_text("x = 1\n", encoding="utf-8")
+    result = MODULE.build_report(
+        _event(conclusion="cancelled"),
+        workspace=tmp_path,
+        artifact_files=[(tmp_path / "log.txt", "services/agent-service/app/main.py failed")],
+    )
+    assert result["classification"] == "interrupted"
+    assert result["repair_allowed"] is False
 
 
 def test_environment_failure_is_fail_closed(tmp_path: Path) -> None:
