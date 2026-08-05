@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Ingest a failed GitHub Actions workflow_run into governed repair evidence.
-
-The script treats logs and artifacts as untrusted data. It never executes their
-contents and never prints secrets. It creates a durable TaskRun checkpoint so a
-later repair job can resume without screenshots or a manually supplied run ID.
-"""
+"""Convert an untrusted failed workflow_run into governed, machine-readable evidence."""
 from __future__ import annotations
 
 import argparse
@@ -25,8 +20,17 @@ from task_run import TaskRunStore, stable_task_id  # type: ignore  # noqa: E402
 
 SCHEMA = "github-failure-ingest@1"
 FAILED_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required", "startup_failure"}
-WATCHED_CODE_WORKFLOWS = {"quality", "skill-self-validation"}
+WATCHED_CODE_WORKFLOWS = {"quality", "skill-self-validation", "governed-repair-validation"}
 AUTO_REPAIR_PREFIXES = ("services/", "web/", "contracts/")
+PROTECTED_PREFIXES = (
+    "governance/",
+    "skill-system/",
+    ".github/",
+    "deployment/",
+    "scripts/",
+    ".git/",
+    ".quality/",
+)
 ENVIRONMENT_TERMS = (
     "blocked_by_environment",
     "environment blocker",
@@ -44,26 +48,6 @@ ENVIRONMENT_TERMS = (
     "runner lost communication",
 )
 TIMEOUT_TERMS = ("timed out", "deadline exceeded", "exit code 124", "operation was canceled")
-PROTECTED_PREFIXES = (
-    "governance/",
-    "skill-system/",
-    ".github/",
-    "deployment/",
-    "scripts/",
-    ".git/",
-    ".quality/",
-)
-PROTECTED_EXACT = {
-    ".github/workflows/governed-ci-repair.yml",
-    "scripts/github_failure_ingest.py",
-    "scripts/github_agent_fixer.py",
-    "scripts/github_repair_orchestrator.py",
-    "scripts/github_repair_task.py",
-    "scripts/github_repair_validation.py",
-    "scripts/quality_loop.py",
-    "scripts/repair_loop.py",
-    "skill-system/registry/product-source-baseline.json",
-}
 PATH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.-])((?:services|scripts|tests|web|contracts|deployment|\.github/workflows)/"
     r"[A-Za-z0-9_./@+\-]+\.(?:py|js|jsx|ts|tsx|mjs|cjs|json|ya?ml|toml|md|sh))(?![A-Za-z0-9_.-])"
@@ -74,7 +58,7 @@ SECRET_PATTERNS = (
 )
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _load_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"JSON object required: {path}")
@@ -82,50 +66,47 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def redact(text: str) -> str:
-    result = text
+    value = text
     for pattern in SECRET_PATTERNS:
-        result = pattern.sub("[REDACTED]", result)
-    return result
+        value = pattern.sub("[REDACTED]", value)
+    return value
 
 
-def _bounded_text_files(roots: Iterable[Path], *, max_total: int = 1_500_000) -> list[tuple[Path, str]]:
+def _bounded_text_files(roots: Iterable[Path], *, maximum: int = 1_500_000) -> list[tuple[Path, str]]:
     rows: list[tuple[Path, str]] = []
     consumed = 0
     for root in roots:
         if not root.exists() or root.is_symlink():
             continue
-        root_resolved = root.resolve()
+        boundary = root.resolve() if root.is_dir() else root.resolve().parent
         candidates = [root] if root.is_file() else sorted(path for path in root.rglob("*") if path.is_file())
         for path in candidates:
-            if consumed >= max_total:
+            if consumed >= maximum:
                 return rows
             if path.is_symlink():
                 continue
             try:
-                path.resolve().relative_to(root_resolved if root.is_dir() else root_resolved.parent)
+                path.resolve().relative_to(boundary)
                 data = path.read_bytes()
             except (OSError, ValueError):
                 continue
             if b"\x00" in data[:4096]:
                 continue
-            remaining = max_total - consumed
-            text = data[:remaining].decode("utf-8", errors="replace")
+            text = data[: maximum - consumed].decode("utf-8", errors="replace")
             consumed += len(text.encode("utf-8", errors="ignore"))
             rows.append((path, redact(text)))
     return rows
 
 
-def _safe_candidate(path: str, workspace: Path) -> bool:
-    normalized = path.strip().lstrip("./")
-    if not normalized or normalized in PROTECTED_EXACT:
+def _safe_candidate(relative: str, workspace: Path) -> bool:
+    path_text = relative.strip().lstrip("./")
+    if not path_text or not any(path_text.startswith(prefix) for prefix in AUTO_REPAIR_PREFIXES):
         return False
-    if not any(normalized.startswith(prefix) for prefix in AUTO_REPAIR_PREFIXES):
+    if any(path_text.startswith(prefix) for prefix in PROTECTED_PREFIXES):
         return False
-    if any(normalized.startswith(prefix) for prefix in PROTECTED_PREFIXES):
+    if re.search(r"(^|/)\.env($|\.)", path_text):
         return False
-    if re.search(r"(^|/)\.env($|\.)", normalized):
-        return False
-    unresolved = workspace / normalized
+    unresolved = workspace / path_text
     if unresolved.is_symlink():
         return False
     resolved = unresolved.resolve()
@@ -137,16 +118,16 @@ def _safe_candidate(path: str, workspace: Path) -> bool:
 
 
 def extract_candidate_paths(text: str, workspace: Path, changed_files: Iterable[str] = ()) -> list[str]:
-    found: list[str] = []
+    result: list[str] = []
     for raw in PATH_PATTERN.findall(text) + list(changed_files):
-        path = str(raw).strip().lstrip("./")
-        if _safe_candidate(path, workspace) and path not in found:
-            found.append(path)
-    return found[:16]
+        relative = str(raw).strip().lstrip("./")
+        if _safe_candidate(relative, workspace) and relative not in result:
+            result.append(relative)
+    return result[:16]
 
 
-def _summary_failures(files: list[tuple[Path, str]]) -> tuple[list[dict[str, Any]], list[str]]:
-    failures: list[dict[str, Any]] = []
+def _summaries(files: list[tuple[Path, str]]) -> tuple[list[dict[str, Any]], list[str]]:
+    failed: list[dict[str, Any]] = []
     excerpts: list[str] = []
     for path, text in files:
         if path.name == "run-summary.json":
@@ -156,58 +137,53 @@ def _summary_failures(files: list[tuple[Path, str]]) -> tuple[list[dict[str, Any
                 payload = None
             if isinstance(payload, dict):
                 for row in payload.get("results") or []:
-                    if not isinstance(row, dict) or str(row.get("status") or "").upper() not in {
-                        "FAIL",
-                        "FAILED",
-                        "BLOCKED",
-                        "BLOCKED_BY_ENVIRONMENT",
-                    }:
+                    status = str(row.get("status") or "").upper() if isinstance(row, dict) else ""
+                    if not isinstance(row, dict) or status not in {"FAIL", "FAILED", "BLOCKED", "BLOCKED_BY_ENVIRONMENT"}:
                         continue
-                    failures.append(
+                    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+                    failed.append(
                         {
                             "gate_id": str(row.get("id") or "unknown"),
-                            "status": str(row.get("status") or "FAIL"),
+                            "status": status,
                             "category": str(row.get("category") or "verification"),
                             "owner": str(row.get("owner") or "unassigned"),
-                            "failure_kind": str((row.get("metadata") or {}).get("failure_kind") or ""),
+                            "failure_kind": str(metadata.get("failure_kind") or ""),
                             "summary": redact(str(row.get("stderr") or row.get("error") or ""))[:2000],
                         }
                     )
         for line in text.splitlines():
-            low = line.casefold()
-            if any(token in low for token in ("error", "failed", "exception", "traceback", "blocked_by_environment")):
-                clean = redact(line.strip())
+            lower = line.casefold()
+            if any(token in lower for token in ("error", "failed", "exception", "traceback", "blocked_by_environment")):
+                clean = redact(line.strip())[:1000]
                 if clean and clean not in excerpts:
-                    excerpts.append(clean[:1000])
+                    excerpts.append(clean)
                     if len(excerpts) >= 40:
                         break
-    return failures, excerpts
+    return failed, excerpts
 
 
-def classify(workflow_name: str, conclusion: str, combined_text: str, failures: list[dict[str, Any]]) -> str:
-    low = combined_text.casefold()
-    if conclusion == "timed_out" or any(term in low for term in TIMEOUT_TERMS):
+def classify(workflow: str, conclusion: str, diagnostics: str, failures: list[dict[str, Any]]) -> str:
+    lower = diagnostics.casefold()
+    if conclusion == "timed_out" or any(term in lower for term in TIMEOUT_TERMS):
         return "timeout"
     if conclusion == "cancelled":
         return "interrupted"
     if conclusion in {"action_required", "startup_failure"}:
         return "environment"
-    if any(term in low for term in ENVIRONMENT_TERMS):
+    if any(term in lower for term in ENVIRONMENT_TERMS):
         return "environment"
-    if any(str(row.get("status") or "").upper() in {"BLOCKED", "BLOCKED_BY_ENVIRONMENT"} for row in failures):
+    if any(str(row.get("status") or "") in {"BLOCKED", "BLOCKED_BY_ENVIRONMENT"} for row in failures):
         return "environment"
-    if failures:
+    if failures or (workflow in WATCHED_CODE_WORKFLOWS and conclusion == "failure"):
         return "code_or_contract"
-    if workflow_name in WATCHED_CODE_WORKFLOWS and conclusion == "failure":
-        return "code_or_contract"
-    if workflow_name == "wp08-full-stack-certification":
+    if workflow == "wp08-full-stack-certification":
         return "production_diagnostic"
     return "unknown"
 
 
-def _sanitize_branch(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._/-]+", "-", value).strip("-./")
-    return cleaned[:180] or "governed-repair/unknown"
+def _branch_name(workflow: str, run_id: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"governed-repair/{workflow}-{run_id}").strip("-./")
+    return clean[:180]
 
 
 def build_report(
@@ -216,121 +192,133 @@ def build_report(
     workspace: Path,
     artifact_files: list[tuple[Path, str]],
     changed_files: Iterable[str] = (),
+    pr_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run = event.get("workflow_run") if isinstance(event.get("workflow_run"), dict) else {}
     repository = event.get("repository") if isinstance(event.get("repository"), dict) else {}
-    repo_name = str(repository.get("full_name") or os.getenv("GITHUB_REPOSITORY") or "")
-    run_repo = run.get("head_repository") if isinstance(run.get("head_repository"), dict) else {}
-    head_repo = str(run_repo.get("full_name") or repo_name)
-    workflow_name = str(run.get("name") or "unknown")
+    repo = str(repository.get("full_name") or os.getenv("GITHUB_REPOSITORY") or "")
+    head_repository = run.get("head_repository") if isinstance(run.get("head_repository"), dict) else {}
+    head_repo = str(head_repository.get("full_name") or repo)
+    workflow = str(run.get("name") or "unknown")
     conclusion = str(run.get("conclusion") or "unknown")
     run_id = str(run.get("id") or "unknown")
-    run_attempt = str(run.get("run_attempt") or "1")
+    attempt = str(run.get("run_attempt") or "1")
     head_sha = str(run.get("head_sha") or "")
     head_branch = str(run.get("head_branch") or "main")
-    pull_requests = run.get("pull_requests") if isinstance(run.get("pull_requests"), list) else []
-    first_pr = pull_requests[0] if pull_requests and isinstance(pull_requests[0], dict) else {}
-    pr_head = first_pr.get("head") if isinstance(first_pr.get("head"), dict) else {}
-    pr_base = first_pr.get("base") if isinstance(first_pr.get("base"), dict) else {}
-    source_pr = int(first_pr.get("number") or 0)
 
-    failures, excerpts = _summary_failures(artifact_files)
+    event_prs = run.get("pull_requests") if isinstance(run.get("pull_requests"), list) else []
+    event_pr = event_prs[0] if event_prs and isinstance(event_prs[0], dict) else {}
+    context = dict(pr_context or {})
+    source_pr = int(context.get("number") or event_pr.get("number") or 0)
+    event_head = event_pr.get("head") if isinstance(event_pr.get("head"), dict) else {}
+    event_base = event_pr.get("base") if isinstance(event_pr.get("base"), dict) else {}
+    pr_head = str(context.get("head") or event_head.get("ref") or head_branch)
+    pr_base = str(context.get("base") or event_base.get("ref") or "main")
+
+    failures, excerpts = _summaries(artifact_files)
     combined = "\n".join(text for _path, text in artifact_files)
     diagnostics = "\n".join([str(row.get("summary") or "") for row in failures] + excerpts)
-    classification = classify(workflow_name, conclusion, diagnostics, failures)
+    classification = classify(workflow, conclusion, diagnostics, failures)
     candidates = extract_candidate_paths(combined, workspace, changed_files)
-    same_repository = bool(repo_name and head_repo == repo_name)
-    has_diagnostic_evidence = bool(failures or excerpts)
+    same_repo = bool(repo and head_repo == repo)
+    has_diagnostics = bool(failures or excerpts)
     repair_allowed = bool(
         conclusion == "failure"
-        and same_repository
+        and same_repo
         and classification == "code_or_contract"
-        and has_diagnostic_evidence
+        and has_diagnostics
         and candidates
-        and workflow_name != "governed-ci-repair"
     )
 
     if head_branch.startswith("governed-repair/"):
         repair_branch = head_branch
-        base_branch = str(pr_base.get("ref") or "main")
+        repair_base = pr_base
     else:
-        repair_branch = _sanitize_branch(f"governed-repair/{workflow_name}-{run_id}")
-        base_branch = str(pr_head.get("ref") or (head_branch if source_pr else "main"))
+        repair_branch = _branch_name(workflow, run_id)
+        repair_base = pr_head if source_pr else "main"
 
-    summary_parts = [row.get("summary") for row in failures if row.get("summary")]
-    if not summary_parts:
-        summary_parts = excerpts[:8]
-    failure_summary = "\n".join(str(item) for item in summary_parts)[:12000]
-    report = {
+    summaries = [str(row.get("summary") or "") for row in failures if row.get("summary")] or excerpts[:8]
+    failure_summary = "\n".join(summaries)[:12000]
+    semantic_payload = {
+        "workflow": workflow,
+        "classification": classification,
+        "gates": failures,
+        "summary": failure_summary,
+    }
+    semantic_signature = hashlib.sha256(
+        json.dumps(semantic_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    identity_payload = dict(semantic_payload, head_sha=head_sha, run_id=run_id, run_attempt=attempt)
+    failure_signature = hashlib.sha256(
+        json.dumps(identity_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    return {
         "schema": SCHEMA,
         "status": "INGESTED",
-        "repository": repo_name,
-        "workflow_name": workflow_name,
+        "repository": repo,
+        "workflow_name": workflow,
         "workflow_run_id": run_id,
-        "workflow_run_attempt": run_attempt,
+        "workflow_run_attempt": attempt,
         "workflow_url": str(run.get("html_url") or ""),
         "conclusion": conclusion,
         "event": str(run.get("event") or ""),
         "head_sha": head_sha,
         "head_branch": head_branch,
         "head_repository": head_repo,
-        "same_repository": same_repository,
+        "same_repository": same_repo,
         "source_pr_number": source_pr,
+        "source_pr_head": pr_head,
+        "source_pr_base": pr_base,
         "classification": classification,
-        "has_diagnostic_evidence": has_diagnostic_evidence,
+        "has_diagnostic_evidence": has_diagnostics,
         "repair_allowed": repair_allowed,
         "automatic_repair_roots": list(AUTO_REPAIR_PREFIXES),
         "candidate_paths": candidates,
         "failed_gates": failures,
         "failure_summary": failure_summary,
+        "failure_signature": failure_signature,
+        "semantic_failure_signature": semantic_signature,
         "repair_branch": repair_branch,
-        "repair_base_branch": base_branch,
+        "repair_base_branch": repair_base,
         "production_closed": False,
     }
-    report["failure_signature"] = hashlib.sha256(
-        json.dumps(
-            {
-                "workflow": workflow_name,
-                "sha": head_sha,
-                "classification": classification,
-                "gates": failures,
-                "summary": failure_summary,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    return report
 
 
-def _write_output(path: Path | None, values: dict[str, Any]) -> None:
+def _write_outputs(path: Path | None, report: dict[str, Any]) -> None:
     if path is None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
+    keys = (
+        "repair_allowed",
+        "classification",
+        "repair_branch",
+        "repair_base_branch",
+        "head_sha",
+        "head_branch",
+        "source_pr_number",
+        "workflow_run_id",
+        "failure_signature",
+    )
     with path.open("a", encoding="utf-8") as handle:
-        for key, value in values.items():
+        for key in keys:
+            value = report[key]
             text = "true" if value is True else "false" if value is False else str(value)
-            if "\n" in text:
-                marker = f"EOF_{hashlib.sha256((key + text).encode()).hexdigest()[:12]}"
-                handle.write(f"{key}<<{marker}\n{text}\n{marker}\n")
-            else:
-                handle.write(f"{key}={text}\n")
+            handle.write(f"{key}={text}\n")
 
 
-def _create_task_run(report: dict[str, Any], path: Path) -> None:
+def _task_run(report: dict[str, Any], path: Path) -> None:
     binding = {
         "repository": report["repository"],
         "workflow_name": report["workflow_name"],
         "workflow_run_id": report["workflow_run_id"],
         "workflow_run_attempt": report["workflow_run_attempt"],
-        "head_sha": report["head_sha"],
+        "origin_sha": report["head_sha"],
         "failure_signature": report["failure_signature"],
     }
     task = TaskRunStore.open_or_create(
         path,
         task_id=stable_task_id("github-repair", binding),
-        task_kind="github-governed-repair",
+        task_kind="github-governed-repair-cycle",
         binding=binding,
         required_conditions=(
             "failure_ingested",
@@ -343,19 +331,24 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
     task.checkpoint(
         status="RUNNING",
         phase="FAILURE_INGESTED",
-        workspace_fingerprint=None,
+        workspace_fingerprint=report["head_sha"],
         evidence_refs=[str(path.with_name("failure-case.json"))],
         metadata={"classification": report["classification"], "repair_allowed": report["repair_allowed"]},
     )
     task.mark_condition("failure_ingested", evidence_refs=[str(path.with_name("failure-case.json"))])
     task.mark_condition("classification_complete", evidence_refs=[f"classification:{report['classification']}"])
+    task.set_metadata(
+        semantic_failure_signature=report["semantic_failure_signature"],
+        repair_branch=report["repair_branch"],
+        repair_base_branch=report["repair_base_branch"],
+    )
     if report["repair_allowed"]:
         task.checkpoint(
             status="WAITING_EXTERNAL_RESULT",
             phase="REPAIR_READY",
-            workspace_fingerprint=None,
+            workspace_fingerprint=report["head_sha"],
             evidence_refs=[str(path.with_name("failure-case.json"))],
-            metadata={"next_action": "run governed repair job"},
+            metadata={"next_action": "run one isolated governed repair cycle"},
         )
     else:
         task.block(
@@ -365,8 +358,8 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
                 f"diagnostics={report['has_diagnostic_evidence']} candidates={len(report['candidate_paths'])}"
             ),
             attempted_strategies=("workflow-run-ingest",),
-            next_action="inspect the generated GitHub issue and provision environment or approve a governed repair target",
-            workspace_fingerprint=None,
+            next_action="inspect the generated issue and provision environment or create an explicit governed target",
+            workspace_fingerprint=report["head_sha"],
             evidence_refs=[str(path.with_name("failure-case.json"))],
         )
 
@@ -378,42 +371,36 @@ def main() -> int:
     parser.add_argument("--artifacts", action="append", default=[])
     parser.add_argument("--logs", action="append", default=[])
     parser.add_argument("--changed-files")
+    parser.add_argument("--pr-context")
     parser.add_argument("--output", required=True)
     parser.add_argument("--task-run", required=True)
     parser.add_argument("--github-output")
     args = parser.parse_args()
 
-    event = _read_json(Path(args.event))
+    event = _load_json(Path(args.event))
     workspace = Path(args.workspace).resolve()
-    roots = [Path(value).resolve() for value in [*args.artifacts, *args.logs]]
-    files = _bounded_text_files(roots)
+    files = _bounded_text_files([Path(value).resolve() for value in [*args.artifacts, *args.logs]])
     changed: list[str] = []
     if args.changed_files and Path(args.changed_files).is_file():
         payload = json.loads(Path(args.changed_files).read_text(encoding="utf-8"))
         if isinstance(payload, list):
             changed = [str(item) for item in payload]
-    report = build_report(event, workspace=workspace, artifact_files=files, changed_files=changed)
+    context = _load_json(Path(args.pr_context)) if args.pr_context and Path(args.pr_context).is_file() else None
+    report = build_report(
+        event,
+        workspace=workspace,
+        artifact_files=files,
+        changed_files=changed,
+        pr_context=context,
+    )
 
     output = Path(args.output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    task_run = Path(args.task_run).resolve()
-    task_run.parent.mkdir(parents=True, exist_ok=True)
-    _create_task_run(report, task_run)
-    _write_output(
-        Path(args.github_output).resolve() if args.github_output else None,
-        {
-            "repair_allowed": report["repair_allowed"],
-            "classification": report["classification"],
-            "repair_branch": report["repair_branch"],
-            "repair_base_branch": report["repair_base_branch"],
-            "head_sha": report["head_sha"],
-            "head_branch": report["head_branch"],
-            "source_pr_number": report["source_pr_number"],
-            "workflow_run_id": report["workflow_run_id"],
-            "failure_signature": report["failure_signature"],
-        },
-    )
+    task_path = Path(args.task_run).resolve()
+    task_path.parent.mkdir(parents=True, exist_ok=True)
+    _task_run(report, task_path)
+    _write_outputs(Path(args.github_output).resolve() if args.github_output else None, report)
     print(json.dumps({key: report[key] for key in ("status", "classification", "repair_allowed", "workflow_run_id")}, ensure_ascii=False))
     return 0
 
