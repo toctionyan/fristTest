@@ -26,7 +26,13 @@ MAX_FILE_BYTES = 350_000
 MAX_RESPONSE_BYTES = 2_000_000
 SUPPORTED_SUFFIXES = {
     ".py", ".json", ".toml", ".yml", ".yaml", ".sh", ".bash",
-    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".md",
+    ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
+}
+AUTOMATIC_SOURCE_ROOTS = ("services/", "web/", "contracts/")
+FORBIDDEN_PATH_PARTS = {"tests", "test", "e2e", "__tests__"}
+FORBIDDEN_BASENAMES = {
+    "pyproject.toml", "uv.lock", "package.json", "package-lock.json",
+    "pnpm-lock.yaml", "yarn.lock", "dockerfile",
 }
 PROTECTED_PREFIXES = ("governance/", "skill-system/", ".github/", ".git/", ".quality/")
 PROTECTED_EXACT = {
@@ -80,10 +86,28 @@ def fingerprint(value: Any) -> str:
 
 
 def _normalize_path(raw: str) -> str:
-    value = raw.replace("\\", "/").strip().lstrip("./")
-    if not value or value.startswith("/") or ".." in Path(value).parts:
+    value = raw.replace("\\", "/").strip()
+    while value.startswith("./"):
+        value = value[2:]
+    parts = Path(value).parts
+    if not value or value.startswith("/") or Path(value).is_absolute() or ".." in parts:
         raise FixerError(f"invalid repair path: {raw!r}")
     return value
+
+
+def _automatic_source_path(path: str) -> bool:
+    lowered = path.casefold()
+    parts = {part.casefold() for part in Path(path).parts}
+    name = Path(path).name.casefold()
+    if not any(path.startswith(root) for root in AUTOMATIC_SOURCE_ROOTS):
+        return False
+    if parts & FORBIDDEN_PATH_PARTS:
+        return False
+    if name.startswith("test_") or ".test." in name or ".spec." in name:
+        return False
+    if name in FORBIDDEN_BASENAMES or name.endswith(".lock"):
+        return False
+    return not lowered.endswith(("/.env", "/.env.example"))
 
 
 def validate_allowed_paths(workspace: Path, paths: Iterable[str]) -> tuple[str, ...]:
@@ -93,6 +117,8 @@ def validate_allowed_paths(workspace: Path, paths: Iterable[str]) -> tuple[str, 
         path = _normalize_path(str(raw))
         if path in PROTECTED_EXACT or any(path.startswith(prefix) for prefix in PROTECTED_PREFIXES):
             raise FixerError(f"protected path is not repairable: {path}")
+        if not _automatic_source_path(path):
+            raise FixerError(f"path is outside the automatic product-source repair boundary: {path}")
         if Path(path).suffix.lower() not in SUPPORTED_SUFFIXES:
             raise FixerError(f"unsupported repair file type: {path}")
         resolved = (root / path).resolve()
@@ -157,7 +183,11 @@ def build_messages(
 
 
 def _request(config: ModelConfig, messages: list[dict[str, str]], *, response_format: bool) -> bytes:
-    payload: dict[str, Any] = {"model": config.model, "messages": messages, "temperature": 0}
+    payload: dict[str, Any] = {
+        "model": config.model,
+        "messages": messages,
+        "temperature": 0,
+    }
     if response_format:
         payload["response_format"] = {"type": "json_object"}
     request = urllib.request.Request(
@@ -208,7 +238,11 @@ def parse_change_payload(content: str) -> dict[str, Any]:
     return payload
 
 
-def validate_changes(workspace: Path, allowed_paths: Iterable[str], payload: dict[str, Any]) -> list[dict[str, str]]:
+def validate_changes(
+    workspace: Path,
+    allowed_paths: Iterable[str],
+    payload: dict[str, Any],
+) -> list[dict[str, str]]:
     allowed = set(validate_allowed_paths(workspace, allowed_paths))
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
