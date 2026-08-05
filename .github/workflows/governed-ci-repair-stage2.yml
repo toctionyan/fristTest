@@ -160,6 +160,10 @@ jobs:
             --task-run stage2-evidence/task-run.json \
             --evidence-root stage2-evidence \
             --max-cycles 8
+          "${pythonLocation}/bin/python" -B control/scripts/github_stage2_handoff.py \
+            --failure-case "${failure_case}" \
+            --result stage2-evidence/repair-result.json \
+            --patch stage2-evidence/repair.patch
 
       - name: Upload Stage-2 repair candidate evidence
         if: always()
@@ -181,15 +185,18 @@ jobs:
             --json number --jq '.[0].number // empty')
           status="BLOCKED"
           changed_paths="[]"
+          handoff_bound="false"
           if [[ -f stage2-evidence/repair-result.json ]]; then
             status=$(jq -r '.status // "BLOCKED"' stage2-evidence/repair-result.json)
             changed_paths=$(jq -c '.changed_paths // []' stage2-evidence/repair-result.json)
+            handoff_bound=$(jq -r '.stage3_handoff_bound // false' stage2-evidence/repair-result.json)
           fi
           body=$(cat <<EOF
           Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
 
           - Status: \`${status}\`
           - Changed paths: \`${changed_paths}\`
+          - Stage-3 handoff bound: \`${handoff_bound}\`
           - Evidence artifact: \`governed-ci-repair-stage2-${SOURCE_RUN_ID}\`
           - Full targeted/Quick regression: not yet performed
           - Branch pushed: no
