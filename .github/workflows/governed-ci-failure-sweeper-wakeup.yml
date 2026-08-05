@@ -1,0 +1,41 @@
+name: governed-ci-failure-sweeper-wakeup
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: governed-ci-failure-sweeper-wakeup-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch-trusted-sweeper:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch trusted main sweeper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ github.event.pull_request.number }}
+          SOURCE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${SOURCE_PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-ci-failure-sweeper.yml/dispatches" \
+            -f ref=main
+          {
+            echo "## Governed failed-run sweeper wakeup"
+            echo
+            echo "- Source PR: \`#${SOURCE_PR_NUMBER}\`"
+            echo "- Source PR head: \`${SOURCE_PR_HEAD_SHA}\`"
+            echo "- Dispatched workflow: \`governed-ci-failure-sweeper\` from trusted \`main\`"
+            echo "- Candidate code checked out or executed: \`false\`"
+            echo "- Stage 2 started: \`false\`"
+            echo "- production_closed: false"
+          } >> "$GITHUB_STEP_SUMMARY"
