@@ -91,7 +91,8 @@ jobs:
           ACTUAL_SHA=$(git -C candidate rev-parse HEAD)
           test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
           test "$(jq -r '.task_id' task/task-run.json)" = "${EXPECTED_TASK_ID}"
-          test "$(jq -r '.status' task/task-run.json)" = "WAITING_EXTERNAL_RESULT"
+          test "$(jq -r '.status' task/task-run.json)" = "VALIDATING"
+          test "$(jq -r '.phase' task/task-run.json)" = "EXTERNAL_VALIDATION_PENDING"
           test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
 
       - name: Set up locked Python
