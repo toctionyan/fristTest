@@ -1,4 +1,4 @@
-.PHONY: skill-quality skill-release product-baseline product-verify product-status quality quality-quick quality-integration quality-integration-managed release-check quality-baseline doctor bootstrap repair-loop
+.PHONY: skill-quality skill-release product-baseline product-verify product-status quality quality-quick quality-integration quality-integration-managed release-check quality-baseline doctor bootstrap repair-loop local-first-init local-first-run local-first-status
 
 QUALITY_PYTHON ?= $(shell services/agent-service/scripts/resolve_python.py)
 SETUP_PYTHON ?= python3
@@ -79,3 +79,18 @@ repair-loop:
 	$(QUALITY_PYTHON) -B scripts/repair_loop.py --mode $(REPAIR_MODE) \
 		$(TARGET_ARG) $(BASELINE_EVIDENCE_ARG) $(STATE_DIR_ARG) \
 		--fix-command $(FIX_COMMAND)
+LOCAL_FIRST_SPEC ?=
+LOCAL_FIRST_STATE ?= .quality/task-runs/local-first.json
+
+REQUIRE_LOCAL_FIRST_SPEC = $(if $(strip $(LOCAL_FIRST_SPEC)),,$(error LOCAL_FIRST_SPEC=/absolute/path/to/local-first-task.json is required))
+
+local-first-init:
+	@: $(REQUIRE_LOCAL_FIRST_SPEC)
+	$(SETUP_PYTHON) -B scripts/local_first_loop.py init --spec "$(LOCAL_FIRST_SPEC)" --state "$(LOCAL_FIRST_STATE)"
+
+local-first-run:
+	@: $(REQUIRE_LOCAL_FIRST_SPEC)
+	$(SETUP_PYTHON) -B scripts/local_first_loop.py run-local --workspace . --spec "$(LOCAL_FIRST_SPEC)" --state "$(LOCAL_FIRST_STATE)"
+
+local-first-status:
+	$(SETUP_PYTHON) -B scripts/local_first_loop.py status --state "$(LOCAL_FIRST_STATE)"
