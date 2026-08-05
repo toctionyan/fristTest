@@ -120,6 +120,10 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "test_new_local_round_invalidates_prior_green_evidence",
         "test_environment_and_secret_failures_cannot_edit_product_code",
         "test_cli_rejects_task_spec_drift_after_init",
+        "test_cli_init_rejects_non_git_workspace",
+        "test_cli_init_rejects_base_sha_mismatch",
+        "test_cli_init_rejects_branch_mismatch",
+        "test_cli_admit_rejects_dirty_candidate",
     ):
         if scenario not in tests_text:
             errors.append(f"local-first adversarial test missing: {scenario}")

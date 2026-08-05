@@ -55,6 +55,94 @@ def _workspace_fingerprint(workspace: Path) -> str:
     return fingerprint(_workspace_snapshot(workspace))
 
 
+def _git_command(workspace: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(
+        ["git", "-C", str(workspace), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if check and completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "git command failed").strip()
+        raise ValueError(f"local-first Git identity check failed: {detail}")
+    return completed
+
+
+def _verify_git_identity(
+    workspace: Path,
+    *,
+    expected_base_sha: str,
+    expected_branch: str,
+    require_head_at_base: bool,
+    require_clean: bool,
+    expected_head_sha: str | None = None,
+) -> dict[str, Any]:
+    workspace = workspace.resolve()
+    top_level = Path(_git_command(workspace, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
+    if top_level != workspace:
+        raise ValueError(
+            f"local-first workspace must be the Git repository root: workspace={workspace} root={top_level}"
+        )
+
+    branch_result = _git_command(workspace, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+    branch = branch_result.stdout.strip()
+    if branch_result.returncode != 0 or not branch:
+        raise ValueError("local-first workspace must use a named branch; detached HEAD is forbidden")
+    if branch != str(expected_branch):
+        raise ValueError(
+            f"local-first branch binding mismatch: expected={expected_branch} actual={branch}"
+        )
+
+    base = _git_command(
+        workspace, "rev-parse", "--verify", f"{expected_base_sha}^{{commit}}"
+    ).stdout.strip().lower()
+    head = _git_command(workspace, "rev-parse", "HEAD").stdout.strip().lower()
+    if require_head_at_base:
+        if head != base:
+            raise ValueError(
+                f"local-first init requires HEAD at the declared base: expected={base} actual={head}"
+            )
+    else:
+        ancestor = _git_command(
+            workspace, "merge-base", "--is-ancestor", base, head, check=False
+        )
+        if ancestor.returncode != 0:
+            raise ValueError(
+                f"local-first base is not an ancestor of the current candidate: base={base} head={head}"
+            )
+
+    if expected_head_sha is not None and head != str(expected_head_sha).lower():
+        raise ValueError(
+            f"local-first candidate head mismatch: expected={str(expected_head_sha).lower()} actual={head}"
+        )
+
+    status_lines = [
+        line
+        for line in _git_command(
+            workspace,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            ".",
+            ":(exclude).quality/**",
+        ).stdout.splitlines()
+        if line.strip()
+    ]
+    if require_clean and status_lines:
+        sample = ", ".join(status_lines[:5])
+        raise ValueError(f"local-first Git worktree must be clean: {sample}")
+
+    return {
+        "repository_root": str(top_level),
+        "base_sha": base,
+        "head_sha": head,
+        "branch": branch,
+        "clean": not status_lines,
+        "dirty_entry_count": len(status_lines),
+    }
+
+
 def _changed_paths(baseline: dict[str, str], current: dict[str, str]) -> list[str]:
     return sorted(
         path
@@ -107,24 +195,44 @@ def _gate_evidence_dir(workspace: Path, task_id: str, gate: str, round_number: i
     return workspace / ".quality" / "local-first" / task_id / "gates" / f"round-{round_number:02d}" / gate
 
 
+def _process_group_exists(process_group_id: int) -> bool:
+    try:
+        os.killpg(process_group_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_process_group_exit(process_group_id: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + max(timeout_seconds, 0.0)
+    while _process_group_exists(process_group_id):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def _terminate_process_group(process: subprocess.Popen[str], *, grace_seconds: float = 3.0) -> None:
+    process_group_id = process.pid
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        process.wait(timeout=grace_seconds)
-        return
+        process.wait(timeout=0)
     except subprocess.TimeoutExpired:
         pass
+
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(process_group_id, signal.SIGTERM)
     except ProcessLookupError:
         return
+    if _wait_for_process_group_exit(process_group_id, grace_seconds):
+        return
+
     try:
-        process.wait(timeout=grace_seconds)
-    except subprocess.TimeoutExpired:
-        pass
+        os.killpg(process_group_id, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    _wait_for_process_group_exit(process_group_id, grace_seconds)
 
 
 def _run_gate(workspace: Path, row: dict[str, Any], evidence_dir: Path) -> tuple[bool, list[str], dict[str, Any]]:
@@ -185,12 +293,19 @@ def command_init(args: argparse.Namespace) -> int:
     workspace = Path(args.workspace).resolve()
     spec_path = Path(args.spec).resolve()
     spec = _parse_task_spec(spec_path)
+    git_identity = _verify_git_identity(
+        workspace,
+        expected_base_sha=str(spec["base_sha"]),
+        expected_branch=str(spec["branch"]),
+        require_head_at_base=True,
+        require_clean=True,
+    )
     state = Path(args.state).resolve()
     store = create_local_first_task(
         state,
         task_id=str(spec["task_id"]),
         change_id=str(spec["change_id"]),
-        base_sha=str(spec["base_sha"]),
+        base_sha=str(git_identity["base_sha"]),
         branch=str(spec["branch"]),
         patch_owner=str(spec["patch_owner"]),
         allowed_paths=[str(item) for item in spec["allowed_paths"]],
@@ -213,6 +328,7 @@ def command_init(args: argparse.Namespace) -> int:
         local_first_task_spec=str(spec_path),
         local_first_baseline_manifest=str(baseline_path),
         local_first_baseline_fingerprint=fingerprint(baseline_files),
+        local_first_git_identity=git_identity,
     )
     print(json.dumps(export_status(store), ensure_ascii=False, indent=2))
     return 0
@@ -224,6 +340,14 @@ def command_run_local(args: argparse.Namespace) -> int:
     spec = _parse_task_spec(Path(args.spec).resolve())
     if fingerprint(spec) != store.payload["binding"]["target_fingerprint"]:
         raise ValueError("local-first task spec changed after immutable task creation")
+    git_identity = _verify_git_identity(
+        workspace,
+        expected_base_sha=str(store.payload["binding"]["base_sha"]),
+        expected_branch=str(store.payload["binding"]["branch"]),
+        require_head_at_base=False,
+        require_clean=False,
+    )
+    store.set_metadata(local_first_current_git_identity=git_identity)
     local = store.payload["metadata"]["local_first"]
     round_number = int(local["counters"]["local_repair_rounds"]) + 1
     workspace_fp = _workspace_fingerprint(workspace)
@@ -273,6 +397,15 @@ def command_run_local(args: argparse.Namespace) -> int:
 def command_admit(args: argparse.Namespace) -> int:
     workspace = Path(args.workspace).resolve()
     store = _open_task(Path(args.state))
+    git_identity = _verify_git_identity(
+        workspace,
+        expected_base_sha=str(store.payload["binding"]["base_sha"]),
+        expected_branch=str(store.payload["binding"]["branch"]),
+        require_head_at_base=False,
+        require_clean=True,
+        expected_head_sha=str(args.head_sha),
+    )
+    store.set_metadata(local_first_upload_git_identity=git_identity)
     baseline = _load_baseline_manifest(workspace, store)
     computed_changed = _changed_paths(baseline, _workspace_snapshot(workspace))
     supplied_changed = sorted(set(args.changed_path or []))
