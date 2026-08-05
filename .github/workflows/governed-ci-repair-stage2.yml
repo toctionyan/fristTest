@@ -205,9 +205,9 @@ jobs:
       - name: Run bounded restricted repair controller
         id: repair
         env:
-          GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
-          GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
-          GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+          GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER || 'deepseek' }}
+          GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID || 'deepseek-v4-flash' }}
+          GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE || 'https://api.deepseek.com' }}
           GOVERNED_REPAIR_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
         run: |
           set -euo pipefail
