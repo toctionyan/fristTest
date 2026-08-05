@@ -1,3 +1,8 @@
 .quality/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.coverage
+coverage.xml
 services/agent-service/.venv/
 services/business-service/.venv/

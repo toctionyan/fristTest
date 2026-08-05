@@ -4,6 +4,15 @@ on:
   pull_request:
   push:
   workflow_dispatch:
+    inputs:
+      integration_profile:
+        description: Internal dispatch profile; full remains the default
+        required: false
+        default: full
+        type: choice
+        options:
+          - full
+          - skip
 
 permissions:
   contents: read
@@ -107,7 +116,9 @@ jobs:
             ${{ runner.temp }}/quality-toolchain-quality-quick.json
 
   quality-integration:
-    if: github.event_name != 'pull_request'
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'workflow_dispatch' || inputs.integration_profile != 'skip')
     needs: quality-quick
     runs-on: ubuntu-24.04
     services:

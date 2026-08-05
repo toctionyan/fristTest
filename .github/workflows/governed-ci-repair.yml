@@ -1,0 +1,351 @@
+name: governed-ci-repair
+
+on:
+  workflow_run:
+    workflows:
+      - quality
+      - skill-self-validation
+      - wp08-full-stack-certification
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-ci-repair-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    outputs:
+      repair_allowed: ${{ steps.ingest.outputs.repair_allowed }}
+      classification: ${{ steps.ingest.outputs.classification }}
+      repair_branch: ${{ steps.ingest.outputs.repair_branch }}
+      repair_base_branch: ${{ steps.ingest.outputs.repair_base_branch }}
+      head_sha: ${{ steps.ingest.outputs.head_sha }}
+      head_branch: ${{ steps.ingest.outputs.head_branch }}
+      source_pr_number: ${{ steps.ingest.outputs.source_pr_number }}
+      workflow_run_id: ${{ steps.ingest.outputs.workflow_run_id }}
+      failure_signature: ${{ steps.ingest.outputs.failure_signature }}
+    steps:
+      - name: Checkout trusted control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout same-repository failed candidate without credentials
+        if: github.event.workflow_run.head_repository.full_name == github.repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare non-repairable fork workspace
+        if: github.event.workflow_run.head_repository.full_name != github.repository
+        run: mkdir -p candidate
+
+      - name: Download failed-run artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: incoming/artifacts
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Download failed-run job logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          mkdir -p incoming/logs
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/logs" > incoming/logs.zip; then
+            unzip -q incoming/logs.zip -d incoming/logs || true
+          fi
+
+      - name: Capture original PR changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [[ -n "${SOURCE_PR_NUMBER}" && "${SOURCE_PR_NUMBER}" != "0" ]]; then
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}/files" \
+              --jq '.[].filename' | jq -R -s 'split("\n")[:-1]' > incoming/changed-files.json
+          else
+            printf '[]\n' > incoming/changed-files.json
+          fi
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Ingest failure into TaskRun
+        id: ingest
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest.py
+          --event "$GITHUB_EVENT_PATH"
+          --workspace candidate
+          --artifacts incoming/artifacts
+          --logs incoming/logs
+          --changed-files incoming/changed-files.json
+          --output incoming/failure-case.json
+          --task-run incoming/task-run.json
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload governed failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-repair-ingest-${{ github.event.workflow_run.id }}
+          path: |
+            incoming/failure-case.json
+            incoming/task-run.json
+            incoming/changed-files.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish non-repairable failure issue
+        if: steps.ingest.outputs.repair_allowed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          TITLE="[governed-ci-repair] ${GITHUB_REPOSITORY} run ${SOURCE_RUN_ID} blocked"
+          EXISTING=$(gh issue list --state open --search "${TITLE} in:title" --json number --jq '.[0].number // empty')
+          BODY=$(cat <<EOF
+          The GitHub failure bridge ingested this run automatically.
+
+          - Source run: ${SOURCE_URL}
+          - Classification: \`${CLASSIFICATION}\`
+          - Automatic source repair: not authorized
+          - Evidence artifact: \`governed-repair-ingest-${SOURCE_RUN_ID}\`
+          - Production closure: false
+
+          Environment, secret, timeout, fork, unknown, or protected-control-plane failures are fail-closed and are never converted into source edits.
+          EOF
+          )
+          if [[ -n "${EXISTING}" ]]; then
+            gh issue comment "${EXISTING}" --body "${BODY}"
+          else
+            gh issue create --title "${TITLE}" --body "${BODY}"
+          fi
+
+  repair:
+    needs: ingest
+    if: >-
+      needs.ingest.outputs.repair_allowed == 'true' &&
+      (github.event.workflow_run.event != 'pull_request' ||
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production-certification
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+      issues: write
+    services:
+      pgvector:
+        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout trusted control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout failed candidate without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.ingest.outputs.head_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download ingested failure evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: governed-repair-ingest-${{ needs.ingest.outputs.workflow_run_id }}
+          path: incoming
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r control/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install candidate validation environments without secrets
+        run: |
+          cd candidate/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Prepare isolated repair branch
+        env:
+          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
+          SOURCE_SHA: ${{ needs.ingest.outputs.head_sha }}
+        run: |
+          git -C candidate checkout -B "${REPAIR_BRANCH}" "${SOURCE_SHA}"
+          mkdir -p repair-evidence
+
+      - name: Run bounded governed repair loop
+        id: repair
+        env:
+          GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
+          GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
+          GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+          GOVERNED_REPAIR_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator.py
+          --control-root control
+          --workspace candidate
+          --failure-case incoming/failure-case.json
+          --task-run incoming/task-run.json
+          --evidence-root repair-evidence
+          --max-cycles 8
+          --github-output "$GITHUB_OUTPUT"
+          --validation-command
+          services/agent-service/.venv/bin/python -B ../control/scripts/github_repair_validation.py
+          --workspace .
+
+      - name: Validate committed source diff before publication
+        env:
+          SOURCE_SHA: ${{ needs.ingest.outputs.head_sha }}
+        run: |
+          git -C candidate diff --check "${SOURCE_SHA}..HEAD"
+          test "$(git -C candidate rev-list --count "${SOURCE_SHA}..HEAD")" -gt 0
+          test -z "$(git -C candidate status --porcelain=v1)"
+          git -C candidate diff --name-only "${SOURCE_SHA}..HEAD" > repair-evidence/changed-paths.txt
+          if grep -E '^(governance/|skill-system/|scripts/(quality_loop|repair_loop|github_)|\.github/workflows/governed-ci-repair\.yml$)' repair-evidence/changed-paths.txt; then
+            echo "protected control-plane path changed" >&2
+            exit 1
+          fi
+
+      - name: Push repair branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
+        run: |
+          git -C candidate remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C candidate push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
+
+      - name: Create or update Draft repair PR
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
+          REPAIR_BASE: ${{ needs.ingest.outputs.repair_base_branch }}
+          SOURCE_RUN_ID: ${{ needs.ingest.outputs.workflow_run_id }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+          CLASSIFICATION: ${{ needs.ingest.outputs.classification }}
+        run: |
+          EXISTING=$(gh pr list --state open --head "${REPAIR_BRANCH}" --json url --jq '.[0].url // empty')
+          BODY=$(cat <<EOF
+          ## Governed repair
+
+          - Automatically ingested source run: ${SOURCE_URL}
+          - Source Run ID: \`${SOURCE_RUN_ID}\`
+          - Classification: \`${CLASSIFICATION}\`
+          - Restricted model repair: applied only to frozen candidate paths
+          - Independent Quick plus deterministic integration Quality Loop: PASS
+          - Protected real-model browser gates: left to WP-08
+          - Maximum loop budget: 8 with repeated-failure/no-progress stop
+          - Direct write to protected main: no
+          - Automatic production closure: false
+
+          This PR remains Draft for human review. The normal repository checks are dispatched on the repair branch after publication.
+          EOF
+          )
+          if [[ -n "${EXISTING}" ]]; then
+            gh pr comment "${EXISTING}" --body "${BODY}"
+            PR_URL="${EXISTING}"
+          else
+            PR_URL=$(gh pr create --draft --base "${REPAIR_BASE}" --head "${REPAIR_BRANCH}" \
+              --title "Governed repair: workflow run ${SOURCE_RUN_ID}" --body "${BODY}")
+          fi
+          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize durable TaskRun
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_task.py
+          --control-root control
+          --workspace candidate
+          --task-run incoming/task-run.json
+          --pr-url "${{ steps.publish.outputs.pr_url }}"
+
+      - name: Dispatch normal repository checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPAIR_BRANCH: ${{ needs.ingest.outputs.repair_branch }}
+        run: |
+          gh workflow run quality.yml --ref "${REPAIR_BRANCH}" -f integration_profile=skip
+          gh workflow run skill-self-validation.yml --ref "${REPAIR_BRANCH}"
+
+      - name: Upload repair evidence and TaskRun
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-repair-result-${{ needs.ingest.outputs.workflow_run_id }}
+          path: |
+            incoming/failure-case.json
+            incoming/task-run.json
+            repair-evidence
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish blocked repair issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.ingest.outputs.workflow_run_id }}
+          SOURCE_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          TITLE="[governed-ci-repair] automatic repair ${SOURCE_RUN_ID} blocked"
+          BODY="Automatic repair stopped fail-closed. Source: ${SOURCE_URL}. Inspect artifact governed-repair-result-${SOURCE_RUN_ID}. No protected branch was changed and production closure remains false."
+          EXISTING=$(gh issue list --state open --search "${TITLE} in:title" --json number --jq '.[0].number // empty')
+          if [[ -n "${EXISTING}" ]]; then
+            gh issue comment "${EXISTING}" --body "${BODY}"
+          else
+            gh issue create --title "${TITLE}" --body "${BODY}"
+          fi
