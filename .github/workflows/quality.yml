@@ -9,28 +9,33 @@ permissions:
   contents: read
 
 jobs:
-  skill-self-validation:
-    runs-on: ubuntu-latest
+  skill-control-plane:
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
-      - name: Validate Skill static contracts
-        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-static'
-      - name: Validate Skill unit contracts
-        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-unit'
-      - name: Validate Skill host integration
-        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-host-integration'
-      - name: Validate Skill security contracts
-        run: '${pythonLocation}/bin/python -B skill-system/controller/profile_runner.py skill-security'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Validate Skill control plane
+        run: 'services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane'
+      - name: Validate quality toolchain authority
+        run: >-
+          services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py
+          --workspace-root . --static-only
 
   quality-static:
-    needs: skill-self-validation
-    runs-on: ubuntu-latest
+    needs: skill-control-plane
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
       - name: Create static quality target
@@ -44,7 +49,7 @@ jobs:
         run: '"${pythonLocation}/bin/python" -B scripts/quality_loop.py --mode static --target "$QUALITY_TARGET"'
       - name: Upload static evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quality-static-evidence
           path: |
@@ -54,20 +59,29 @@ jobs:
 
   quality-quick:
     needs: quality-static
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '20.x'
-          cache: npm
-          cache-dependency-path: services/agent-service/frontend/package-lock.json
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Validate locked runtime toolchain
+        env:
+          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-${{ github.job }}.json
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
+          --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
       - name: Install locked Python environments
         run: |
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check uv
           cd services/agent-service && uv sync --locked --all-groups
           cd ../business-service && uv sync --locked --all-groups
           cd ../agent-service/frontend && npm ci --ignore-scripts=false
@@ -83,21 +97,22 @@ jobs:
         run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode quick --target "$QUALITY_TARGET"
       - name: Upload quick evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quality-quick-evidence
           path: |
             ${{ runner.temp }}/quality-evidence/quick
             ${{ github.workspace }}/.quality/targets/quality-target-quick.md
             ${{ github.workspace }}/.quality/targets/quality-target-quick.claims.json
+            ${{ runner.temp }}/quality-toolchain-quality-quick.json
 
   quality-integration:
     if: github.event_name != 'pull_request'
     needs: quality-quick
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       pgvector:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
         env:
           POSTGRES_DB: agent_test
           POSTGRES_USER: agent
@@ -110,18 +125,27 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '20.x'
-          cache: npm
-          cache-dependency-path: services/agent-service/frontend/package-lock.json
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Validate locked runtime toolchain
+        env:
+          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-${{ github.job }}.json
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
+          --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
       - name: Install locked Python environments
         run: |
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check uv
           cd services/agent-service && uv sync --locked --all-groups
           cd ../business-service && uv sync --locked --all-groups
           cd ../agent-service/frontend && npm ci --ignore-scripts=false
@@ -175,7 +199,7 @@ jobs:
         run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode integration --target "$QUALITY_TARGET"
       - name: Upload integration evidence and service logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quality-integration-evidence
           path: |
@@ -185,3 +209,4 @@ jobs:
             ${{ runner.temp }}/agent.log
             ${{ github.workspace }}/.quality/targets/quality-target-integration.md
             ${{ github.workspace }}/.quality/targets/quality-target-integration.claims.json
+            ${{ runner.temp }}/quality-toolchain-quality-integration.json

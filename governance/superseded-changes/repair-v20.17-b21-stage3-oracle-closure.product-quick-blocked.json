@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-v20.17-b21-stage3-oracle-closure",
+  "target_kind": "repair",
+  "goal": "Close all non-environment Stage-3 focused oracle defects",
+  "profile": "product-repair",
+  "allowed_paths": [
+    "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "services/agent-service/src/**",
+    "services/business-service/**",
+    "web/**"
+  ],
+  "invariants": [
+    "No product runtime source changes",
+    "Residual failures are only documented missing dependencies"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [],
+  "affected_modules": [
+    "Stage-3 aggregate adversarial oracle"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/repair-v20.17-b21-stage3-oracle-closure.md",
+  "baseline_evidence": ".quality/product-code/repair-v20.17-b21-stage3-oracle-closure/reconstructed-baseline",
+  "initial_source_fingerprint": "3f5fd7db2347d10e8017e3796b90e73aef19f36ac97574267b4dd52c805079c1",
+  "initial_source_file_count": 1,
+  "product_validation": {
+    "baseline": ".quality/product-code/repair-v20.17-b21-stage3-oracle-closure/reconstructed-baseline",
+    "baseline_mode": "targeted-quick-subset",
+    "standard_quick": "BLOCKED_BY_ENVIRONMENT",
+    "blocked_evidence": ".quality/product-control-plane/repair-v20.17-b21-stage3-oracle-closure/blocked-by-environment.json"
+  },
+  "decision_record": null,
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": null,
+  "repair_governance": "governance/repair-cases/repair-v20.17-b21-stage3-oracle-closure",
+  "repair_governance_consumed_at": null,
+  "created_at": "2026-08-02T11:32:33.045986+00:00",
+  "status": "closed",
+  "result": "BLOCKED_BY_ENVIRONMENT",
+  "repair_governance_permit_digest": "490894b7daf872f1dc58862b872ee4e20481ab95ab2930b34d51ea4b6113c316",
+  "closed_at": "2026-08-02T11:42:13.376948+00:00",
+  "blocked_evidence": ".quality/product-control-plane/repair-v20.17-b21-stage3-oracle-closure/blocked-by-environment.json"
+}

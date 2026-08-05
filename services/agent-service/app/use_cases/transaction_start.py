@@ -103,6 +103,7 @@ class TransactionStartUseCase:
                     "current_user_id": request.user_id,
                     "current_role": role,
                     "current_tenant_id": request.tenant_id,
+                    "current_subject": request.subject or request.user_id,
                     "turn_index": max(1, int(values.get("turn_index") or 0)),
                     "ledger_schema_version": int(values.get("ledger_schema_version") or LEDGER_SCHEMA_VERSION),
                     "current_final_answer": None,
@@ -112,7 +113,7 @@ class TransactionStartUseCase:
                     "pending_confirmation_version": None,
                 }
                 actor_ctx = service._actor_context_for_request(request, role)
-                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                     ledger, target = service._resolve_transaction_target(
                         state=base_state, request=request, role=role, resource_type=plugin.target_resource_type
                     )
@@ -233,7 +234,7 @@ class TransactionStartUseCase:
                     "status": "ActionProposalReady",
                     "runtime_outcome": operation_outcome,
                 }
-                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, permissions=getattr(request, "actor_permissions", None)):
+                with business_actor_context(user_id=request.user_id, role=role, tenant_id=request.tenant_id, account_id=request.subject or request.user_id, permissions=getattr(request, "actor_permissions", None)):
                     lock_meta["assert_valid"]()
                     persisted = service._lifecycle_command_runner().advance_gateway(
                         graph=graph,

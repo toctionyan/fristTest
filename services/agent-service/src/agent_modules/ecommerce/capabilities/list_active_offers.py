@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import scoped_runtime_read_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -22,6 +23,11 @@ DEFINITION = EcommerceCapabilityDefinition(
     exclusion_examples=('申请进度', '帮我申请', '提交申请'),
     schema=function_schema("list_active_offers", "查看待处理 Draft。", {}, []),
     executor=execute,
+    contract_version='2',
+    planning_contract=scoped_runtime_read_contract(
+        output_name="active_drafts", output_type="VerifiedTransactionDraftCollection",
+        proof_source="transaction_authority",
+    ),
     presentation_contract='runtime.transaction_status@1',
     public_label=None,
 )

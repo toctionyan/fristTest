@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "phase": "B26",
+  "workspace_version": "20.6.1",
+  "skill_version": "6.7.0",
+  "status": "PHASE_CANDIDATE_WP08_CROSS_RUN_RESUME_READY_REPOSITORY_AND_ENVIRONMENT_BLOCKED",
+  "production_closed": false,
+  "current_project_stage": "STAGE-5",
+  "work_package": "WP-08",
+  "change_id": "repair-v20.17-b26-wp08-cross-run-resume",
+  "implemented": [
+    "connected WP-08 resume to explicit prior GitHub workflow artifacts across runs instead of ephemeral runner.temp only",
+    "added fail-closed artifact validation for symlinks, path escapes, repository/run/commit identity, signed toolchain provenance and source/workspace fingerprints",
+    "only prior PASS batches are skipped; incomplete batches are retried under --resume and all evidence paths are safely rebased",
+    "replaced the incompatible quality-toolchain evidence producer with release-toolchain provenance and added a WP-08-specific protected-main workflow identity",
+    "added SHA-pinned actions/download-artifact v7 authority without widening unrelated release/quality workflow action allowlists"
+  ],
+  "verified": {
+    "focused_and_counterexample_tests": "21 passed",
+    "full_skill_tests": "107 passed",
+    "production_release_authority_regression": "119 passed",
+    "static_wp08_contract": "PASS",
+    "release_toolchain_static_contract": "PASS",
+    "repair_governance": "CLOSED_VERIFIED",
+    "independent_diff_review": "PASS",
+    "out_of_scope_paths": 0,
+    "product_source_changes": 0,
+    "connected_repository_check": "No accessible repository contains this project; no unrelated repository was modified"
+  },
+  "environment_boundary": {
+    "wp08_closed": false,
+    "standard_full_stack": "BLOCKED_BY_ENVIRONMENT",
+    "repository_binding": "BLOCKED: project is not present in an accessible GitHub repository",
+    "protected_environment": "BLOCKED: production-certification Environment and required secrets are unavailable",
+    "required_execution": [
+      "import B26 into the correct repository",
+      "protect main",
+      "configure production-certification Environment",
+      "run first WP-08 dispatch",
+      "retry with prior resume_run_id/resume_run_attempt when needed"
+    ],
+    "production_closed": false
+  },
+  "next_action": "Import B26 into the correct GitHub repository, configure protected main and the production-certification Environment, then dispatch wp08-certification.yml. For a retry, pass the exact prior run ID and attempt; do not advance to STAGE-6 until all four batches PASS."
+}

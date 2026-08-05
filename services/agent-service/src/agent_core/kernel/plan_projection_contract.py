@@ -14,8 +14,6 @@ from hashlib import sha256
 import json
 from typing import Any
 
-from agent_core.kernel.state_schema_contract import legacy_fallback_allowed
-
 FROZEN_PLAN_DEFINITION_VERSION = "frozen-plan-definition@1"
 PLAN_RUN_VERSION = "plan-run@1"
 PLAN_PROJECTION_CACHE_VERSION = "plan-projection-cache@1"
@@ -107,6 +105,15 @@ def _refresh_goal_coverage(
     goals: list[dict[str, Any]],
     steps: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    """Derive goal coverage while preserving staged dependency semantics.
+
+    A provider call may legally contain only the current capability frontier.
+    Required downstream goals therefore remain BLOCKED until their declared
+    Goal dependencies are covered; they are not treated as malformed plans for
+    lacking a completion step in the current invocation. Durable completed
+    Goals remain covered across revised PlanDefinitions.
+    """
+
     output: list[dict[str, Any]] = []
     for goal in goals:
         row = deepcopy(goal)
@@ -125,11 +132,15 @@ def _refresh_goal_coverage(
         terminal_tools = {
             str(name) for name in list(row.get("covered_by_terminal_tools") or [])
         }
+        proof = row.get("satisfaction_proof") if isinstance(row.get("satisfaction_proof"), dict) else {}
+        durable_completed = str(proof.get("kind") or "") == "durable_goal_lifecycle_completed"
         clarification_pause = (
             "ask_user_clarification" in terminal_tools
             and str(row.get("goal_type") or "") != "clarification"
         )
-        if clarification_pause:
+        if durable_completed:
+            row["coverage_status"] = "COVERED"
+        elif clarification_pause:
             row["coverage_status"] = "BLOCKED"
         elif not covered and not terminal_tools:
             row["coverage_status"] = _RUNTIME_GOAL_COVERAGE_PENDING
@@ -151,6 +162,38 @@ def _refresh_goal_coverage(
         else:
             row["coverage_status"] = _RUNTIME_GOAL_COVERAGE_PENDING
         output.append(row)
+
+    # Dependency blocking is derived from the same Goal graph and current
+    # projection. Iterate to a fixed point so multi-hop chains remain blocked
+    # until every upstream Goal is covered.
+    by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in output
+        if str(row.get("goal_id") or "")
+    }
+    changed = True
+    while changed:
+        changed = False
+        for row in output:
+            if str(row.get("coverage_status") or "") != _RUNTIME_GOAL_COVERAGE_PENDING:
+                continue
+            missing = [
+                str(value)
+                for value in list(row.get("depends_on") or [])
+                if str(value)
+                and str((by_id.get(str(value)) or {}).get("coverage_status") or "") != "COVERED"
+            ]
+            if missing and not list(row.get("covered_by_step_ids") or []):
+                row["coverage_status"] = "BLOCKED"
+                proof = row.get("satisfaction_proof") if isinstance(row.get("satisfaction_proof"), dict) else {}
+                if str(proof.get("kind") or "") != "clarification_pause":
+                    row["satisfaction_proof"] = {
+                        "kind": "declared_goal_dependency_pause",
+                        "goal_id": str(row.get("goal_id") or ""),
+                        "missing_dependency_goal_ids": missing,
+                        "goal_remains_incomplete": True,
+                    }
+                changed = True
     return output
 
 
@@ -592,25 +635,6 @@ def resolve_plan_projection(state: dict[str, Any] | None) -> dict[str, Any]:
             "source": "same_turn_validated_plan",
             "integrity": ephemeral,
         }
-
-    if legacy_fallback_allowed(source):
-        if persisted is not None:
-            return {
-                "ok": True,
-                "present": True,
-                "plan": deepcopy(persisted),
-                "code": "LEGACY_GROUNDED_PROJECTION",
-                "source": "legacy_checkpoint",
-            }
-        legacy = source.get("workflow_plan")
-        if isinstance(legacy, dict):
-            return {
-                "ok": True,
-                "present": True,
-                "plan": deepcopy(legacy),
-                "code": "LEGACY_WORKFLOW_PLAN",
-                "source": "legacy_checkpoint",
-            }
 
     return {
         "ok": True,

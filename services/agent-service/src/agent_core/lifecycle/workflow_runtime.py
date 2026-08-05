@@ -21,7 +21,6 @@ from agent_core.kernel.plan_projection_contract import (
     read_plan_projection,
     resolve_plan_projection,
 )
-from agent_core.lifecycle.state_schema import legacy_fallback_allowed
 from agent_core.lifecycle.semantic_contract import semantic_contract_integrity, semantic_goals
 from agent_core.lifecycle.plan_execution import (
     complete_step_attempt,
@@ -83,6 +82,18 @@ def _has_collection_target(calls: list[dict[str, Any]], effects: list[dict[str, 
                 limit = 0
             if operator == "take" and limit == 1:
                 continue
+            return True
+        if mode == "pipeline":
+            steps = [row for row in list(target.get("steps") or []) if isinstance(row, dict)]
+            last = steps[-1] if steps else {}
+            if str(last.get("op") or "") == "ordinal":
+                continue
+            if str(last.get("op") or "") == "take":
+                try:
+                    if int(last.get("limit") or 0) == 1:
+                        continue
+                except (TypeError, ValueError):
+                    pass
             return True
         handles = target.get("handles") or target.get("order_ids") or target.get("target_handles")
         if isinstance(handles, list) and len(handles) > 1:
@@ -147,54 +158,17 @@ def _verified_target_member_count(effect: dict[str, Any]) -> int | None:
 
 
 def _goal_rows(*, state: dict[str, Any], user_text: str, effects: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # The frozen semantic contract is the only formal source.  Legacy plan
-    # fields are merged only as execution compatibility metadata.
+    del user_text, effects
     rows = semantic_goals(state)
-    if rows:
-        output: list[dict[str, Any]] = []
-        for row in rows:
-            current = dict(row)
-            compatibility = current.get("compatibility") if isinstance(current.get("compatibility"), dict) else {}
-            current["goal_type"] = str(compatibility.get("legacy_goal_type") or "open")
-            current["expected_tools"] = []
-            current["semantic_source"] = "frozen_semantic_contract"
-            output.append(current)
-        return output
-    if legacy_fallback_allowed(state):
-        declared = state.get("turn_goal_plan") if isinstance(state.get("turn_goal_plan"), dict) else None
-        rows = [dict(row) for row in list((declared or {}).get("goals") or []) if isinstance(row, dict)]
-        if rows:
-            for row in rows:
-                row["semantic_source"] = "legacy_checkpoint_compatibility"
-            return rows
-    # Direct unit tests and historical checkpoints may not yet contain the new
-    # declaration.  Preserve a narrow compatibility representation without
-    # claiming independent goal completeness.  The real lifecycle graph never
-    # reaches domain tools before declare_turn_goals.
-    if effects and legacy_fallback_allowed(state):
-        effect_goal = {
-            str(effect.get("effect_id") or ""): f"legacy-goal:{index}"
-            for index, effect in enumerate(effects, start=1)
-            if str(effect.get("effect_id") or "")
-        }
-        return [
-            {
-                "goal_id": f"legacy-goal:{index}",
-                "description": f"执行候选能力 {str(effect.get('tool_name') or '')}",
-                "evidence_span": user_text,
-                "goal_type": _goal_type_for_effect(effect),
-                "required": True,
-                "depends_on": [
-                    effect_goal[effect_id]
-                    for effect_id in list(effect.get("depends_on") or [])
-                    if effect_id in effect_goal
-                ],
-                "expected_tools": [str(effect.get("tool_name") or "")],
-                "source": "legacy_effect_inferred",
-            }
-            for index, effect in enumerate(effects, start=1)
-        ]
-    return []
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        current = dict(row)
+        compatibility = current.get("compatibility") if isinstance(current.get("compatibility"), dict) else {}
+        current["goal_type"] = str(compatibility.get("legacy_goal_type") or "open")
+        current["expected_tools"] = []
+        current["semantic_source"] = "frozen_semantic_contract"
+        output.append(current)
+    return output
 
 
 def classify_plan_level(*, goal_rows: list[dict[str, Any]], plan: dict[str, Any]) -> tuple[str, list[str]]:
@@ -460,9 +434,22 @@ def _historical_evidence_satisfaction(
     return None
 
 
+def _completed_goal_ids_from_state(state: dict[str, Any]) -> set[str]:
+    """Return only durable, lifecycle-authoritative completed Goal ids."""
+
+    return {
+        str(row.get("goal_id") or "")
+        for row in list(state.get("goal_records") or [])
+        if isinstance(row, dict)
+        and str(row.get("lifecycle") or "").upper() == "COMPLETED"
+        and str(row.get("goal_id") or "")
+    }
+
+
 def _build_goals(
     state: dict[str, Any], goal_rows: list[dict[str, Any]], steps: list[dict[str, Any]], calls: list[dict[str, Any]]
 ) -> tuple[WorkflowGoal, ...]:
+    completed_goal_ids = _completed_goal_ids_from_state(state)
     terminal_bindings = {
         str(call.get("name") or ""): {str(value) for value in list(call.get("_goal_ids") or []) if str(value)}
         for call in calls
@@ -480,6 +467,13 @@ def _build_goals(
         )
         satisfaction_proof = _historical_evidence_satisfaction(state=state, goal=row, calls=calls)
         clarification_bound = goal_id in terminal_bindings.get("ask_user_clarification", set())
+        declared_dependencies = tuple(
+            str(value) for value in list(row.get("depends_on") or []) if str(value)
+        )
+        missing_dependencies = tuple(
+            value for value in declared_dependencies if value not in completed_goal_ids
+        )
+        durable_completed = goal_id in completed_goal_ids
         # A terminal response closes narrative/clarification goals. Query and
         # consult goals may also close when the exact bound evidence has a
         # current active, scoped, customer-visible proof. Actions never do.
@@ -493,17 +487,34 @@ def _build_goals(
         )
         goal_type = str(row.get("goal_type") or "")
         status = (
-            GoalCoverageStatus.BLOCKED
+            GoalCoverageStatus.COVERED
+            if durable_completed
+            else GoalCoverageStatus.BLOCKED
             if clarification_bound and goal_type != "clarification"
             else GoalCoverageStatus.COVERED
             if covered_terminal
+            else GoalCoverageStatus.BLOCKED
+            if missing_dependencies and not covered_steps
             else GoalCoverageStatus.PENDING
         )
-        if clarification_bound and goal_type != "clarification":
+        if durable_completed:
+            satisfaction_proof = {
+                "kind": "durable_goal_lifecycle_completed",
+                "goal_id": goal_id,
+                "scope_bound": True,
+            }
+        elif clarification_bound and goal_type != "clarification":
             satisfaction_proof = {
                 "kind": "clarification_pause",
                 "terminal_tool": "ask_user_clarification",
                 "goal_id": goal_id,
+                "goal_remains_incomplete": True,
+            }
+        elif missing_dependencies and not covered_steps:
+            satisfaction_proof = {
+                "kind": "declared_goal_dependency_pause",
+                "goal_id": goal_id,
+                "missing_dependency_goal_ids": list(missing_dependencies),
                 "goal_remains_incomplete": True,
             }
         goals.append(WorkflowGoal(
@@ -553,17 +564,47 @@ def _tasks_for_goals(goals: tuple[WorkflowGoal, ...], steps: tuple[AgentStep, ..
         ))
     output: list[AgentTask] = []
     by_goal = {goal.goal_id: goal for goal in goals}
+    task_by_step_id = {
+        step_id: task.task_id
+        for task in tasks
+        for step_id in task.step_ids
+    }
+    task_by_effect_id = {
+        str(step.effect_id or ""): task_by_step_id.get(step.step_id, "")
+        for step in steps
+        if str(step.effect_id or "") and task_by_step_id.get(step.step_id)
+    }
+    step_by_id = {step.step_id: step for step in steps}
     for task in tasks:
-        deps: tuple[str, ...] = ()
+        deps: list[str] = []
         if task.goal_id and task.goal_id in by_goal:
-            deps = tuple(goal_to_task[dep] for dep in by_goal[task.goal_id].depends_on if dep in goal_to_task)
+            deps.extend(
+                goal_to_task[dep]
+                for dep in by_goal[task.goal_id].depends_on
+                if dep in goal_to_task
+            )
+        # Execution planning may add a data dependency even when two user Goals
+        # are independently stated (for example, query an order before preparing
+        # a refund).  The task projection must preserve that dependency instead
+        # of showing the dependent task as runnable in parallel.  This is a
+        # projection only; it never invents a semantic Goal dependency.
+        for step_id in task.step_ids:
+            step = step_by_id.get(step_id)
+            if step is None:
+                continue
+            deps.extend(
+                dependency_task
+                for effect_id in step.depends_on
+                if (dependency_task := task_by_effect_id.get(str(effect_id)))
+                and dependency_task != task.task_id
+            )
         output.append(AgentTask(
             task_id=task.task_id,
             title=task.title,
             step_ids=task.step_ids,
             goal_id=task.goal_id,
             status=task.status,
-            depends_on=deps,
+            depends_on=tuple(dict.fromkeys(deps)),
         ))
     return tuple(output)
 
@@ -682,8 +723,8 @@ def validate_grounded_execution_plan(
             errors.append({"code": "PLAN_SEMANTIC_CONTRACT_ID_MISMATCH"})
         if str(plan.get("formal_semantic_digest") or "") != expected_digest:
             errors.append({"code": "PLAN_SEMANTIC_DIGEST_MISMATCH"})
-    elif str(plan.get("goal_source") or "") != "legacy_checkpoint_compatibility":
-        warnings.append({"code": "PLAN_SEMANTIC_CONTRACT_NOT_AVAILABLE"})
+    else:
+        errors.append({"code": "PLAN_SEMANTIC_CONTRACT_REQUIRED"})
 
     goals = [row for row in list(plan.get("goals") or []) if isinstance(row, dict)]
     goal_ids = [str(row.get("goal_id") or "") for row in goals]
@@ -755,8 +796,6 @@ def validate_grounded_execution_plan(
         verification = row.get("verification") if isinstance(row.get("verification"), dict) else {}
         role = str(verification.get("goal_effect_role") or "")
         allowed_roles = {"completion", "support", "unsupported_report"}
-        if not semantic and str(plan.get("goal_source") or "") == "legacy_checkpoint_compatibility":
-            allowed_roles.add("legacy_completion")
         if role not in allowed_roles:
             errors.append(
                 {
@@ -889,7 +928,7 @@ def build_workflow_plan(*, state: dict[str, Any], turn_plan: dict[str, Any], use
         "authority": "validated_execution_plan_not_semantic_or_business_fact",
         "formal_semantic_contract_id": semantic_contract.get("semantic_contract_id"),
         "formal_semantic_digest": semantic_contract.get("semantic_digest"),
-        "goal_source": "frozen_semantic_contract" if semantic_contract else "legacy_checkpoint_compatibility",
+        "goal_source": "frozen_semantic_contract" if semantic_contract else "missing_frozen_semantic_contract",
     })
     previous = read_plan_projection(state)
     next_plan = _carry_forward_workflow_runtime(next_plan, previous)
@@ -1146,7 +1185,7 @@ def _failure_type_from_result(result: dict[str, Any]) -> str:
         "EXPLICIT_MEMBER_REQUIRES_SINGLE_MEMBER_TARGET",
     }:
         return FailureType.CAPABILITY_EXACT_MATCH_REQUIRED.value
-    if code in {"CONTEXT_TARGET_NOT_UNIQUE", "NEED_TRANSACTION_SELECTION"} or next_interaction == "need_selection":
+    if code in {"CONTEXT_TARGET_NOT_UNIQUE", "CONTEXT_TARGET_NOT_VERIFIED_FOR_WRITE", "NEED_TRANSACTION_SELECTION"} or next_interaction == "need_selection":
         return FailureType.TARGET_AMBIGUOUS.value
     if code == "UNSUPPORTED_TARGET_CARDINALITY":
         return FailureType.UNSUPPORTED_CARDINALITY.value

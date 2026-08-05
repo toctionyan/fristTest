@@ -128,20 +128,6 @@ def test_full_lifecycle_canary_resolves_declared_or_current_python(monkeypatch, 
     assert module._resolve_python("B14F1_TEST_PYTHON", tmp_path / "missing") == Path(sys.executable).absolute()
 
 
-def test_full_lifecycle_canary_preserves_virtualenv_python_symlink(monkeypatch, tmp_path: Path) -> None:
-    module = _load_product_canary_module()
-    virtualenv_python = tmp_path / "agent-venv" / "bin" / "python"
-    virtualenv_python.parent.mkdir(parents=True)
-    virtualenv_python.symlink_to(Path(sys.executable).resolve())
-    monkeypatch.setenv("B14F1_TEST_PYTHON", str(virtualenv_python))
-
-    selected = module._resolve_python("B14F1_TEST_PYTHON", tmp_path / "missing")
-
-    assert selected == virtualenv_python.absolute()
-    assert selected.is_symlink()
-    assert selected != virtualenv_python.resolve()
-
-
 def test_product_browser_journey_uses_portable_python_and_canonical_plan_projection() -> None:
     workspace = Path(__file__).resolve().parents[4]
     source = (workspace / "scripts" / "verify_product_browser_journey.py").read_text(encoding="utf-8")

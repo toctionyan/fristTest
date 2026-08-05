@@ -8,17 +8,11 @@ try:
 except Exception:  # pragma: no cover
     AIMessage = HumanMessage = SystemMessage = None  # type: ignore
 
-from agent_core.lifecycle.protocol import (
-    GOAL_DEPENDENCY_DECLARATION_RULE,
-    TERMINAL_TOOL_NAMES,
-    agent_loop_schemas,
-    planning_schemas,
-)
+from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, agent_loop_schemas, planning_schemas
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.plan_projection_contract import read_plan_projection
 from agent_core.observability.audit_turn_trace import create_plan_id
 from agent_core.observability.failure_replay import build_failure_replay
-from agent_core.config import get_model, get_model_profile
 from agent_core.context import ContextBundleBuilder, compile_provider_context, render_context_bundle
 from agent_core.lifecycle.budget import compute_loop_budget, verified_history_recall_results
 from agent_core.lifecycle.finalizer import _answer_from_terminal_tool, _append_terminal_protocol_message, _safe_general_reply
@@ -37,6 +31,10 @@ from agent_core.lifecycle.pretool_planner import (
     build_pretool_shadow_plan,
     compare_shadow_plan_to_model_calls,
 )
+from agent_core.lifecycle.pretool_execution_policy import (
+    build_pretool_execution_policy,
+    execution_policy_prompt_projection,
+)
 from agent_core.lifecycle.clarification_runtime import (
     clarification_context_projection,
     continuation_tool_hints,
@@ -49,7 +47,6 @@ from agent_core.runtime.capability_effects import (
     discover_exact_effect_surface,
 )
 from agent_core.lifecycle.semantic_contract import semantic_goals
-from agent_core.lifecycle.state_schema import legacy_fallback_allowed
 from agent_core.runtime.outcomes import coerce_runtime_outcome, outcome
 from agent_core.transaction.interaction import interaction_response_contract
 from agent_core.runtime.node_support import (
@@ -63,6 +60,18 @@ from agent_core.runtime.node_support import (
 
 FINAL_PROTOCOL_MAX_RETRIES = 1
 GOAL_DECLARATION_MAX_RETRIES = 2
+
+
+def get_model():
+    from agent_core.config import get_model as resolve_model
+
+    return resolve_model()
+
+
+def get_model_profile():
+    from agent_core.config import get_model_profile as resolve_profile
+
+    return resolve_profile()
 
 
 def _discover_capability_surface(
@@ -80,39 +89,17 @@ def _discover_capability_surface(
             capability_registry,
             formal_goals,
             verified_continuation_tools_by_goal=verified_continuation_tool_hints(
-                state,
-                formal_goals,
-                capability_registry,
+                state, formal_goals, capability_registry
             ),
         )
-    # State Schema v2 never re-enters fuzzy legacy discovery. A missing
-    # formal effect must be repaired by a new semantic declaration.
-    if not legacy_fallback_allowed(state):
-        return {
-            "version": "capability-surface@2",
-            "match_basis": "state_v2_requires_frozen_requested_effect",
-            "formal_effect_match_proof_available": False,
-            "goals": [],
-            "candidate_tools": [],
-        }
-    # Historical checkpoints may use the old bounded path only before their
-    # one-time migration boundary.
-    legacy_goals = [
-        row for row in list((state.get("turn_goal_plan") or {}).get("goals") or [])
-        if isinstance(row, dict)
-    ]
-    surface = capability_registry.discover_surface(
-        legacy_goals,
-        verified_continuation_tools_by_goal=verified_continuation_tool_hints(
-            state,
-            legacy_goals,
-            capability_registry,
-        ),
-    )
-    surface["match_basis"] = "legacy_checkpoint_compatibility"
-    surface["formal_effect_match_proof_available"] = False
-    return surface
-
+    return {
+        "version": "capability-surface@2",
+        "match_basis": "frozen_requested_effect_required",
+        "formal_effect_match_proof_available": False,
+        "goals": [],
+        "candidate_tools": [],
+        "tool_names": [],
+    }
 
 
 def _workflow_repair_tools(
@@ -145,11 +132,23 @@ def _workflow_repair_tools(
         for name in list(row.get("completion_tools") or [])
         if str(name)
     }
+    pending_goals_by_id = {
+        str(goal.get("goal_id") or ""): goal
+        for goal in pending_rows
+        if str(goal.get("goal_id") or "")
+    }
     unsupported_tools = {
         str(name)
         for row in list(surface.get("goals") or [])
         if isinstance(row, dict)
         and str(row.get("goal_id") or "") in pending_goal_ids
+        # Clarification is itself a supported terminal outcome.  A missing
+        # business completion capability must not turn a clarification-only
+        # retry into an unsupported-request surface.
+        and str(
+            (pending_goals_by_id.get(str(row.get("goal_id") or "")) or {}).get("goal_type")
+            or ""
+        ).lower() != "clarification"
         and str(row.get("status") or "") in {"absent_proven", "completion_capability_absent"}
         for name in list(row.get("candidate_tools") or [])
         if str(name)
@@ -158,19 +157,6 @@ def _workflow_repair_tools(
             and contract.execution_kind == "unsupported"
         )
     }
-    if legacy_fallback_allowed(state) and str(surface.get("match_basis") or "") == "legacy_checkpoint_compatibility":
-        pending_types = {
-            str(goal.get("goal_type") or "") for goal in pending_rows if str(goal.get("goal_type") or "")
-        }
-        completion_tools.update({
-            name
-            for name in capability_registry.tool_names()
-            if (
-                (contract := capability_registry.contract_for_tool(name)) is not None
-                and pending_types.intersection(contract.goal_completion_types)
-                and contract.execution_kind != "unsupported"
-            )
-        })
     return pending_goal_ids, completion_tools, unsupported_tools
 
 def _unnecessary_unique_scope_clarification(
@@ -412,19 +398,19 @@ def _loop_static_system_prompt() -> str:
 - 历史审计只在用户明确引用旧回答时调用 inspect_audit_event；其返回不是当前指代或业务事实权威。
 - 工具参数中的 reference_span、attribute_span、status_span、各种 *_span 与 constraint_bindings.source_span 必须逐字来自“本轮用户原话”，不能把上一轮结果里的商品名、订单号或模型推断伪装成本轮 span。
 - 注册能力含 query 与 constraint_bindings 时，query 中每个非空业务条件都必须有一条对应绑定：source_span 逐字来自本轮原话，parameter_path 指向该 query 字段，normalized_value 与实际条件一致。query 条件只放在该能力的 query 中，不得同时塞入 Target 集合操作来重复表达。
-- 用户用“它/其中/那个/这些”或最高级、序号继续引用上一轮已经展示的集合时，只能从 ContextBundle.visible_result_refs 选择作用域匹配的 result_ref：先用 target.mode=collection 或 set_operation(left_handle=result_ref) 表达集合，再用 sort/take/ordinal 等通用操作产生新的、经工具验证的本轮 ResultRef，后续工具可引用该 ResultRef。不得退化成 entity_match 并复制历史标签；没有唯一可验证 ResultRef 时必须澄清。
-- visible_result_refs 的 discourse_recency_rank 与 is_latest_visible_turn 只表达客户实际看到结果的对话新近度，不替 Runtime 自动选对象。对于“它/其中/这些/那个”这类没有显式回到旧话题的承接，模型必须沿唯一的 is_latest_visible_turn=true ResultRef 继续；选择 is_latest_visible_turn=false 的旧集合属于范围错误，不能因为旧集合成员更多就自行回退。用户明确按标签回到或纠正一个旧结果时，选择旧 ResultRef，并填写 context_binding={reference_kind:explicit_return, source_span:本轮逐字出现的旧结果成员标签片段}；source_span 应复制商品名/订单号等标签片段，不能填普通代词。用户用“刚才两个/前面三个/the previous two”明确把最近连续多个可见结果作为一组时，使用 set_operation 逐步组成该组，并填写 context_binding={reference_kind:explicit_group_reference, source_span:本轮逐字出现的组引用}；该绑定只允许从最新结果开始、无跳跃地覆盖最近连续可见结果，不能用“它/其中/这些”伪造。若字面标签在旧集合中只匹配唯一成员，必须从 member_handles 的同位置选择该精确 handle，使用 target.mode=artifact（expected_shape=one），不得把包含兄弟成员的父 collection 当成该成员；Runtime 会校验可见父集合成员关系而不会替你选。只有用户明确引用整个旧集合时才继续使用 collection。没有标签级旧范围或明确连续组证据时必须继续最新范围或澄清。
+- 用户用“它/其中/那个/这些”或最高级、序号继续引用上一轮已经展示的集合时，只能从 ContextBundle.visible_result_refs 选择作用域匹配的 result_ref：简单单步操作可用 target.mode=collection 或 set_operation(left_handle=result_ref)；金额/时间/文本条件或 filter→sort→take/ordinal 组合必须使用 target.mode=pipeline、source_kind=collection、source_handle=result_ref。每个 pipeline 步骤只能使用 Schema 白名单字段与操作，所有 source_span/value_span/*_span 必须逐字来自本轮原话。不得退化成 entity_match 并复制历史标签；没有唯一可验证 ResultRef 时必须澄清。
+- visible_result_refs 的 discourse_recency_rank 与 is_latest_visible_turn 只表达客户实际看到结果的对话新近度，不替 Runtime 自动选对象。对于“它/其中/这些/那个”这类没有显式回到旧话题的承接，模型必须沿唯一的 is_latest_visible_turn=true ResultRef 继续；选择 is_latest_visible_turn=false 的旧集合属于范围错误，不能因为旧集合成员更多就自行回退。用户明确按标签回到或纠正一个旧结果时，选择旧 ResultRef，并填写 context_binding={reference_kind:explicit_return, source_span:本轮逐字出现的旧结果成员标签片段}；source_span 应复制商品名/订单号等标签片段，不能填普通代词。用户用“刚才两个/前面三个/the previous two”明确把最近连续多个可见结果作为一组时，使用 set_operation 逐步组成该组，并填写 context_binding={reference_kind:explicit_group_reference, source_span:本轮逐字出现的组引用, group_size:明确结果数量}；该绑定只允许从最新结果开始、无跳跃地覆盖最近连续可见结果，不能用“它/其中/这些”伪造。若字面标签在旧集合中只匹配唯一成员，必须从 member_handles 的同位置选择该精确 handle，使用 target.mode=artifact（expected_shape=one），不得把包含兄弟成员的父 collection 当成该成员；Runtime 会校验可见父集合成员关系而不会替你选。只有用户明确引用整个旧集合时才继续使用 collection。没有标签级旧范围或明确连续组证据时必须继续最新范围或澄清。
 - 单成员 ResultRef 仍是合法集合；“其中最贵/最便宜/最新”等最高级在该集合上的结果就是唯一成员。可直接用该 ResultRef 回答，不必为了制造比较再读详情；回答只陈述这个集合内的唯一成员，不能枚举旧集合中的其他对象，也不能以“只有一项没有比较意义”为由扩大到旧集合或追问范围。
 - 中文等语言常在连续对话中省略主语；本轮未复述“它”不等于重置话题。只要最新公开 ResultRef 的成员唯一、用户没有按可见标签显式切换到别的对象，就应沿该唯一成员继续。ask_user_clarification 必须用 missing_kind 区分缺少 target/scope/condition/intent；目标已经唯一时不得把 missing_kind 写成 target 或 scope。
 - 资格预检等 target-bearing ResultRef 的 result_ref 是业务结论证据，member_handles 是该结论对应的经 Runtime 验证业务对象。用户随后省略对象并要求办理时，必须沿这个唯一成员或该单项 result_ref 继续，不能把资格证据伪装成订单，也不能从历史文本复制商品名作为新的 entity_match。
 - “最贵/最便宜/最新”等选择后继续查询的多步目标，先对可见集合执行 sort 产生有序 ResultRef，再以 take(limit=1) 引用该结果完成后续读取；不得跳过中间可验证结果直接猜实体。
 - 上述链式选择的下游工具必须用 target.mode=collection、left_handle=新的 ResultRef 消费整个已验证结果（即使它只有一项），不得从工具输出中抽取成员 handle 后伪装成 entity_match；target.mode 与字段必须严格遵守判别联合合同。
 - 同一个用户目标需要组合多个集合分支时，必须先得到各分支 ResultRef，再用 union / intersection / difference 产生唯一的合并 ResultRef，并让最终查询消费该合并结果；不得连续执行多个独立观察后让回答或展示层猜测如何拼接。
-- Target 固定判别联合：all_orders 只需 mode（可带筛选 span）；entity_match 需要 attribute_span；artifact/collection 需要 left_handle；set_operation 的 identity 需要 left_handle，difference/union/intersection 还需 right_handle，filter 还需 status+status_span，sort 还需 sort_field+sort_direction+sort_span，take 还需 limit，ordinal 还需 position。不要混用分支字段。
+- Target 固定判别联合：all_orders 只需 mode（可带筛选 span）；entity_match 需要 attribute_span；artifact/collection 需要 left_handle；set_operation 的 identity 需要 left_handle，difference/union/intersection 还需 right_handle，filter 还需 status+status_span，sort 还需 sort_field+sort_direction+sort_span，take 还需 limit，ordinal 还需 position；pipeline 需要 source_kind=all_orders 或 collection（collection 还必须有 source_handle）以及 1–8 个 steps。Pipeline 仅允许注册的 filter/sort/take/ordinal，禁止 SQL、代码、任意字段和任意表达式。不要混用分支字段。
 - 本轮原话直接出现商品称呼或业务标识符（例如订单号）时，可直接使用 entity_match(attribute_span=该连续原文) 做一次权威查询；它不要求该对象先出现在 visible_result_refs。当前明确称呼优先于旧 ResultRef，禁止把旧 artifact/collection 句柄与新的 reference_span 拼接。只有代词/省略承接才依赖可见 ResultRef。
 - visible_result_refs 中的 source_operation 与 lineage_result_refs 是集合来源证明：若最新单项由 sort/take/ordinal 从父集合产生，而用户本轮改问相反排序、另一端或重新比较，必须对记录的父集合执行新操作，不能在该单项上再次排序后把同一项冒充另一端。
 - 会话已有 visible_result_refs 时，target.mode=all_orders 会重新扩大到全量范围；只有本轮原话明确要求全部/所有订单或明确重置范围时才可使用。普通“其中/它/这些/那个”承接不得用 all_orders 绕过最新 ResultRef，也不得先重新全量查询再把新结果伪装成最新范围。
-- 所有 *_span 必须直接复制本轮原话中的完整连续片段；sort 操作必须用 sort_span 明确绑定“最贵/最便宜/最新”等排序原话。删除中间词、改写、概括或拼接不连续文本都不算字面证据。发现候选 span 不是连续原文时应在预算内修正候选，不能把协议错误当成业务结论。
+- 所有 *_span 必须直接复制本轮原话中的完整连续片段；set_operation.sort 必须用 sort_span，pipeline 的 filter/sort/take/ordinal 必须分别提供 Schema 要求的 source_span、value_span、lower_span、upper_span 或 value_spans。结构化金额、日期、天数、数量必须与对应原文数值一致，不能只复制一句话后发明参数。删除中间词、改写、概括或拼接不连续文本都不算字面证据。发现候选 span 不是连续原文时应在预算内修正候选，不能把协议错误当成业务结论。
 - 当 ContextBundle 的 context_health.transactions=unavailable 时，不得将 active_transaction_state 为空理解为没有进行中的事务，也不得创建新的业务草稿。
 - 不得重复调用相同参数的工具；没有新观察时应回答或澄清。最终完成由 RuntimeOutcome 与 WorkflowStep 验证决定，不由模型自称完成。
 - 面向用户回答先结论后必要说明；不描述不确定界面位置，不泄露内部字段。
@@ -488,14 +474,12 @@ def _loop_runtime_prompt(
     else:
         protocol_repair_rule = "所有面向用户的结论或问题都必须通过 respond_to_user 或 ask_user_clarification 发出，不能只输出纯文本。"
     planning_phase = not goal_plan_ready(state)
-    pending_clarification = clarification_context_projection(state)
+    blocker_context = clarification_context_projection(state)
     planning_rule = (
-        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。"
-        + GOAL_DEPENDENCY_DECLARATION_RULE
-        + "系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
+        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
         + (
-            " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮归入 resume/abandon/new_request。旧 clarification_resolution 仅用于旧检查点兼容。"
-            if pending_clarification is not None else ""
+            " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮采用一个全局 disposition；只提交 goal_changes 和 blocker_resolutions。"
+            if blocker_context is not None else ""
         )
         if planning_phase
         else "本轮正式语义已冻结。能力发现和执行只能实现这些 Goal，不能因工具失败或能力缺失改写 requested_effect。每个业务工具调用必须显式绑定一个 goal_id；终止调用必须覆盖全部已处理 Goal。"
@@ -528,6 +512,9 @@ def _loop_runtime_prompt(
 【当前能力发现结果】
 {surface or {"status": "goal_declaration_required"}}
 
+【Pre-tool 执行策略：当前模型调用的业务能力前沿】
+{execution_policy_prompt_projection(state.get("pretool_execution_policy")) if not planning_phase else {"status": "goal_declaration_required"}}
+
 【上一执行路径限制】
 {state.get("model_mode_restriction") or ["respond", "observe", "prepare"]}
 
@@ -535,7 +522,7 @@ def _loop_runtime_prompt(
 {state.get("frozen_semantic_contract") or {"status": "not_frozen"}}
 
 【待解决的 Goal Blocker / 兼容澄清投影】
-{pending_clarification or {"status": "none"}}
+{blocker_context or {"status": "none"}}
 
 【ContextBundle：已验证动态上下文；原始对话已作为 provider messages 发送，不在此重复】
 {render_context_bundle(pack, include_conversation=False, include_digest=False)}
@@ -813,9 +800,41 @@ def agent_loop_node(
                     "creates_permit": False,
                     "mutates_semantics": False,
                 }
+        pretool_execution_policy = None
         surfaced_tools = set(capability_surface.get("tool_names") or []) if capability_surface else None
+        if not planning_phase:
+            try:
+                pretool_execution_policy = build_pretool_execution_policy(
+                    state=state,
+                    capability_registry=capability_registry,
+                    shadow_plan=pretool_shadow_plan,
+                )
+                surfaced_tools = set(
+                    str(value)
+                    for value in list(pretool_execution_policy.get("allowed_capability_tools") or [])
+                    if str(value)
+                )
+            except Exception as exc:
+                # The policy is an enforcement boundary. A compiler failure must
+                # not bypass it by restoring the wider exact-effect surface.
+                # Internal/terminal controls remain available through
+                # ``agent_loop_schemas`` while all business capabilities fail
+                # closed for this model call.
+                surfaced_tools = set()
+                pretool_execution_policy = {
+                    "version": "pretool-execution-policy@1",
+                    "authority": "provider_tool_surface_only_not_execution_permit",
+                    "mode": "POLICY_BUILD_FAILED_FAIL_CLOSED",
+                    "allowed_capability_tools": [],
+                    "error_type": exc.__class__.__name__,
+                    "error": str(exc),
+                    "creates_permit": False,
+                    "dispatches_tools": False,
+                    "mutates_semantics": False,
+                    "mutates_business_state": False,
+                }
         schemas = (
-            planning_schemas(clarification_context_projection(state))
+            planning_schemas()
             if planning_phase
             else agent_loop_schemas(
                 capability_registry,
@@ -864,7 +883,12 @@ def agent_loop_node(
             purpose="agent_loop",
             model=bound,
             payload=_loop_messages(
-                state,
+                {
+                    **state,
+                    "pretool_execution_policy": deepcopy(pretool_execution_policy)
+                    if isinstance(pretool_execution_policy, dict)
+                    else None,
+                },
                 context_bundle_builder=context_bundle_builder,
                 capability_registry=capability_registry,
             ),
@@ -1045,8 +1069,8 @@ def agent_loop_node(
             "frozen_plan_definition": frozen_plan_definition,
             "plan_run": plan_run,
             "grounded_execution_plan": workflow_plan,
-            **({"workflow_plan": workflow_plan} if legacy_fallback_allowed(state) else {}),
             "pretool_shadow_plan": deepcopy(pretool_shadow_plan) if isinstance(pretool_shadow_plan, dict) else None,
+            "pretool_execution_policy": deepcopy(pretool_execution_policy) if isinstance(pretool_execution_policy, dict) else None,
             "pretool_shadow_comparisons": [
                 *[deepcopy(row) for row in list(state.get("pretool_shadow_comparisons") or []) if isinstance(row, dict)],
                 *([deepcopy(pretool_shadow_comparison)] if isinstance(pretool_shadow_comparison, dict) else []),
@@ -1067,6 +1091,8 @@ def agent_loop_node(
                 "plan_definition_id": frozen_plan_definition.get("plan_definition_id"),
                 "plan_run_id": plan_run.get("plan_run_id"),
                 "pretool_shadow_status": (pretool_shadow_plan or {}).get("status") if isinstance(pretool_shadow_plan, dict) else None,
+                "pretool_execution_policy_mode": (pretool_execution_policy or {}).get("mode") if isinstance(pretool_execution_policy, dict) else None,
+                "pretool_allowed_capability_tools": list((pretool_execution_policy or {}).get("allowed_capability_tools") or []) if isinstance(pretool_execution_policy, dict) else [],
                 "pretool_shadow_comparison": (pretool_shadow_comparison or {}).get("status") if isinstance(pretool_shadow_comparison, dict) else None,
                 "response_content": raw_content,
                 "model_call": model_call,
@@ -1278,7 +1304,6 @@ def agent_loop_node(
             **state,
             **common,
             "grounded_execution_plan": workflow_plan,
-            **({"workflow_plan": workflow_plan} if legacy_fallback_allowed(state) else {}),
         })
         if not workflow_verification.get("ok"):
             return {

@@ -1,6 +1,6 @@
 {
   "name": "customer-agent-architecture",
-  "version": "6.3.1",
+  "version": "6.7.0",
   "language": "zh-CN",
   "entrypoint": "SKILL.md",
   "validator": "scripts/verify_skill_package.py",
@@ -16,9 +16,13 @@
     "architecture-variance",
     "evidence-backed-closure",
     "dependency-debt-ratchet",
-    "semantic-representation-independence"
+    "governed-repair-closure",
+    "authoritative-task-ledger",
+    "modular-quality-controller",
+    "semantic-authority-cutover",
+    "context-multigoal-exact-capability-closure"
   ],
   "control_plane": "skill-system",
   "rule_model": "skill-system/core/rule-model.md",
-  "control_plane_version": "6.3.1"
+  "control_plane_version": "6.7.0"
 }

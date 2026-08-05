@@ -215,7 +215,7 @@ def from_tool_result(
                 next_interaction="none",
                 payload={"code": code},
             )
-        if code in {"CONTEXT_TARGET_NOT_UNIQUE", "NEED_TRANSACTION_SELECTION"}:
+        if code in {"CONTEXT_TARGET_NOT_UNIQUE", "CONTEXT_TARGET_NOT_VERIFIED_FOR_WRITE", "NEED_TRANSACTION_SELECTION"}:
             return outcome(
                 "clarification",
                 correlation_id=correlation_id,

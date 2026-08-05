@@ -1,0 +1,38 @@
+{
+  "closed_counterexamples": [
+    "premature completion without all required evidence",
+    "interrupted fixer replay",
+    "out-of-scope drift after interrupted fixer",
+    "no-progress retry loop across process restarts",
+    "fake persisted completion",
+    "duplicate Judge execution after durable evidence",
+    "stale concurrent writer",
+    "verification process interrupted between checks and resumed without rerunning durable PASS results"
+  ],
+  "dimension": "focused-tests",
+  "results": [
+    {
+      "failed": 0,
+      "passed": 20,
+      "suite": "TaskRun control plane"
+    },
+    {
+      "failed": 0,
+      "passed": 145,
+      "suite": "complete Skill control plane"
+    },
+    {
+      "deselected": 28,
+      "failed": 0,
+      "passed": 8,
+      "suite": "Repair Loop interruption/governance contracts"
+    },
+    {
+      "failed": 0,
+      "passed": 1,
+      "suite": "resumable verifier self-test"
+    }
+  ],
+  "schema_version": 1,
+  "status": "PASS"
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "phase": "V20.17 B19",
+  "skill_version": "6.5.0",
+  "workspace_version": "20.6.1",
+  "goal": "Close stage 1: authoritative task ledger and modular quality controller",
+  "status": "CLOSED_VERIFIED",
+  "production_closed": false,
+  "product_behavior_changed": false,
+  "artifacts": [
+    "governance/task-ledger.json",
+    "scripts/quality_control/",
+    "scripts/quality_loop.py"
+  ],
+  "known_open_issues": [
+    "ISSUE-REL-001",
+    "ISSUE-ENV-001"
+  ],
+  "closure_decision": "CLOSED_VERIFIED",
+  "task_ledger_status": "PASS",
+  "closed_stage": "STAGE-1",
+  "next_stage": "STAGE-2",
+  "quality_loop_facade_lines": 978,
+  "quality_control_modules": [
+    "claims.py",
+    "common.py",
+    "constants.py",
+    "contracts.py",
+    "convergence.py",
+    "dimensions.py",
+    "environment.py",
+    "state.py"
+  ],
+  "tests": {
+    "skill_unit": 81,
+    "quality_loop_controller": 45,
+    "real_model_dimensions": 20,
+    "skill_security": 7
+  },
+  "profiles": {
+    "skill-static": "PASS",
+    "skill-unit": "PASS",
+    "skill-host-integration": "PASS",
+    "skill-security": "PASS",
+    "project-compatibility-smoke": "PASS"
+  },
+  "permit_digest": "388f3b7ac2166f23056c3fd0ba37c2681f8593d63220843eff958ae63dde3d52",
+  "closed_at": "2026-08-02T09:21:17.815949+00:00",
+  "migration_decision_preflight": "PASS"
+}

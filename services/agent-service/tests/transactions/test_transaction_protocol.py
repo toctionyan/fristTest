@@ -166,7 +166,13 @@ def test_transaction_attempt_does_not_write_legacy_lifecycle_mirrors(tmp_path: P
 
 def test_receipt_reconciler_replays_same_idempotency_key_and_backfills_receipt(tmp_path: Path, monkeypatch):
     from agent_core.ledger import artifact_entry, find_handle, receipt_entry, scope_for_state
+    # Production initializes module providers at the Composition Root. The test
+    # must establish that boundary explicitly rather than relying on an
+    # unrelated coordinator import side effect.
+    from agent_core.composition import get_runtime_registry
     from agent_core.lifecycle import nodes
+
+    get_runtime_registry()
 
     scope = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "t001"}
     order = artifact_entry(

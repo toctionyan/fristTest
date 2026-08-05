@@ -12,8 +12,8 @@ from agent_core.kernel.decision_trace import append_decision as _append_decision
 from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.transaction import DRAFT_REQUIRES_REVIEW, command_digest_for_offer, transition_draft
 from agent_core.transaction.active_draft import active_draft_patch, get_active_draft_id
+from agent_core.transaction.failure import classify_business_failure
 from agent_core.transaction.coordinator import (
-    classify_business_failure,
     record_transaction_receipt,
     reserve_grant_and_start_attempt,
     stable_command_id,

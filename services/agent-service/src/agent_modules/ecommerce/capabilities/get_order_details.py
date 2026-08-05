@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import verified_read_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -26,6 +27,11 @@ DEFINITION = EcommerceCapabilityDefinition(
     # A read-only detail query must publish the verified order itself.  Reusing
     # the canonical order projector for a one-member result keeps identity and
     # state visible without inventing an unrelated action card.
+    contract_version='2',
+    planning_contract=verified_read_contract(
+        resource_types=("order",), cardinality="exactly_one", target_type="ResolvedOrderBinding",
+        output_name="order_details", output_type="VerifiedOrderDetails",
+    ),
     presentation_contract='commerce.order_list@1',
     public_label=None,
 )

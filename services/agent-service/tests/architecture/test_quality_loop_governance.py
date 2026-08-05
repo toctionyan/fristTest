@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import os
 import signal
 import subprocess
@@ -25,17 +26,14 @@ def _load_script(name: str):
     return module
 
 
-def test_quality_loop_policy_uses_single_production_bundle_for_real_model_browser() -> None:
+def test_quality_loop_policy_exposes_static_quick_and_release_steps() -> None:
     root = workspace_root(__file__)
     policy = json.loads((root / "governance" / "quality-loop-policy.json").read_text(encoding="utf-8"))
-    steps_by_mode = {mode: {step["name"] for step in policy["steps"] if mode in step.get("modes", [])} for mode in ["static", "quick", "integration", "release"]}
+    steps_by_mode = {mode: {step["name"] for step in policy["steps"] if mode in step.get("modes", [])} for mode in ["static", "quick", "release"]}
     assert {"skill-package-verify", "architecture-convergence", "module-vertical-closure", "version-consistency"} <= steps_by_mode["static"]
     assert "python-test-suites" in steps_by_mode["quick"]
     assert {"frontend-vitest", "frontend-build"} <= steps_by_mode["release"]
     steps = {step["id"]: step for step in policy["steps"]}
-    duplicate_real_model_gates = {"configured-model-browser-conversation", "configured-model-browser-campaign"}
-    assert duplicate_real_model_gates.isdisjoint(steps)
-    assert steps["production-certification-bundle"]["modes"] == ["release"]
     assert steps["frontend-vitest"]["argv"] == ["{npm}", "run", "test:ci"]
     assert steps["frontend-vitest"]["env"] == {
         "VITEST_JUNIT_PATH": "{evidence_dir}/junit/frontend-vitest.xml",
@@ -124,8 +122,22 @@ def test_strong_context_gate_rejects_missing_runtime_goal_binding() -> None:
 
 def test_strong_context_gate_rejects_semantically_swapped_goal_bindings() -> None:
     verifier, contract, case_id = _first_semantic_turn()
-    calls = contract["model_steps"][1]["tool_calls"]
-    calls[0]["args"]["goal_ids"], calls[1]["args"]["goal_ids"] = calls[1]["args"]["goal_ids"], calls[0]["args"]["goal_ids"]
+    bound_calls = [
+        call
+        for step in contract["model_steps"][1:]
+        for call in step["tool_calls"]
+        if len(call.get("args", {}).get("goal_ids", [])) == 1
+    ]
+    first, second = next(
+        (left, right)
+        for index, left in enumerate(bound_calls)
+        for right in bound_calls[index + 1 :]
+        if left["args"]["goal_ids"] != right["args"]["goal_ids"]
+    )
+    first["args"]["goal_ids"], second["args"]["goal_ids"] = (
+        second["args"]["goal_ids"],
+        first["args"]["goal_ids"],
+    )
     errors = _turn_errors(verifier, contract, case_id)
     assert any(error.startswith("semantic_runtime_goal_binding_mismatch:") for error in errors)
 
@@ -239,39 +251,38 @@ def test_release_workflow_reexecutes_full_release_without_prior_pass_reuse() -> 
     assert "${{ runner.temp }}/quality-target-release.md" not in workflow
 
 
-def test_protected_release_delegates_service_startup_to_the_certification_bundle() -> None:
+def test_protected_release_uses_the_unified_protected_runtime_controller() -> None:
     root = workspace_root(__file__)
     workflow = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     protected = workflow.split("  protected-release:", 1)[1]
-    runtime_owner = (root / "scripts" / "verify_full_lifecycle_canary.py").read_text(encoding="utf-8")
-    certification_bundle = (
-        root / "scripts" / "verify_production_certification_bundle.py"
-    ).read_text(encoding="utf-8")
+    prerequisites = protected.split("- name: Validate protected runtime prerequisites", 1)[1].split(
+        "- name: Run every release gate", 1
+    )[0]
+    release_gate = protected.split("- name: Run every release gate", 1)[1].split(
+        "- name: Upload signed production evidence", 1
+    )[0]
 
     assert "APP_PROFILE: local" not in protected
-    assert "Start actual protected-profile services" not in protected
-    assert "Validate protected runtime prerequisites" in protected
-    assert "scripts/run_production_release.py" in protected
-    assert "scripts/verify_production_certification_bundle.py" in protected
-    assert '"browser": SCRIPTS / "verify_production_browser_bundle.py"' in certification_bundle
-
+    assert "scripts/run_production_release.py" in release_gate
+    assert "services/agent-service/.venv/bin/python" in release_gate
+    assert '--target "$QUALITY_TARGET"' in release_gate
     for required in (
-        '"APP_PROFILE": "preprod"',
-        '"BUSINESS_DB_BACKEND": "postgres"',
-        '"BUSINESS_DATABASE_URL": self.persistence_url',
-        '"BUSINESS_REQUIRE_ACTOR_SIGNATURE": "true"',
-        '"AGENT_AUTH_PROVIDER": "jwt_hs256"',
-        '"AGENT_DB_BACKEND": "postgres"',
-        '"CHECKPOINT_BACKEND": "postgres"',
-        '"RAG_BACKEND": "pgvector"',
-        '"DOCUMENT_JOB_BACKEND": "sqlalchemy"',
-        '"DOCUMENT_OBJECT_STORE_BACKEND": "shared_filesystem"',
-        '"STATE_CONTRACT_MODE": "strict"',
-        '"CAPABILITY_SEMANTIC_VERIFIER_MODE": "model"',
-        '"GOAL_ALIGNMENT_VERIFIER_MODE": "model"',
-        '"ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model"',
+        "APP_PROFILE: preprod",
+        "BUSINESS_DB_BACKEND: postgres",
+        "BUSINESS_DATABASE_URL: postgresql://",
+        "BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'true'",
+        "AGENT_AUTH_PROVIDER: jwt_hs256",
+        "AGENT_DB_BACKEND: postgres",
+        "CHECKPOINT_BACKEND: postgres",
+        "RAG_BACKEND: pgvector",
+        "DOCUMENT_JOB_BACKEND: sqlalchemy",
+        "DOCUMENT_OBJECT_STORE_BACKEND: shared_filesystem",
+        "STATE_CONTRACT_MODE: strict",
+        "CAPABILITY_SEMANTIC_VERIFIER_MODE: model",
+        "GOAL_ALIGNMENT_VERIFIER_MODE: model",
+        "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE: model",
     ):
-        assert required in runtime_owner
+        assert required in prerequisites
 
 
 def test_architecture_policy_requires_business_postgres_configuration() -> None:
@@ -471,7 +482,7 @@ def test_repair_target_rejects_green_baseline_and_no_change_verification(
 
 def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_tools() -> None:
     smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
-    smoke._assert_effect_evidence_coverage(
+    smoke._match_oracle(
         case_id="schema-compliant",
         oracle=[
             {
@@ -498,7 +509,7 @@ def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_to
 
 def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording() -> None:
     smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
-    smoke._assert_effect_evidence_coverage(
+    smoke._match_oracle(
         case_id="literal-span-extension",
         oracle=[
             {
@@ -521,10 +532,10 @@ def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording
     )
 
 
-def test_protected_goal_smoke_rejects_fuzzy_but_accepts_composite_effect_evidence() -> None:
+def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None:
     smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
-    with pytest.raises(RuntimeError, match="required effect evidence not covered"):
-        smoke._assert_effect_evidence_coverage(
+    with pytest.raises(RuntimeError, match="no unique model goal"):
+        smoke._match_oracle(
             case_id="fuzzy-is-forbidden",
             oracle=[
                 {
@@ -545,41 +556,42 @@ def test_protected_goal_smoke_rejects_fuzzy_but_accepts_composite_effect_evidenc
                 }
             ],
         )
-    smoke._assert_effect_evidence_coverage(
-        case_id="ambiguous-containment",
-        oracle=[
-            {
-                "oracle_id": "cancel",
-                "evidence_span": "取消",
-                "goal_type": "action",
-                "required": True,
-                "depends_on": [],
-            },
-            {
-                "oracle_id": "ship",
-                "evidence_span": "继续发货",
-                "goal_type": "action",
-                "required": True,
-                "depends_on": [],
-            },
-        ],
-        goals=[
-            {
-                "goal_id": "combined-a",
-                "evidence_span": "取消，然后继续发货",
-                "goal_type": "action",
-                "required": True,
-                "depends_on": [],
-            },
-            {
-                "goal_id": "combined-b",
-                "evidence_span": "取消并继续发货",
-                "goal_type": "action",
-                "required": True,
-                "depends_on": [],
-            },
-        ],
-    )
+    with pytest.raises(RuntimeError, match="no unique model goal"):
+        smoke._match_oracle(
+            case_id="ambiguous-containment",
+            oracle=[
+                {
+                    "oracle_id": "cancel",
+                    "evidence_span": "取消",
+                    "goal_type": "action",
+                    "required": True,
+                    "depends_on": [],
+                },
+                {
+                    "oracle_id": "ship",
+                    "evidence_span": "继续发货",
+                    "goal_type": "action",
+                    "required": True,
+                    "depends_on": [],
+                },
+            ],
+            goals=[
+                {
+                    "goal_id": "combined-a",
+                    "evidence_span": "取消，然后继续发货",
+                    "goal_type": "action",
+                    "required": True,
+                    "depends_on": [],
+                },
+                {
+                    "goal_id": "combined-b",
+                    "evidence_span": "取消并继续发货",
+                    "goal_type": "action",
+                    "required": True,
+                    "depends_on": [],
+                },
+            ],
+        )
 
 
 def test_process_group_cleanup_handles_permission_error_after_parent_exit(
@@ -814,7 +826,7 @@ def test_protected_model_smoke_rejects_duplicate_goal_ids_and_wrong_base_respons
         "../services/agent-service/scripts/verify_preprod_conversation_smoke.py"
     )
     with pytest.raises(RuntimeError, match="duplicate goal_id"):
-        conversation._assert_effect_evidence_coverage(
+        conversation._match_oracle(
             case_id="duplicate-goal-id",
             oracle=[
                 {"oracle_id": "o1", "evidence_span": "查订单", "goal_type": "query", "required": True, "depends_on": []},
@@ -893,12 +905,16 @@ def test_repair_orchestrator_builds_stable_issue_records(tmp_path: Path) -> None
         target_kind="repair",
     )
     root = workspace_root(__file__)
-    for script_name in ("quality_loop.py", "locked_python.py", "source_paths.py", "repair_loop.py"):
+    for script_name in ("quality_loop.py", "source_paths.py", "repair_loop.py"):
         source = root / "scripts" / script_name
         destination = workspace / "scripts" / script_name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    for controller_name in ("progress.py", "trusted_judge.py", "fixer_env.py", "issue_state.py"):
+    shutil.copytree(
+        root / "scripts" / "quality_control",
+        workspace / "scripts" / "quality_control",
+    )
+    for controller_name in orchestrator.REPAIR_RUNTIME_CONTROLLER_FILES:
         source = root / "skill-system/controller" / controller_name
         destination = workspace / "skill-system/controller" / controller_name
         destination.parent.mkdir(parents=True, exist_ok=True)

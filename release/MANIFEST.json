@@ -4,12 +4,12 @@
   "version": "20.6.1",
   "skill": {
     "name": "customer-agent-architecture",
-    "version": "6.3.1"
+    "version": "6.7.0"
   },
   "profile": "development-workspace",
-  "phase": "B17j",
-  "status": "PHASE_CANDIDATE_ENVIRONMENT_EXECUTION_PENDING",
+  "phase": "B28",
+  "status": "PHASE_CANDIDATE_REPOSITORY_ONBOARDING_READY_EXTERNAL_EXECUTION_BLOCKED",
   "certification_level": "phase-candidate",
   "production_closed": false,
-  "boundary": "Project CI no longer applies the Skill-only product-tree compatibility guard; the guard remains in the Skill-only release chain. Protected production execution is still required."
+  "boundary": "Repository import and diagnostic workflow authority are fail-closed. WP-08 and WP-09 remain external execution blockers."
 }

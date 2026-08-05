@@ -16,8 +16,10 @@ from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import math
 import re
 from typing import Any
+from agent_core.ledger import execution_scope_for_state
 from uuid import uuid4
 
 from agent_core.kernel.capability import ToolCapabilityContract
@@ -32,7 +34,7 @@ from agent_core.kernel.semantic_contract import semantic_goals
 from agent_core.context.visible_result_refs import validate_runtime_result_ref, visible_result_refs_from_ledger
 
 
-CAPABILITY_REGISTRY_VERSION = "customer-agent-capability-gate@3.7"
+CAPABILITY_REGISTRY_VERSION = "customer-agent-capability-gate@3.8"
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,19 @@ def _validate_value(value: Any, schema: dict[str, Any], path: str = "$") -> list
                 errors.append(f"{path}: minimum")
             if isinstance(schema.get("maximum"), (int, float)) and value > schema["maximum"]:
                 errors.append(f"{path}: maximum")
+    elif typ == "number":
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            errors.append(f"{path}: expected_number")
+        elif not math.isfinite(float(value)):
+            errors.append(f"{path}: non_finite_number")
+        else:
+            if isinstance(schema.get("minimum"), (int, float)) and value < schema["minimum"]:
+                errors.append(f"{path}: minimum")
+            if isinstance(schema.get("maximum"), (int, float)) and value > schema["maximum"]:
+                errors.append(f"{path}: maximum")
+    elif typ == "boolean":
+        if not isinstance(value, bool):
+            errors.append(f"{path}: expected_boolean")
     return errors
 
 
@@ -246,17 +261,25 @@ def _target_cardinality_hint(args: dict[str, Any]) -> str:
         if operator == "take" and limit == 1:
             return "single"
         return "collection"
+    if mode == "pipeline":
+        steps = [row for row in list(target.get("steps") or []) if isinstance(row, dict)]
+        last = steps[-1] if steps else {}
+        if str(last.get("op") or "") == "ordinal":
+            return "single"
+        if str(last.get("op") or "") == "take":
+            try:
+                if int(last.get("limit") or 0) == 1:
+                    return "single"
+            except (TypeError, ValueError):
+                pass
+        return "collection"
     if mode == "collection" or expected_shape == "collection":
         return "collection"
     return "unknown"
 
 
 def _scope(state: dict[str, Any]) -> dict[str, str]:
-    return {
-        "tenant_id": str(state.get("current_tenant_id") or "default"),
-        "user_id": str(state.get("current_user_id") or ""),
-        "thread_id": str(state.get("current_thread_id") or ""),
-    }
+    return execution_scope_for_state(state)
 
 
 def _path_value(value: Any, path: str) -> Any:
@@ -270,6 +293,133 @@ def _path_value(value: Any, path: str) -> Any:
 
 def _canonical_digest(value: dict[str, Any]) -> str:
     return sha256(json.dumps(dict(value or {}), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _pretool_frontier_proof(
+    *,
+    state: dict[str, Any],
+    tool_name: str,
+    goal_ids: set[str],
+    capability_registry: CapabilityRegistry,
+) -> dict[str, Any]:
+    """Re-check the provider Tool frontier before issuing a permit.
+
+    Hiding a Tool from the model is only the first defense.  Direct calls,
+    replayed checkpoints, provider bugs and debug endpoints can bypass the
+    provider surface, so CapabilityGate independently verifies the current
+    pre-tool policy.  When goal-specific policy rows are present, the Tool must
+    be allowed for every Goal bound to the effect, not merely somewhere in the
+    global frontier.
+
+    Older tests and migration paths may not yet carry a policy.  In that case
+    this proof is explicitly ``not_required`` rather than inventing a policy.
+    Once a policy object exposes ``allowed_capability_tools``, enforcement is
+    fail-closed.
+    """
+
+    policy = state.get("pretool_execution_policy")
+    required = isinstance(policy, dict) and isinstance(policy.get("allowed_capability_tools"), list)
+    if not required:
+        return {
+            "version": "pretool-frontier-proof@1",
+            "required": False,
+            "allowed": True,
+            "reason_code": "pretool_policy_not_present",
+            "tool_name": tool_name,
+            "goal_ids": sorted(goal_ids),
+            "allowed_capability_tools": [],
+            "goal_checks": [],
+            "errors": [],
+        }
+
+    assert isinstance(policy, dict)  # narrowed by ``required``
+    errors: list[str] = []
+    allowed_tools = {
+        str(value)
+        for value in list(policy.get("allowed_capability_tools") or [])
+        if str(value)
+    }
+    if tool_name not in allowed_tools:
+        errors.append("tool_not_in_global_pretool_frontier")
+
+    contract = state.get("frozen_semantic_contract")
+    if isinstance(contract, dict):
+        policy_contract_id = str(policy.get("formal_semantic_contract_id") or "")
+        policy_contract_digest = str(policy.get("formal_semantic_digest") or "")
+        if policy_contract_id and policy_contract_id != str(contract.get("semantic_contract_id") or ""):
+            errors.append("pretool_policy_semantic_contract_id_mismatch")
+        if policy_contract_digest and policy_contract_digest != str(contract.get("semantic_digest") or ""):
+            errors.append("pretool_policy_semantic_digest_mismatch")
+
+    policy_registry_version = str(policy.get("capability_registry_version") or "")
+    if policy_registry_version and policy_registry_version != str(capability_registry.version or ""):
+        errors.append("pretool_policy_capability_registry_version_mismatch")
+
+    stored_policy_digest = str(policy.get("policy_digest") or "")
+    if stored_policy_digest:
+        digest_payload = deepcopy(policy)
+        digest_payload.pop("policy_digest", None)
+        computed_policy_digest = _canonical_digest(digest_payload)
+        if stored_policy_digest != computed_policy_digest:
+            errors.append("pretool_policy_digest_invalid")
+    else:
+        computed_policy_digest = None
+
+    raw_goal_policies = [
+        row
+        for row in list(policy.get("goal_policies") or [])
+        if isinstance(row, dict) and str(row.get("goal_id") or "")
+    ]
+    goal_policy_by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in raw_goal_policies
+    }
+    goal_checks: list[dict[str, Any]] = []
+    if goal_ids and raw_goal_policies:
+        for goal_id in sorted(goal_ids):
+            row = goal_policy_by_id.get(goal_id)
+            row_allowed_tools = {
+                str(value)
+                for value in list((row or {}).get("allowed_tools") or [])
+                if str(value)
+            }
+            present = row is not None
+            allowed = present and tool_name in row_allowed_tools
+            if not present:
+                errors.append(f"pretool_goal_policy_missing:{goal_id}")
+            elif not allowed:
+                errors.append(f"tool_not_in_goal_pretool_frontier:{goal_id}")
+            goal_checks.append({
+                "goal_id": goal_id,
+                "policy_present": present,
+                "allowed": allowed,
+                "allowed_tools": sorted(row_allowed_tools),
+                "status": str((row or {}).get("status") or ""),
+                "enforcement": str((row or {}).get("enforcement") or ""),
+            })
+
+    allowed = not errors
+    if allowed:
+        reason_code = "pretool_frontier_allowed"
+    elif any(error.startswith("tool_not_in_") for error in errors):
+        reason_code = "tool_not_in_current_pretool_frontier"
+    else:
+        reason_code = "pretool_execution_policy_invalid"
+    return {
+        "version": "pretool-frontier-proof@1",
+        "required": True,
+        "allowed": allowed,
+        "reason_code": reason_code,
+        "tool_name": tool_name,
+        "goal_ids": sorted(goal_ids),
+        "allowed_capability_tools": sorted(allowed_tools),
+        "goal_checks": goal_checks,
+        "policy_version": policy.get("version"),
+        "policy_mode": policy.get("mode"),
+        "stored_policy_digest": stored_policy_digest or None,
+        "computed_policy_digest": computed_policy_digest,
+        "errors": errors,
+    }
 
 
 def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
@@ -337,6 +487,39 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
                 "actual_value": target.get(field),
                 "status": status,
             })
+    if str(target.get("mode") or "") == "pipeline":
+        steps = list(target.get("steps") or [])
+        for index, raw_step in enumerate(steps):
+            if not isinstance(raw_step, dict):
+                errors.append(f"target_pipeline_step_invalid:{index}")
+                continue
+            step = dict(raw_step)
+            spans: list[tuple[str, str]] = []
+            operation = str(step.get("op") or "")
+            if operation == "filter":
+                predicate = step.get("predicate") if isinstance(step.get("predicate"), dict) else {}
+                for key in ("source_span", "value_span", "lower_span", "upper_span"):
+                    if str(predicate.get(key) or "").strip():
+                        spans.append((f"target.steps[{index}].predicate.{key}", str(predicate[key])))
+                for value_index, value_span in enumerate(list(predicate.get("value_spans") or [])):
+                    if str(value_span or "").strip():
+                        spans.append((f"target.steps[{index}].predicate.value_spans[{value_index}]", str(value_span)))
+            else:
+                for key in ("source_span", "value_span"):
+                    if str(step.get(key) or "").strip():
+                        spans.append((f"target.steps[{index}].{key}", str(step[key])))
+            for path, span in spans:
+                covered = bool(span and _literal_operation_in_text(span, user_text))
+                if not covered:
+                    errors.append(f"target_pipeline_evidence_not_current_turn:{path}")
+                rows.append({
+                    "kind": "condition",
+                    "source_span": span,
+                    "parameter_path": path,
+                    "normalized_value": span,
+                    "actual_value": span,
+                    "status": "covered" if covered else "uncovered",
+                })
     return {
         "version": "constraint-coverage-proof@1",
         "bindings": rows,
@@ -369,6 +552,8 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
             # Set algebra accepts either a collection or one verified artifact
             # on the right; a single artifact is a one-element set.
             fields.append(("right_handle", None))
+    elif mode == "pipeline" and str(target.get("source_kind") or "") == "collection":
+        fields.append(("source_handle", "collection"))
     for field, expected_shape in fields:
         value = str(target.get(field) or "").strip()
         ref, error = validate_runtime_result_ref(state=state, result_ref=value, expected_shape=expected_shape) if value else (None, "runtime_result_ref_missing")
@@ -402,6 +587,10 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
     binding = args.get("context_binding") if isinstance(args.get("context_binding"), dict) else {}
     binding_kind = str(binding.get("reference_kind") or "")
     binding_span = str(binding.get("source_span") or "").strip()
+    try:
+        binding_group_size = int(binding.get("group_size") or 0)
+    except (TypeError, ValueError):
+        binding_group_size = 0
     user_text = str(state.get("current_user_input") or "")
     selected_latest_lineage = {
         str(lineage_handle)
@@ -450,9 +639,60 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
         and len(selected_visible_handles) >= 2
         and bool(selected_visible_handles.intersection(latest_handles))
         and selected_visible_handles == required_prefix_handles
+        and (
+            binding_kind != "explicit_group_reference"
+            or binding_group_size == len(selected_visible_handles)
+        )
     )
-    if binding_kind == "explicit_group_reference" and not explicit_group_binding:
-        errors.append("explicit_group_reference_must_select_recent_contiguous_visible_group")
+    if binding_kind == "explicit_group_reference":
+        if binding_group_size < 2:
+            errors.append("explicit_group_reference_group_size_required")
+        elif binding_group_size != len(selected_visible_handles):
+            errors.append("explicit_group_reference_group_size_mismatch")
+        if not explicit_group_binding:
+            errors.append("explicit_group_reference_must_select_recent_contiguous_visible_group")
+
+    selected_latest_handles = selected_visible_handles.intersection(latest_handles)
+    if (
+        len(latest_handles) > 1
+        and (mode in {"collection", "artifact"} or (mode == "pipeline" and str(target.get("source_kind") or "") == "collection"))
+        and len(selected_latest_handles) == 1
+        and binding_kind != "explicit_return"
+    ):
+        # Several independent results crossed the release boundary in the same
+        # latest turn.  A bare singular continuation cannot choose one of them.
+        # The model must either bind a literal label to one exact result/member
+        # or explicitly compose the recent group with a set operation.
+        errors.append("latest_visible_scope_ambiguous_requires_explicit_return_or_group")
+
+    if binding_kind == "explicit_return" and selected_visible_handles:
+        if len(selected_visible_handles) != 1:
+            errors.append("explicit_return_must_select_exactly_one_visible_result")
+        selected_handle = next(iter(selected_visible_handles), "")
+        selected_ref = next(
+            (
+                ref for ref in visible_refs
+                if str(ref.get("result_ref") or "") == selected_handle
+            ),
+            {},
+        )
+        labels = [
+            str(value) for value in list(selected_ref.get("member_labels") or [])
+            if str(value)
+        ]
+        own_label = str(selected_ref.get("label") or "").strip()
+        if own_label:
+            labels.append(own_label)
+        binding_key = _literal_key(binding_span)
+        label_keys = [_literal_key(label) for label in labels]
+        if not binding_span or binding_span not in user_text:
+            errors.append("explicit_return_binding_evidence_not_current_turn")
+        if not binding_key or not any(
+            binding_key in label_key or label_key in binding_key
+            for label_key in label_keys
+            if label_key
+        ):
+            errors.append("explicit_return_binding_not_literal_member_label")
     for check in checks:
         ref = check.get("validated_ref") if isinstance(check.get("validated_ref"), dict) else {}
         handle = str(check.get("result_ref") or "")
@@ -502,6 +742,9 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
             "selected_older_visible_result_refs": older_visible_handles,
             "reference_kind": binding_kind or None,
             "source_span": binding_span or None,
+            "group_size": binding_group_size or None,
+            "latest_visible_result_count": len(latest_handles),
+            "latest_visible_scope_ambiguous": len(latest_handles) > 1,
             "group_source_span": group_source_span if explicit_group_binding else None,
             "explicit_group_binding_complete": explicit_group_binding,
         },
@@ -725,14 +968,18 @@ def _derived_collection_scope_proof(
     lineage parent; Runtime still does not choose which parent.
     """
     target = args.get("target") if isinstance(args.get("target"), dict) else {}
-    if str(target.get("mode") or "") != "set_operation" or str(target.get("operator") or "") != "sort":
+    mode = str(target.get("mode") or "")
+    pipeline_steps = [row for row in list(target.get("steps") or []) if isinstance(row, dict)]
+    pipeline_sorts = any(str(row.get("op") or "") == "sort" for row in pipeline_steps)
+    legacy_sort = mode == "set_operation" and str(target.get("operator") or "") == "sort"
+    if not legacy_sort and not (mode == "pipeline" and pipeline_sorts):
         return {
             "version": "derived-collection-scope-proof@1",
             "complete": True,
             "applies": False,
             "errors": [],
         }
-    left_handle = str(target.get("left_handle") or "")
+    left_handle = str(target.get("left_handle") or target.get("source_handle") or "")
     selected_ref = next((
         check.get("validated_ref")
         for check in list(visible_reference.get("checks") or [])
@@ -750,7 +997,11 @@ def _derived_collection_scope_proof(
     members = [str(value) for value in list(selected_ref.get("member_handles") or []) if str(value)]
     lineage = [str(value) for value in list(selected_ref.get("lineage_result_refs") or []) if str(value)]
     source = dict(selected_ref.get("source_operation") or {})
-    derived_selection = str(source.get("operator") or "") in {"sort", "take", "ordinal"}
+    source_steps = [row for row in list(source.get("steps") or []) if isinstance(row, dict)]
+    derived_selection = (
+        str(source.get("operator") or "") in {"sort", "take", "ordinal"}
+        or any(str(row.get("op") or "") in {"sort", "take", "ordinal"} for row in source_steps)
+    )
     invalid = len(members) == 1 and bool(lineage) and derived_selection
     return {
         "version": "derived-collection-scope-proof@1",
@@ -760,11 +1011,15 @@ def _derived_collection_scope_proof(
         "selected_member_count": len(members),
         "source_operation": source,
         "lineage_result_refs": lineage,
-        "requested_operation": {
-            key: target.get(key)
-            for key in ("operator", "sort_field", "sort_direction", "sort_span")
-            if target.get(key) not in (None, "")
-        },
+        "requested_operation": (
+            {
+                key: target.get(key)
+                for key in ("operator", "sort_field", "sort_direction", "sort_span")
+                if target.get(key) not in (None, "")
+            }
+            if legacy_sort
+            else {"mode": "pipeline", "steps": pipeline_steps}
+        ),
         "errors": ["derived_singleton_rerank_requires_lineage_parent"] if invalid else [],
     }
 
@@ -837,6 +1092,13 @@ def issue_execution_permit(
             if str(value)
         }),
     }
+    frontier_proof = _pretool_frontier_proof(
+        state=state,
+        tool_name=tool_name,
+        goal_ids=goal_ids,
+        capability_registry=capability_registry,
+    )
+    frontier_allowed = bool(frontier_proof.get("allowed"))
     formal_goals = semantic_goals(state)
     formal_effect_required = bool(
         formal_goals
@@ -857,7 +1119,7 @@ def issue_execution_permit(
         not formal_effect_required or bool(formal_effect_proof.get("allowed"))
     )
     proof: dict[str, Any] = {
-        "match_proof_version": "match-proof@4.0",
+        "match_proof_version": "match-proof@4.1",
         "registry_version": CAPABILITY_REGISTRY_VERSION,
         "effect_id": effect_id,
         "candidate_tool": tool_name,
@@ -867,6 +1129,7 @@ def issue_execution_permit(
         "schema_valid": not arg_errors,
         "argument_normalization": normalization,
         "capability_surface": surface_proof,
+        "pretool_execution_frontier": frontier_proof,
         "goal_effect_identity": formal_effect_proof,
         "goal_effect_identity_required": formal_effect_required,
         "semantic_verdict": semantic.as_dict() if semantic is not None else {"verdict": "not_required", "reason_code": "unsupported_capability_report"},
@@ -875,12 +1138,12 @@ def issue_execution_permit(
         "visible_result_reference": visible_reference,
         "explicit_member_scope": member_scope,
         "derived_collection_scope": derived_scope,
-        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(visible_reference.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
-        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and visible_reference.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and formal_effect_allowed),
+        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(visible_reference.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
+        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and visible_reference.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
         "rejected_candidates": [],
         "scope": _scope(state),
     }
-    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not visible_reference.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not formal_effect_allowed:
+    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not visible_reference.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
         return PermitDecision(
             permitted=False,
             match_proof=proof,
@@ -889,6 +1152,10 @@ def issue_execution_permit(
                 "code": (
                     "CAPABILITY_NOT_AVAILABLE_IN_GOAL_SURFACE"
                     if not surface_allowed
+                    else "CAPABILITY_NOT_IN_PRETOOL_FRONTIER"
+                    if not frontier_allowed and frontier_proof.get("reason_code") == "tool_not_in_current_pretool_frontier"
+                    else "PRETOOL_EXECUTION_POLICY_INVALID"
+                    if not frontier_allowed
                     else "CAPABILITY_GOAL_EFFECT_MISMATCH"
                     if not formal_effect_allowed
                     else "DERIVED_SINGLETON_REQUIRES_PARENT_SCOPE"
@@ -908,6 +1175,10 @@ def issue_execution_permit(
                 "message": (
                     "当前能力不属于本轮目标发现得到的有限候选集合，系统不会绕过能力面调用相近工具。"
                     if not surface_allowed
+                    else "当前能力不属于本轮 Pre-tool Execution Policy 的可执行前沿；即使调用被重放或伪造，Capability Gate 也不会签发 ExecutionPermit。"
+                    if not frontier_allowed and frontier_proof.get("reason_code") == "tool_not_in_current_pretool_frontier"
+                    else "当前 Pre-tool Execution Policy 已失效、与语义合同或能力注册表不一致；系统已按失败关闭处理。"
+                    if not frontier_allowed
                     else "当前工具不能精确完成或支持其绑定 Goal 的 requested_effect；系统不会用相似能力替代。"
                     if not formal_effect_allowed
                     else "当前候选把已由排序或截取得到的单项再次作为比较全集；请使用该结果记录的父集合引用完成本轮比较。"
@@ -928,7 +1199,7 @@ def issue_execution_permit(
             normalized_arguments=normalized_args,
         )
     permit = {
-        "permit_version": "execution-permit@3.7",
+        "permit_version": "execution-permit@3.8",
         "permit_id": f"permit:{uuid4().hex}",
         "registry_version": CAPABILITY_REGISTRY_VERSION,
         "effect_id": effect_id,

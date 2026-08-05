@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "phase": "B25",
+  "workspace_version": "20.6.1",
+  "skill_version": "6.7.0",
+  "status": "PHASE_CANDIDATE_WP08_RESUMABLE_CERTIFICATION_READY_ENVIRONMENT_BLOCKED",
+  "production_closed": false,
+  "current_project_stage": "STAGE-5",
+  "work_package": "WP-08",
+  "change_id": "repair-v20.17-b25-wp08-resumable-certification",
+  "implemented": [
+    "added wp08-resumable-certification@1 with per-batch timeouts, process-group termination, atomic checkpoints and same-source resume",
+    "added four required batches for protected preflight, PostgreSQL/pgvector recovery, real-model/RAG and browser full-stack certification",
+    "added a SHA-pinned protected GitHub workflow that always uploads evidence and cannot claim production closure",
+    "missing executable, BLOCKED and TIMEOUT outcomes no longer hide later independent batch results"
+  ],
+  "verified": {
+    "focused_and_counterexample_tests": "11 passed",
+    "full_skill_tests": "97 passed",
+    "authority_and_supply_chain_regression": "51 passed",
+    "combined_regression_run": "132 passed",
+    "static_wp08_contract": "PASS",
+    "repair_governance_schema": "PASS",
+    "independent_diff_review": "PASS",
+    "out_of_scope_paths": 0,
+    "product_source_changes": 0,
+    "local_probe": "4 independent BLOCKED_BY_ENVIRONMENT results; exit 78; final checkpoint written"
+  },
+  "environment_boundary": {
+    "wp08_closed": false,
+    "standard_full_stack": "BLOCKED_BY_ENVIRONMENT",
+    "current_runtime": {
+      "python": "3.13.5",
+      "node": "22.16.0",
+      "npm": "10.9.2",
+      "uv": "0.10.0",
+      "docker": false,
+      "psql": false
+    },
+    "required_runtime": {
+      "python": "3.12.13",
+      "node": "24.18.0",
+      "npm": "11.16.0",
+      "uv": "0.11.29",
+      "docker": true,
+      "pgvector": "locked digest"
+    },
+    "missing": [
+      "locked dependency source/cache",
+      "Docker and PostgreSQL/pgvector",
+      "frontend node_modules and Playwright Chromium",
+      "real model and embedding credentials"
+    ]
+  },
+  "next_action": "Run .github/workflows/wp08-certification.yml in the protected production-certification Environment; use its batch checkpoints to repair or resume only failed batches. Do not advance to STAGE-6 until all four required batches PASS."
+}

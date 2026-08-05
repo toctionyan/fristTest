@@ -3,9 +3,9 @@
 
 The smoke exercises only the planning protocol.  It never builds the lifecycle
 graph, opens a Draft, or dispatches a BusinessPort.  Each real-model
-``declare_turn_goals`` call must cover the independent oracle effects and
-pass the production independent-model alignment verifier. The oracle does not
-prescribe one goal count, goal ID mapping, dependency graph, or tool order.
+``declare_turn_goals`` call is compared with an independent ``goal_oracle``;
+therefore a multi-intent turn fails when the model drops one branch even if the
+remaining candidate tool is otherwise allowed.
 """
 from __future__ import annotations
 
@@ -25,10 +25,7 @@ for path in (ROOT, ROOT / "src"):
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
 from agent_core.config import get_model, get_model_profile  # noqa: E402
-from agent_core.lifecycle.protocol import (  # noqa: E402
-    GOAL_DEPENDENCY_DECLARATION_RULE,
-    planning_schemas,
-)
+from agent_core.lifecycle.protocol import planning_schemas  # noqa: E402
 from agent_core.lifecycle.goal_planning import validate_goal_declaration  # noqa: E402
 from agent_core.model_calls import (  # noqa: E402
     RealModelCertificationError,
@@ -44,7 +41,6 @@ from agent_core.runtime.node_support import tool_calls  # noqa: E402
 from agent_core.composition import get_runtime_registry  # noqa: E402
 
 CATALOG = WORKSPACE / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
-_SAFE_CASE_ID_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]{0,127}):\s*(.*)$", re.DOTALL)
 
 
 def _compact_span(value: Any) -> str:
@@ -81,18 +77,9 @@ def _user_turns(case: dict[str, Any]) -> list[str]:
     ]
 
 
-def _assert_effect_evidence_coverage(
-    *, case_id: str, oracle: list[dict[str, Any]], goals: list[dict[str, Any]]
-) -> None:
-    """Prove required literal effects are represented without owning semantics.
-
-    This check deliberately does not compare goal count, goal IDs, dependency
-    graphs, or tool order. Those are internal representations. Semantic
-    completeness and invented effects are judged by the independent production
-    alignment verifier; this deterministic layer only proves that every required
-    oracle effect has literal current-turn evidence in at least one required goal.
-    """
-
+def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dict[str, Any]]) -> None:
+    if len(goals) != len(oracle):
+        raise RuntimeError(f"{case_id}: goal count mismatch, expected {len(oracle)}, got {len(goals)}")
     goal_ids = [str(row.get("goal_id") or "") for row in goals]
     duplicate_ids = sorted(
         goal_id for goal_id in set(goal_ids) if goal_id and goal_ids.count(goal_id) > 1
@@ -101,22 +88,50 @@ def _assert_effect_evidence_coverage(
         raise RuntimeError(
             f"{case_id}: duplicate goal_id values are forbidden: {duplicate_ids}"
         )
-
-    required_goals = [row for row in goals if bool(row.get("required", True))]
-    missing: list[str] = []
+    unmatched = list(goals)
+    oracle_to_goal: dict[str, str] = {}
     for expected in oracle:
-        if not bool(expected.get("required", True)):
-            continue
         evidence = str(expected.get("evidence_span") or "")
-        if not evidence or not any(
-            _span_matches_oracle(expected=evidence, actual=row.get("evidence_span"))
-            for row in required_goals
-        ):
-            missing.append(str(expected.get("oracle_id") or evidence or "unknown"))
-    if missing:
-        raise RuntimeError(
-            f"{case_id}: required effect evidence not covered: {sorted(missing)}"
-        )
+        goal_type = str(expected.get("goal_type") or "")
+        required = bool(expected.get("required", True))
+        exact_matches = [
+            row for row in unmatched
+            if str(row.get("evidence_span") or "") == evidence
+            and str(row.get("goal_type") or "") == goal_type
+            and bool(row.get("required", True)) == required
+        ]
+        matches = exact_matches or [
+            row for row in unmatched
+            if _span_matches_oracle(
+                expected=evidence,
+                actual=row.get("evidence_span"),
+            )
+            and str(row.get("goal_type") or "") == goal_type
+            and bool(row.get("required", True)) == required
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(f"{case_id}: no unique model goal matches oracle span={evidence!r}, type={goal_type!r}")
+        matched = matches[0]
+        oracle_id = str(expected.get("oracle_id") or "")
+        goal_id = str(matched.get("goal_id") or "")
+        if not oracle_id or not goal_id:
+            raise RuntimeError(f"{case_id}: oracle and model goals must declare stable IDs")
+        oracle_to_goal[oracle_id] = goal_id
+        unmatched.remove(matched)
+    if unmatched:
+        raise RuntimeError(f"{case_id}: model emitted undeclared extra goals")
+    goals_by_id = {str(row.get("goal_id") or ""): row for row in goals}
+    for expected in oracle:
+        expected_dependencies = {
+            oracle_to_goal.get(str(value), "<unmatched>")
+            for value in expected.get("depends_on") or []
+        }
+        goal = goals_by_id[oracle_to_goal[str(expected["oracle_id"])]]
+        actual_dependencies = {str(value) for value in goal.get("depends_on") or []}
+        if actual_dependencies != expected_dependencies:
+            raise RuntimeError(
+                f"{case_id}: goal dependency mismatch for oracle {expected['oracle_id']}"
+            )
 
 
 def _validate_with_production_goal_contract(
@@ -143,46 +158,6 @@ def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     return "real_model_identity_invalid"
 
 
-def _safe_semantic_failure(exc: Exception) -> dict[str, str]:
-    """Classify a semantic failure without retaining prompts or model output."""
-
-    message = str(exc or "")
-    case_id = ""
-    detail = message
-    case_match = _SAFE_CASE_ID_RE.match(message)
-    if case_match:
-        case_id = case_match.group(1)
-        detail = case_match.group(2)
-
-    patterns = (
-        ("duplicate goal_id values", "duplicate_goal_ids"),
-        ("required effect evidence not covered", "required_effect_evidence_missing"),
-        ("production goal declaration rejected model output", "production_goal_contract_rejected"),
-        ("model did not emit exactly one declare_turn_goals call", "declare_turn_goals_call_invalid"),
-        ("expected exactly 12 semantic prototypes", "prototype_catalog_count_invalid"),
-        ("preproduction semantic prototypes must currently be single-turn", "prototype_turn_count_invalid"),
-    )
-    failure_code = next((code for marker, code in patterns if marker in detail), "semantic_component_exception")
-    error_code = f"semantic_{failure_code}"
-    if case_id:
-        error_code = f"{error_code}__{case_id}"
-    return {
-        "error_code": error_code,
-        "failure_code": failure_code,
-        **({"failed_case_id": case_id} if case_id else {}),
-    }
-
-
-def _semantic_system_instruction() -> str:
-    return (
-        "只执行目标声明：调用 declare_turn_goals，完整保留用户明确要求的每一个独立业务结果、条件和依赖。"
-        "内部查找、筛选和目标解析只是执行步骤，不单独声明为 Goal，除非用户明确要求返回该查询结果。"
-        "多个独立结果即使共享同一查找步骤也必须分别声明；不能吞掉不支持分支，也不能用相似能力代替。"
-        + GOAL_DEPENDENCY_DECLARATION_RULE
-        + "evidence_span 应覆盖该结果的动作或问题及关键对象条件，并且必须来自用户原话。"
-    )
-
-
 def main() -> int:
     try:
         identity = resolve_real_model_identity()
@@ -201,7 +176,10 @@ def main() -> int:
         model = get_model()
         bound = model.bind_tools(planning_schemas()) if hasattr(model, "bind_tools") else model
         evidence: list[dict[str, Any]] = []
-        system = SystemMessage(content=_semantic_system_instruction())
+        system = SystemMessage(content=(
+            "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
+            "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
+        ))
         # Protected mode uses the production independent goal-alignment model,
         # so each prototype may consume one declaration call and one verifier call.
         with model_call_scope(max_calls=24, scope="preprod_semantic_goal_prototypes") as calls:
@@ -222,7 +200,7 @@ def main() -> int:
                 args = candidates[0].get("args") if isinstance(candidates[0].get("args"), dict) else {}
                 goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
                 oracle = [row for row in list(turn.get("goal_oracle") or []) if isinstance(row, dict)]
-                _assert_effect_evidence_coverage(case_id=case["id"], oracle=oracle, goals=goals)
+                _match_oracle(case_id=case["id"], oracle=oracle, goals=goals)
                 declared = _validate_with_production_goal_contract(
                     case_id=str(case["id"]),
                     user_text=str(turn["user_text"]),
@@ -254,7 +232,7 @@ def main() -> int:
             "calls": calls.summary(),
             "cases": evidence,
             "guarantee": (
-                "schema-compliant real-model declaration, required-effect coverage, and representation-independent production validation; "
+                "schema-compliant real-model goal declaration, production validation, and dependency semantics; "
                 "tool authorization remains covered by deterministic runtime gates"
             ),
         }, ensure_ascii=False))
@@ -270,15 +248,12 @@ def main() -> int:
     except Exception as exc:
         category = classify_model_failure(exc)
         environment_blocked = is_environmental_model_failure_category(category)
-        diagnostic = _safe_semantic_failure(exc)
-        if environment_blocked:
-            diagnostic["error_code"] = f"semantic_model_environment__{category}"
         print(json.dumps({
             "status": "BLOCKED_BY_ENVIRONMENT" if environment_blocked else "FAIL",
             "error_type": exc.__class__.__name__,
             "error_category": category,
             "reason": "configured_model_environment_unavailable" if environment_blocked else "semantic_prototype_certification_failed",
-            **diagnostic,
+            "error": str(exc),
         }, ensure_ascii=False))
         return 78 if environment_blocked else 1
 

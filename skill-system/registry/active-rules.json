@@ -288,33 +288,6 @@
       "variance_allowed": true,
       "supersedes": [],
       "status": "active"
-    },
-    {
-      "id": "SEMANTIC_OUTCOME_OVER_INTERNAL_REPRESENTATION",
-      "level": "HARD_INVARIANT",
-      "scope": {
-        "applies_to": [
-          "customer-agent-open-language-semantics",
-          "semantic-evaluation"
-        ],
-        "excludes": [
-          "deterministic-structure-validation",
-          "authorization-invariants",
-          "transaction-invariants"
-        ]
-      },
-      "rationale": "开放语义按用户可观察效果验收；Oracle 不得把一种 Goal AST、依赖图或工具顺序升级为唯一语义真理。",
-      "verification": [
-        "oracle-review",
-        "representation-independence-regression",
-        "architecture-review"
-      ],
-      "owner": "customer-agent-architecture",
-      "introduced_at": "2026-08-02",
-      "review_date": "2026-11-02",
-      "variance_allowed": false,
-      "supersedes": [],
-      "status": "active"
     }
   ]
 }

@@ -19,12 +19,9 @@ import os
 import re
 from typing import Any, Protocol
 
-from agent_core.model_calls import invoke_model, structured_verifier_messages
-
 from agent_core.context.visible_result_refs import visible_result_refs_from_ledger
 from agent_core.kernel.capability import ToolCapabilityContract
 from agent_core.kernel.semantic_contract import semantic_goals
-from agent_core.kernel.state_schema_contract import legacy_fallback_allowed
 from agent_core.runtime.profile import resolve_verifier_mode
 
 
@@ -125,12 +122,6 @@ def _workflow_step_context(state: dict[str, Any], effect_id: str) -> dict[str, A
     effect = next((row for row in effects if str(row.get("effect_id") or "") == str(effect_id or "")), {})
     goal_ids = [str(value) for value in list(effect.get("goal_ids") or []) if str(value)]
     formal_goals = semantic_goals(state)
-    if not formal_goals and legacy_fallback_allowed(state):
-        formal_goals = [
-            dict(row)
-            for row in list((state.get("turn_goal_plan") or {}).get("goals") or [])
-            if isinstance(row, dict)
-        ]
     declared_goals = [
         dict(row)
         for row in formal_goals
@@ -242,6 +233,7 @@ class ModelSemanticCapabilityVerifier:
         step_context: dict[str, Any] | None = None,
     ) -> SemanticVerdict:
         from agent_core.config import get_model
+        from agent_core.model_calls import invoke_model, structured_verifier_messages
 
         execution_kind = str(contract.execution_kind or "grounding_read")
         instruction = (
@@ -273,8 +265,9 @@ class ModelSemanticCapabilityVerifier:
             "exact only when the candidate's declared effect and formal arguments preserve every decisive condition in the user request; an unfiltered/broader query is not exact when the user requested a condition",
             "when execution_kind is grounding_read, exact means an exact-target prerequisite read for the requested downstream effect; the read need not enact that effect",
             "evaluate only the goal_ids bound to DECLARED_WORKFLOW_STEP; other declared goals are not obligations of this candidate",
-            "typed set operations such as sort, take, ordinal, filter and identity over a verified scoped ResultRef are target-narrowing reads, not unfiltered substitute queries",
-            "for a sort set operation, target.sort_span is the literal current-turn evidence that binds the user's ranking phrase to target.sort_field and target.sort_direction; treat a valid binding as a formal decisive condition",
+            "typed set operations and controlled target pipelines over all orders or a verified scoped ResultRef are target-narrowing reads, not unfiltered substitute queries",
+            "a target.mode=pipeline is exact only when every registered filter/sort/take/ordinal step preserves the user's stated field, comparison, direction, value and scope; pipeline steps are not permission to invent SQL, code, fields or values",
+            "for a sort set operation, target.sort_span is the literal current-turn evidence that binds the user's ranking phrase to target.sort_field and target.sort_direction; for pipeline steps, the declared source_span/value_span/*_span fields provide the corresponding literal evidence; treat valid bindings as formal decisive conditions",
             "for implicit pronoun or collection continuation, target.left_handle must match the unique visible_result_ref with is_latest_visible_turn=true; selecting an older ref is unsupported unless USER_TEXT explicitly returns to or corrects an older topic",
             "context_binding explicit_return never overrides USER_TEXT semantics; its source_span must genuinely state the return/correction rather than merely contain a pronoun such as 其中/它/这些",
             "context_binding explicit_group_reference is exact only when its literal source_span explicitly refers to multiple recent visible outcomes as one group; ordinary singular or uncounted continuation is not a group reference",

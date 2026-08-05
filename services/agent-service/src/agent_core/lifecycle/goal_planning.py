@@ -18,16 +18,12 @@ import re
 from typing import Any, Protocol
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
-from agent_core.lifecycle.protocol import (
-    GOAL_DEPENDENCY_DECLARATION_RULE,
-    TERMINAL_TOOL_NAMES,
-    classify_tool,
-)
+from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
-from agent_core.lifecycle.state_schema import legacy_fallback_allowed
 from agent_core.lifecycle.semantic_contract import (
+    find_goal_dependency_cycle,
     freeze_semantic_contract,
-    legacy_turn_goal_plan_from_contract,
+    goal_declaration_projection_from_contract,
     normalize_requested_effect,
     semantic_contract_ready,
 )
@@ -35,7 +31,6 @@ from agent_core.lifecycle.semantic_state_changes import (
     validate_focus_change,
     validate_goal_changes,
 )
-from agent_core.model_calls import invoke_model, structured_verifier_messages
 from agent_core.runtime.profile import resolve_verifier_mode
 
 GOAL_PLAN_VERSION = "turn-goal-plan@1.1"
@@ -212,7 +207,7 @@ def _as_alignment_verdict(
 
 
 class ModelGoalAlignmentVerifier:
-    """Independent model judge for effect coverage, never a unique-AST authority."""
+    """Second-model verifier that can only judge declaration completeness."""
 
     def verify(
         self,
@@ -224,6 +219,7 @@ class ModelGoalAlignmentVerifier:
         active_structured_interaction: dict[str, Any] | None = None,
     ) -> GoalAlignmentVerdict:
         from agent_core.config import get_model
+        from agent_core.model_calls import invoke_model, structured_verifier_messages
 
         instruction = (
                 "Judge whether DECLARED_GOALS preserves every distinct outcome requested in USER_TEXT. "
@@ -235,11 +231,11 @@ class ModelGoalAlignmentVerifier:
                 "the customer was just shown; it is historical-only and cannot prove a current business fact."
             )
         decision_rules = [
-            "exact only when the declaration as a whole preserves every requested outcome and invents no additional business effect; do not require one unique goal decomposition when multiple representations preserve the same effects",
+            "exact only when every independently requested outcome is represented as its own goal",
             "requested_effect must preserve the user's business effect even when the current system may not implement it; never rewrite an unsupported effect to a nearby available effect",
             "expected_result_cardinality describes the final verified business population, not the number of sentences in the answer: a singular choice, superlative, one entity detail, or one eligibility/policy conclusion is single; a list/set/plural comparison is collection; an existence question over records/orders/items (for example whether any record exists) is collection because the verified population may contain zero, one, or many members even when the answer is one yes/no sentence; narrative or clarification without a business result is none; intermediate sort/filter operations do not change the user's final cardinality",
-            "incomplete when a requested outcome is absent or materially changed, or an unrequested business effect is invented; decomposition shape alone is not a failure",
-            GOAL_DEPENDENCY_DECLARATION_RULE,
+            "incomplete when distinct outcomes are collapsed into one goal or at least one literal requested outcome is absent",
+            "a later outcome that relies on an earlier selection or query must declare depends_on that earlier goal",
             "depends_on links only goals declared in this same current turn; never require a dependency on a goal from an earlier turn",
             "scope modifiers such as only/related/其中/只看 belong inside the same query goal and are not a separate requested outcome when the description preserves the narrowed target",
             "a short why/explain/summary follow-up is not ambiguous when the most recent public answer supplies one clear referent; the declared description may name that referent even though its evidence_span remains the literal current user text",
@@ -485,15 +481,6 @@ def validate_goal_declaration(
     """
     del capability_registry
     user_text = _clean_text(state.get("current_user_input"))
-    pending = (
-        state.get("pending_clarification")
-        if legacy_fallback_allowed(state)
-        and isinstance(state.get("pending_clarification"), dict)
-        and str((state.get("pending_clarification") or {}).get("status") or "") in {"pending", "resuming"}
-        else None
-    )
-    raw_resolution = args.get("clarification_resolution")
-    resolution: dict[str, Any] | None = None
     raw_goals = args.get("goals") if isinstance(args.get("goals"), list) else []
     raw_goal_changes = args.get("goal_changes") if isinstance(args.get("goal_changes"), list) else []
     raw_blocker_resolutions = args.get("blocker_resolutions") if isinstance(args.get("blocker_resolutions"), list) else []
@@ -581,6 +568,10 @@ def validate_goal_declaration(
     for row in goals:
         invalid = [dep for dep in row["depends_on"] if dep not in ids or dep == row["goal_id"]]
         errors.extend(f"invalid_goal_dependency:{row['goal_id']}:{dep}" for dep in invalid)
+    if not any(error.startswith("invalid_goal_dependency:") for error in errors):
+        cycle = find_goal_dependency_cycle(goals)
+        if cycle:
+            errors.append(f"goal_dependency_cycle:{'->'.join(cycle)}")
 
     normalized_goal_changes, goal_change_errors = validate_goal_changes(
         raw_goal_changes,
@@ -637,67 +628,6 @@ def validate_goal_declaration(
             **({"value": deepcopy(raw.get("value"))} if raw.get("value") is not None else {}),
         })
 
-    # Legacy checkpoint support remains optional.  It no longer forces the
-    # whole turn into one disposition and no longer requires the same goal_type.
-    if raw_resolution is not None:
-        if not isinstance(raw_resolution, dict):
-            errors.append("unexpected_clarification_resolution")
-        else:
-            clarification_id = _clean_text(raw_resolution.get("clarification_id"), limit=120)
-            disposition = _clean_text(raw_resolution.get("disposition"), limit=40).lower()
-            resolution_span = _clean_text(raw_resolution.get("evidence_span"), limit=240)
-            if disposition not in {"resume", "abandon", "new_request"}:
-                errors.append("invalid_clarification_disposition")
-            if not resolution_span or resolution_span not in user_text:
-                errors.append("clarification_resolution_evidence_not_in_current_turn")
-
-            # ``new_request`` and ``abandon`` are accepted as legacy audit
-            # metadata even when the old singleton clarification projection
-            # has already been retired into GoalBlockers.  They do not decide
-            # the new turn's semantics; the declared goals and state-change
-            # operations remain authoritative.  ``resume`` still requires the
-            # exact pending checkpoint because it claims continuity.
-            if pending is None and disposition == "resume":
-                errors.append("unexpected_clarification_resolution")
-            elif pending is not None and clarification_id != str(pending.get("clarification_id") or ""):
-                errors.append("pending_clarification_id_mismatch")
-
-            resolution = {
-                "clarification_id": clarification_id,
-                "disposition": disposition,
-                "evidence_span": resolution_span,
-                "compatibility_only": pending is None,
-            }
-            if disposition == "resume" and pending is not None:
-                roots = {
-                    str(row.get("goal_id") or ""): row
-                    for row in list(pending.get("suspended_goals") or [])
-                    if isinstance(row, dict) and str(row.get("goal_id") or "")
-                }
-                for goal in goals:
-                    root_id = str(goal.get("continuation_of") or "")
-                    if root_id and root_id not in roots:
-                        errors.append(f"invalid_continuation_of:{goal['goal_id']}")
-                        continue
-                    if not root_id:
-                        continue
-                    root = roots[root_id]
-                    root_effect = root.get("requested_effect") if isinstance(root.get("requested_effect"), dict) else None
-                    goal_effect = goal.get("requested_effect") if isinstance(goal.get("requested_effect"), dict) else None
-                    if root_effect is not None and goal_effect is not None:
-                        root_identity = tuple(str(root_effect.get(key) or "") for key in ("domain", "operation", "object_type"))
-                        goal_identity = tuple(str(goal_effect.get(key) or "") for key in ("domain", "operation", "object_type"))
-                        if root_identity != goal_identity:
-                            errors.append(f"continued_requested_effect_changed:{goal['goal_id']}:{root_id}")
-                    else:
-                        # Compatibility checkpoint: exact equality is a state
-                        # invariant, not a language classifier.  A real change
-                        # must be expressed as supersede/create, not hidden in
-                        # a legacy resume operation.
-                        root_type = str(root.get("goal_type") or "")
-                        if root_type and str(goal.get("goal_type") or "") != root_type:
-                            errors.append(f"continued_goal_type_changed:{goal['goal_id']}:{root_type}")
-
     if errors:
         return ({
             "ok": False,
@@ -705,18 +635,7 @@ def validate_goal_declaration(
             "message": "本轮语义候选没有通过结构和证据验证，Runtime 不会改写后继续执行。",
             "data": {"errors": errors, **_goal_declaration_repair_context(user_text)},
         }, None)
-
-    if resolution is not None and resolution.get("disposition") == "resume":
-        alignment = GoalAlignmentVerdict(
-            "exact", (str(resolution.get("evidence_span") or ""),), (),
-            "validated_pending_clarification_resume", "runtime_protocol", True,
-            {
-                "source_clarification_id": resolution.get("clarification_id"),
-                "business_target_still_requires_match_proof": True,
-            },
-        )
-    else:
-        alignment = verify_goal_alignment(
+    alignment = verify_goal_alignment(
             state=state,
             goals=goals,
             known_tools=set(),
@@ -760,10 +679,9 @@ def validate_goal_declaration(
             "data": {"errors": [str(exc)], **_goal_declaration_repair_context(user_text)},
         }, None)
 
-    plan = legacy_turn_goal_plan_from_contract(contract)
+    plan = goal_declaration_projection_from_contract(contract)
     plan["version"] = GOAL_PLAN_VERSION
     plan["user_text"] = user_text
-    plan["clarification_resolution"] = deepcopy(resolution)
     plan["immutable_for_turn"] = True
     by_id = {str(row.get("goal_id") or ""): row for row in goals}
     for row in plan["goals"]:
@@ -774,8 +692,7 @@ def validate_goal_declaration(
         for key in ("target_candidate", "input_candidates", "condition", "execution_commitment"):
             if key in source:
                 row[key] = deepcopy(source[key])
-    # Private hand-off consumed immediately by tool_execution_runtime.  The
-    # stored turn_goal_plan is stripped back to a compatibility projection.
+    # Private same-turn hand-off consumed immediately by tool_execution_runtime.
     plan["_frozen_semantic_contract"] = contract
     plan["_semantic_proposal"] = deepcopy({
         "summary": args.get("summary"),
@@ -797,16 +714,10 @@ def validate_goal_declaration(
 
 
 def goal_plan_ready(state: dict[str, Any]) -> bool:
-    if semantic_contract_ready(state):
-        return int((state.get("frozen_semantic_contract") or {}).get("turn") or -1) == int(state.get("turn_index") or 0)
-    if not legacy_fallback_allowed(state):
-        return False
-    plan = state.get("turn_goal_plan")
     return bool(
-        isinstance(plan, dict)
-        and int(plan.get("turn") or -1) == int(state.get("turn_index") or 0)
-        and isinstance(plan.get("goals"), list)
-        and plan.get("goals")
+        semantic_contract_ready(state)
+        and int((state.get("frozen_semantic_contract") or {}).get("turn") or -1)
+        == int(state.get("turn_index") or 0)
     )
 
 

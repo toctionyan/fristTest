@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-v20.17-b34-resilient-task-harness",
+  "evidence_id": "B34-ISSUE-REL-001-ORACLE-EVIDENCE",
+  "issue_id": "ISSUE-REL-001",
+  "status": "VERIFIED",
+  "subject": "release workflow oracle remains current after B34 repair-Harness changes",
+  "finding": "B34 changed the quality-loop temporary-workspace fixture, not the protected release workflow oracle. A mutable architecture test source must not remain the immutable historical identity for ISSUE-REL-001.",
+  "superseded_mutable_evidence_ref": "services/agent-service/tests/architecture/test_quality_loop_governance.py",
+  "authoritative_live_refs": [
+    "skill-system/tests/test_stage6_host_release_readiness.py",
+    ".github/workflows/release.yml"
+  ],
+  "invariant": "historical ledger evidence must use an immutable evidence record; mutable source files may be referenced by that record but must not be pinned as historical identity",
+  "expected_gate": "scripts/verify_task_ledger.py returns PASS"
+}

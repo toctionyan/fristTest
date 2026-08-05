@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-v20.17-b22-transaction-identity-closure",
+  "evidence_id": "B22-ISSUE-ENV-001-BLOCKED-BY-ENVIRONMENT",
+  "issue_id": "ISSUE-ENV-001",
+  "status": "BLOCKED_BY_ENVIRONMENT",
+  "reason": "Standard quick profile cannot reach all product suites without the locked Python, LangGraph/LangChain, frontend dependency, PostgreSQL and real-provider environment.",
+  "superseded_mutable_evidence_ref": ".quality/product-control-plane/repair-v20.17-b22-transaction-identity-closure/blocked-by-environment.json",
+  "non_environment_evidence": {
+    "repair_governance": "governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/closure-matrix.json",
+    "agent": "63 passed, 1 PostgreSQL integration deselected",
+    "business": "38 passed",
+    "compileall": "PASS"
+  },
+  "environment_requirements": [
+    "Python 3.12.13 locked environment",
+    "langgraph/langchain_core",
+    "frontend node_modules",
+    "AGENT_TEST_POSTGRES_URL",
+    "real-model credentials"
+  ],
+  "production_closed": false,
+  "recorded_at": "2026-08-02T12:30:00+00:00",
+  "invariant": "historical ledger evidence must live under governance and must not depend on disposable .quality runtime output"
+}

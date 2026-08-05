@@ -62,9 +62,13 @@ def prepare_agent_loop_turn_node(state: dict[str, Any]) -> dict[str, Any]:
         "plan_run": None,
         "grounded_execution_plan": None,
         "pretool_shadow_plan": None,
+        "pretool_execution_policy": None,
         "pretool_shadow_comparisons": [],
         "goal_blockers": active_goal_blockers(state),
         "goal_records": active_goal_records(state),
+        # GoalOutputRef is scoped to one frozen turn semantic contract. A new
+        # user turn must not inherit a prior contract's planning evidence.
+        "goal_output_refs": [],
         "focus_state": dict(state.get("focus_state") or {}) or None,
         "execution_permits": [],
         "turn_match_proofs": [],

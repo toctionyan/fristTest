@@ -1,0 +1,137 @@
+{
+  "candidate": "B34 Resilient Task Harness",
+  "checks": [
+    {
+      "command_fingerprint": "11526cbf69167616558ea5c8fd10c1d11c134be901ab0d8ca03f3734684ffadf",
+      "completed_at": "2026-08-04T11:20:12.910154+00:00",
+      "duration_seconds": 7.754,
+      "name": "task_run_control_plane",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/task_run_control_plane.stdout.txt"
+    },
+    {
+      "command_fingerprint": "8fab16b7b0cb08d247d05ca956c103739c6866839ce3fd67900d7561da4476b5",
+      "completed_at": "2026-08-04T11:20:22.842029+00:00",
+      "duration_seconds": 9.914,
+      "name": "repair_loop_interruption_contracts",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/repair_loop_interruption_contracts.stdout.txt"
+    },
+    {
+      "command_fingerprint": "b1985edb202dc4675da2f4332f5fd06eb80d33370add69ba8e5d25f7c4aecf8d",
+      "completed_at": "2026-08-04T11:25:10.022346+00:00",
+      "duration_seconds": 22.924,
+      "name": "skill_control_plane",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/skill_control_plane.stdout.txt"
+    },
+    {
+      "command_fingerprint": "833ce14b6cbe0f3e605771ed02eae0cd0a036743498fb4a1ece5c615cd9dfe92",
+      "completed_at": "2026-08-04T11:25:26.834983+00:00",
+      "duration_seconds": 2.43,
+      "name": "stage1_stage5_core_regression",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/stage1_stage5_core_regression.stdout.txt"
+    },
+    {
+      "command_fingerprint": "7988412c567ca3783d2a41f67ab2fb3b611f72f7682db18354b57aa6d33d4f8c",
+      "completed_at": "2026-08-04T11:25:51.391083+00:00",
+      "duration_seconds": 12.875,
+      "name": "broad_context_transaction_governance_regression",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/broad_context_transaction_governance_regression.stdout.txt"
+    },
+    {
+      "command_fingerprint": "8e7cfc17bdccbb6cfbca80d1905f5efd7dd62ac038d57ef0ae7b9b6113928044",
+      "completed_at": "2026-08-04T11:26:05.449579+00:00",
+      "duration_seconds": 1.47,
+      "name": "architecture",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/architecture.stdout.txt"
+    },
+    {
+      "command_fingerprint": "e6d497ff5d1483abbf5dc17155cfca6b6c54e215bc085f5811afd8c1d44de3ad",
+      "completed_at": "2026-08-04T11:26:22.439025+00:00",
+      "duration_seconds": 0.761,
+      "name": "module_closure",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/module_closure.stdout.txt"
+    },
+    {
+      "command_fingerprint": "19ad680b39e6094df2b706c9d708d45df19932e3b85bc5659a231aefd03fe47f",
+      "completed_at": "2026-08-04T11:26:37.012536+00:00",
+      "duration_seconds": 0.643,
+      "name": "version_consistency",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/version_consistency.stdout.txt"
+    },
+    {
+      "command_fingerprint": "f7fd86fe628beebfc8f3caf147b430a150aa3470a1155398066e332819db3dd1",
+      "completed_at": "2026-08-04T11:26:50.790867+00:00",
+      "duration_seconds": 1.216,
+      "name": "convergence",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-ffbaf2472a096d405384/convergence.stdout.txt"
+    }
+  ],
+  "completion_eligible": true,
+  "environment": {
+    "blockers": [
+      "missing Python modules: langchain_core, langgraph",
+      "locked Python is 3.12.13; current interpreter is 3.13.5",
+      "real DeepSeek/OpenAI provider certification not executed locally",
+      "managed PostgreSQL/pgvector recovery not executed locally",
+      "dual-service browser and concurrency certification not executed locally"
+    ],
+    "name": "production_environment_closure",
+    "production_closed": false,
+    "required_for_candidate": false,
+    "status": "BLOCKED_BY_ENVIRONMENT"
+  },
+  "invalid_conditions": [],
+  "missing_conditions": [],
+  "production_closed": false,
+  "schema_version": 2,
+  "source_fingerprint": "8013cf0d0d764777986cb0b4e750ef7ed1fb3c58732ea1c161ef33beb6e43824",
+  "status": "PASS",
+  "task_run_file": ".quality/task-runs/verify-b34-resilient-harness-ffbaf2472a096d405384.json",
+  "task_run_phase": "COMPLETED",
+  "task_run_status": "COMPLETED",
+  "updated_at": "2026-08-04T11:26:50.801989+00:00"
+}

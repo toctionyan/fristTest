@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import verified_read_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -21,6 +22,11 @@ DEFINITION = EcommerceCapabilityDefinition(
     exclusion_examples=('可以退款吗', '能退吗', '退款资格', '退款政策', '帮我退款', '申请退款'),
     schema=target_query_schema("list_refunds", "查询一个或一组订单/退款记录的退款办理进度。", shape=("one", "collection")),
     executor=execute,
+    contract_version='2',
+    planning_contract=verified_read_contract(
+        resource_types=("order", "refund"), cardinality="one_or_collection", target_type="ResolvedRefundQueryTarget",
+        output_name="refund_status_snapshot", output_type="VerifiedRefundStatusSnapshot",
+    ),
     presentation_contract='commerce.business_status_list@1',
     public_label=None,
 )

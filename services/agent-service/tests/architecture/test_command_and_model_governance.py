@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.support.test_semantic_state import install_test_semantic_contract
 import sys
 import types
 
@@ -155,6 +156,14 @@ def test_answer_release_verifier_repairs_one_non_json_response(monkeypatch) -> N
 
     monkeypatch.setattr(config_module, "get_model", lambda: object())
     monkeypatch.setattr(alignment_module, "invoke_model", fake_invoke_model)
+    monkeypatch.setattr(
+        alignment_module,
+        "structured_verifier_messages",
+        lambda *, instruction, payload, format_repair=None, **_kwargs: [
+            types.SimpleNamespace(content=instruction),
+            types.SimpleNamespace(content=str({"payload": payload, "FORMAT_REPAIR": format_repair}) if format_repair else str({"payload": payload})),
+        ],
+    )
 
     verdict = alignment_module.ModelAnswerAlignmentVerifier().verify(
         user_text="其中最贵的是哪个？",
@@ -184,6 +193,14 @@ def test_answer_release_verifier_still_fails_closed_after_two_non_json_responses
         alignment_module,
         "invoke_model",
         lambda **_kwargs: (Response(), {"purpose": "answer_release_alignment"}),
+    )
+    monkeypatch.setattr(
+        alignment_module,
+        "structured_verifier_messages",
+        lambda *, instruction, payload, format_repair=None, **_kwargs: [
+            types.SimpleNamespace(content=instruction),
+            types.SimpleNamespace(content=str({"payload": payload, "FORMAT_REPAIR": format_repair}) if format_repair else str({"payload": payload})),
+        ],
     )
 
     verdict = alignment_module.ModelAnswerAlignmentVerifier().verify(
@@ -399,9 +416,6 @@ def test_answer_release_does_not_scope_judge_a_non_effecting_narrative(monkeypat
 
     state = {
         "current_user_input": "这两个问题有什么不同？",
-        "turn_goal_plan": {
-            "goals": [{"goal_id": "g1", "goal_type": "narrative", "evidence_span": "这两个问题有什么不同"}],
-        },
         "runtime_outcome": {
             "outcome_type": "narrative",
             "effects": "none",
@@ -412,6 +426,19 @@ def test_answer_release_does_not_scope_judge_a_non_effecting_narrative(monkeypat
         },
         "tool_trace": [],
     }
+    install_test_semantic_contract(state, {
+        "turn": 1,
+        "user_text": state["current_user_input"],
+        "goals": [{
+            "goal_id": "g1",
+            "description": "比较两个问题",
+            "goal_type": "narrative",
+            "evidence_span": "这两个问题有什么不同",
+            "requested_effect": {"domain": "narrative", "operation": "compare", "object_type": "question"},
+            "required": True,
+            "depends_on": [],
+        }],
+    })
     monkeypatch.setenv("ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE", "model")
     monkeypatch.setattr(
         "agent_core.runtime.answer_release_alignment.ModelAnswerAlignmentVerifier.verify",

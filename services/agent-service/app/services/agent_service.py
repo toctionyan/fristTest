@@ -19,6 +19,7 @@ from app.services.turn_lock import ConversationBusyError, ConversationLease
 from agent_core.runtime.turn_fencing import TurnFence, activate_turn_fence
 from app.services.checkpoint_hydrator import CheckpointHydrator
 from app.services.response_projector import ResponseProjector
+from app.services.stale_interaction import build_stale_interaction_response
 from app.services.lifecycle_command_runner import LifecycleCommandRunner
 from app.use_cases.transaction_start import TransactionStartUseCase
 from app.use_cases.interaction_submit import InteractionSubmitUseCase
@@ -27,6 +28,7 @@ from app.schemas.chat_schema import ActionAuthorityRequest, ActionInputRequest, 
 from agent_core.transaction.interaction import INTERACTION_SCHEMA_VERSION
 from agent_core.ledger import append_entries, artifact_entry, find_handle, scope_for_state
 from agent_core.transaction.active_draft import get_active_draft_id
+from agent_core.transaction.focus import get_focused_draft_id
 from agent_core.transaction.interaction import interaction_response_contract, pending_transaction_summaries_from_state
 from agent_core.runtime.deps import lifecycle_runtime_deps
 from agent_core.config import clear_checkpointer_cache
@@ -261,30 +263,14 @@ class AgentService:
         include_debug: bool,
         reason: str,
         interaction_id: str | None = None,
+        latest_state: dict[str, Any] | None = None,
     ) -> ChatResponse:
-        """Return an explicit terminal lifecycle update for stale UI controls.
-
-        A client must never be left with an active-looking form/card after a
-        replay, refresh or concurrent state change.  The response stays a
-        normal answer for compatibility, while ``interaction_update`` makes
-        the transaction component transition itself to ``expired``.
-        """
-        message = "该确认已失效或已处理，未执行任何业务写操作。"
-        state = {"phase": "done", "status": "ConfirmationExpired"}
-        if include_debug:
-            state["debug_confirmation_error"] = {"reason": reason}
-        return ChatResponse(
-            type="answer",
-            thread_id=thread_id,
-            answer=message,
-            interaction_update={
-                "schema_version": INTERACTION_SCHEMA_VERSION,
-                "interaction_id": str(interaction_id or "") or None,
-                "kind": "transaction",
-                "lifecycle": "expired",
-                "message": message,
-            } if interaction_id else None,
-            state=state,
+        return build_stale_interaction_response(
+            thread_id,
+            include_debug=include_debug,
+            reason=reason,
+            interaction_id=interaction_id,
+            latest_state=latest_state,
         )
 
     def _recover_interaction_after_exception(
@@ -378,6 +364,7 @@ class AgentService:
             user_id=str(request.user_id or ""),
             role=role,
             tenant_id=request.tenant_id,
+            subject_user_id=str(getattr(request, "subject", "") or request.user_id or ""),
             subject=str(getattr(request, "subject", "") or request.user_id or ""),
             permissions=tuple(str(item) for item in (getattr(request, "actor_permissions", None) or []) if str(item)),
         )
@@ -396,6 +383,7 @@ class AgentService:
             "current_thread_id": request.thread_id,
             "current_user_id": request.user_id,
             "current_tenant_id": request.tenant_id,
+            "current_subject": request.subject or request.user_id,
         }
         try:
             hydrated = ResourceTargetRuntime(get_runtime_registry().resources).resolve_structured_target(

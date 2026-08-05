@@ -34,6 +34,10 @@ from architecture_policy import (  # type: ignore
     promote_delta,
     validate_delta,
 )
+from repair_governance import (  # type: ignore
+    validate_begin_ready,
+    validate_verification_ready,
+)
 
 FINAL_RESULTS = (
     "CONVERGED",
@@ -115,6 +119,8 @@ def _product_payload(args: argparse.Namespace, workspace: Path) -> dict[str, Any
         "architecture_policy_delta": args.architecture_policy_delta,
         "baseline_policy_id": args.baseline_policy_id,
         "verification": None,
+        "repair_governance": args.repair_governance,
+        "repair_governance_consumed_at": None,
         "created_at": _now(),
         "status": "approved" if args.approve else "draft",
         "result": "PENDING",
@@ -145,6 +151,8 @@ def _skill_payload(args: argparse.Namespace) -> dict[str, Any]:
         "architecture_policy_delta": args.architecture_policy_delta,
         "baseline_policy_id": args.baseline_policy_id,
         "verification": None,
+        "repair_governance": args.repair_governance,
+        "repair_governance_consumed_at": None,
         "created_at": _now(),
         "status": "approved" if args.approve else "draft",
         "result": "PENDING",
@@ -206,6 +214,8 @@ def cmd_configure(args: argparse.Namespace) -> int:
         payload["architecture_policy_delta"] = args.architecture_policy_delta
     if args.baseline_policy_id is not None:
         payload["baseline_policy_id"] = args.baseline_policy_id
+    if args.repair_governance is not None:
+        payload["repair_governance"] = args.repair_governance
     if args.variance:
         payload["variance_records"] = _dedupe(list(payload.get("variance_records") or []) + list(args.variance))
     _write_contract(contract.path, payload)
@@ -214,13 +224,24 @@ def cmd_configure(args: argparse.Namespace) -> int:
 
 
 def cmd_begin(_args: argparse.Namespace) -> int:
-    contract = load_contract(_workspace())
+    workspace = _workspace()
+    contract = load_contract(workspace)
     payload = dict(contract.payload)
     if payload.get("status") not in {"approved", "review"}:
         raise SystemExit(f"cannot begin contract from status {payload.get('status')}")
     if contract.target_kind.value in TRANSITION_KINDS and contract.profile in PRODUCT_PROFILES:
         if not str(payload.get("baseline_evidence") or "").strip():
             raise SystemExit("product transition must run product-baseline before begin")
+    if contract.target_kind.value in TRANSITION_KINDS:
+        # Migration/repair prerequisites must fail before the contract enters a writable state.
+        # In particular, a migration cannot postpone its three-option architecture decision
+        # until final verification after implementation and tests have already run.
+        _validate_architecture_inputs(workspace, payload)
+        try:
+            governance = validate_begin_ready(workspace, payload)
+        except ValueError as exc:
+            raise SystemExit(f"repair governance is not ready: {exc}") from exc
+        payload["repair_governance_permit_digest"] = governance["permit_digest"]
     payload["status"] = "implementing"
     payload["verification"] = None
     payload["result"] = "PENDING"
@@ -361,6 +382,14 @@ def cmd_verify(args: argparse.Namespace) -> int:
     if contract.status not in {"review", "implementing", "approved"}:
         raise SystemExit(f"cannot verify contract from status {contract.status}")
     _validate_architecture_inputs(workspace, contract.payload)
+    repair_governance: dict[str, object] | None = None
+    if contract.target_kind.value in TRANSITION_KINDS:
+        try:
+            repair_governance = validate_verification_ready(
+                workspace, contract.payload, expected_result=args.result
+            )
+        except ValueError as exc:
+            raise SystemExit(f"repair governance verification failed: {exc}") from exc
     reviews: dict[str, dict[str, object]] = {
         "adversarial-reviewer": _require_review(workspace, contract.payload, "adversarial-reviewer")
     }
@@ -402,6 +431,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         "profile_results": profile_results,
         "review_evidence": reviews,
         "architecture_policy": architecture_policy_meta,
+        "repair_governance": repair_governance,
     }
     output.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -449,6 +479,12 @@ def cmd_close(args: argparse.Namespace) -> int:
     if fingerprint != verification.get("source_fingerprint"):
         raise SystemExit("governed source changed after verification")
     payload = dict(contract.payload)
+    if contract.target_kind.value in TRANSITION_KINDS:
+        try:
+            validate_verification_ready(workspace, contract.payload, expected_result=args.result)
+        except ValueError as exc:
+            raise SystemExit(f"repair governance changed after verification: {exc}") from exc
+        payload["repair_governance_consumed_at"] = _now()
     payload["status"] = "closed"
     payload["closed_at"] = _now()
     _write_contract(contract.path, payload)
@@ -510,6 +546,7 @@ def main() -> int:
     init.add_argument("--variance", action="append", default=[])
     init.add_argument("--architecture-policy-delta")
     init.add_argument("--baseline-policy-id")
+    init.add_argument("--repair-governance")
     init.add_argument("--approve", action="store_true")
     init.add_argument("--force", action="store_true")
     init.set_defaults(func=cmd_init)
@@ -523,6 +560,7 @@ def main() -> int:
     configure.add_argument("--variance", action="append", default=[])
     configure.add_argument("--architecture-policy-delta")
     configure.add_argument("--baseline-policy-id")
+    configure.add_argument("--repair-governance")
     configure.set_defaults(func=cmd_configure)
     begin = sub.add_parser("begin"); begin.set_defaults(func=cmd_begin)
     attest = sub.add_parser("attest-review")

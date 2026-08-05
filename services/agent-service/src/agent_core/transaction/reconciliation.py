@@ -12,8 +12,9 @@ from typing import Any, Callable
 from agent_core.business import BusinessServiceError
 from agent_core.ledger import append_entries, find_handle, ledger_cards, receipt_entry, scope_for_state
 from agent_core.transaction import command_digest_for_offer, transition_draft
-from agent_core.transaction.active_draft import active_draft_patch
-from agent_core.transaction.coordinator import classify_business_failure
+from agent_core.storage.repositories.base import TransactionScope
+from agent_core.transaction.focus import focused_draft_patch, get_focused_draft_id, next_focus_after_terminal
+from agent_core.transaction.failure import classify_business_failure
 
 
 def reconcile_attempts(
@@ -96,5 +97,40 @@ def reconcile_attempts(
         if grant_id: store.revoke_grant(grant_id,reason=classified)
     if not additions: return None
     merged=append_entries(ledger,additions)
-    return {"artifact_ledger":merged,"ledger_snapshot":ledger_cards(merged,scope=scope),**active_draft_patch(None),"pending_confirmation_id":None,"pending_confirmation_version":None,"response_contract":None,"transaction_reconciliation":reconciled}
+    update: dict[str, Any] = {
+        "artifact_ledger": merged,
+        "ledger_snapshot": ledger_cards(merged, scope=scope),
+        "transaction_reconciliation": reconciled,
+    }
+    focused = get_focused_draft_id(state)
+    terminal_ids = {
+        str(item.get("draft_id") or "")
+        for item in additions
+        if isinstance(item, dict)
+        and str(item.get("kind") or "") == "offer"
+        and str(item.get("draft_state") or "").upper() in {"COMMITTED", "FAILED_FINAL", "EXPIRED", "REVOKED"}
+    }
+    if focused and focused in terminal_ids:
+        transaction_scope = TransactionScope(
+            tenant_id=str(scope.get("tenant_id") or "default"),
+            user_id=str(scope.get("user_id") or ""),
+            thread_id=str(scope.get("thread_id") or "") or None,
+        )
+        update.update(
+            focused_draft_patch(
+                next_focus_after_terminal(
+                    store,
+                    scope=transaction_scope,
+                    terminal_draft_id=focused,
+                )
+            )
+        )
+        update.update(
+            {
+                "pending_confirmation_id": None,
+                "pending_confirmation_version": None,
+                "response_contract": None,
+            }
+        )
+    return update
 

@@ -2,8 +2,10 @@
 from __future__ import annotations
 from typing import Any
 
+from agent_modules.ecommerce.target_dsl import PIPELINE_STEPS_SCHEMA
+
 _TARGET_PROPERTIES: dict[str, Any] = {
-    "mode": {"type": "string", "enum": ["all_orders", "entity_match", "artifact", "collection", "set_operation"]},
+    "mode": {"type": "string", "enum": ["all_orders", "entity_match", "artifact", "collection", "set_operation", "pipeline"]},
     "attribute_span": {"type": "string", "minLength": 1},
     "status": {"type": "string", "enum": ["待付款", "已付款", "待发货", "已发货", "运输中", "已签收", "已取消"]},
     "status_span": {"type": "string", "minLength": 1},
@@ -15,6 +17,9 @@ _TARGET_PROPERTIES: dict[str, Any] = {
     "sort_field": {"type": "string", "enum": ["created_at", "amount", "order_id"]},
     "sort_direction": {"type": "string", "enum": ["asc", "desc"]},
     "sort_span": {"type": "string", "minLength": 1},
+    "source_kind": {"type": "string", "enum": ["all_orders", "collection"]},
+    "source_handle": {"type": "string", "minLength": 1},
+    "steps": PIPELINE_STEPS_SCHEMA,
 }
 
 
@@ -92,6 +97,16 @@ TARGET_SCHEMA: dict[str, Any] = {
             required=["mode", "operator", "left_handle", "position"],
             constants={"mode": "set_operation", "operator": "ordinal"},
         ),
+        _target_variant(
+            properties=["mode", "source_kind", "steps"],
+            required=["mode", "source_kind", "steps"],
+            constants={"mode": "pipeline", "source_kind": "all_orders"},
+        ),
+        _target_variant(
+            properties=["mode", "source_kind", "source_handle", "steps"],
+            required=["mode", "source_kind", "source_handle", "steps"],
+            constants={"mode": "pipeline", "source_kind": "collection"},
+        ),
     ],
 }
 LOGISTICS_QUERY_SCHEMA: dict[str, Any] = {
@@ -111,16 +126,32 @@ CONTEXT_BINDING_SCHEMA: dict[str, Any] = {
     "description": (
         "仅在显式引用非最新可见结果时填写。explicit_return 用于按商品名/订单号回到一个旧结果，"
         "source_span 必须逐字复制标签片段；explicit_group_reference 用于‘刚才两个/前面三个’这类"
-        "明确把最近连续多个可见结果作为一组的引用，source_span 必须逐字复制该组引用。普通的"
-        "其中/它/这些不能伪装成任一种显式绑定。"
+        "明确把最近连续多个可见结果作为一组的引用，source_span 必须逐字复制该组引用，group_size "
+        "必须填写用户明确指向的结果数量。普通的其中/它/这些不能伪装成任一种显式绑定。"
     ),
-    "properties": {
-        "reference_kind": {"type": "string", "enum": ["explicit_return", "explicit_group_reference"]},
-        "source_span": {"type": "string", "minLength": 1},
-    },
-    "required": ["reference_kind", "source_span"],
-    "additionalProperties": False,
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "reference_kind": {"const": "explicit_return"},
+                "source_span": {"type": "string", "minLength": 1},
+            },
+            "required": ["reference_kind", "source_span"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "reference_kind": {"const": "explicit_group_reference"},
+                "source_span": {"type": "string", "minLength": 1},
+                "group_size": {"type": "integer", "minimum": 2, "maximum": 4},
+            },
+            "required": ["reference_kind", "source_span", "group_size"],
+            "additionalProperties": False,
+        },
+    ],
 }
+
 
 
 def function_schema(name: str, description: str, properties: dict[str, Any], required: list[str]) -> dict[str, Any]:

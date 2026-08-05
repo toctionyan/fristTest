@@ -29,6 +29,8 @@ class State(TypedDict, total=False):
     current_user_id: str
     current_role: str
     current_tenant_id: str | None
+    # Authenticated/delegated business subject. It is independent from Actor.
+    current_subject: str | None
 
     state_schema_version: int
     state_migration: dict[str, Any] | None
@@ -54,15 +56,20 @@ class State(TypedDict, total=False):
     frozen_plan_definition: dict[str, Any] | None
     plan_run: dict[str, Any] | None
     grounded_execution_plan: dict[str, Any] | None
-    # Pre-tool plan is diagnostic shadow evidence only. It cannot dispatch,
-    # create permits, mutate semantics or replace grounded_execution_plan.
+    # Pre-tool topology remains diagnostic evidence. The separate execution
+    # policy may narrow only the next provider Tool surface; it cannot dispatch,
+    # create permits, resolve targets, mutate semantics or replace the formal plan.
     pretool_shadow_plan: dict[str, Any] | None
+    pretool_execution_policy: dict[str, Any] | None
     pretool_shadow_comparisons: list[dict[str, Any]]
     # Multiple goal-scoped blockers may coexist and are the only durable
     # clarification authority in State Schema v2.
     goal_blockers: list[dict[str, Any]]
     # Durable semantic goal lifecycle. It is not a business/transaction state.
     goal_records: list[dict[str, Any]]
+    # Typed, verified outputs produced by completed Goals. These are planning
+    # evidence only and always reference active ledger artifacts.
+    goal_output_refs: list[dict[str, Any]]
     focus_state: dict[str, Any] | None
     # Exact per-turn capability discovery evidence. This is not semantic or
     # business authority; it must nevertheless be a declared graph channel so
@@ -117,6 +124,12 @@ class State(TypedDict, total=False):
     presentation: dict[str, Any] | None
     transaction_context_hint: bool
     transaction_context_blocked: bool
+    # Canonical UI interaction focus. Multiple durable Drafts may remain open;
+    # this pointer selects only the one currently rendered/accepted by UI.
+    focused_draft_id: str | None
+    # Compatibility projection for older clients/checkpoints. Runtime readers
+    # resolve through transaction.focus and never treat this as authority when
+    # focused_draft_id is present (including explicit null).
     active_draft_id: str | None
     # Read-only reconciliation facts from the durable attempt store. They are
     # not semantic context and cannot authorize a new operation.

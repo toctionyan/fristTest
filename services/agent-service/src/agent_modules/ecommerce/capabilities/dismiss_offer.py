@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import session_correction_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -21,6 +22,11 @@ DEFINITION = EcommerceCapabilityDefinition(
     exclusion_examples=('取消订单', '退款申请'),
     schema=function_schema("dismiss_offer", "撤销或停止当前未执行 Draft；offer_handle 必须来自当前已验证办理状态，reference_span 必须来自本轮停止原话。", {"offer_handle": {"type": "string"}, "reference_span": {"type": "string"}}, ["offer_handle", "reference_span"]),
     executor=execute,
+    contract_version='2',
+    planning_contract=session_correction_contract(
+        resource_type="transaction_draft", input_name="offer_binding",
+        input_type="VerifiedTransactionDraftBinding", output_type="DraftDismissalOutcome",
+    ),
     presentation_contract='runtime.transaction_status@1',
     public_label=None,
 )

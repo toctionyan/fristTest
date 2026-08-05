@@ -19,6 +19,7 @@ MANIFEST_REL = Path("skill-system/trusted-judge/manifest.json")
 # version as its own proof.
 TRUSTED_PATTERNS = (
     "scripts/quality_loop.py",
+    "scripts/quality_control/*.py",
     "scripts/repair_loop.py",
     "scripts/source_paths.py",
     "scripts/verify_*.py",

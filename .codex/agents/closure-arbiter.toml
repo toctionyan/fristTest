@@ -1,0 +1,7 @@
+name = "closure_arbiter"
+description = "Read-only evidence arbiter for verified repair closure."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md and skill-system/agents/closure-arbiter.md. Stay read-only. Never map max-cycle exhaustion or environment blocking to convergence.
+"""

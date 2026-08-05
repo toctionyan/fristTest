@@ -13,8 +13,14 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
-from agent_core.persistence.store_provider import get_store_provider
 from agent_core.transaction.model import canonical_command_payload, command_digest_for_offer
+from agent_core.transaction.failure import classify_business_failure
+
+
+def get_store_provider():
+    """Lazy provider lookup keeps pure protocol imports graph-independent."""
+    from agent_core.persistence.store_provider import get_store_provider as provider
+    return provider()
 
 
 def transaction_store(state: dict[str, Any] | None = None):
@@ -169,22 +175,3 @@ def reserve_grant_and_start_attempt(*, state: dict[str, Any], offer: dict[str, A
         {"reserved": bool(lifecycle.get("reserved")), "grant": dict(lifecycle.get("grant") or {})},
         {"created": bool(lifecycle.get("created")), "attempt": attempt},
     )
-
-
-def classify_business_failure(*, code: int | str | None, error: str | None) -> str:
-    """Classify Agent observation, not business truth.
-
-    Network/transport ambiguity must never be presented as a definitive
-    rejection.  Business Service has the definitive result behind the same
-    idempotency key.
-    """
-    try:
-        numeric = int(code) if code is not None else 0
-    except (TypeError, ValueError):
-        numeric = 0
-    text = str(error or "").lower()
-    if numeric in {0, 502, 503, 504} or any(token in text for token in ("timeout", "connection", "network", "temporarily", "request failed")):
-        return "SUBMISSION_UNKNOWN"
-    if numeric in {409, 423, 429}:
-        return "FAILED_RETRYABLE"
-    return "FAILED_FINAL"

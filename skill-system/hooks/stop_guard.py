@@ -14,6 +14,7 @@ if str(CONTROLLER) not in sys.path:
 
 from contract import load_contract  # type: ignore
 from verification import source_fingerprint  # type: ignore
+from repair_governance import TRANSITION_KINDS, validate_verification_ready  # type: ignore
 
 
 def _deny(reason: str, detail: str | None = None) -> int:
@@ -41,6 +42,13 @@ def main() -> int:
         return 0
     if contract.status not in {"verified", "closed"}:
         return _deny(f"change contract {contract.change_id} is {contract.status}, not verified/closed")
+    if contract.target_kind.value in TRANSITION_KINDS:
+        try:
+            validate_verification_ready(
+                workspace, contract.payload, expected_result=str(contract.payload.get("result") or "")
+            )
+        except ValueError as exc:
+            return _deny(f"repair governance completion is invalid: {exc}")
     verification = contract.payload.get("verification")
     if not isinstance(verification, dict):
         return _deny("completion verification identity is missing")

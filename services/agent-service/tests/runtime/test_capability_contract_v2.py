@@ -101,18 +101,36 @@ def test_ecommerce_verticals_expose_v2_planning_contracts() -> None:
     from agent_modules.ecommerce.capabilities.registry import BY_TOOL_NAME
 
     expected = {
-        "get_order_logistics",
-        "list_invoices",
+        "ask_context_clarification",
+        "consult_after_sales_policy",
+        "consult_invoice_policy",
+        "consult_refund_policy",
+        "consult_warranty_policy",
+        "dismiss_eligibility",
+        "dismiss_offer",
         "evaluate_refund_eligibility",
+        "get_order_details",
+        "get_order_logistics",
+        "list_active_eligibilities",
+        "list_active_offers",
+        "list_after_sales_requests",
+        "list_invoices",
+        "list_orders",
+        "list_refunds",
+        "prepare_after_sales_request",
+        "prepare_cancel_order",
+        "prepare_invoice",
         "prepare_refund",
         "prepare_refund_from_eligibility",
-        "prepare_invoice",
+        "query_transaction_lifecycle",
+        "report_unsupported_request",
     }
     for tool_name in expected:
         contract = BY_TOOL_NAME[tool_name].contract
         assert contract.contract_version == "2"
         assert contract.planning_contract is not None
-        assert contract.planning_contract.target.resource_types
+        if contract.planning_contract.target.cardinality != "none":
+            assert contract.planning_contract.target.resource_types
         assert contract.planning_contract.requires
         assert contract.planning_contract.produces
         assert contract.planning_contract.preconditions

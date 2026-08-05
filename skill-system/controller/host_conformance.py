@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ("change-scope","architecture-options","red-baseline-repair","oracle-review","adversarial-review","release-certification","customer-agent-architecture","product-code-governance")
-ROLES = ("scope-planner","skill-implementer","oracle-reviewer","adversarial-reviewer","release-judge","product-implementer")
+ROLES = ("scope-planner","skill-implementer","oracle-reviewer","adversarial-reviewer","release-judge","product-implementer","failure-explorer","repair-plan-reviewer","diff-integrity-reviewer","closure-arbiter")
 
 
 def _frontmatter(path: Path) -> dict[str, str]:
@@ -57,7 +57,7 @@ def verify(strict: bool = False) -> list[str]:
         if not (ROOT/".claude"/"agents"/f"{role}.md").is_file(): errors.append(f"missing_claude_agent:{role}")
         if not (ROOT/".codex"/"agents"/f"{role}.toml").is_file(): errors.append(f"missing_codex_agent:{role}")
     if strict:
-        for role in ("scope-planner","oracle-reviewer","adversarial-reviewer","release-judge"):
+        for role in ("scope-planner","oracle-reviewer","adversarial-reviewer","release-judge","failure-explorer","repair-plan-reviewer","diff-integrity-reviewer","closure-arbiter"):
             if 'sandbox_mode = "read-only"' not in (ROOT/".codex"/"agents"/f"{role}.toml").read_text(encoding="utf-8"):
                 errors.append(f"codex_agent_not_read_only:{role}")
             text=(ROOT/".claude"/"agents"/f"{role}.md").read_text(encoding="utf-8")

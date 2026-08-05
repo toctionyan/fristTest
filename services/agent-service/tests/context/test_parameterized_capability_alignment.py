@@ -187,10 +187,17 @@ def test_alignment_gate_refuses_broader_release_when_independent_verdict_rejects
 
 def test_alignment_ignores_a_rejected_candidate_after_runtime_verified_repair():
     from agent_core.runtime.answer_release_alignment import _deterministic_verdict
+    from tests.support.test_semantic_state import (
+        install_test_plan_authority,
+        install_test_semantic_contract,
+        requested_effect_for_tool,
+    )
 
     failed_effect = "turn-plan:repair:effect:1"
     repaired_effect = "turn-plan:repair:effect:2"
     result = {
+        "current_user_input": "查我的订单",
+        "turn_index": 7,
         "turn_match_proofs": [
             {
                 "effect_id": failed_effect,
@@ -203,24 +210,69 @@ def test_alignment_ignores_a_rejected_candidate_after_runtime_verified_repair():
                 "parameterization_complete": True,
             },
         ],
-        "workflow_plan": {
-            "steps": [
-                {
-                    "effect_id": failed_effect,
-                    "status": "SKIPPED",
-                    "verification": {
-                        "candidate_repaired": True,
-                        "superseded_by_effect_id": repaired_effect,
-                    },
-                },
-                {
-                    "effect_id": repaired_effect,
-                    "status": "SUCCEEDED",
-                    "verification": {"verified_by_runtime": True},
-                },
-            ],
-        },
     }
+    install_test_semantic_contract(result, {
+        "turn": 7,
+        "user_text": result["current_user_input"],
+        "goals": [{
+            "goal_id": "g1",
+            "description": "查我的订单",
+            "evidence_span": "查我的订单",
+            "requested_effect": requested_effect_for_tool("list_orders"),
+            "required": True,
+            "depends_on": [],
+        }],
+    })
+    install_test_plan_authority(
+        result,
+        goals=[{"goal_id": "g1", "required": True}],
+        steps=[
+            {
+                "effect_id": failed_effect,
+                "tool_name": "list_orders",
+                "goal_ids": ["g1"],
+                "verification": {},
+            },
+            {
+                "effect_id": repaired_effect,
+                "tool_name": "list_orders",
+                "goal_ids": ["g1"],
+                "verification": {},
+            },
+        ],
+    )
+    from agent_core.lifecycle.plan_execution import begin_step_attempt, complete_step_attempt, project_grounded_execution_plan
+    run, attempt = begin_step_attempt(
+        definition=result["frozen_plan_definition"],
+        plan_run=result["plan_run"],
+        effect_id=repaired_effect,
+        tool_name="list_orders",
+        args={},
+        execution_permit=None,
+    )
+    run, _outcome = complete_step_attempt(
+        definition=result["frozen_plan_definition"],
+        plan_run=run,
+        attempt_id=attempt["attempt_id"],
+        result={"ok": True, "code": "OK", "message": "repaired candidate succeeded"},
+        step_status="SUCCEEDED",
+        failure_type="NONE",
+        verification={"verified_by_runtime": True},
+        related_step_updates={
+            failed_effect: {
+                "status": "SKIPPED",
+                "verification": {
+                    "candidate_repaired": True,
+                    "superseded_by_effect_id": repaired_effect,
+                },
+            }
+        },
+    )
+    result["plan_run"] = run
+    result["grounded_execution_plan"] = project_grounded_execution_plan(
+        definition=result["frozen_plan_definition"],
+        plan_run=run,
+    )
 
     verdict = _deterministic_verdict(result=result, blocks=[])
 

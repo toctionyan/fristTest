@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.17-b20-semantic-authority-cutover",
+  "target_kind": "migration",
+  "goal": "Make State Schema v2 the sole current-turn semantic authority while preserving one-time legacy checkpoint migration",
+  "profile": "product-migration",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/**",
+    "services/agent-service/tests/**"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "services/business-service/**",
+    "services/agent-service/frontend/**",
+    "contracts/**",
+    "deployment/**"
+  ],
+  "invariants": [
+    "new turns never read or write retired semantic fields",
+    "legacy checkpoints migrate once or fail closed",
+    "business facts remain outside semantic authority"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [],
+  "affected_modules": [
+    "agent_core semantic/planning runtime"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "schema-v1 migration and schema-v2 quarantine counterexamples pass",
+  "baseline_evidence": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/original-failure.json",
+  "initial_source_fingerprint": "e712c93cd0a4cca9d439421b51673916b9ffa369a3fd4107cca918e3a49f9cdc",
+  "initial_source_file_count": 306,
+  "product_validation": null,
+  "decision_record": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/architecture-decision.json",
+  "variance_records": [
+    {
+      "type": "permit-reissued-after-independent-diff-rejection",
+      "reason": "first DiffReview found an omitted lazy-import file and reduced legacy-test counts; product scope was restored to B19 before plan reapproval and permit reissuance",
+      "evidence": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/rejected-first-review/diff-review.json"
+    }
+  ],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": null,
+  "repair_governance": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover",
+  "repair_governance_consumed_at": null,
+  "created_at": "2026-08-02T09:43:08.509619+00:00",
+  "status": "implementing",
+  "result": "PENDING",
+  "repair_governance_permit_digest": "7f2fbb1c4804cbcac1ba5b66876e8ac1f037cbb9025e49abdff975394e8774bc",
+  "archive_record": {
+    "archived_at": "2026-08-02T10:22:15.247393+00:00",
+    "archive_status": "PREFLIGHT_PROFILE_BLOCKED_AFTER_FOCUSED_REPAIR_CLOSURE",
+    "reason": "WP-03 focused repair governance closed, but the original product contract could not run its locked product profiles in this environment and must not be represented as verified or closed.",
+    "focused_closure": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/closure-matrix.json",
+    "environment_record": "governance/repair-cases/migration-v20.17-b20-semantic-authority-cutover/evidence/environment-block.json",
+    "superseded_by": "repair-v20.17-b20-semantic-authority-stage-closure"
+  }
+}

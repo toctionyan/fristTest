@@ -14,6 +14,7 @@ from agent_core.kernel.semantic_contract import (
     FROZEN_SEMANTIC_CONTRACT_VERSION,
     assert_semantic_contract_integrity,
     compute_semantic_digest,
+    find_goal_dependency_cycle,
     semantic_contract_integrity,
     semantic_goals,
 )
@@ -106,6 +107,9 @@ def freeze_semantic_contract(
         unknown = [item for item in goal["depends_on"] if item not in known]
         if unknown:
             raise ValueError(f"unknown_goal_dependency:{goal['goal_id']}:{','.join(unknown)}")
+    cycle = find_goal_dependency_cycle(normalized_goals)
+    if cycle:
+        raise ValueError(f"goal_dependency_cycle:{'->'.join(cycle)}")
 
     contract: dict[str, Any] = {
         "version": FROZEN_SEMANTIC_CONTRACT_VERSION,
@@ -139,12 +143,12 @@ def semantic_contract_ready(state: dict[str, Any]) -> bool:
     )
 
 
-def legacy_turn_goal_plan_from_contract(contract: dict[str, Any]) -> dict[str, Any]:
-    """Create a read-only compatibility projection for old workflow code.
+def goal_declaration_projection_from_contract(contract: dict[str, Any]) -> dict[str, Any]:
+    """Create the same-turn declaration projection consumed by planning.
 
-    No natural-language classification is performed.  An execution category is
-    copied only when the semantic compiler explicitly supplied one as legacy
-    metadata; otherwise it stays ``open``.
+    This is not persisted as an authority and never reads retired state. It is
+    derived only from the frozen semantic contract so execution planning cannot
+    reinterpret user intent.
     """
     rows: list[dict[str, Any]] = []
     for goal in semantic_goals(contract):
@@ -162,8 +166,8 @@ def legacy_turn_goal_plan_from_contract(contract: dict[str, Any]) -> dict[str, A
             }
         )
     return {
-        "version": "turn-goal-plan.compatibility@2",
-        "authority": "compatibility_projection_only",
+        "version": "goal-declaration-projection@1",
+        "authority": "derived_from_frozen_semantic_contract",
         "formal_semantic_contract_id": contract.get("semantic_contract_id"),
         "formal_semantic_digest": contract.get("semantic_digest"),
         "turn": int(contract.get("turn") or 0),
@@ -177,8 +181,9 @@ __all__ = [
     "FROZEN_SEMANTIC_CONTRACT_VERSION",
     "assert_semantic_contract_integrity",
     "compute_semantic_digest",
+    "find_goal_dependency_cycle",
     "freeze_semantic_contract",
-    "legacy_turn_goal_plan_from_contract",
+    "goal_declaration_projection_from_contract",
     "normalize_requested_effect",
     "semantic_contract_integrity",
     "semantic_contract_ready",

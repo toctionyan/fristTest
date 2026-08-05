@@ -12,7 +12,7 @@ Capability can consume it.
 from copy import deepcopy
 from typing import Any
 
-from agent_core.ledger import append_entries, find_handle, normalize_ledger, scope_for_state
+from agent_core.ledger import append_entries, execution_scope_for_state, find_handle, normalize_ledger, scope_for_state
 
 _VISIBLE_KINDS = {"artifact", "view", "result", "eligibility", "offer", "receipt"}
 
@@ -59,7 +59,7 @@ def _entry_to_ref(entry: dict[str, Any]) -> dict[str, Any] | None:
         source_expression = source_query["target"]
     lineage_result_refs = list(dict.fromkeys(
         str(source_expression.get(key) or "").strip()
-        for key in ("left_handle", "right_handle")
+        for key in ("left_handle", "right_handle", "source_handle")
         if str(source_expression.get(key) or "").strip()
     ))
     # Preserve the typed operation that produced a visible collection.  This
@@ -69,7 +69,7 @@ def _entry_to_ref(entry: dict[str, Any]) -> dict[str, Any] | None:
     # its verified parent collection.
     operation_fields = {
         "mode", "operator", "sort_field", "sort_direction", "limit",
-        "position", "status",
+        "position", "status", "source_kind", "steps",
     }
     # Preserve user-authored operation evidence (``sort_span``,
     # ``status_span`` and future domain-neutral ``*_span`` fields).  These
@@ -162,7 +162,7 @@ def _transitive_lineage_result_refs(
             expression = source_query["target"]
         pending.extend(
             str(expression.get(key) or "").strip()
-            for key in ("left_handle", "right_handle")
+            for key in ("left_handle", "right_handle", "source_handle")
             if str(expression.get(key) or "").strip() not in seen
         )
     return ordered
@@ -376,6 +376,7 @@ def _successful_observation_for_handle(
     """
     current_turn = int(state.get("turn_index") or 0)
     expected_scope = scope_for_state(state)
+    expected_permit_scope = execution_scope_for_state(state)
     for row in reversed(list(state.get("tool_trace") or [])):
         if not isinstance(row, dict) or str(row.get("classification") or "") != "observation":
             continue
@@ -426,7 +427,7 @@ def _successful_observation_for_handle(
             continue
         if int(permit.get("turn") or -1) != current_turn:
             continue
-        if dict(permit.get("scope") or {}) != expected_scope:
+        if dict(permit.get("scope") or {}) != expected_permit_scope:
             continue
         if not str(permit.get("permit_id") or "") or not str(permit.get("capability_id") or ""):
             continue
@@ -453,17 +454,62 @@ def validate_runtime_result_ref(
     ``sort -> take -> downstream read`` while rejecting ledger injection and
     invisible historical state.
     """
+    handle = str(result_ref or "").strip()
+    if not handle:
+        return None, "runtime_result_ref_missing"
+
+    # A stable handle may retain prior customer-visible presentation metadata
+    # after a fresh business read updates that same artifact in the current
+    # turn.  Prefer the permit-backed current observation over the stale
+    # cross-turn interpretation; otherwise a valid staged pipeline is rejected
+    # merely because identity was preserved across the refresh.
+    current_entry = find_handle(
+        state.get("artifact_ledger") or [],
+        handle,
+        scope=scope_for_state(state),
+        allowed_kinds={"artifact", "view", "result"},
+        active_only=True,
+    )
+    current_provenance = None
+    if (
+        current_entry is not None
+        and int(current_entry.get("updated_turn") or -1) == int(state.get("turn_index") or 0)
+    ):
+        current_provenance = _successful_observation_for_handle(state=state, handle=handle)
+    if current_entry is not None and current_provenance is not None:
+        shape = _shape(current_entry)
+        if expected_shape and shape != str(expected_shape):
+            return None, "runtime_result_ref_shape_mismatch"
+        members = _members(current_entry)
+        return {
+            "result_ref": handle,
+            "source_result_handle": handle,
+            "source_turn": int(current_entry.get("updated_turn") or 0),
+            "source_effect_id": current_provenance["effect_id"],
+            "source_output_handle": current_provenance["source_output_handle"],
+            "presentation_origin": "current_turn_verified_observation",
+            "reference_kind": "current_turn_verified_observation",
+            "shape": shape,
+            "member_handles": members,
+            "canonical_order": list(members),
+            "owner_scope": {"user_id": str((current_entry.get("scope") or {}).get("user_id") or "")},
+            "tenant_scope": str((current_entry.get("scope") or {}).get("tenant_id") or ""),
+            "thread_scope": str((current_entry.get("scope") or {}).get("thread_id") or ""),
+            "created_at": current_entry.get("created_at"),
+            "expires_at": current_entry.get("expires_at"),
+            "status": str(current_entry.get("status") or "active"),
+            "version_or_etag": current_entry.get("version"),
+            "label": str(current_entry.get("label") or handle),
+        }, None
+
     visible, visible_error = validate_visible_result_ref(
         state=state,
-        result_ref=result_ref,
+        result_ref=handle,
         expected_shape=expected_shape,
     )
     if visible is not None:
         return {**visible, "reference_kind": "customer_visible"}, None
 
-    handle = str(result_ref or "").strip()
-    if not handle:
-        return None, "runtime_result_ref_missing"
     entry = find_handle(
         state.get("artifact_ledger") or [],
         handle,

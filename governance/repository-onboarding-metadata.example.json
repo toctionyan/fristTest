@@ -1,0 +1,22 @@
+{
+  "repository_full_name": "owner/customer-agent-workspace",
+  "default_branch": "main",
+  "visibility": "private",
+  "permissions": {
+    "admin": true,
+    "maintain": true,
+    "push": true
+  },
+  "is_empty": true,
+  "branch_protection": {
+    "main": true
+  },
+  "environments": [
+    "production-certification"
+  ],
+  "secret_names": [
+    "PRODUCTION_MODEL_API_KEY",
+    "PRODUCTION_EMBEDDING_API_KEY",
+    "QUALITY_EVIDENCE_SIGNING_KEY"
+  ]
+}

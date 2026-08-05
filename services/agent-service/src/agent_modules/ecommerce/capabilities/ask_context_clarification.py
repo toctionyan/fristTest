@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import EcommerceCapabilityDefinition
+from .planning_contracts import clarification_contract
 from .schema_common import TARGET_SCHEMA, LOGISTICS_QUERY_SCHEMA, CONSTRAINT_BINDINGS_SCHEMA, function_schema, target_query_schema, draft_schema
 from .execution_adapter import _engine, execute_one
 
@@ -19,6 +20,8 @@ DEFINITION = EcommerceCapabilityDefinition(
     discovery_examples=('需要选择订单', '多个候选', '请明确对象'),
     schema=function_schema("ask_context_clarification", "在真实候选间澄清。", {"reference_span": {"type": "string"}, "candidate_handles": {"type": "array", "items": {"type": "string"}}}, ["reference_span", "candidate_handles"]),
     executor=execute,
+    contract_version='2',
+    planning_contract=clarification_contract(),
     presentation_contract='runtime.transaction_status@1',
     public_label=None,
 )

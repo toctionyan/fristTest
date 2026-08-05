@@ -13,7 +13,7 @@ from typing import Any
 
 from agent_core.kernel.outcome_contract import OutcomeFactory, OutcomeReadModel
 from agent_core.storage.repositories.base import TransactionLifecycleRepository, TransactionScope
-from agent_core.transaction.active_draft import get_active_draft_id
+from agent_core.transaction.focus import get_focused_draft_id
 
 
 _RECENT_WINDOW = timedelta(days=14)
@@ -77,11 +77,11 @@ class ConversationContinuationResolver:
             row = self._transactions.get_draft_for_scope(scope=user_scope, draft_id=handle)
             return TransactionReferenceResolution(handle if row else None, "explicit_handle")
 
-        active = get_active_draft_id(state)
-        if active:
-            row = self._transactions.get_draft_for_scope(scope=user_scope, draft_id=active)
+        focused = get_focused_draft_id(state)
+        if focused:
+            row = self._transactions.get_draft_for_scope(scope=user_scope, draft_id=focused)
             if row:
-                return TransactionReferenceResolution(active, "active_draft")
+                return TransactionReferenceResolution(focused, "focused_draft")
 
         # Thread helps describe the reference but is never an authorization
         # boundary.  Never choose a thread-local record if this user has other

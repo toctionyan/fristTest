@@ -16,8 +16,6 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from locked_python import locked_project_python  # noqa: E402
-
 from production_certification_contract import (  # noqa: E402
     BUNDLE_CONTRACT,
     COMPONENT_ENV,
@@ -65,7 +63,7 @@ def _default_runner(
     workspace_root: Path,
 ) -> Mapping[str, Any]:
     completed = subprocess.run(
-        [str(locked_project_python(workspace_root, "agent", env=env)), "-B", str(script_path)],
+        [sys.executable, "-B", str(script_path)],
         cwd=workspace_root,
         env={**os.environ, **{str(key): str(value) for key, value in env.items()}},
         text=True,
@@ -81,49 +79,6 @@ def _default_runner(
             f"production component {component} reported PASS with failing exit code",
         )
     return payload
-
-
-def _safe_component_failure(component: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep only bounded diagnostic fields; never expose credentials or model text."""
-
-    # Emit diagnostics at the final production boundary so one protected rerun is
-    # sufficient to locate a failed nested component without retaining raw logs.
-    evidence: dict[str, Any] = {
-        "component": component,
-        "status": str(payload.get("status") or "FAIL"),
-        "reason": str(payload.get("reason") or f"{component}_certification_failed"),
-        "error_code": str(payload.get("error_code") or "component_failed"),
-    }
-    for key in ("error_type", "error_category"):
-        value = str(payload.get(key) or "").strip()
-        if value:
-            evidence[key] = value
-
-    nested = payload.get("real_model_bundle") if component == "real_model" else None
-    if isinstance(nested, Mapping):
-        failed_subcomponent = str(nested.get("failed_component") or "").strip()
-        if failed_subcomponent:
-            evidence["failed_subcomponent"] = failed_subcomponent
-        nested_error_code = str(nested.get("error_code") or "").strip()
-        if nested_error_code:
-            evidence["error_code"] = nested_error_code
-        nested_failure = nested.get("component_failure")
-        if isinstance(nested_failure, Mapping):
-            safe_nested = {
-                key: str(nested_failure.get(key) or "")
-                for key in (
-                    "component",
-                    "status",
-                    "reason",
-                    "error_code",
-                    "error_type",
-                    "error_category",
-                )
-                if str(nested_failure.get(key) or "").strip()
-            }
-            if safe_nested:
-                evidence["subcomponent_failure"] = safe_nested
-    return evidence
 
 
 def run_production_certification_bundle(
@@ -184,14 +139,11 @@ def run_production_certification_bundle(
             raise ProductionCertificationError("component_output_invalid", f"{component} returned no mapping")
         status = str(payload.get("status") or "FAIL")
         if status == "BLOCKED_BY_ENVIRONMENT":
-            failure = _safe_component_failure(component, payload)
             return {
                 "contract": BUNDLE_CONTRACT,
                 "status": "BLOCKED_BY_ENVIRONMENT",
                 "reason": str(payload.get("reason") or f"{component}_environment_unavailable"),
                 "blocked_component": component,
-                "component_error_code": failure["error_code"],
-                "component_failure": failure,
                 "components_launched": launched,
                 "component_launch_count": len(launched),
                 "session_id": session_id,
@@ -199,14 +151,11 @@ def run_production_certification_bundle(
                 "toolchain_fingerprint_sha256": toolchain_fingerprint,
             }
         if status != "PASS":
-            failure = _safe_component_failure(component, payload)
             return {
                 "contract": BUNDLE_CONTRACT,
                 "status": "FAIL",
                 "reason": str(payload.get("reason") or f"{component}_certification_failed"),
                 "failed_component": component,
-                "component_error_code": failure["error_code"],
-                "component_failure": failure,
                 "components_launched": launched,
                 "component_launch_count": len(launched),
                 "session_id": session_id,

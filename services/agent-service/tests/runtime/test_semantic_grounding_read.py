@@ -314,7 +314,11 @@ def test_model_verifier_classifies_exact_target_grounding_as_action_prerequisite
             {"purpose": purpose},
         )
 
-    monkeypatch.setattr(verifier_module, "invoke_model", fake_invoke_model)
+    monkeypatch.setattr("agent_core.model_calls.invoke_model", fake_invoke_model)
+    monkeypatch.setattr(
+        "agent_core.model_calls.structured_verifier_messages",
+        lambda *, payload, decision_rules, instruction, **_kwargs: [SimpleNamespace(content=json.dumps({**payload, "DECISION_RULES": decision_rules, "instruction": instruction}, ensure_ascii=False))],
+    )
     monkeypatch.setattr("agent_core.config.get_model", lambda: object())
     contract = ToolCapabilityContract(
         key="ecommerce.order.details",

@@ -12,8 +12,7 @@ from typing import Any
 
 from agent_core.kernel.state_schema_contract import (
     CURRENT_STATE_SCHEMA_VERSION,
-    LEGACY_STATE_SCHEMA_VERSION,
-    legacy_fallback_allowed,
+    LEGACY_STATE_SCHEMA_VERSION
 )
 from agent_core.lifecycle.goal_lifecycle import apply_semantic_contract_to_goal_records
 from agent_core.lifecycle.plan_execution import project_grounded_execution_plan
@@ -204,6 +203,29 @@ def migrate_checkpoint_state(state: dict[str, Any] | None) -> tuple[dict[str, An
                 discarded_fields.append(f"{key}:non_authoritative_same_turn_projection")
                 source[key] = None
 
+    if not isinstance(source.get("goal_output_refs"), list):
+        source["goal_output_refs"] = []
+        if from_version < CURRENT_STATE_SCHEMA_VERSION:
+            changed = True
+            migrated_fields.append("goal_output_refs:additive_default")
+
+    # Additive transaction-focus cutover inside State Schema v2. Older
+    # checkpoints contain only active_draft_id. Once focused_draft_id exists,
+    # even an explicit null is authoritative and the compatibility projection
+    # is deterministically synchronized so stale legacy values cannot revive a
+    # terminal interaction.
+    if "focused_draft_id" not in source:
+        legacy_focus = str(source.get("active_draft_id") or "").strip() or None
+        source["focused_draft_id"] = legacy_focus
+        if legacy_focus is not None:
+            changed = True
+            migrated_fields.append("active_draft_id->focused_draft_id")
+    canonical_focus = str(source.get("focused_draft_id") or "").strip() or None
+    if source.get("active_draft_id") != canonical_focus:
+        changed = True
+        rederived_fields.append("active_draft_id:compatibility_projection_from_focused_draft_id")
+    source["active_draft_id"] = canonical_focus
+
     for key in RETIRED_TOP_LEVEL_FIELDS:
         if source.get(key) is not None:
             changed = True
@@ -273,5 +295,4 @@ __all__ = [
     "RETIRED_TOP_LEVEL_FIELDS",
     "LegacyStateRestartRequired",
     "migrate_checkpoint_state",
-    "legacy_fallback_allowed",
 ]

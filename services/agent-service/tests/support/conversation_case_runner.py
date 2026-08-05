@@ -7,7 +7,7 @@ candidate being present in JSON is never treated as proof that it executed.
 """
 from __future__ import annotations
 
-from agent_core.lifecycle.semantic_contract import legacy_turn_goal_plan_from_contract
+from agent_core.lifecycle.semantic_contract import goal_declaration_projection_from_contract
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -113,10 +113,6 @@ def _successful_tool_data(result: dict[str, Any]) -> dict[str, Any]:
     if active_goals:
         collected["active_goal_id"] = str(active_goals[0]["goal_id"])
         collected["active_goal_revision"] = int(active_goals[0].get("revision") or 1)
-    pending = result.get("pending_clarification")
-    if isinstance(pending, dict) and str(pending.get("clarification_id") or ""):
-        # Schema-v1-only compatibility for old regression fixtures.
-        collected["pending_clarification_id"] = str(pending["clarification_id"])
     return collected
 
 
@@ -189,14 +185,7 @@ def _assert_goal_oracle(*, case_id: str, contract: dict[str, Any], goal_plan: di
         oracle_id = str(expected.get("oracle_id") or "")
         assert oracle_id and oracle_id in actual_by_id, (case_id, "missing_oracle_goal", oracle_id, actual)
         row = actual_by_id[oracle_id]
-        expected_effect = expected.get("requested_effect") if isinstance(expected.get("requested_effect"), dict) else {}
-        actual_effect = row.get("requested_effect") if isinstance(row.get("requested_effect"), dict) else {}
-        for effect_key in ("domain", "operation", "object_type"):
-            expected_value = str(expected_effect.get(effect_key) or "")
-            if expected_value:
-                assert str(actual_effect.get(effect_key) or "") == expected_value, (
-                    case_id, oracle_id, effect_key, row, expected
-                )
+        assert str(row.get("goal_type") or "") == str(expected.get("goal_type") or ""), (case_id, oracle_id, row, expected)
         assert str(row.get("evidence_span") or "") == str(expected.get("evidence_span") or ""), (case_id, oracle_id, row, expected)
         assert bool(row.get("required", True)) is bool(expected.get("required", True)), (case_id, oracle_id, row, expected)
         required_tools = {str(value) for value in expected.get("required_tools") or [] if str(value)}
@@ -279,13 +268,7 @@ def _assert_turn_contract(
         result.get("status"),
         sorted(statuses),
     )
-    workflow = (
-        result.get("grounded_execution_plan")
-        if isinstance(result.get("grounded_execution_plan"), dict)
-        else result.get("workflow_plan")
-        if isinstance(result.get("workflow_plan"), dict)
-        else {}
-    )
+    workflow = result.get("grounded_execution_plan") if isinstance(result.get("grounded_execution_plan"), dict) else {}
     levels = {str(value) for value in expected.get("workflow_levels") or [] if str(value)}
     workflow_statuses = {str(value) for value in expected.get("workflow_statuses") or [] if str(value)}
     assert levels and str(workflow.get("level") or "") in levels, (case_id, workflow, expected)
@@ -295,13 +278,7 @@ def _assert_turn_contract(
         if isinstance(result.get("frozen_semantic_contract"), dict)
         else {}
     )
-    goal_plan = (
-        legacy_turn_goal_plan_from_contract(formal_contract)
-        if formal_contract
-        else result.get("turn_goal_plan")
-        if isinstance(result.get("turn_goal_plan"), dict)
-        else {}
-    )
+    goal_plan = goal_declaration_projection_from_contract(formal_contract) if formal_contract else {}
     assert goal_plan.get("goals"), f"{case_id}: frozen goal declaration was not retained"
     assert bool(workflow.get("goal_coverage_complete")) is True, (case_id, workflow.get("goals"))
     expected_goal_count = expected.get("goal_count")
@@ -390,13 +367,7 @@ def _assert_forbidden_behavior(case: dict[str, Any], executed: ExecutedConversat
         elif kind == "draft_count_at_most":
             assert len(_offers(final)) <= int(assertion.get("value") or 0), (case["id"], behavior, _offers(final))
         elif kind == "workflow_level":
-            workflow = (
-                final.get("grounded_execution_plan")
-                if isinstance(final.get("grounded_execution_plan"), dict)
-                else final.get("workflow_plan")
-                if isinstance(final.get("workflow_plan"), dict)
-                else {}
-            )
+            workflow = final.get("grounded_execution_plan") if isinstance(final.get("grounded_execution_plan"), dict) else {}
             assert workflow.get("level") == assertion.get("value"), (case["id"], behavior, workflow)
         elif kind == "trace_result_path_equals":
             rows_for_tool = _trace_rows(executed, str(assertion.get("tool") or ""))

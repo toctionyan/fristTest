@@ -52,6 +52,8 @@ def apply_actor_to_payload(payload, actor: Actor):
         data["tenant_id"] = actor.tenant_id
     if "actor_permissions" in getattr(payload.__class__, "model_fields", {}):
         data["actor_permissions"] = list(actor.permissions or [])
+    if "subject" in getattr(payload.__class__, "model_fields", {}):
+        data["subject"] = actor.subject or actor.user_id
     return payload.__class__(**data)
 
 

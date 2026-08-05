@@ -36,8 +36,8 @@ def _valid_env(**overrides: str) -> dict[str, str]:
         "PRODUCTION_RELEASE_EXPECTED_REF": "refs/heads/main",
         "RELEASE_INPUT_PROVIDER": "deepseek",
         "RELEASE_INPUT_MODEL": "deepseek-v4-flash",
-        "RELEASE_INPUT_EMBEDDING_MODEL": "text-embedding-v4",
-        "RELEASE_INPUT_EMBEDDING_DIMENSION": "1024",
+        "RELEASE_INPUT_EMBEDDING_MODEL": "text-embedding-3-small",
+        "RELEASE_INPUT_EMBEDDING_DIMENSION": "1536",
     }
     payload.update(overrides)
     return payload

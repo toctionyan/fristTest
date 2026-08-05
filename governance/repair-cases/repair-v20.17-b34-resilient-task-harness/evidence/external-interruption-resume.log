@@ -1,0 +1,112 @@
+[B34] SKIP task_run_control_plane (durable PASS)
+[B34] SKIP repair_loop_interruption_contracts (durable PASS)
+[B34] START skill_control_plane
+[B34] PASS skill_control_plane rc=0 duration=19.806s
+{
+  "schema_version": 2,
+  "candidate": "B34 Resilient Task Harness",
+  "status": "RUNNING",
+  "production_closed": false,
+  "source_fingerprint": "92efca13129d378a0c99c6876d124aebc1aebe1067d08350cfaecfe8b60eaafb",
+  "task_run_file": ".quality/task-runs/verify-b34-resilient-harness-490485c1c79659689b15.json",
+  "task_run_status": "VALIDATING",
+  "task_run_phase": "PARTIAL_VALIDATION",
+  "completion_eligible": false,
+  "missing_conditions": [
+    "stage1_stage5_core_regression",
+    "broad_context_transaction_governance_regression",
+    "architecture",
+    "module_closure",
+    "version_consistency",
+    "convergence"
+  ],
+  "invalid_conditions": [],
+  "checks": [
+    {
+      "command_fingerprint": "f5cd66e5b58aff3fa041298d3036140d1f43264dcbfcb594023642139aca8d64",
+      "completed_at": "2026-08-04T10:34:12.985268+00:00",
+      "duration_seconds": 7.289,
+      "name": "task_run_control_plane",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "92efca13129d378a0c99c6876d124aebc1aebe1067d08350cfaecfe8b60eaafb",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-490485c1c79659689b15/task_run_control_plane.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-490485c1c79659689b15/task_run_control_plane.stdout.txt"
+    },
+    {
+      "command_fingerprint": "23fb8370d3f5ecfaa98ffcebac3d20f2b0d0b941d0e9fde7a02a94943558211d",
+      "completed_at": "2026-08-04T10:34:22.728520+00:00",
+      "duration_seconds": 9.735,
+      "name": "repair_loop_interruption_contracts",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "92efca13129d378a0c99c6876d124aebc1aebe1067d08350cfaecfe8b60eaafb",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-490485c1c79659689b15/repair_loop_interruption_contracts.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-490485c1c79659689b15/repair_loop_interruption_contracts.stdout.txt"
+    },
+    {
+      "command_fingerprint": "4101b1361c8a945ec5ffe7ebb8208b6d19089b6b543a9394bf0696156eea72cb",
+      "completed_at": "2026-08-04T10:35:12.442273+00:00",
+      "duration_seconds": 19.806,
+      "name": "skill_control_plane",
+      "returncode": 0,
+      "schema_version": 1,
+      "source_fingerprint": "92efca13129d378a0c99c6876d124aebc1aebe1067d08350cfaecfe8b60eaafb",
+      "status": "PASS",
+      "stderr": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-490485c1c79659689b15/skill_control_plane.stderr.txt",
+      "stdout": ".quality/evidence/b34-resilient-task-harness/verify-b34-resilient-harness-490485c1c79659689b15/skill_control_plane.stdout.txt"
+    },
+    {
+      "schema_version": 1,
+      "name": "stage1_stage5_core_regression",
+      "status": "PENDING",
+      "returncode": null
+    },
+    {
+      "schema_version": 1,
+      "name": "broad_context_transaction_governance_regression",
+      "status": "PENDING",
+      "returncode": null
+    },
+    {
+      "schema_version": 1,
+      "name": "architecture",
+      "status": "PENDING",
+      "returncode": null
+    },
+    {
+      "schema_version": 1,
+      "name": "module_closure",
+      "status": "PENDING",
+      "returncode": null
+    },
+    {
+      "schema_version": 1,
+      "name": "version_consistency",
+      "status": "PENDING",
+      "returncode": null
+    },
+    {
+      "schema_version": 1,
+      "name": "convergence",
+      "status": "PENDING",
+      "returncode": null
+    }
+  ],
+  "environment": {
+    "name": "production_environment_closure",
+    "status": "BLOCKED_BY_ENVIRONMENT",
+    "required_for_candidate": false,
+    "production_closed": false,
+    "blockers": [
+      "missing Python modules: langchain_core, langgraph",
+      "locked Python is 3.12.13; current interpreter is 3.13.5",
+      "real DeepSeek/OpenAI provider certification not executed locally",
+      "managed PostgreSQL/pgvector recovery not executed locally",
+      "dual-service browser and concurrency certification not executed locally"
+    ]
+  },
+  "updated_at": "2026-08-04T10:35:12.474755+00:00"
+}
