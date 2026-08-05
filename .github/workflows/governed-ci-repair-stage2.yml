@@ -22,6 +22,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      control_sha: ${{ steps.control.outputs.control_sha }}
       repair_allowed: ${{ steps.inspect.outputs.repair_allowed }}
       head_sha: ${{ steps.inspect.outputs.head_sha }}
       source_run_id: ${{ steps.inspect.outputs.source_run_id }}
@@ -35,7 +36,12 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download Stage-1 governed evidence
+      - name: Bind trusted Stage-2 control SHA
+        id: control
+        run: echo "control_sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Download Stage-1 governed evidence when present
+        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: governed-ci-failure-*
@@ -54,9 +60,16 @@ jobs:
         id: inspect
         run: |
           set -euo pipefail
-          failure_case=$(find incoming -type f -name failure-case.json -print -quit)
-          task_run=$(find incoming -type f -name task-run.json -print -quit)
-          [[ -n "${failure_case}" && -n "${task_run}" ]]
+          failure_case=$(find incoming -type f -name failure-case.json -print -quit 2>/dev/null || true)
+          task_run=$(find incoming -type f -name task-run.json -print -quit 2>/dev/null || true)
+          if [[ -z "${failure_case}" || -z "${task_run}" ]]; then
+            echo "repair_allowed=false" >> "$GITHUB_OUTPUT"
+            echo "head_sha=" >> "$GITHUB_OUTPUT"
+            echo "source_run_id=" >> "$GITHUB_OUTPUT"
+            echo "failure_signature=" >> "$GITHUB_OUTPUT"
+            echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" <<'PY'
           import json
           import sys
@@ -83,6 +96,7 @@ jobs:
               and failure.get("same_repository") is True
               and failure.get("classification") == "code_or_contract"
               and failure.get("candidate_paths")
+              and not str(failure.get("head_branch") or "").startswith("governed-repair/")
           )
           with output_path.open("a", encoding="utf-8") as handle:
               handle.write(f"repair_allowed={'true' if repair_allowed else 'false'}\n")
@@ -102,10 +116,10 @@ jobs:
       actions: read
       issues: write
     steps:
-      - name: Checkout trusted Stage-2 control plane
+      - name: Checkout bound Stage-2 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ needs.inspect.outputs.control_sha }}
           path: control
           fetch-depth: 1
           persist-credentials: false
@@ -160,6 +174,10 @@ jobs:
             --task-run stage2-evidence/task-run.json \
             --evidence-root stage2-evidence \
             --max-cycles 8
+          "${pythonLocation}/bin/python" -B control/scripts/github_stage2_handoff.py \
+            --failure-case "${failure_case}" \
+            --result stage2-evidence/repair-result.json \
+            --patch stage2-evidence/repair.patch
 
       - name: Upload Stage-2 repair candidate evidence
         if: always()
@@ -181,15 +199,18 @@ jobs:
             --json number --jq '.[0].number // empty')
           status="BLOCKED"
           changed_paths="[]"
+          handoff_bound="false"
           if [[ -f stage2-evidence/repair-result.json ]]; then
             status=$(jq -r '.status // "BLOCKED"' stage2-evidence/repair-result.json)
             changed_paths=$(jq -c '.changed_paths // []' stage2-evidence/repair-result.json)
+            handoff_bound=$(jq -r '.stage3_handoff_bound // false' stage2-evidence/repair-result.json)
           fi
           body=$(cat <<EOF
           Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
 
           - Status: \`${status}\`
           - Changed paths: \`${changed_paths}\`
+          - Stage-3 handoff bound: \`${handoff_bound}\`
           - Evidence artifact: \`governed-ci-repair-stage2-${SOURCE_RUN_ID}\`
           - Full targeted/Quick regression: not yet performed
           - Branch pushed: no
