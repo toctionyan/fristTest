@@ -1,0 +1,206 @@
+name: governed-ci-repair-stage2
+
+on:
+  workflow_run:
+    workflows:
+      - governed-ci-failure-ingest
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-ci-repair-stage2-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      repair_allowed: ${{ steps.inspect.outputs.repair_allowed }}
+      head_sha: ${{ steps.inspect.outputs.head_sha }}
+      source_run_id: ${{ steps.inspect.outputs.source_run_id }}
+      failure_signature: ${{ steps.inspect.outputs.failure_signature }}
+    steps:
+      - name: Checkout trusted Stage-2 control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download Stage-1 governed evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: governed-ci-failure-*
+          path: incoming
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Verify Stage-1 handoff
+        id: inspect
+        run: |
+          set -euo pipefail
+          failure_case=$(find incoming -type f -name failure-case.json -print -quit)
+          task_run=$(find incoming -type f -name task-run.json -print -quit)
+          [[ -n "${failure_case}" && -n "${task_run}" ]]
+          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          failure_path, task_path, output_path = map(Path, sys.argv[1:])
+          failure = json.loads(failure_path.read_text(encoding="utf-8"))
+          task = json.loads(task_path.read_text(encoding="utf-8"))
+          if failure.get("schema") != "github-failure-ingest@1" or failure.get("status") != "INGESTED":
+              raise SystemExit("invalid Stage-1 failure-case contract")
+          binding = task.get("binding") if isinstance(task.get("binding"), dict) else {}
+          expected = {
+              "repository": failure.get("repository"),
+              "workflow_run_id": str(failure.get("workflow_run_id")),
+              "workflow_run_attempt": str(failure.get("workflow_run_attempt")),
+              "head_sha": failure.get("head_sha"),
+              "failure_signature": failure.get("failure_signature"),
+          }
+          for key, value in expected.items():
+              if str(binding.get(key)) != str(value):
+                  raise SystemExit(f"Stage-1 TaskRun binding mismatch: {key}")
+          repair_allowed = bool(
+              failure.get("repair_allowed") is True
+              and failure.get("same_repository") is True
+              and failure.get("classification") == "code_or_contract"
+              and failure.get("candidate_paths")
+          )
+          with output_path.open("a", encoding="utf-8") as handle:
+              handle.write(f"repair_allowed={'true' if repair_allowed else 'false'}\n")
+              handle.write(f"head_sha={failure.get('head_sha', '')}\n")
+              handle.write(f"source_run_id={failure.get('workflow_run_id', '')}\n")
+              handle.write(f"failure_signature={failure.get('failure_signature', '')}\n")
+          PY
+
+  repair:
+    needs: inspect
+    if: needs.inspect.outputs.repair_allowed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production-certification
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout trusted Stage-2 control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout failed candidate without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.inspect.outputs.head_sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download Stage-1 governed evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: governed-ci-failure-*
+          path: incoming
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Run bounded restricted repair controller
+        id: repair
+        env:
+          GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
+          GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
+          GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+          GOVERNED_REPAIR_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+        run: |
+          set -euo pipefail
+          failure_case=$(find incoming -type f -name failure-case.json -print -quit)
+          task_run=$(find incoming -type f -name task-run.json -print -quit)
+          [[ -n "${failure_case}" && -n "${task_run}" ]]
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator.py \
+            --workspace candidate \
+            --failure-case "${failure_case}" \
+            --task-run "${task_run}" \
+            --evidence-root stage2-evidence \
+            --max-cycles 8
+          echo "task_run=${task_run}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Stage-2 repair candidate evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-repair-stage2-${{ needs.inspect.outputs.source_run_id }}
+          path: |
+            stage2-evidence
+            ${{ steps.repair.outputs.task_run }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Update governed failure issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.inspect.outputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          issue=$(gh issue list --state open --search "[governed-ci-failure] run ${SOURCE_RUN_ID} in:title" \
+            --json number --jq '.[0].number // empty')
+          status="BLOCKED"
+          changed_paths="[]"
+          if [[ -f stage2-evidence/repair-result.json ]]; then
+            status=$(jq -r '.status // "BLOCKED"' stage2-evidence/repair-result.json)
+            changed_paths=$(jq -c '.changed_paths // []' stage2-evidence/repair-result.json)
+          fi
+          body=$(cat <<EOF
+          Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
+
+          - Status: \`${status}\`
+          - Changed paths: \`${changed_paths}\`
+          - Evidence artifact: \`governed-ci-repair-stage2-${SOURCE_RUN_ID}\`
+          - Full targeted/Quick regression: not yet performed
+          - Branch pushed: no
+          - Draft PR created: no
+          - production_closed: false
+
+          A \`REPAIR_CANDIDATE_READY\` result is only a local candidate for Stage 3 independent validation.
+          EOF
+          )
+          if [[ -n "${issue}" ]]; then
+            gh issue comment "${issue}" --body "${body}"
+          else
+            gh issue create --title "[governed-ci-repair-stage2] run ${SOURCE_RUN_ID}" --body "${body}"
+          fi
