@@ -1,0 +1,179 @@
+name: Publish final B34 resilient task harness v2
+
+on:
+  push:
+    branches:
+      - agent/b34-final-publisher-20260804
+    paths:
+      - candidate-validation/b34-final-publisher/**
+      - .github/workflows/publish-b34-final-resilient-task-harness-v2.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-final-b34-v2
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    env:
+      BASE_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
+      EXPECTED_TARGET_SHA: 5b8e9d71c596fefdc59766bc47773f750549e952
+      TARGET_BRANCH: agent/b34-resilient-task-harness-final-20260804
+      OVERLAY_SHA: a4c771dc9ed99faa806d859c5017bb7dc5065d2417fe15ce99a0b6fd0a1663ff
+      CORRECTION_SHA: 9c6d1d5f53681361fdf42ab47c88a48f0c6403c9b86f6204ca69c4a0129655da
+      AUTHORITY_SHA: 3391d063d2bca3408788dbbd8723711b10f1f96f303f4c96d7db54592b34ba6f
+      FINAL_MANIFEST_SHA: 9e6c79d6a94e078a088ffe2afbda16a16003faa3af8496f234a0de9e3961af7b
+      SUMMARY_SHA: bcb25ad40c572cbb8bddfaf41fe9827a04c54a4e400d8506be1a99c053a93816
+      REPORT_SHA: f4905e0106b0bfd4623ad1ff2df21fc6af2b81ddbe2724ea9aba211596866516
+      VERIFIER_SHA: cd0e882d830eaa0a4681a402d90165e882c22ac17eaf1b07aade75b27406c9a4
+      BASELINE_SHA: 36829d99f2b4738823b41e1a866baaa50c30fa27d1e28ddb2b532f64ae2bc5dd
+      LEDGER_SHA: 17c009b9e67f8f3e61e8f77bd161747ddbedbf47ee81b3dd4625254d531dd958
+      ENV_EVIDENCE_SHA: 7964116c3e1cd01951389e3bbb2db9d4ac4585a3cedbe2f22b5c592d9098adfb
+      REL_EVIDENCE_SHA: 664f54f8477846f7ad15a362595e68d2e920b55cbddf330adc0ed1b64718b134
+      AUTHORITY_EVIDENCE_SHA: 300d1669560522393f0326b4b85c66c94b05a57da1aae6ab80eed6045dedd3da
+      COMPATIBILITY_CONTROLLER_SHA: 15024e52715b99be108e5af1f9f18c58d1588b827354bc40586a3bd7f6c037b3
+      COMPATIBILITY_TEST_SHA: 2042600617154e50fb731fbd2299babed89805d3acde4949a34bc7932cc5bcd4
+
+    steps:
+      - name: Checkout publisher payload
+        uses: actions/checkout@v4
+        with:
+          ref: agent/b34-final-publisher-20260804
+          fetch-depth: 0
+
+      - name: Authenticate base overlay
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-final-publisher/part-*.b64 > /tmp/b34-overlay.tar.xz.b64
+          base64 --decode /tmp/b34-overlay.tar.xz.b64 > /tmp/b34-overlay.tar.xz
+          actual="$(sha256sum /tmp/b34-overlay.tar.xz | awk '{print $1}')"
+          echo "base actual=${actual} expected=${OVERLAY_SHA}"
+          test "${actual}" = "${OVERLAY_SHA}"
+          xz --test /tmp/b34-overlay.tar.xz
+
+      - name: Authenticate correction overlay
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-final-publisher/correction-part-*.b64 > /tmp/b34-correction.tar.xz.b64
+          base64 --decode /tmp/b34-correction.tar.xz.b64 > /tmp/b34-correction.tar.xz
+          actual="$(sha256sum /tmp/b34-correction.tar.xz | awk '{print $1}')"
+          echo "correction actual=${actual} expected=${CORRECTION_SHA}"
+          test "${actual}" = "${CORRECTION_SHA}"
+          xz --test /tmp/b34-correction.tar.xz
+
+      - name: Authenticate authority overlay
+        run: |
+          set -euo pipefail
+          cat candidate-validation/b34-final-publisher/authority-part-*.b64 > /tmp/b34-authority.tar.xz.b64
+          base64 --decode /tmp/b34-authority.tar.xz.b64 > /tmp/b34-authority.tar.xz
+          actual="$(sha256sum /tmp/b34-authority.tar.xz | awk '{print $1}')"
+          echo "authority actual=${actual} expected=${AUTHORITY_SHA}"
+          test "${actual}" = "${AUTHORITY_SHA}"
+          xz --test /tmp/b34-authority.tar.xz
+
+      - id: authority
+        name: Enforce clean target authority
+        run: |
+          set -euo pipefail
+          git fetch origin "${TARGET_BRANCH}" --no-tags
+          target_sha="$(git rev-parse FETCH_HEAD)"
+          echo "target_sha=${target_sha}" >> "${GITHUB_OUTPUT}"
+          if [[ "${target_sha}" == "${EXPECTED_TARGET_SHA}" ]]; then
+            echo "mode=publish" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          rm -rf /tmp/b34-existing
+          git worktree add --detach /tmp/b34-existing "${target_sha}"
+          if [[ -f /tmp/b34-existing/B34_RESILIENT_TASK_HARNESS_MANIFEST.json ]]; then
+            actual="$(sha256sum /tmp/b34-existing/B34_RESILIENT_TASK_HARNESS_MANIFEST.json | awk '{print $1}')"
+            if [[ "${actual}" == "${FINAL_MANIFEST_SHA}" ]]; then
+              echo "mode=already-published" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+          fi
+          echo "Refusing unexpected target ${target_sha}." >&2
+          exit 1
+
+      - name: Materialize and verify final B34
+        if: steps.authority.outputs.mode == 'publish'
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/b34-final
+          git worktree add --detach /tmp/b34-final "${BASE_SHA}"
+          tar -xJf /tmp/b34-overlay.tar.xz -C /tmp/b34-final
+          tar -xJf /tmp/b34-correction.tar.xz -C /tmp/b34-final
+          tar -xJf /tmp/b34-authority.tar.xz -C /tmp/b34-final
+          rm -f \
+            /tmp/b34-final/services/agent-service/runtime/sqlite/app.db \
+            /tmp/b34-final/services/business-service/runtime/business-service/business.db
+          cd /tmp/b34-final
+
+          echo "${FINAL_MANIFEST_SHA}  B34_RESILIENT_TASK_HARNESS_MANIFEST.json" | sha256sum --check --strict
+          echo "${SUMMARY_SHA}  B34_RESILIENT_TASK_HARNESS_SUMMARY.json" | sha256sum --check --strict
+          echo "${REPORT_SHA}  release/B34_RESILIENT_TASK_HARNESS_VALIDATION_REPORT.md" | sha256sum --check --strict
+          echo "${VERIFIER_SHA}  scripts/verify_b34_resilient_task_harness.py" | sha256sum --check --strict
+          echo "${BASELINE_SHA}  skill-system/registry/product-source-baseline.json" | sha256sum --check --strict
+          echo "${LEDGER_SHA}  governance/task-ledger.json" | sha256sum --check --strict
+          echo "${ENV_EVIDENCE_SHA}  governance/repair-cases/repair-v20.17-b22-transaction-identity-closure/evidence/blocked-by-environment.json" | sha256sum --check --strict
+          echo "${REL_EVIDENCE_SHA}  governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/issue-rel-001-oracle-current.json" | sha256sum --check --strict
+          echo "${AUTHORITY_EVIDENCE_SHA}  governance/repair-cases/repair-v20.17-b34-resilient-task-harness/evidence/terminal-change-permit-authority.json" | sha256sum --check --strict
+          echo "${COMPATIBILITY_CONTROLLER_SHA}  skill-system/controller/project_compatibility.py" | sha256sum --check --strict
+          echo "${COMPATIBILITY_TEST_SHA}  skill-system/tests/test_project_compatibility.py" | sha256sum --check --strict
+
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('.')
+          manifest = json.loads((root / 'B34_RESILIENT_TASK_HARNESS_MANIFEST.json').read_text(encoding='utf-8'))
+          assert manifest['changed_file_count'] == 37
+          assert manifest['source_fingerprint'] == '295dc5842c0ff230cb32e949579df791c8ba11d22c5830124a15c5ec9b639d08'
+          assert len(manifest['files']) == 37
+          for relative_path, record in sorted(manifest['files'].items()):
+              path = root / relative_path
+              assert path.is_file(), relative_path
+              actual = hashlib.sha256(path.read_bytes()).hexdigest()
+              assert actual == record['sha256'], (relative_path, actual, record['sha256'])
+          print('B34 manifest verification: 37/37 PASS')
+          PY
+
+          python scripts/verify_task_ledger.py
+          python skill-system/controller/project_compatibility.py
+          python -m compileall -q \
+            scripts/repair_loop.py \
+            scripts/verify_b34_resilient_task_harness.py \
+            skill-system/controller/task_run.py \
+            skill-system/controller/task_run_cli.py \
+            skill-system/controller/project_compatibility.py
+
+      - id: publish
+        name: Commit and publish direct B34 source branch
+        if: steps.authority.outputs.mode == 'publish'
+        run: |
+          set -euo pipefail
+          cd /tmp/b34-final
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          count="$(git diff --cached --name-only | wc -l | tr -d ' ')"
+          echo "publication path count=${count}"
+          if [[ "${count}" != "44" ]]; then
+            git diff --cached --name-status >&2
+            exit 1
+          fi
+          git diff --cached --name-status | grep -Fx $'D\tservices/agent-service/runtime/sqlite/app.db'
+          git diff --cached --name-status | grep -Fx $'D\tservices/business-service/runtime/business-service/business.db'
+          git commit -m 'Publish final B34 resilient task harness'
+          published_sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}" \
+            --force-with-lease="${TARGET_BRANCH}:${EXPECTED_TARGET_SHA}"
+          echo "published_sha=${published_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record publication result
+        if: always()
+        run: |
+          echo "mode=${{ steps.authority.outputs.mode }}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "target=${{ steps.authority.outputs.target_sha }}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "published=${{ steps.publish.outputs.published_sha }}" >> "${GITHUB_STEP_SUMMARY}"
