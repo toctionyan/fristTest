@@ -5,18 +5,32 @@ on:
     workflows:
       - governed-ci-failure-ingest
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact failed Quality run ID already accepted by Stage 4A
+        required: true
+        type: string
+      source_run_attempt:
+        description: Exact source run attempt
+        required: false
+        default: '1'
+        type: string
 
 permissions:
   contents: read
   actions: read
 
+env:
+  GH_REPO: ${{ github.repository }}
+
 concurrency:
-  group: governed-ci-repair-stage2-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: governed-ci-repair-stage2-${{ github.event.workflow_run.id || inputs.source_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.source_run_attempt }}
   cancel-in-progress: false
 
 jobs:
   inspect:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -26,7 +40,10 @@ jobs:
       repair_allowed: ${{ steps.inspect.outputs.repair_allowed }}
       head_sha: ${{ steps.inspect.outputs.head_sha }}
       source_run_id: ${{ steps.inspect.outputs.source_run_id }}
+      source_run_attempt: ${{ steps.inspect.outputs.source_run_attempt }}
       failure_signature: ${{ steps.inspect.outputs.failure_signature }}
+      stage1_artifact_pattern: ${{ steps.source.outputs.stage1_artifact_pattern }}
+      stage1_run_id: ${{ steps.source.outputs.stage1_run_id }}
     steps:
       - name: Checkout trusted Stage-2 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -40,16 +57,36 @@ jobs:
         id: control
         run: echo "control_sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Download Stage-1 governed evidence when present
+      - name: Resolve approved Stage-1 source
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            echo "stage1_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "stage1_artifact_pattern=governed-ci-failure-*" >> "$GITHUB_OUTPUT"
+          else
+            [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+            echo "stage1_run_id=${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "stage1_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download approved Stage-1 governed evidence when present
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: governed-ci-failure-*
+          pattern: ${{ steps.source.outputs.stage1_artifact_pattern }}
           path: incoming
           merge-multiple: true
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.source.outputs.stage1_run_id }}
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -58,6 +95,10 @@ jobs:
 
       - name: Verify Stage-1 handoff
         id: inspect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
         run: |
           set -euo pipefail
           failure_case=$(find incoming -type f -name failure-case.json -print -quit 2>/dev/null || true)
@@ -66,16 +107,18 @@ jobs:
             echo "repair_allowed=false" >> "$GITHUB_OUTPUT"
             echo "head_sha=" >> "$GITHUB_OUTPUT"
             echo "source_run_id=" >> "$GITHUB_OUTPUT"
+            echo "source_run_attempt=" >> "$GITHUB_OUTPUT"
             echo "failure_signature=" >> "$GITHUB_OUTPUT"
             echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" <<'PY'
+          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" "${EVENT_NAME}" "${DISPATCH_SOURCE_RUN_ID}" "${DISPATCH_SOURCE_RUN_ATTEMPT}" <<'PY'
           import json
           import sys
           from pathlib import Path
 
-          failure_path, task_path, output_path = map(Path, sys.argv[1:])
+          failure_path, task_path, output_path = map(Path, sys.argv[1:4])
+          event_name, dispatch_run_id, dispatch_run_attempt = sys.argv[4:7]
           failure = json.loads(failure_path.read_text(encoding="utf-8"))
           task = json.loads(task_path.read_text(encoding="utf-8"))
           if failure.get("schema") != "github-failure-ingest@1" or failure.get("status") != "INGESTED":
@@ -91,6 +134,11 @@ jobs:
           for key, value in expected.items():
               if str(binding.get(key)) != str(value):
                   raise SystemExit(f"Stage-1 TaskRun binding mismatch: {key}")
+          if event_name == "workflow_dispatch":
+              if str(failure.get("workflow_run_id")) != dispatch_run_id:
+                  raise SystemExit("approved source Run ID does not match Stage-1 evidence")
+              if str(failure.get("workflow_run_attempt")) != dispatch_run_attempt:
+                  raise SystemExit("approved source run attempt does not match Stage-1 evidence")
           repair_allowed = bool(
               failure.get("repair_allowed") is True
               and failure.get("same_repository") is True
@@ -102,6 +150,7 @@ jobs:
               handle.write(f"repair_allowed={'true' if repair_allowed else 'false'}\n")
               handle.write(f"head_sha={failure.get('head_sha', '')}\n")
               handle.write(f"source_run_id={failure.get('workflow_run_id', '')}\n")
+              handle.write(f"source_run_attempt={failure.get('workflow_run_attempt', '')}\n")
               handle.write(f"failure_signature={failure.get('failure_signature', '')}\n")
           PY
 
@@ -135,12 +184,12 @@ jobs:
       - name: Download Stage-1 governed evidence
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: governed-ci-failure-*
+          pattern: ${{ needs.inspect.outputs.stage1_artifact_pattern }}
           path: incoming
           merge-multiple: true
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.inspect.outputs.stage1_run_id }}
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
