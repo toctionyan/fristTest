@@ -37,7 +37,6 @@ jobs:
           persist-credentials: false
 
       - name: Download Stage-2 repair candidate evidence
-        id: download
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -82,16 +81,19 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-  validate-and-publish:
+  validate:
     needs: inspect
     if: needs.inspect.outputs.publish_allowed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     permissions:
-      contents: write
-      actions: write
-      pull-requests: write
-      issues: write
+      contents: read
+      actions: read
+    outputs:
+      candidate_sha: ${{ steps.validate.outputs.candidate_sha }}
+      source_run_id: ${{ steps.validate.outputs.source_run_id }}
+      repair_branch: ${{ steps.validate.outputs.repair_branch }}
+      repair_base_branch: ${{ steps.validate.outputs.repair_base_branch }}
     steps:
       - name: Checkout trusted Stage-3 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -156,13 +158,18 @@ jobs:
           patch=$(find incoming -type f -name repair.patch -print -quit)
           mkdir -p stage3-evidence
           cp "${task_run}" stage3-evidence/task-run.json
+          cp "${result}" stage3-evidence/stage2-result.json
+          cp "${patch}" stage3-evidence/repair.patch
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3.py prepare \
             --workspace candidate \
-            --result "${result}" \
+            --result stage3-evidence/stage2-result.json \
             --task-run stage3-evidence/task-run.json \
-            --patch "${patch}" \
+            --patch stage3-evidence/repair.patch \
             --plan stage3-evidence/stage3-plan.json \
             --github-output "$GITHUB_OUTPUT"
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_tree.py \
+            --workspace candidate \
+            --plan stage3-evidence/stage3-plan.json
 
       - name: Run fixed targeted regression suites
         run: >-
@@ -208,81 +215,157 @@ jobs:
           --output stage3-evidence/validation-result.json
           --github-output "$GITHUB_OUTPUT"
 
-      - name: Publish immutable repair branch and Draft PR
-        id: publish
+      - name: Upload read-only Stage-3 validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-repair-stage3-validated-${{ needs.inspect.outputs.source_run_id }}
+          path: |
+            stage3-evidence
+            ${{ runner.temp }}/governed-repair-stage3-quick
+            candidate/.quality/targets/governed-repair-stage3-quick.md
+            candidate/.quality/targets/governed-repair-stage3-quick.claims.json
+          retention-days: 30
+          if-no-files-found: error
+
+  publish:
+    needs: [inspect, validate]
+    if: needs.validate.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout trusted Stage-3 publisher
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact source without executing it
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.inspect.outputs.head_sha }}
+          path: publisher-candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download read-only Stage-3 validation evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: governed-ci-repair-stage3-validated-${{ needs.inspect.outputs.source_run_id }}
+          path: validated
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Recreate and verify the validated tree without running candidate code
+        id: prepare-publication
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_publish.py
+          --workspace publisher-candidate
+          --plan validated/stage3-evidence/stage3-plan.json
+          --validation-result validated/stage3-evidence/validation-result.json
+          --patch validated/stage3-evidence/repair.patch
+          --output validated/stage3-evidence/publication-commit.json
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Publish immutable repair branch and verified Draft PR
+        id: publish-pr
         env:
           GH_TOKEN: ${{ github.token }}
-          CANDIDATE_SHA: ${{ steps.validate.outputs.candidate_sha }}
-          REPAIR_BRANCH: ${{ steps.validate.outputs.repair_branch }}
-          REPAIR_BASE: ${{ steps.validate.outputs.repair_base_branch }}
-          SOURCE_RUN_ID: ${{ steps.validate.outputs.source_run_id }}
-          SOURCE_HEAD_SHA: ${{ needs.inspect.outputs.head_sha }}
+          PUBLISHED_SHA: ${{ steps.prepare-publication.outputs.published_candidate_sha }}
+          REPAIR_BRANCH: ${{ steps.prepare-publication.outputs.repair_branch }}
+          REPAIR_BASE: ${{ steps.prepare-publication.outputs.repair_base_branch }}
+          SOURCE_RUN_ID: ${{ steps.prepare-publication.outputs.source_run_id }}
+          SOURCE_HEAD_SHA: ${{ steps.prepare-publication.outputs.source_head_sha }}
         run: |
           set -euo pipefail
-          base_sha=$(git -C candidate ls-remote origin "refs/heads/${REPAIR_BASE}" | awk '{print $1}')
+          base_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${REPAIR_BASE}" --jq '.object.sha')
           if [[ -z "${base_sha}" || "${base_sha}" != "${SOURCE_HEAD_SHA}" ]]; then
             echo "repair base branch moved after failure: expected=${SOURCE_HEAD_SHA} actual=${base_sha}" >&2
             exit 1
           fi
-          remote_sha=$(git -C candidate ls-remote origin "refs/heads/${REPAIR_BRANCH}" | awk '{print $1}')
-          if [[ -n "${remote_sha}" && "${remote_sha}" != "${CANDIDATE_SHA}" ]]; then
+          remote_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${REPAIR_BRANCH}" --jq '.object.sha' 2>/dev/null || true)
+          if [[ -n "${remote_sha}" && "${remote_sha}" != "${PUBLISHED_SHA}" ]]; then
             echo "governed repair branch already points to different evidence" >&2
             exit 1
           fi
           if [[ -z "${remote_sha}" ]]; then
-            git -C candidate remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git -C candidate push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
-            git -C candidate remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            git -C publisher-candidate remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git -C publisher-candidate push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
+            git -C publisher-candidate remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           fi
-          existing=$(gh pr list --state open --head "${REPAIR_BRANCH}" --json url --jq '.[0].url // empty')
+          existing=$(gh pr list --state open --head "${REPAIR_BRANCH}" \
+            --json url,isDraft,baseRefName,headRefName --jq '.[0] // empty')
           body=$(cat <<EOF
           ## Governed repair evidence
 
           - Source Workflow Run ID: \`${SOURCE_RUN_ID}\`
           - Failed source SHA: \`${SOURCE_HEAD_SHA}\`
-          - Validated repair SHA: \`${CANDIDATE_SHA}\`
+          - Published repair SHA: \`${PUBLISHED_SHA}\`
           - Fixed targeted regression: PASS
           - Independent complete Quick Quality Loop: \`CI_VERIFIED\`
+          - Validation job permissions: read-only
           - Automatic merge: disabled
           - Production certification: not claimed
           - production_closed: false
 
-          This Draft PR contains only the immutable Stage-2 product-source paths. It was published only after Stage 3 independently applied the patch and passed targeted plus complete Quick validation. Repository Quality is also dispatched on the published branch.
+          This Draft PR contains only the immutable Stage-2 product-source paths. A read-only job validated the exact Git tree before the separate publisher recreated that same tree without executing candidate code.
           EOF
           )
           if [[ -n "${existing}" ]]; then
-            pr_url="${existing}"
+            is_draft=$(jq -r '.isDraft' <<<"${existing}")
+            base_ref=$(jq -r '.baseRefName' <<<"${existing}")
+            head_ref=$(jq -r '.headRefName' <<<"${existing}")
+            pr_url=$(jq -r '.url' <<<"${existing}")
+            if [[ "${is_draft}" != "true" || "${base_ref}" != "${REPAIR_BASE}" || "${head_ref}" != "${REPAIR_BRANCH}" ]]; then
+              echo "existing repair PR is not the expected Draft PR" >&2
+              exit 1
+            fi
             gh pr comment "${pr_url}" --body "${body}"
           else
             pr_url=$(gh pr create --draft --base "${REPAIR_BASE}" --head "${REPAIR_BRANCH}" \
               --title "Governed repair for workflow run ${SOURCE_RUN_ID}" --body "${body}")
           fi
+          pr_state=$(gh pr view "${pr_url}" --json isDraft,baseRefName,headRefName)
+          jq -e --arg base "${REPAIR_BASE}" --arg head "${REPAIR_BRANCH}" \
+            '.isDraft == true and .baseRefName == $base and .headRefName == $head' \
+            <<<"${pr_state}" >/dev/null
           gh workflow run quality.yml --ref "${REPAIR_BRANCH}"
           echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
 
       - name: Complete governed TaskRun after Draft publication
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_complete.py
-          --validation-result stage3-evidence/validation-result.json
-          --task-run stage3-evidence/task-run.json
-          --pr-url "${{ steps.publish.outputs.pr_url }}"
-          --output stage3-evidence/publication-result.json
+          --validation-result validated/stage3-evidence/validation-result.json
+          --publication-commit validated/stage3-evidence/publication-commit.json
+          --task-run validated/stage3-evidence/task-run.json
+          --pr-url "${{ steps.publish-pr.outputs.pr_url }}"
+          --output validated/stage3-evidence/publication-result.json
 
       - name: Update governed failure issue
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ needs.inspect.outputs.source_run_id }}
-          PR_URL: ${{ steps.publish.outputs.pr_url }}
+          PR_URL: ${{ steps.publish-pr.outputs.pr_url }}
         run: |
           set -euo pipefail
           issue=$(gh issue list --state open --search "[governed-ci-failure] run ${SOURCE_RUN_ID} in:title" \
             --json number --jq '.[0].number // empty')
           status="BLOCKED"
           full_validation="false"
-          if [[ -f stage3-evidence/publication-result.json ]]; then
-            status=$(jq -r '.status // "BLOCKED"' stage3-evidence/publication-result.json)
-            full_validation=$(jq -r '.full_validation_passed // false' stage3-evidence/publication-result.json)
+          if [[ -f validated/stage3-evidence/publication-result.json ]]; then
+            status=$(jq -r '.status // "BLOCKED"' validated/stage3-evidence/publication-result.json)
+            full_validation=$(jq -r '.full_validation_passed // false' validated/stage3-evidence/publication-result.json)
           fi
           body=$(cat <<EOF
           Stage 3 completed for source run \`${SOURCE_RUN_ID}\`.
@@ -300,15 +383,11 @@ jobs:
             gh issue create --title "[governed-ci-repair-stage3] run ${SOURCE_RUN_ID}" --body "${body}"
           fi
 
-      - name: Upload Stage-3 validation and publication evidence
+      - name: Upload Stage-3 publication evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: governed-ci-repair-stage3-${{ needs.inspect.outputs.source_run_id }}
-          path: |
-            stage3-evidence
-            ${{ runner.temp }}/governed-repair-stage3-quick
-            candidate/.quality/targets/governed-repair-stage3-quick.md
-            candidate/.quality/targets/governed-repair-stage3-quick.claims.json
+          name: governed-ci-repair-stage3-published-${{ needs.inspect.outputs.source_run_id }}
+          path: validated/stage3-evidence
           retention-days: 30
           if-no-files-found: error
