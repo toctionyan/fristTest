@@ -23,6 +23,7 @@ BRIDGE_PROTECTED_EXACT = {
     "scripts/github_failure_ingest_control_plane.py",
     "scripts/github_failure_recovery_event.py",
     "scripts/github_failure_sweeper_event.py",
+    "scripts/github_quality_failure_event.py",
     "scripts/github_stage2_handoff.py",
     "scripts/github_repair_stage3.py",
     "scripts/github_repair_stage3_tree.py",

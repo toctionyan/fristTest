@@ -18,6 +18,12 @@
       "version": "v7.0.1"
     }
   },
+  "quality_github_actions": {
+    "actions/download-artifact": {
+      "sha": "37930b1c2abaa49bbe596cd826c3c89aef350131",
+      "version": "v7.0.0"
+    }
+  },
   "locked_source_files": [
     "services/agent-service/uv.lock",
     "services/business-service/uv.lock",
