@@ -217,7 +217,7 @@ jobs:
           mkdir -p stage2-evidence
           cp "${task_run}" stage2-evidence/task-run.json
           echo "task_run=stage2-evidence/task-run.json" >> "$GITHUB_OUTPUT"
-          "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator.py \
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator_control_plane.py \
             --workspace candidate \
             --failure-case "${failure_case}" \
             --task-run stage2-evidence/task-run.json \
@@ -227,6 +227,50 @@ jobs:
             --failure-case "${failure_case}" \
             --result stage2-evidence/repair-result.json \
             --patch stage2-evidence/repair.patch
+
+      - name: Build redacted Stage-2 public summary
+        if: always()
+        env:
+          STAGE2_RUN_ID: ${{ github.run_id }}
+          STAGE2_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("control/scripts").resolve()))
+          from github_failure_ingest import redact
+
+          result_path = Path("stage2-evidence/repair-result.json")
+          payload = {}
+          if result_path.is_file():
+              try:
+                  loaded = json.loads(result_path.read_text(encoding="utf-8"))
+                  if isinstance(loaded, dict):
+                      payload = loaded
+              except json.JSONDecodeError:
+                  payload = {}
+          code = re.sub(r"[^A-Z0-9_]+", "_", str(payload.get("code") or "UNKNOWN").upper()).strip("_")[:80] or "UNKNOWN"
+          reason = redact(str(payload.get("reason") or "not_provided"))
+          reason = " ".join(reason.replace("\r", " ").replace("\n", " ").split())[:1000] or "not_provided"
+          summary = {
+              "schema": "github-stage2-public-summary@1",
+              "stage2_run_id": "${STAGE2_RUN_ID}",
+              "stage2_run_attempt": "${STAGE2_RUN_ATTEMPT}",
+              "status": str(payload.get("status") or "BLOCKED")[:80],
+              "code": code,
+              "reason": reason,
+              "changed_paths": payload.get("changed_paths") if isinstance(payload.get("changed_paths"), list) else [],
+              "stage3_handoff_bound": payload.get("stage3_handoff_bound") is True,
+              "production_closed": False,
+          }
+          output = Path("stage2-evidence/public-summary.json")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
 
       - name: Upload Stage-2 repair candidate evidence
         if: always()
@@ -242,22 +286,32 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ needs.inspect.outputs.source_run_id }}
+          STAGE2_RUN_ID: ${{ github.run_id }}
+          STAGE2_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
           issue=$(gh issue list --state open --search "[governed-ci-failure] run ${SOURCE_RUN_ID} in:title" \
             --json number --jq '.[0].number // empty')
           status="BLOCKED"
+          code="UNKNOWN"
+          reason="not_provided"
           changed_paths="[]"
           handoff_bound="false"
-          if [[ -f stage2-evidence/repair-result.json ]]; then
-            status=$(jq -r '.status // "BLOCKED"' stage2-evidence/repair-result.json)
-            changed_paths=$(jq -c '.changed_paths // []' stage2-evidence/repair-result.json)
-            handoff_bound=$(jq -r '.stage3_handoff_bound // false' stage2-evidence/repair-result.json)
+          if [[ -f stage2-evidence/public-summary.json ]]; then
+            status=$(jq -r '.status // "BLOCKED"' stage2-evidence/public-summary.json)
+            code=$(jq -r '.code // "UNKNOWN"' stage2-evidence/public-summary.json)
+            reason=$(jq -r '.reason // "not_provided"' stage2-evidence/public-summary.json)
+            changed_paths=$(jq -c '.changed_paths // []' stage2-evidence/public-summary.json)
+            handoff_bound=$(jq -r '.stage3_handoff_bound // false' stage2-evidence/public-summary.json)
           fi
           body=$(cat <<EOF
           Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
 
+          - Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}
+          - Stage-2 Run ID / attempt: \`${STAGE2_RUN_ID}/${STAGE2_RUN_ATTEMPT}\`
           - Status: \`${status}\`
+          - Code: \`${code}\`
+          - Redacted reason: \`${reason}\`
           - Changed paths: \`${changed_paths}\`
           - Stage-3 handoff bound: \`${handoff_bound}\`
           - Evidence artifact: \`governed-ci-repair-stage2-${SOURCE_RUN_ID}\`
