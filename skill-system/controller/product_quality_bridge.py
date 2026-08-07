@@ -158,7 +158,23 @@ def current(mode: str | None = None) -> dict[str, Any]:
     }
 
 
-def _run_quality(*, baseline: bool, mode: str, evidence_dir: Path, state_dir: Path) -> dict[str, Any]:
+def _run_quality(
+    *,
+    baseline: bool,
+    mode: str,
+    evidence_dir: Path,
+    state_dir: Path,
+    baseline_oracle_manifest: Path | None = None,
+    baseline_oracle_artifact: Path | None = None,
+) -> dict[str, Any]:
+    has_oracle_manifest = baseline_oracle_manifest is not None
+    has_oracle_artifact = baseline_oracle_artifact is not None
+    if has_oracle_manifest != has_oracle_artifact:
+        raise ValueError(
+            "baseline oracle transport requires both manifest and artifact inputs"
+        )
+    if has_oracle_manifest and not baseline:
+        raise ValueError("baseline oracle transport is valid only for product baseline")
     errors = verify_product_contract()
     if errors and not (baseline and errors == ["product_transition_requires_baseline_evidence"]):
         raise ValueError("product contract gate failed: " + "; ".join(errors))
@@ -174,6 +190,13 @@ def _run_quality(*, baseline: bool, mode: str, evidence_dir: Path, state_dir: Pa
     ]
     if baseline:
         argv.append("--baseline")
+        if baseline_oracle_manifest is not None and baseline_oracle_artifact is not None:
+            argv.extend(
+                [
+                    "--baseline-oracle-manifest", str(baseline_oracle_manifest),
+                    "--baseline-oracle-artifact", str(baseline_oracle_artifact),
+                ]
+            )
     else:
         raw_baseline = contract.payload.get("baseline_evidence")
         if contract.target_kind.value in {"repair", "migration", "revert"}:
@@ -225,7 +248,27 @@ def _run_quality(*, baseline: bool, mode: str, evidence_dir: Path, state_dir: Pa
     return result
 
 
-def baseline(force: bool = False) -> dict[str, Any]:
+def baseline(
+    force: bool = False,
+    baseline_oracle_manifest: str | None = None,
+    baseline_oracle_artifact: str | None = None,
+) -> dict[str, Any]:
+    has_oracle_manifest = baseline_oracle_manifest is not None
+    has_oracle_artifact = baseline_oracle_artifact is not None
+    if has_oracle_manifest != has_oracle_artifact:
+        raise ValueError(
+            "baseline oracle transport requires both manifest and artifact inputs"
+        )
+    oracle_manifest_path = (
+        _relative_file(baseline_oracle_manifest, label="baseline_oracle_manifest")
+        if baseline_oracle_manifest is not None
+        else None
+    )
+    oracle_artifact_path = (
+        _relative_file(baseline_oracle_artifact, label="baseline_oracle_artifact")
+        if baseline_oracle_artifact is not None
+        else None
+    )
     contract = load_contract(ROOT, require_approved=False)
     if contract.target_kind.value not in {"repair", "migration", "revert"}:
         raise ValueError("product baseline is valid only for repair, migration or revert")
@@ -236,7 +279,14 @@ def baseline(force: bool = False) -> dict[str, Any]:
         if not force:
             raise ValueError(f"baseline evidence already exists: {evidence_dir.relative_to(ROOT)}")
         shutil.rmtree(evidence_dir)
-    result = _run_quality(baseline=True, mode=mode, evidence_dir=evidence_dir, state_dir=state_dir)
+    result = _run_quality(
+        baseline=True,
+        mode=mode,
+        evidence_dir=evidence_dir,
+        state_dir=state_dir,
+        baseline_oracle_manifest=oracle_manifest_path,
+        baseline_oracle_artifact=oracle_artifact_path,
+    )
     if result["status"] == "PASS":
         payload = dict(contract.payload)
         payload["baseline_evidence"] = evidence_dir.relative_to(ROOT).as_posix()
@@ -278,6 +328,14 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     baseline_parser = sub.add_parser("baseline")
     baseline_parser.add_argument("--force", action="store_true")
+    baseline_parser.add_argument(
+        "--baseline-oracle-manifest",
+        help="workspace-relative immutable BaselineOracleOverlay manifest",
+    )
+    baseline_parser.add_argument(
+        "--baseline-oracle-artifact",
+        help="workspace-relative immutable BaselineOracleOverlay ZIP/TAR artifact",
+    )
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("--mode", choices=tuple(MODE_ORDER))
     current_parser = sub.add_parser("current")
@@ -290,7 +348,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "baseline":
-            result = baseline(force=args.force)
+            result = baseline(
+                force=args.force,
+                baseline_oracle_manifest=args.baseline_oracle_manifest,
+                baseline_oracle_artifact=args.baseline_oracle_artifact,
+            )
         elif args.command == "verify":
             result = verify(args.mode)
         elif args.command == "current":
