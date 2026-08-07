@@ -1,0 +1,144 @@
+name: b38-stage5g4-c3a2-exact-rebase-probe
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-five-path-rebase:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout probe payload
+        uses: actions/checkout@v4
+        with:
+          path: payload
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout exact B36 base
+        uses: actions/checkout@v4
+        with:
+          path: exact
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Pin exact toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          sudo npm install -g 'n@10.1.0'
+          sudo n 24.18.0
+          hash -r
+          sudo npm install -g 'npm@11.16.0'
+          python3 --version
+          uv --version
+          node --version
+          npm --version
+
+      - name: Reassemble reviewed patch payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/payload/docs/governance/ci-probes/b38-stage5g4-c3a2"
+          cat "$SRC"/part-00.b64 "$SRC"/part-01.b64 "$SRC"/part-02.b64 "$SRC"/part-03.b64 > patches.tar.gz.b64
+          base64 -d patches.tar.gz.b64 > patches.tar.gz
+          mkdir patches
+          tar -xzf patches.tar.gz -C patches
+          test "$(find patches -maxdepth 1 -type f | wc -l | tr -d ' ')" = "5"
+
+      - name: Verify exact B36 identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C exact rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test -z "$(git -C exact status --porcelain=v1 --untracked-files=all)"
+          declare -A expected=(
+            [services/agent-service/src/agent_core/context/visible_result_refs.py]=6b1670967006e82e1bebd5fce0f674de1f144a2a
+            [services/agent-service/src/agent_core/kernel/plan_projection_contract.py]=7afd0551357b1ef2a093f1f4da77d1c80faeb6a1
+            [services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py]=9e88b116258aa38710223a9bc5c247cdf8593a46
+            [services/agent-service/src/agent_core/lifecycle/protocol.py]=6ae0d7604408d5f5c38e0aa878c0bef525c34c43
+            [services/agent-service/src/agent_core/lifecycle/workflow_runtime.py]=4a12e8fe22039fdbcf109bf6c449e3d32174be05
+          )
+          for p in "${!expected[@]}"; do
+            actual="$(git -C exact hash-object "$p")"
+            test "$actual" = "${expected[$p]}" || { echo "blob mismatch $p expected=${expected[$p]} actual=$actual"; exit 75; }
+          done
+
+      - name: Apply only reviewed five-file delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          patches=(
+            "$GITHUB_WORKSPACE/patches/services_agent-service_src_agent_core_context_visible_result_refs.py.patch"
+            "$GITHUB_WORKSPACE/patches/services_agent-service_src_agent_core_kernel_plan_projection_contract.py.patch"
+            "$GITHUB_WORKSPACE/patches/services_agent-service_src_agent_core_lifecycle_dialogue_runtime.py.patch"
+            "$GITHUB_WORKSPACE/patches/protocol_exact_base_selective.patch"
+            "$GITHUB_WORKSPACE/patches/services_agent-service_src_agent_core_lifecycle_workflow_runtime.py.patch"
+          )
+          for patch in "${patches[@]}"; do git -C exact apply --check -p1 "$patch"; done
+          for patch in "${patches[@]}"; do git -C exact apply -p1 "$patch"; done
+          python3 -m compileall -q \
+            exact/services/agent-service/src/agent_core/context/visible_result_refs.py \
+            exact/services/agent-service/src/agent_core/kernel/plan_projection_contract.py \
+            exact/services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            exact/services/agent-service/src/agent_core/lifecycle/protocol.py \
+            exact/services/agent-service/src/agent_core/lifecycle/workflow_runtime.py
+
+      - name: Verify exact changed scope and build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd exact
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(
+            services/agent-service/src/agent_core/context/visible_result_refs.py
+            services/agent-service/src/agent_core/kernel/plan_projection_contract.py
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+            services/agent-service/src/agent_core/lifecycle/protocol.py
+            services/agent-service/src/agent_core/lifecycle/workflow_runtime.py
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          test "${#changed[@]}" -eq 5
+          diff -u <(printf '%s\n' "${expected_sorted[@]}") <(printf '%s\n' "${changed[@]}")
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, subprocess
+          paths=[
+            'services/agent-service/src/agent_core/context/visible_result_refs.py',
+            'services/agent-service/src/agent_core/kernel/plan_projection_contract.py',
+            'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+            'services/agent-service/src/agent_core/lifecycle/protocol.py',
+            'services/agent-service/src/agent_core/lifecycle/workflow_runtime.py',
+          ]
+          rows=[]
+          for raw in paths:
+              p=Path(raw)
+              rows.append({'path':raw,'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'git_blob_sha1':subprocess.check_output(['git','hash-object',raw],text=True).strip()})
+          out={'schema_version':1,'stage':'5G4-C3A2-exact-five-file-ci','base_sha':'e0e04d51e9da9790bef7bd0482584f60b8e975a9','changed_paths':paths,'changed_path_count':5,'files':rows,'production_closed':False}
+          Path('STAGE5G4_C3A2_EXACT_5PATH_OUTPUT.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Collect exact candidate artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact/files
+          cp exact/STAGE5G4_C3A2_EXACT_5PATH_OUTPUT.json artifact/
+          while IFS= read -r p; do
+            mkdir -p "artifact/files/$(dirname "$p")"
+            cp "exact/$p" "artifact/files/$p"
+          done < <(git -C exact diff --name-only | sort)
+          (cd artifact && sha256sum STAGE5G4_C3A2_EXACT_5PATH_OUTPUT.json $(find files -type f | sort) > SHA256SUMS.txt)
+
+      - name: Upload exact candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3a2-exact-five-file-candidate
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7
