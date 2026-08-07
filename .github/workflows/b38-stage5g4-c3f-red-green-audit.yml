@@ -1,0 +1,158 @@
+name: b38-stage5g4-c3f-red-green-audit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-red-green-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout audit payload
+        uses: actions/checkout@v4
+        with:
+          path: payload
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout exact B36 twice
+        uses: actions/checkout@v4
+        with:
+          path: baseline
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Checkout exact B36 candidate root
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Checkout reviewed C3A2 five-patch payload
+        uses: actions/checkout@v4
+        with:
+          path: exact5payload
+          ref: a92440c3c1d1735af11b44493634dc86b13ad327
+          fetch-depth: 1
+
+      - name: Pin Python and uv
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install exact uv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          test "$(python3 --version)" = "Python 3.12.13"
+          test "$(uv --version | awk '{print $2}')" = "0.11.29"
+
+      - name: Reconstruct reviewed exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/payload/docs/governance/ci-probes/b38-stage5g4-c3c"
+          cat "$SRC"/v2-part-00.b64 "$SRC"/v2-part-01.b64 "$SRC"/v2-part-02.b64 "$SRC"/v2-part-03.b64 > safe25.patch.xz.b64
+          base64 -d safe25.patch.xz.b64 > safe25.patch.xz
+          test "$(sha256sum safe25.patch.xz | awk '{print $1}')" = "a3bb48d389d0848760df39f410b60c8ef732203ec1096a5f417f32ea0bf68da7"
+          xz -dc safe25.patch.xz > safe25.patch
+          test "$(sha256sum safe25.patch | awk '{print $1}')" = "c588e7f70e8edefc3b95f39783ef7aa8d0c8cafea11db5ef98f18c67db845169"
+
+          SRC5="$GITHUB_WORKSPACE/exact5payload/docs/governance/ci-probes/b38-stage5g4-c3a2"
+          cat "$SRC5"/part-00.b64 "$SRC5"/part-01.b64 "$SRC5"/part-02.b64 "$SRC5"/part-03.b64 > exact5.tar.gz.b64
+          base64 -d exact5.tar.gz.b64 > exact5.tar.gz
+          test "$(sha256sum exact5.tar.gz | awk '{print $1}')" = "61271101c405b0eb7cdaf901531fa5f6e802288baeab642427ab2213ffafc078"
+          mkdir exact5patches
+          tar -xzf exact5.tar.gz -C exact5patches
+
+          git -C candidate apply --check -p1 "$GITHUB_WORKSPACE/safe25.patch"
+          git -C candidate apply -p1 "$GITHUB_WORKSPACE/safe25.patch"
+          patches=(
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_context_visible_result_refs.py.patch"
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_kernel_plan_projection_contract.py.patch"
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_lifecycle_dialogue_runtime.py.patch"
+            "$GITHUB_WORKSPACE/exact5patches/protocol_exact_base_selective.patch"
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_lifecycle_workflow_runtime.py.patch"
+          )
+          for p in "${patches[@]}"; do git -C candidate apply --check -p1 "$p"; done
+          for p in "${patches[@]}"; do git -C candidate apply -p1 "$p"; done
+          test "$( { git -C candidate diff --name-only; git -C candidate ls-files --others --exclude-standard; } | sort -u | wc -l | tr -d ' ' )" = "30"
+
+      - name: Overlay only candidate acceptance tests onto exact B36
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests=(
+            services/agent-service/tests/runtime/test_pretool_execution_policy.py
+            services/agent-service/tests/runtime/test_stage4_goal_output_refs.py
+          )
+          for rel in "${tests[@]}"; do cp "candidate/$rel" "baseline/$rel"; done
+          mapfile -t changed < <(git -C baseline diff --name-only)
+          test "${#changed[@]}" = "2"
+          test "${changed[0]}" = "services/agent-service/tests/runtime/test_pretool_execution_policy.py"
+          test "${changed[1]}" = "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py"
+          test -z "$(git -C baseline diff --name-only -- services/agent-service/src/agent_core)"
+
+      - name: Install locked Agent dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd baseline/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+
+      - name: Run bounded red-green transition candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/run_audit.py <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          root=Path(os.environ['GITHUB_WORKSPACE'])
+          cases=[
+            'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets',
+            'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_multi_goal_completion_recording_rejects_different_explicit_targets',
+          ]
+          out={'schema_version':1,'stage':'5G4-C3F','base_sha':'e0e04d51e9da9790bef7bd0482584f60b8e975a9','cases':[]}
+          for case in cases:
+              row={'nodeid':case}
+              for label in ('baseline','candidate'):
+                  ws=root/label
+                  env=os.environ.copy()
+                  env['APP_PROFILE']='local'
+                  env['PYTHONDONTWRITEBYTECODE']='1'
+                  env['PYTHONPATH']=f"{ws/'services/agent-service/src'}:{ws/'services/agent-service'}"
+                  py=ws/'services/agent-service/.venv/bin/python'
+                  cp=subprocess.run([str(py),'-m','pytest','-q',case],cwd=ws,text=True,capture_output=True,env=env)
+                  row[label]={'exit_code':cp.returncode,'stdout':cp.stdout[-5000:],'stderr':cp.stderr[-5000:]}
+              row['red_green']=row['baseline']['exit_code']!=0 and row['candidate']['exit_code']==0
+              out['cases'].append(row)
+          out['red_green_case_count']=sum(1 for r in out['cases'] if r['red_green'])
+          out['candidate_all_green']=all(r['candidate']['exit_code']==0 for r in out['cases'])
+          out['baseline_test_overlay_only']=True
+          out['formal_baseline_recorded']=False
+          out['claim_modified']=False
+          out['product_code_modified']=False
+          out['production_closed']=False
+          Path(root/'STAGE5G4_C3F_RED_GREEN_AUDIT.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          if not out['candidate_all_green'] or out['red_green_case_count'] < 1:
+              raise SystemExit(1)
+          PY
+          python3 /tmp/run_audit.py | tee red-green-audit.txt
+
+      - name: Upload C3F audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3f-red-green-audit
+          path: |
+            STAGE5G4_C3F_RED_GREEN_AUDIT.json
+            red-green-audit.txt
+          if-no-files-found: error
+          retention-days: 7
