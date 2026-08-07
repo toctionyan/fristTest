@@ -1,0 +1,227 @@
+name: stage5g4-c3g3-b2-2a-exact-tamper-replay
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  exact-b36-tamper-replay:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout probe payload
+        uses: actions/checkout@v4
+        with:
+          path: payload
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout A4 control plane
+        uses: actions/checkout@v4
+        with:
+          path: controller
+          ref: 0fe81c395c09cc39dd349d820d313a0792036ec1
+          fetch-depth: 1
+
+      - name: Checkout untouched exact B36 source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Download locked B1-1 Oracle overlay
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle-input
+          gh api repos/${{ github.repository }}/actions/artifacts/8994125634/zip > oracle-input/wrapper.zip
+          unzip -q oracle-input/wrapper.zip -d oracle-input/wrapper
+          test -f oracle-input/wrapper/overlay.zip
+          test "$(sha256sum oracle-input/wrapper/overlay.zip | awk '{print $1}')" = "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6"
+
+      - name: Run exact-B36 fail-closed tamper matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/b2_tamper.py <<'PY'
+          from __future__ import annotations
+          import copy, hashlib, json, sys, tempfile, zipfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          controller = root / 'controller'
+          source = root / 'source'
+          artifact = root / 'oracle-input/wrapper/overlay.zip'
+          sys.path.insert(0, str(controller / 'scripts'))
+
+          import quality_control.baseline_oracle as boo
+
+          EXACT_B36 = 'e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+          TEST_PATH = 'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py'
+          SELECTOR = TEST_PATH + '::test_dependency_goal_output_is_not_reused_across_different_explicit_targets'
+          BASE_SHA = '224f63054775bfb00c309035d24896867975685d28ca115c1cc45d5cc812cc0f'
+          OVERLAY_SHA = 'd442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38'
+          ARTIFACT_SHA = 'ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6'
+          WORKSPACE_FP = 'f9ab6acafe592e49534ed6d2fd2b3e9b0f45debc7bb26fbd9a86d06515e1a2fa'
+
+          def canonical(payload):
+              body = copy.deepcopy(payload)
+              body.pop('canonical_fingerprint', None)
+              raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
+              payload['canonical_fingerprint'] = hashlib.sha256(raw).hexdigest()
+              return payload
+
+          def base_manifest():
+              return canonical({
+                  'schema_version': 1,
+                  'oracle_id': 'stage5g4-c3g3-b1-preferred-red',
+                  'base_source_identity': {'repository': 'toctionyan/fristTest', 'commit_sha': EXACT_B36},
+                  'base_workspace_fingerprint': WORKSPACE_FP,
+                  'overlay_artifact_sha256': ARTIFACT_SHA,
+                  'overlay_file_map': [{
+                      'path': TEST_PATH,
+                      'base_file_sha256': BASE_SHA,
+                      'overlay_file_sha256': OVERLAY_SHA,
+                  }],
+                  'claim_bindings': [{'claim_id': 'B1.PREFERRED.RED', 'selector': SELECTOR}],
+                  'provenance': {
+                      'provider': 'github-actions',
+                      'run_id': 31179398373,
+                      'job_id': 92868795829,
+                      'artifact_id': 8994125634,
+                      'artifact_digest': ARTIFACT_SHA,
+                  },
+                  'execution_mode': 'ephemeral_overlay_view',
+              })
+
+          temp = Path(tempfile.mkdtemp(prefix='b2-tamper-'))
+          results = []
+
+          def write_manifest(name, payload):
+              p = temp / f'{name}.json'
+              p.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+              return p
+
+          def expect_reject(case_id, expected_substring, action):
+              try:
+                  action()
+              except boo.BaselineOracleError as exc:
+                  msg = str(exc)
+                  ok = expected_substring in msg
+                  results.append({'case': case_id, 'status': 'PASS' if ok else 'FAIL', 'error': msg, 'expected': expected_substring})
+                  if not ok:
+                      raise SystemExit(f'{case_id}: wrong rejection: {msg}')
+              else:
+                  results.append({'case': case_id, 'status': 'FAIL', 'error': 'NO_REJECTION', 'expected': expected_substring})
+                  raise SystemExit(f'{case_id}: invalid Oracle was accepted or silently fell back')
+
+          # F01 wrong exact base identity.
+          m = base_manifest(); m['base_source_identity']['commit_sha'] = '0' * 40; canonical(m)
+          p = write_manifest('F01', m)
+          expect_reject('BOO-F01', 'must be exact B36', lambda: boo.load_and_validate_baseline_oracle(source_workspace=source, manifest_path=p, artifact_path=artifact))
+
+          # F02 wrong provenance digest, with canonical fingerprint updated so the intended check is reached.
+          m = base_manifest(); m['provenance']['artifact_digest'] = '0' * 64; canonical(m)
+          p = write_manifest('F02', m)
+          expect_reject('BOO-F02', 'does not bind the supplied oracle artifact', lambda: boo.load_and_validate_baseline_oracle(source_workspace=source, manifest_path=p, artifact_path=artifact))
+
+          # F03 otherwise valid overlay but nonexistent selector.
+          m = base_manifest(); m['claim_bindings'][0]['selector'] = TEST_PATH + '::test_selector_that_does_not_exist'; canonical(m)
+          p = write_manifest('F03', m)
+          def f03():
+              with boo.baseline_oracle_execution_view(source_workspace=source, manifest_path=p, artifact_path=artifact):
+                  pass
+          expect_reject('BOO-F03', 'claim binding selector is absent from execution view', f03)
+
+          # F04 file-map hash disagrees with actual overlay member.
+          m = base_manifest(); m['overlay_file_map'][0]['overlay_file_sha256'] = '1' * 64; canonical(m)
+          p = write_manifest('F04', m)
+          expect_reject('BOO-F04', 'overlay_file_sha256 mismatch', lambda: boo.load_and_validate_baseline_oracle(source_workspace=source, manifest_path=p, artifact_path=artifact))
+
+          # F05 artifact contains an undeclared second regular member. Bind outer hash so member-set check is reached.
+          extra_artifact = temp / 'F05-extra.zip'
+          with zipfile.ZipFile(artifact, 'r') as srczip, zipfile.ZipFile(extra_artifact, 'w', compression=zipfile.ZIP_DEFLATED) as dstzip:
+              for info in srczip.infolist():
+                  if not info.is_dir():
+                      dstzip.writestr(info.filename, srczip.read(info.filename))
+              dstzip.writestr('unexpected.txt', b'undeclared')
+          extra_sha = hashlib.sha256(extra_artifact.read_bytes()).hexdigest()
+          m = base_manifest(); m['overlay_artifact_sha256'] = extra_sha; m['provenance']['artifact_digest'] = extra_sha; canonical(m)
+          p = write_manifest('F05', m)
+          expect_reject('BOO-F05', 'oracle artifact member set mismatch', lambda: boo.load_and_validate_baseline_oracle(source_workspace=source, manifest_path=p, artifact_path=extra_artifact))
+
+          # F06 mutate the execution-view test file immediately before the built-in selector checkpoint.
+          m = base_manifest(); p = write_manifest('F06', m)
+          original_selector_exists = boo._python_selector_exists
+          base_bytes = (source / TEST_PATH).read_bytes()
+          def tampering_selector_check(path, selector):
+              Path(path).write_bytes(base_bytes)
+              return original_selector_exists(Path(path), selector)
+          def f06():
+              boo._python_selector_exists = tampering_selector_check
+              try:
+                  with boo.baseline_oracle_execution_view(source_workspace=source, manifest_path=p, artifact_path=artifact):
+                      pass
+              finally:
+                  boo._python_selector_exists = original_selector_exists
+          expect_reject('BOO-F06', 'claim binding selector is absent from execution view', f06)
+
+          # F07 mutate untouched exact-B36 source while Oracle view is active; normal context exit must detect it.
+          m = base_manifest(); p = write_manifest('F07', m)
+          source_test = source / TEST_PATH
+          original_source = source_test.read_bytes()
+          def f07():
+              try:
+                  with boo.baseline_oracle_execution_view(source_workspace=source, manifest_path=p, artifact_path=artifact):
+                      source_test.write_bytes(original_source + b'\n# B2-F07-tamper\n')
+              finally:
+                  source_test.write_bytes(original_source)
+          expect_reject('BOO-F07', 'source workspace mutated while baseline oracle was active', f07)
+
+          after_fp = boo.workspace_snapshot(source.resolve())['fingerprint']
+          if after_fp != WORKSPACE_FP:
+              raise SystemExit(f'source workspace was not restored after F07: {after_fp}')
+
+          out = {
+              'schema_version': 1,
+              'stage': '5G4-C3G3-B2-2',
+              'exact_b36': EXACT_B36,
+              'a4_controller': '0fe81c395c09cc39dd349d820d313a0792036ec1',
+              'oracle_artifact_sha256': ARTIFACT_SHA,
+              'source_workspace_fingerprint_after': after_fp,
+              'cases': results,
+              'passed': sum(1 for r in results if r['status'] == 'PASS'),
+              'total': len(results),
+              'no_fallback': all(r['status'] == 'PASS' for r in results),
+              'product_baseline_run': False,
+              'contract_begin_run': False,
+              'production_closed': False,
+          }
+          Path('STAGE5G4_C3G3_B2_2_TAMPER_REPLAY.json').write_text(json.dumps(out, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(out, ensure_ascii=False, indent=2))
+          if out['passed'] != 7 or out['total'] != 7 or not out['no_fallback']:
+              raise SystemExit(1)
+          PY
+          python3 /tmp/b2_tamper.py | tee STAGE5G4_C3G3_B2_2_TAMPER_REPLAY.txt
+
+      - name: Upload B2-2 tamper replay evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3g3-b2-2-exact-tamper-replay
+          path: |
+            STAGE5G4_C3G3_B2_2_TAMPER_REPLAY.json
+            STAGE5G4_C3G3_B2_2_TAMPER_REPLAY.txt
+          if-no-files-found: error
+          retention-days: 7
