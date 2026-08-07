@@ -420,6 +420,18 @@ def _run_loop_unlocked(
             _write_step_evidence(evidence_dir, result)
 
         run_end_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
+    baseline_oracle_identity_payload = (
+        dict(baseline_oracle_identity.payload)
+        if baseline_oracle_identity is not None
+        else None
+    )
+    baseline_oracle_identity_evidence_file: str | None = None
+    if baseline_oracle_identity_payload is not None:
+        baseline_oracle_identity_evidence_file = "baseline-oracle-overlay-identity.json"
+        (evidence_dir / baseline_oracle_identity_evidence_file).write_text(
+            json.dumps(baseline_oracle_identity_payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     if run_end_snapshot["fingerprint"] != run_start_snapshot["fingerprint"]:
         immutability_result = _workspace_immutability_result(run_start_snapshot, run_end_snapshot)
         results.append(immutability_result)
@@ -494,6 +506,8 @@ def _run_loop_unlocked(
                 "replan_predecessor": replan_predecessor,
                 "workspace_snapshot_file": snapshot_file,
                 "workspace_snapshot_fingerprint": baseline_snapshot["fingerprint"],
+                "baseline_oracle_overlay_identity": baseline_oracle_identity_payload,
+                "baseline_oracle_identity_evidence_file": baseline_oracle_identity_evidence_file,
             }
             (evidence_dir / "baseline-record.json").write_text(
                 json.dumps(baseline_record, ensure_ascii=False, indent=2) + "\n",
@@ -654,6 +668,8 @@ def _run_loop_unlocked(
         "workspace_snapshot_start_fingerprint": run_start_snapshot["fingerprint"],
         "workspace_snapshot_fingerprint": verification_snapshot["fingerprint"],
         "workspace_snapshot_file": workspace_snapshot_file,
+        "baseline_oracle_overlay_identity": baseline_oracle_identity_payload,
+        "baseline_oracle_identity_evidence_file": baseline_oracle_identity_evidence_file,
         "selected_gate_ids": selected_gate_ids,
         "required_gate_ids": required_gate_ids,
         "gate_contract_fingerprints": _gate_contract_fingerprints(all_steps),
@@ -936,6 +952,14 @@ def main() -> int:
     parser.add_argument("--evidence-dir")
     parser.add_argument("--target", help="required filled quality-loop target markdown record")
     parser.add_argument("--baseline", action="store_true", help="record this pass as the pre-change baseline")
+    parser.add_argument(
+        "--baseline-oracle-manifest",
+        help="immutable BaselineOracleOverlay manifest; valid only with --baseline",
+    )
+    parser.add_argument(
+        "--baseline-oracle-artifact",
+        help="immutable BaselineOracleOverlay ZIP/TAR artifact; valid only with --baseline",
+    )
     parser.add_argument("--baseline-evidence", help="evidence directory from the required local baseline pass")
     parser.add_argument("--prior-evidence", help="removed compatibility flag; supplying it is an error because historical PASS evidence is never reused")
     parser.add_argument("--state-dir", help="local quality-loop state directory; defaults to .quality/loop-state")
@@ -978,6 +1002,16 @@ def main() -> int:
     evidence_dir = Path(evidence_raw).expanduser().resolve() if evidence_raw else workspace / ".quality" / "evidence" / _safe_run_id()
     target_path = Path(args.target).expanduser().resolve() if args.target else None
     baseline_evidence = Path(args.baseline_evidence).expanduser().resolve() if args.baseline_evidence else None
+    baseline_oracle_manifest = (
+        Path(args.baseline_oracle_manifest).expanduser().resolve()
+        if args.baseline_oracle_manifest
+        else None
+    )
+    baseline_oracle_artifact = (
+        Path(args.baseline_oracle_artifact).expanduser().resolve()
+        if args.baseline_oracle_artifact
+        else None
+    )
     prior_evidence = Path(args.prior_evidence).expanduser().resolve() if args.prior_evidence else None
     state_raw = args.state_dir or os.getenv("QUALITY_LOOP_STATE_DIR")
     state_dir = Path(state_raw).expanduser().resolve() if state_raw else workspace / ".quality" / "loop-state"
@@ -995,6 +1029,8 @@ def main() -> int:
             baseline_evidence=baseline_evidence,
             prior_evidence=prior_evidence,
             state_dir=state_dir,
+            baseline_oracle_manifest=baseline_oracle_manifest,
+            baseline_oracle_artifact=baseline_oracle_artifact,
         )
     except QualityRunConflictError as exc:
         # A rejected contender must never write into the active run's evidence
