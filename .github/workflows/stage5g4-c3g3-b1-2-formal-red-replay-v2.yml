@@ -69,6 +69,7 @@ jobs:
               ('"modes": ["static"]', '"modes": ["quick"]'),
               ('"--mode",\n            "static",', '"--mode",\n            "quick",'),
               ('gate_python = (control / "services" / "agent-service" / ".venv" / "bin" / "python").resolve()', 'gate_python = control / "services" / "agent-service" / ".venv" / "bin" / "python"'),
+              ('"from pathlib import Path; import os, pytest; "', '"from pathlib import Path; import os, sys, pytest; sys.path.insert(0, str(Path.cwd() / \'services/agent-service/src\')); sys.path.insert(0, str(Path.cwd() / \'services/agent-service\')); "'),
           ]
           for old, new in replacements:
               count = text.count(old)
@@ -90,6 +91,20 @@ jobs:
             --source source \
             --overlay oracle-source/overlay.zip \
             --output b1-results
+
+      - name: Verify semantic RED cause
+        id: semantic_red
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          STEP_OUT=b1-results/formal-red-evidence/steps/preferred-red-proof.stdout.txt
+          STEP_ERR=b1-results/formal-red-evidence/steps/preferred-red-proof.stderr.txt
+          test -f "$STEP_OUT"
+          grep -q 'prepare_refund_from_eligibility' "$STEP_OUT"
+          ! grep -q 'ModuleNotFoundError' "$STEP_OUT"
+          ! grep -q 'ModuleNotFoundError' "$STEP_ERR"
+          grep -q '1 failed' "$STEP_OUT"
 
       - name: Preserve Controller diagnostic evidence
         if: always()
@@ -123,3 +138,4 @@ jobs:
         shell: bash
         run: |
           test '${{ steps.replay.outcome }}' = 'success'
+          test '${{ steps.semantic_red.outcome }}' = 'success'
