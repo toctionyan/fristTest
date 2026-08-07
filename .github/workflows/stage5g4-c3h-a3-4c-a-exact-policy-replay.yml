@@ -144,7 +144,7 @@ jobs:
           - 验收 ID：C3H.A3.4C.PREFERRED.RED
 
           ## 基线
-          untouched exact B36 + immutable B1 Oracle + exact B1 focused-policy bytes。
+          baseline = untouched exact B36 + immutable B1 Oracle + exact B1 focused-policy bytes。
 
           ## 修复轮次
           - 最大轮次：1
@@ -233,7 +233,7 @@ jobs:
           combined = (row.get('stdout') or '') + '\n' + (row.get('stderr') or '')
           for token in ['AssertionError','prepare_refund_from_eligibility',selector.split('::',1)[1],'1 failed']:
               assert token in combined
-          for token in ['ModuleNotFoundError','ERR_MODULE_NOT_FOUND','exit 78','exit_code": 78']:
+          for token in ['ModuleNotFoundError','ERR_MODULE_NOT_FOUND','exit 78','exit_code\": 78']:
               assert token not in combined
           claim = summary['claim_results'][0]
           assert claim['status'] == 'FAILED'
