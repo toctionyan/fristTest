@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "oracle_id": "stage5g4-c3g3-b1-preferred-red",
+  "base_source_identity": {
+    "repository": "toctionyan/fristTest",
+    "commit_sha": "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+  },
+  "base_workspace_fingerprint": "f9ab6acafe592e49534ed6d2fd2b3e9b0f45debc7bb26fbd9a86d06515e1a2fa",
+  "overlay_artifact_sha256": "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6",
+  "overlay_file_map": [
+    {
+      "path": "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py",
+      "base_file_sha256": "224f63054775bfb00c309035d24896867975685d28ca115c1cc45d5cc812cc0f",
+      "overlay_file_sha256": "d442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38"
+    }
+  ],
+  "claim_bindings": [
+    {
+      "claim_id": "B1.PREFERRED.RED",
+      "selector": "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets"
+    }
+  ],
+  "provenance": {
+    "provider": "github-actions",
+    "run_id": 31179398373,
+    "job_id": 92868795829,
+    "artifact_id": 8994125634,
+    "artifact_digest": "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6"
+  },
+  "execution_mode": "ephemeral_overlay_view",
+  "canonical_fingerprint": "a8315eaa1348eba744379c84e68d6a13fbc0f40578dbbcf8e93ca377541a4f54"
+}
