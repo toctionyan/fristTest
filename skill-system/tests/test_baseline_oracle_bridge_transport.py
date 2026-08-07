@@ -38,6 +38,7 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         self.assertEqual(baseline_help.returncode, 0, baseline_help.stderr)
         self.assertIn("--baseline-oracle-manifest", baseline_help.stdout)
         self.assertIn("--baseline-oracle-artifact", baseline_help.stdout)
+        self.assertIn("--baseline-policy", baseline_help.stdout)
         self.assertIn("--workspace-root", baseline_help.stdout)
 
         verify_help = subprocess.run(
@@ -49,7 +50,33 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         self.assertEqual(verify_help.returncode, 0, verify_help.stderr)
         self.assertNotIn("--baseline-oracle-manifest", verify_help.stdout)
         self.assertNotIn("--baseline-oracle-artifact", verify_help.stdout)
+        self.assertNotIn("--baseline-policy", verify_help.stdout)
         self.assertIn("--workspace-root", verify_help.stdout)
+
+    def test_nonbaseline_cli_commands_reject_baseline_policy(self) -> None:
+        commands = [
+            ["verify", "--baseline-policy", "focused-policy.json"],
+            ["current", "--baseline-policy", "focused-policy.json"],
+            [
+                "record",
+                "--evidence",
+                "evidence",
+                "--mode",
+                "static",
+                "--baseline-policy",
+                "focused-policy.json",
+            ],
+            ["status", "--baseline-policy", "focused-policy.json"],
+        ]
+        for args in commands:
+            completed = subprocess.run(
+                [sys.executable, "-B", str(BRIDGE_PATH), *args],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 2, (args, completed.stdout, completed.stderr))
+            self.assertIn("unrecognized arguments: --baseline-policy", completed.stderr)
 
     def test_run_quality_fails_closed_on_partial_or_nonbaseline_oracle_input(self) -> None:
         bridge = self.bridge
@@ -72,6 +99,14 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
                 baseline_oracle_manifest=manifest,
                 baseline_oracle_artifact=artifact,
             )
+        with self.assertRaisesRegex(ValueError, "baseline policy transport is valid only"):
+            bridge._run_quality(
+                baseline=False,
+                mode="static",
+                evidence_dir=Path("evidence"),
+                state_dir=Path("state"),
+                baseline_policy=Path("focused-policy.json"),
+            )
 
     def test_run_quality_forwards_exact_oracle_paths_without_identity_synthesis(self) -> None:
         bridge = self.bridge
@@ -82,9 +117,11 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             target.write_text("target\n", encoding="utf-8")
             manifest = root / ".quality" / "baseline-oracles" / "oracle" / "manifest.json"
             artifact = manifest.with_name("overlay.zip")
+            policy = root / ".quality" / "baseline-oracles" / "focused-policy.json"
             manifest.parent.mkdir(parents=True)
             manifest.write_text("{not parsed by bridge}\n", encoding="utf-8")
             artifact.write_bytes(b"opaque artifact bytes")
+            policy.write_text("{not parsed by bridge either}\n", encoding="utf-8")
             evidence = root / ".quality" / "evidence" / "baseline"
             state = root / ".quality" / "state"
             captured: list[str] = []
@@ -111,6 +148,7 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
                     mode="static",
                     evidence_dir=evidence,
                     state_dir=state,
+                    baseline_policy=policy,
                     baseline_oracle_manifest=manifest,
                     baseline_oracle_artifact=artifact,
                 )
@@ -120,6 +158,9 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             artifact_index = captured.index("--baseline-oracle-artifact")
             self.assertEqual(captured[manifest_index + 1], str(manifest))
             self.assertEqual(captured[artifact_index + 1], str(artifact))
+            policy_index = captured.index("--policy")
+            self.assertEqual(captured[policy_index + 1], str(policy))
+            self.assertEqual(captured.count("--policy"), 1)
             self.assertNotIn("--acceptance-overlay", captured)
             self.assertNotIn("--test-overlay", captured)
 
@@ -136,7 +177,7 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             resolved.append((raw, label, workspace))
             if label == "baseline_oracle_artifact":
                 raise ValueError("artifact invalid")
-            return Path("/tmp/manifest.json")
+            return Path(f"/tmp/{label}.json")
 
         with (
             mock.patch.object(bridge, "load_contract", return_value=fake_contract),
@@ -146,12 +187,14 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "artifact invalid"):
                 bridge.baseline(
                     force=True,
+                    baseline_policy="focused-policy.json",
                     baseline_oracle_manifest="manifest.json",
                     baseline_oracle_artifact="overlay.zip",
                 )
         self.assertEqual(
             resolved,
             [
+                ("focused-policy.json", "baseline_policy", bridge.ROOT.resolve()),
                 ("manifest.json", "baseline_oracle_manifest", bridge.ROOT.resolve()),
                 ("overlay.zip", "baseline_oracle_artifact", bridge.ROOT.resolve()),
             ],
@@ -170,9 +213,11 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             state = product_root / ".quality" / "product-code" / "change-1" / "state"
             manifest = product_root / ".quality" / "oracle" / "manifest.json"
             artifact = product_root / ".quality" / "oracle" / "overlay.zip"
+            policy = product_root / ".quality" / "oracle" / "focused-policy.json"
             manifest.parent.mkdir(parents=True)
             manifest.write_text("{}\n", encoding="utf-8")
             artifact.write_bytes(b"overlay")
+            policy.write_text("{}\n", encoding="utf-8")
             fake_contract = SimpleNamespace(
                 change_id="change-1",
                 payload={"quality_target": "governance/target.md"},
@@ -234,9 +279,11 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             product_root = Path(raw).resolve()
             manifest = product_root / ".quality" / "oracle" / "manifest.json"
             artifact = product_root / ".quality" / "oracle" / "overlay.zip"
+            policy = product_root / ".quality" / "oracle" / "focused-policy.json"
             manifest.parent.mkdir(parents=True)
             manifest.write_text("{}\n", encoding="utf-8")
             artifact.write_bytes(b"overlay")
+            policy.write_text("{}\n", encoding="utf-8")
             fake_contract = SimpleNamespace(
                 target_kind=SimpleNamespace(value="migration"),
                 payload={"minimum_quality_mode": "static"},
@@ -257,6 +304,7 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
                 mock.patch.object(bridge, "_run_quality", side_effect=fake_run_quality),
             ):
                 result = bridge.baseline(
+                    baseline_policy=".quality/oracle/focused-policy.json",
                     baseline_oracle_manifest=".quality/oracle/manifest.json",
                     baseline_oracle_artifact=".quality/oracle/overlay.zip",
                     workspace=product_root,
@@ -265,8 +313,62 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
             self.assertEqual(result["status"], "FAIL")
             load_contract.assert_called_once_with(product_root, require_approved=False)
             self.assertEqual(captured["workspace"], product_root)
+            self.assertEqual(captured["baseline_policy"], policy)
             self.assertEqual(captured["baseline_oracle_manifest"], manifest)
             self.assertEqual(captured["baseline_oracle_artifact"], artifact)
+
+    def test_baseline_policy_missing_or_escaping_fails_closed_without_quality_run(self) -> None:
+        bridge = self.bridge
+        with tempfile.TemporaryDirectory() as raw:
+            product_root = Path(raw).resolve()
+            with mock.patch.object(bridge, "_run_quality") as run_quality:
+                with self.assertRaisesRegex(ValueError, "baseline_policy does not exist"):
+                    bridge.baseline(
+                        baseline_policy=".quality/oracle/missing-policy.json",
+                        workspace=product_root,
+                    )
+                with self.assertRaisesRegex(ValueError, "baseline_policy escapes workspace"):
+                    bridge.baseline(
+                        baseline_policy="../outside-policy.json",
+                        workspace=product_root,
+                    )
+            run_quality.assert_not_called()
+
+    def test_omitting_baseline_policy_preserves_default_quality_loop_policy(self) -> None:
+        bridge = self.bridge
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "governance" / "target.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("target\n", encoding="utf-8")
+            evidence = root / ".quality" / "evidence" / "baseline"
+            state = root / ".quality" / "state"
+            fake_contract = SimpleNamespace(
+                payload={"quality_target": "governance/target.md"},
+                target_kind=SimpleNamespace(value="migration"),
+            )
+            captured: list[str] = []
+
+            def fake_run(argv, **_kwargs):
+                captured.extend(str(value) for value in argv)
+                return SimpleNamespace(returncode=1, stdout="", stderr="expected red")
+
+            with (
+                mock.patch.object(bridge, "ROOT", root),
+                mock.patch.object(bridge, "QUALITY_LOOP", root / "scripts" / "quality_loop.py"),
+                mock.patch.object(bridge, "verify_product_contract", return_value=[]),
+                mock.patch.object(bridge, "load_contract", return_value=fake_contract),
+                mock.patch.object(bridge, "_resolve_python", return_value=sys.executable),
+                mock.patch.object(bridge.subprocess, "run", side_effect=fake_run),
+            ):
+                bridge._run_quality(
+                    baseline=True,
+                    mode="static",
+                    evidence_dir=evidence,
+                    state_dir=state,
+                )
+
+            self.assertNotIn("--policy", captured)
 
     def test_bridge_does_not_own_or_recompute_oracle_identity(self) -> None:
         source = BRIDGE_PATH.read_text(encoding="utf-8")
@@ -274,6 +376,8 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         self.assertNotIn("canonical_fingerprint", source)
         self.assertNotIn("quality_control.baseline_oracle", source)
         self.assertNotIn("load_and_validate_baseline_oracle", source)
+        self.assertNotIn("policy_fingerprint", source)
+        self.assertNotIn("baseline_policy_identity", source)
 
 
 if __name__ == "__main__":
