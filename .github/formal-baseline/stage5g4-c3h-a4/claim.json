@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.17-b38-context-reference-goal-coverage",
+  "claims": [
+    {
+      "id": "B1.PREFERRED.RED",
+      "statement": "A dependency goal output must not authorize a consumer goal targeting a different explicit order.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "preferred-red-proof"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets"
+      ],
+      "owner": "quality-controller",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}
