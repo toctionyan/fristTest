@@ -1,0 +1,322 @@
+name: stage5g4-c3g3-b1-2a-formal-red-replay
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  launch-formal-red-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout A4 controller control plane
+        uses: actions/checkout@v4
+        with:
+          path: control
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout untouched exact B36 product source
+        uses: actions/checkout@v4
+        with:
+          path: baseline
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Pin Python and uv
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install locked execution dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          test "$(python3 --version)" = "Python 3.12.13"
+          test "$(uv --version | awk '{print $2}')" = "0.11.29"
+          (cd baseline/services/agent-service && uv sync --locked --all-groups)
+          if [ -f baseline/services/business-service/pyproject.toml ]; then
+            (cd baseline/services/business-service && uv sync --locked --all-groups)
+          fi
+
+      - name: Download locked B1-1 immutable oracle artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p oracle-wrapper oracle
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/8994125634/zip" \
+            -o oracle-wrapper.zip
+          test "$(sha256sum oracle-wrapper.zip | awk '{print $1}')" = "8bd411b437f8097f2ea16def4b875cdf1f3e250deda580bf5f43666488bf2bf8"
+          unzip -q oracle-wrapper.zip -d oracle-wrapper
+          test -f oracle-wrapper/overlay.zip
+          cp oracle-wrapper/overlay.zip oracle/overlay.zip
+          test "$(sha256sum oracle/overlay.zip | awk '{print $1}')" = "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6"
+
+      - name: Build ignored formal Target Claim and owner manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline/.quality/b1-2a
+          cat > baseline/.quality/b1-2a/claim.json <<'JSON'
+          {
+            "schema_version": 1,
+            "target_id": "migration-v20.17-b38-context-reference-goal-coverage",
+            "claims": [
+              {
+                "id": "V20-17-B38-GOAL-OUTPUT-TARGET-BINDING-001",
+                "statement": "A completed dependency goal output may be reused only when its verified target binding matches the consumer goal's explicit target.",
+                "risk": "P1",
+                "required_mode": "quick",
+                "evidence_kind": "counterexample",
+                "required_gates": ["python-test-suites"],
+                "evidence_refs": [
+                  "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets"
+                ],
+                "owner": "agent_core.lifecycle.goal_outputs + pretool_execution_policy",
+                "closure_requirement": "regression-transition"
+              }
+            ]
+          }
+          JSON
+
+          cat > baseline/.quality/b1-2a/target.md <<'MD'
+          # 目标
+
+          - 目标 ID：migration-v20.17-b38-context-reference-goal-coverage
+          - 变更标识：stage5g4-c3g3-b1-red-context-reference-goal-coverage
+          - 执行上下文：local-change
+          - 目标类型：migration
+
+          为冻结的 B38 context/reference/goal coverage 候选建立合法 test-first RED 基线：exact B36 产品实现不得把属于订单 10002 的 dependency goal output 复用于显式目标订单 10003。
+
+          ## 允许范围
+
+          - 允许变更路径：`docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md`, `services/agent-service/.env.example`, `services/agent-service/src/agent_core/config.py`, `services/agent-service/src/agent_core/context/context_bundle.py`, `services/agent-service/src/agent_core/context/reference_resolution.py`, `services/agent-service/src/agent_core/context/state_projection.py`, `services/agent-service/src/agent_core/context/visible_result_refs.py`, `services/agent-service/src/agent_core/kernel/plan_projection_contract.py`, `services/agent-service/src/agent_core/kernel/semantic_contract.py`, `services/agent-service/src/agent_core/lifecycle/condition_expression.py`, `services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py`, `services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py`, `services/agent-service/src/agent_core/lifecycle/goal_granularity.py`, `services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py`, `services/agent-service/src/agent_core/lifecycle/goal_outputs.py`, `services/agent-service/src/agent_core/lifecycle/goal_planning.py`, `services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py`, `services/agent-service/src/agent_core/lifecycle/pretool_planner.py`, `services/agent-service/src/agent_core/lifecycle/protocol.py`, `services/agent-service/src/agent_core/lifecycle/semantic_contract.py`, `services/agent-service/src/agent_core/lifecycle/workflow_runtime.py`, `services/agent-service/src/agent_core/runtime/capability_effects.py`, `services/agent-service/src/agent_core/runtime/capability_gate.py`, `services/agent-service/tests/architecture/test_production_security_contract.py`, `services/agent-service/tests/context/test_reference_resolution_contract.py`, `services/agent-service/tests/runtime/test_global_goal_capability_coverage.py`, `services/agent-service/tests/runtime/test_goal_granularity_and_conditions.py`, `services/agent-service/tests/runtime/test_pretool_execution_policy.py`, `services/agent-service/tests/runtime/test_semantic_reference_binding.py`, `services/agent-service/tests/runtime/test_stage4_goal_output_refs.py`
+          - 新增抽象记录：无
+
+          ## 禁止范围
+
+          不得修改 exact B36 source workspace 来植入验收测试；不得修改 Claim/Target/Judge/Policy 语义；不得把 Oracle overlay 当成产品源码；不得在 RED baseline 成立前执行 contract-begin。
+
+          ## 验收条件
+
+          - 最低质量模式：quick
+          - 声明清单：`.quality/b1-2a/claim.json`
+          - 验收 ID：`V20-17-B38-GOAL-OUTPUT-TARGET-BINDING-001`
+
+          preferred regression-transition Claim 必须通过 immutable BaselineOracleOverlay 在 ephemeral execution view 中真实执行，并在 exact B36 产品实现上得到 FAILED，而不是 NOT_EXECUTED。
+
+          ## 基线
+
+          exact B36 commit `e0e04d51e9da9790bef7bd0482584f60b8e975a9` 的原始测试文件不包含 preferred selector；B1-1 锁定 newer acceptance bytes 仅作为 immutable Oracle overlay 注入 execution view。预期 exact B36 product behavior 为 RED。
+
+          ## 修复轮次
+
+          - 最大轮次：8
+          - 当前轮次：1
+          - 失败后：只允许在冻结 B38 30-path 边界内继续验证，不得改写验收 Oracle 使其变绿。
+          MD
+
+          cat > /tmp/build_manifest.py <<'PY'
+          import hashlib, json, sys, zipfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          control = root / "control"
+          baseline = root / "baseline"
+          overlay = root / "oracle" / "overlay.zip"
+          sys.path.insert(0, str(control / "scripts"))
+          from quality_control.contracts import workspace_snapshot
+
+          test_path = "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py"
+          selector = test_path + "::test_dependency_goal_output_is_not_reused_across_different_explicit_targets"
+          base_test = baseline / test_path
+          base_sha = hashlib.sha256(base_test.read_bytes()).hexdigest()
+          if base_sha != "224f63054775bfb00c309035d24896867975685d28ca115c1cc45d5cc812cc0f":
+              raise SystemExit(f"unexpected exact-B36 test sha: {base_sha}")
+          artifact_sha = hashlib.sha256(overlay.read_bytes()).hexdigest()
+          if artifact_sha != "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6":
+              raise SystemExit(f"unexpected oracle artifact sha: {artifact_sha}")
+          with zipfile.ZipFile(overlay) as z:
+              names = [n for n in z.namelist() if not n.endswith('/')]
+              if names != [test_path]:
+                  raise SystemExit(f"unexpected oracle member set: {names}")
+              newer = z.read(test_path)
+          newer_sha = hashlib.sha256(newer).hexdigest()
+          if newer_sha != "d442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38":
+              raise SystemExit(f"unexpected newer test sha: {newer_sha}")
+
+          base_fp = workspace_snapshot(baseline)["fingerprint"]
+          normalized = {
+              "schema_version": 1,
+              "oracle_id": "stage5g4-c3g3-b1-exact-b36-goal-output-target-binding-v1",
+              "base_source_identity": {
+                  "repository": "toctionyan/fristTest",
+                  "commit_sha": "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+              },
+              "base_workspace_fingerprint": base_fp,
+              "overlay_artifact_sha256": artifact_sha,
+              "overlay_file_map": [{
+                  "path": test_path,
+                  "base_file_sha256": base_sha,
+                  "overlay_file_sha256": newer_sha
+              }],
+              "claim_bindings": [{
+                  "claim_id": "V20-17-B38-GOAL-OUTPUT-TARGET-BINDING-001",
+                  "selector": selector
+              }],
+              "provenance": {
+                  "provider": "github-actions",
+                  "run_id": 31179398373,
+                  "job_id": 92868795829,
+                  "artifact_id": 8994125634,
+                  "artifact_digest": artifact_sha
+              },
+              "execution_mode": "ephemeral_overlay_view"
+          }
+          canonical = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+          normalized["canonical_fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+          manifest = baseline / ".quality" / "b1-2a" / "oracle-manifest.json"
+          manifest.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          context = {
+              "schema_version": 1,
+              "stage": "5G4-C3G3-B1-2A",
+              "exact_b36_commit": "e0e04d51e9da9790bef7bd0482584f60b8e975a9",
+              "controller_head": "${{ github.event.pull_request.head.sha }}",
+              "target_id": "migration-v20.17-b38-context-reference-goal-coverage",
+              "claim_id": "V20-17-B38-GOAL-OUTPUT-TARGET-BINDING-001",
+              "preferred_selector": selector,
+              "base_workspace_fingerprint": base_fp,
+              "oracle_artifact_sha256": artifact_sha,
+              "oracle_canonical_fingerprint": normalized["canonical_fingerprint"],
+              "b1_1_artifact_id": 8994125634,
+              "b1_1_wrapper_digest": "8bd411b437f8097f2ea16def4b875cdf1f3e250deda580bf5f43666488bf2bf8",
+              "product_source_mutated_for_oracle": False,
+              "contract_begin_run": False
+          }
+          (baseline / ".quality" / "b1-2a" / "run-context.json").write_text(
+              json.dumps(context, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          print(json.dumps(context, ensure_ascii=False, indent=2))
+          PY
+          python3 /tmp/build_manifest.py
+
+      - name: Owner preflight validates exact source plus immutable oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/control/scripts" python3 - <<'PY'
+          from pathlib import Path
+          from quality_control.baseline_oracle import load_and_validate_baseline_oracle
+          root = Path.cwd()
+          identity = load_and_validate_baseline_oracle(
+              source_workspace=root / "baseline",
+              manifest_path=root / "baseline/.quality/b1-2a/oracle-manifest.json",
+              artifact_path=root / "oracle/overlay.zip"
+          )
+          print(identity.canonical_fingerprint)
+          PY
+          test "$(git -C baseline rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test -z "$(git -C baseline status --porcelain --untracked-files=no)"
+
+      - name: Execute formal exact-B36 RED baseline replay
+        id: formal_red
+        shell: bash
+        run: |
+          set +e
+          python3 control/scripts/quality_loop.py \
+            --workspace-root "$GITHUB_WORKSPACE/baseline" \
+            --mode quick \
+            --target "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/target.md" \
+            --baseline \
+            --baseline-oracle-manifest "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/oracle-manifest.json" \
+            --baseline-oracle-artifact "$GITHUB_WORKSPACE/oracle/overlay.zip" \
+            --evidence-dir "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/formal-red-evidence" \
+            --state-dir "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/formal-red-state" \
+            > "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/formal-red-stdout.json" \
+            2> "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/formal-red-stderr.txt"
+          rc=$?
+          echo "$rc" > "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/formal-red-exit-code.txt"
+          echo "formal_red_exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Execute no-oracle control replay
+        id: no_oracle
+        shell: bash
+        run: |
+          set +e
+          python3 control/scripts/quality_loop.py \
+            --workspace-root "$GITHUB_WORKSPACE/baseline" \
+            --mode quick \
+            --target "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/target.md" \
+            --baseline \
+            --evidence-dir "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/no-oracle-evidence" \
+            --state-dir "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/no-oracle-state" \
+            > "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/no-oracle-stdout.json" \
+            2> "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/no-oracle-stderr.txt"
+          rc=$?
+          echo "$rc" > "$GITHUB_WORKSPACE/baseline/.quality/b1-2a/no-oracle-exit-code.txt"
+          echo "no_oracle_exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Record launch completion context
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path.cwd() / "baseline/.quality/b1-2a"
+          payload = {
+              "schema_version": 1,
+              "stage": "5G4-C3G3-B1-2A",
+              "workflow_run_id": int(os.environ.get("GITHUB_RUN_ID", "0")),
+              "workflow_run_attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT", "0")),
+              "head_sha": os.environ.get("GITHUB_SHA"),
+              "formal_red_exit_code": (root / "formal-red-exit-code.txt").read_text().strip() if (root / "formal-red-exit-code.txt").exists() else None,
+              "no_oracle_exit_code": (root / "no-oracle-exit-code.txt").read_text().strip() if (root / "no-oracle-exit-code.txt").exists() else None,
+              "formal_red_result_interpreted": False,
+              "acceptance_deferred_to": "5G4-C3G3-B1-2B",
+              "product_baseline_command": "quality_loop --baseline with BaselineOracleOverlay",
+              "contract_begin_run": False
+          }
+          (root / "launch-completion.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
+          test "$(git -C baseline rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test -z "$(git -C baseline status --porcelain --untracked-files=no)"
+
+      - name: Upload B1-2A replay evidence for B1-2B inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3g3-b1-2a-formal-red-replay
+          path: |
+            baseline/.quality/b1-2a/target.md
+            baseline/.quality/b1-2a/claim.json
+            baseline/.quality/b1-2a/oracle-manifest.json
+            baseline/.quality/b1-2a/run-context.json
+            baseline/.quality/b1-2a/launch-completion.json
+            baseline/.quality/b1-2a/formal-red-exit-code.txt
+            baseline/.quality/b1-2a/formal-red-stdout.json
+            baseline/.quality/b1-2a/formal-red-stderr.txt
+            baseline/.quality/b1-2a/formal-red-evidence
+            baseline/.quality/b1-2a/no-oracle-exit-code.txt
+            baseline/.quality/b1-2a/no-oracle-stdout.json
+            baseline/.quality/b1-2a/no-oracle-stderr.txt
+            baseline/.quality/b1-2a/no-oracle-evidence
+          if-no-files-found: warn
+          retention-days: 7
