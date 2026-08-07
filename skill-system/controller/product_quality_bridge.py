@@ -158,7 +158,14 @@ def current(mode: str | None = None) -> dict[str, Any]:
     }
 
 
-def _run_quality(*, baseline: bool, mode: str, evidence_dir: Path, state_dir: Path) -> dict[str, Any]:
+def _run_quality(
+    *,
+    baseline: bool,
+    mode: str,
+    evidence_dir: Path,
+    state_dir: Path,
+    baseline_oracle: Path | None = None,
+) -> dict[str, Any]:
     errors = verify_product_contract()
     if errors and not (baseline and errors == ["product_transition_requires_baseline_evidence"]):
         raise ValueError("product contract gate failed: " + "; ".join(errors))
@@ -174,7 +181,11 @@ def _run_quality(*, baseline: bool, mode: str, evidence_dir: Path, state_dir: Pa
     ]
     if baseline:
         argv.append("--baseline")
+        if baseline_oracle is not None:
+            argv.extend(["--baseline-oracle", str(baseline_oracle)])
     else:
+        if baseline_oracle is not None:
+            raise ValueError("baseline oracle transport is valid only for product baseline")
         raw_baseline = contract.payload.get("baseline_evidence")
         if contract.target_kind.value in {"repair", "migration", "revert"}:
             if not isinstance(raw_baseline, str) or not raw_baseline.strip():
@@ -225,7 +236,7 @@ def _run_quality(*, baseline: bool, mode: str, evidence_dir: Path, state_dir: Pa
     return result
 
 
-def baseline(force: bool = False) -> dict[str, Any]:
+def baseline(force: bool = False, baseline_oracle: str | None = None) -> dict[str, Any]:
     contract = load_contract(ROOT, require_approved=False)
     if contract.target_kind.value not in {"repair", "migration", "revert"}:
         raise ValueError("product baseline is valid only for repair, migration or revert")
@@ -236,7 +247,18 @@ def baseline(force: bool = False) -> dict[str, Any]:
         if not force:
             raise ValueError(f"baseline evidence already exists: {evidence_dir.relative_to(ROOT)}")
         shutil.rmtree(evidence_dir)
-    result = _run_quality(baseline=True, mode=mode, evidence_dir=evidence_dir, state_dir=state_dir)
+    oracle_path = (
+        _relative_file(baseline_oracle, label="baseline_oracle")
+        if baseline_oracle is not None
+        else None
+    )
+    result = _run_quality(
+        baseline=True,
+        mode=mode,
+        evidence_dir=evidence_dir,
+        state_dir=state_dir,
+        baseline_oracle=oracle_path,
+    )
     if result["status"] == "PASS":
         payload = dict(contract.payload)
         payload["baseline_evidence"] = evidence_dir.relative_to(ROOT).as_posix()
@@ -278,6 +300,10 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     baseline_parser = sub.add_parser("baseline")
     baseline_parser.add_argument("--force", action="store_true")
+    baseline_parser.add_argument(
+        "--baseline-oracle",
+        help="workspace-relative immutable oracle manifest under .quality/baseline-oracles",
+    )
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("--mode", choices=tuple(MODE_ORDER))
     current_parser = sub.add_parser("current")
@@ -290,7 +316,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "baseline":
-            result = baseline(force=args.force)
+            result = baseline(force=args.force, baseline_oracle=args.baseline_oracle)
         elif args.command == "verify":
             result = verify(args.mode)
         elif args.command == "current":
