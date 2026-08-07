@@ -54,6 +54,29 @@ jobs:
           repository: ${{ github.repository }}
           run-id: 31179398373
 
+      - name: Prepare quick-mode formal probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('control/docs/governance/ci-probes/stage5g4-c3g3-b1-2/run_formal_red_replay.py')
+          target = Path('b1-runner-quick.py')
+          text = source.read_text(encoding='utf-8')
+          replacements = [
+              ('"required_mode": "static"', '"required_mode": "quick"'),
+              ('"- 最低质量模式：static"', '"- 最低质量模式：quick"'),
+              ('"modes": ["static"]', '"modes": ["quick"]'),
+              ('"--mode",\n            "static",', '"--mode",\n            "quick",'),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              assert count == 1, (old, count)
+              text = text.replace(old, new)
+          target.write_text(text, encoding='utf-8')
+          compile(text, str(target), 'exec')
+          PY
+
       - name: Execute formal exact-B36 RED replay
         id: replay
         continue-on-error: true
@@ -61,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f oracle-source/overlay.zip
-          python -B control/docs/governance/ci-probes/stage5g4-c3g3-b1-2/run_formal_red_replay.py \
+          python -B b1-runner-quick.py \
             --control control \
             --source source \
             --overlay oracle-source/overlay.zip \
@@ -82,7 +105,8 @@ jobs:
           if [ -f b1-results/formal-red.stdout ]; then cp b1-results/formal-red.stdout b1-results/controller-diagnostic/; fi
           if [ -f b1-results/formal-red.stderr ]; then cp b1-results/formal-red.stderr b1-results/controller-diagnostic/; fi
           if [ -f b1-results/formal-red.exit-code.txt ]; then cp b1-results/formal-red.exit-code.txt b1-results/controller-diagnostic/; fi
-          find b1-results -maxdepth 4 -type f -print | sort > b1-results/controller-diagnostic/file-list.txt
+          sha256sum b1-runner-quick.py > b1-results/controller-diagnostic/quick-runner.sha256
+          find b1-results -maxdepth 5 -type f -print | sort > b1-results/controller-diagnostic/file-list.txt
 
       - name: Upload formal RED replay evidence
         if: always()
