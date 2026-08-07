@@ -67,7 +67,7 @@ jobs:
           test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
           test "$(sha256sum oracle-download/overlay.zip | awk '{print $1}')" = "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6"
           fixture=runner/.github/formal-baseline/stage5g4-c3h-a4
-          test "$(sha256sum "$fixture/target.md" | awk '{print $1}')" = "f71b5e7389836b41cf9d9ed2794d1b188f666ebe54bd30f0af59385ac0d449eb"
+          test "$(sha256sum "$fixture/target.md" | awk '{print $1}')" = "54f06043784f24a765e53d14ad6ea4f27d17e94bf35746c5d948b7195699970a"
           test "$(sha256sum "$fixture/claim.json" | awk '{print $1}')" = "a1d1b2bf7e0478dfadd146a6e02dda870f0a74c8b666147aeb3b4f7d58d68027"
           test "$(sha256sum "$fixture/focused-policy.json" | awk '{print $1}')" = "ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914"
           test "$(sha256sum "$fixture/oracle-manifest.json" | awk '{print $1}')" = "3eba94de3750b79d8bdec94b6d7342491082b5558eee650be6abf942afb9b4fa"
@@ -254,3 +254,4 @@ jobs:
           path: formal-artifact
           if-no-files-found: error
           retention-days: 14
+          include-hidden-files: true
