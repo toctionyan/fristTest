@@ -55,6 +55,8 @@ jobs:
           run-id: 31179398373
 
       - name: Execute formal exact-B36 RED replay
+        id: replay
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -65,10 +67,34 @@ jobs:
             --overlay oracle-source/overlay.zip \
             --output b1-results
 
+      - name: Preserve Controller diagnostic evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p b1-results/controller-diagnostic
+          if [ -d source/.quality/b1/formal-red-evidence ]; then
+            cp -a source/.quality/b1/formal-red-evidence b1-results/controller-diagnostic/
+          fi
+          if [ -d source/.quality/b1/formal-red-state ]; then
+            cp -a source/.quality/b1/formal-red-state b1-results/controller-diagnostic/
+          fi
+          if [ -f b1-results/formal-red.stdout ]; then cp b1-results/formal-red.stdout b1-results/controller-diagnostic/; fi
+          if [ -f b1-results/formal-red.stderr ]; then cp b1-results/formal-red.stderr b1-results/controller-diagnostic/; fi
+          if [ -f b1-results/formal-red.exit-code.txt ]; then cp b1-results/formal-red.exit-code.txt b1-results/controller-diagnostic/; fi
+          find b1-results -maxdepth 4 -type f -print | sort > b1-results/controller-diagnostic/file-list.txt
+
       - name: Upload formal RED replay evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stage5g4-c3g3-b1-2-formal-red-replay-v2
           path: b1-results
           if-no-files-found: error
           retention-days: 7
+
+      - name: Enforce replay success
+        if: always()
+        shell: bash
+        run: |
+          test '${{ steps.replay.outcome }}' = 'success'
