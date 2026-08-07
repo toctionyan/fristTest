@@ -25,6 +25,11 @@ jobs:
           ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
           fetch-depth: 1
 
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+
       - name: Pin exact toolchain
         shell: bash
         run: |
