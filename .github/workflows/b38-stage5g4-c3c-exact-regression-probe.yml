@@ -59,9 +59,11 @@ jobs:
           SRC="$GITHUB_WORKSPACE/payload/docs/governance/ci-probes/b38-stage5g4-c3c"
           cat "$SRC"/v2-part-00.b64 "$SRC"/v2-part-01.b64 "$SRC"/v2-part-02.b64 "$SRC"/v2-part-03.b64 > safe25.patch.xz.b64
           base64 -d safe25.patch.xz.b64 > safe25.patch.xz
-          test "$(sha256sum safe25.patch.xz | awk '{print $1}')" = "824d44bf2277ce7a94897e5efed77f98dfd58e712f45fba4a84f99c21177f783"
+          echo "safe25_xz_sha=$(sha256sum safe25.patch.xz | awk '{print $1}')"
+          test "$(sha256sum safe25.patch.xz | awk '{print $1}')" = "a3bb48d389d0848760df39f410b60c8ef732203ec1096a5f417f32ea0bf68da7"
           xz -dc safe25.patch.xz > safe25.patch
-          test "$(sha256sum safe25.patch | awk '{print $1}')" = "a18fb7aee7e935283d5153d1a2b2e8b19a0759e86f27291a78ea78f5b478bbb3"
+          echo "safe25_patch_sha=$(sha256sum safe25.patch | awk '{print $1}')"
+          test "$(sha256sum safe25.patch | awk '{print $1}')" = "c588e7f70e8edefc3b95f39783ef7aa8d0c8cafea11db5ef98f18c67db845169"
 
       - name: Reassemble reviewed five exact-base patches
         shell: bash
