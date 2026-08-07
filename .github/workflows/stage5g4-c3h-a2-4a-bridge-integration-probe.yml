@@ -1,0 +1,324 @@
+name: stage5g4-c3h-a2-4a-bridge-integration-probe
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  bridge-integration-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout probe branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: probe
+          fetch-depth: 0
+
+      - name: Checkout exact candidate control plane
+        uses: actions/checkout@v4
+        with:
+          ref: 610c6f9aff0a8c9336614b85e9d91ba89f51b40b
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout untouched exact B36 product source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install source test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --project source/services/agent-service --locked --all-groups --python 3.12
+          test -x source/services/agent-service/.venv/bin/python
+
+      - name: Install frontend dependencies for quick policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f source/services/agent-service/frontend/package-lock.json ]; then
+            npm ci --prefix source/services/agent-service/frontend
+          fi
+
+      - name: Download immutable B1 Oracle overlay
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 8994125634
+          path: oracle-download
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31179398373
+
+      - name: Prepare ephemeral product contract, target, claim, and Oracle manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          git -C source diff --exit-code -- .
+          test -f oracle-download/overlay.zip
+          test "$(sha256sum oracle-download/overlay.zip | awk '{print $1}')" = "ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6"
+
+          mkdir -p source/.quality/c3h-a2-4/oracle
+          cp oracle-download/overlay.zip source/.quality/c3h-a2-4/oracle/overlay.zip
+
+          cat > source/.quality/c3h-a2-4/claims.json <<'JSON'
+          {
+            "schema_version": 1,
+            "target_id": "stage5g4-c3h-a2-4-bridge-integration",
+            "claims": [
+              {
+                "id": "C3H.A2.4.PREFERRED.RED",
+                "statement": "A dependency goal output must not authorize a consumer goal targeting a different explicit order.",
+                "risk": "P1",
+                "required_mode": "quick",
+                "evidence_kind": "counterexample",
+                "required_gates": ["python-test-suites"],
+                "evidence_refs": ["services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets"],
+                "owner": "quality-controller",
+                "closure_requirement": "regression-transition"
+              }
+            ]
+          }
+          JSON
+
+          cat > source/.quality/c3h-a2-4/target.md <<'MD'
+          # 目标
+          - 目标 ID：stage5g4-c3h-a2-4-bridge-integration
+          - 变更标识：stage5g4-c3h-a2-4-bridge-integration
+          - 执行上下文：local-change
+          - 目标类型：repair
+
+          证明 A2 workspace-root Bridge 可以从独立 A4 control plane 驱动 untouched exact B36 + immutable Oracle 的真实 baseline 路径。
+
+          ## 允许范围
+          - 允许变更路径：services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py
+          - 新增抽象记录：无
+
+          ## 禁止范围
+          本 probe 不修改产品源码，不运行 contract-begin，不发布 B38。
+
+          ## 验收条件
+          - 最低质量模式：quick
+          - 声明清单：.quality/c3h-a2-4/claims.json
+          - 验收 ID：C3H.A2.4.PREFERRED.RED
+
+          ## 基线
+          baseline = untouched exact B36 product source + immutable BaselineOracleOverlay。
+
+          ## 修复轮次
+          - 最大轮次：1
+          - 当前轮次：1
+          - 失败后：停止并报告 blocker，不在本 workflow 内修复。
+          MD
+
+          (
+            cd source
+            python ../control/skill-system/controller/change_contract_cli.py init \
+              --profile product-code \
+              --change-id stage5g4-c3h-a2-4-bridge-integration \
+              --goal "Prove external exact-B36 product workspace Bridge baseline transport" \
+              --target-kind repair \
+              --allow services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+              --minimum-mode quick \
+              --quality-target .quality/c3h-a2-4/target.md \
+              --approve \
+              --force
+          )
+
+          python - <<'PY'
+          from pathlib import Path
+          import json, sys
+          control = Path('control').resolve()
+          source = Path('source').resolve()
+          sys.path.insert(0, str(control / 'scripts'))
+          from quality_control.contracts import workspace_snapshot
+          from quality_control.baseline_oracle import _canonical_json_fingerprint
+
+          expected_fp = 'f9ab6acafe592e49534ed6d2fd2b3e9b0f45debc7bb26fbd9a86d06515e1a2fa'
+          snap = workspace_snapshot(source)
+          Path('integration-results').mkdir(exist_ok=True)
+          Path('integration-results/source-fingerprint-before.txt').write_text(snap['fingerprint'] + '\n', encoding='utf-8')
+          if snap['fingerprint'] != expected_fp:
+              raise AssertionError(f'product workspace fingerprint drifted before Bridge run: {snap["fingerprint"]}')
+
+          identity = {
+              'schema_version': 1,
+              'oracle_id': 'stage5g4-c3h-a2-4-bridge-integration',
+              'base_source_identity': {
+                  'repository': 'toctionyan/fristTest',
+                  'commit_sha': 'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+              },
+              'base_workspace_fingerprint': expected_fp,
+              'overlay_artifact_sha256': 'ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6',
+              'overlay_file_map': [
+                  {
+                      'path': 'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py',
+                      'base_file_sha256': '224f63054775bfb00c309035d24896867975685d28ca115c1cc45d5cc812cc0f',
+                      'overlay_file_sha256': 'd442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38',
+                  }
+              ],
+              'claim_bindings': [
+                  {
+                      'claim_id': 'C3H.A2.4.PREFERRED.RED',
+                      'selector': 'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets',
+                  }
+              ],
+              'provenance': {
+                  'provider': 'github-actions',
+                  'run_id': 31179398373,
+                  'job_id': 92868795829,
+                  'artifact_id': 8994125634,
+                  'artifact_digest': 'ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6',
+              },
+              'execution_mode': 'ephemeral_overlay_view',
+          }
+          identity['canonical_fingerprint'] = _canonical_json_fingerprint(identity)
+          manifest = source / '.quality/c3h-a2-4/oracle/manifest.json'
+          manifest.write_text(json.dumps(identity, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          Path('integration-results/oracle-canonical-fingerprint.txt').write_text(identity['canonical_fingerprint'] + '\n', encoding='utf-8')
+          PY
+
+      - name: Run real Bridge baseline on external exact-B36 product workspace
+        id: bridge
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B control/skill-system/controller/product_quality_bridge.py baseline \
+            --workspace-root source \
+            --baseline-oracle-manifest .quality/c3h-a2-4/oracle/manifest.json \
+            --baseline-oracle-artifact .quality/c3h-a2-4/oracle/overlay.zip \
+            --force \
+            > integration-results/bridge.stdout.json \
+            2> integration-results/bridge.stderr.txt
+          cat integration-results/bridge.stdout.json
+
+      - name: Verify ephemeral Bridge integration result
+        id: verify
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, subprocess, sys
+          control = Path('control').resolve()
+          source = Path('source').resolve()
+          result_root = Path('integration-results')
+          sys.path.insert(0, str(control / 'scripts'))
+          from quality_control.contracts import workspace_snapshot
+
+          raw = (result_root / 'bridge.stdout.json').read_text(encoding='utf-8')
+          result = json.loads(raw)
+          if result.get('status') != 'PASS':
+              raise AssertionError(f'Bridge did not admit baseline: {result}')
+          if result.get('run_kind') != 'baseline' or result.get('expected_red_baseline') is not True:
+              raise AssertionError(f'Bridge result is not expected RED baseline: {result}')
+          if Path(result.get('workspace_root', '')).resolve() != source:
+              raise AssertionError('Bridge workspace_root is not the separate exact-B36 checkout')
+
+          evidence = source / '.quality/product-code/stage5g4-c3h-a2-4-bridge-integration/baseline'
+          summary = json.loads((evidence / 'run-summary.json').read_text(encoding='utf-8'))
+          record = json.loads((evidence / 'baseline-record.json').read_text(encoding='utf-8'))
+          oracle = json.loads((evidence / 'baseline-oracle-overlay-identity.json').read_text(encoding='utf-8'))
+          if summary.get('decision') != 'FAIL' or summary.get('loop_status') != 'BASELINE_RECORDED':
+              raise AssertionError(f'baseline was not legally recorded: {summary.get("decision")}/{summary.get("loop_status")}')
+          claim = next(row for row in summary.get('claim_results', []) if row.get('id') == 'C3H.A2.4.PREFERRED.RED')
+          selector = 'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets'
+          if claim.get('status') != 'FAILED' or claim.get('evidence_ref_statuses', {}).get(selector) != 'FAILED':
+              raise AssertionError(f'preferred Claim did not execute as real FAILED: {claim}')
+
+          expected_fp = 'f9ab6acafe592e49534ed6d2fd2b3e9b0f45debc7bb26fbd9a86d06515e1a2fa'
+          after = workspace_snapshot(source)['fingerprint']
+          if after != expected_fp:
+              raise AssertionError(f'source fingerprint changed after Bridge run: {after}')
+          if summary.get('workspace_snapshot_start_fingerprint') != expected_fp or summary.get('workspace_snapshot_fingerprint') != expected_fp:
+              raise AssertionError('run-summary source fingerprint binding mismatch')
+          if record.get('workspace_snapshot_fingerprint') != expected_fp:
+              raise AssertionError('baseline-record source fingerprint binding mismatch')
+          if oracle.get('base_workspace_fingerprint') != expected_fp:
+              raise AssertionError('Oracle source fingerprint binding mismatch')
+          if subprocess.run(['git', '-C', str(source), 'diff', '--exit-code', '--', '.'], check=False).returncode != 0:
+              raise AssertionError('tracked exact-B36 source changed')
+          if subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip() != 'e0e04d51e9da9790bef7bd0482584f60b8e975a9':
+              raise AssertionError('source HEAD changed')
+
+          contract = json.loads((source / 'governance/active-change.json').read_text(encoding='utf-8'))
+          if not str(contract.get('baseline_evidence') or '').strip():
+              raise AssertionError('ephemeral Bridge did not update the ephemeral Change Contract baseline_evidence')
+
+          report = {
+              'schema_version': 1,
+              'stage': '5G4-C3H-A2-4',
+              'verdict': 'EXTERNAL_EXACT_B36_BRIDGE_INTEGRATION_PASS',
+              'control_head': '610c6f9aff0a8c9336614b85e9d91ba89f51b40b',
+              'source_head': 'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+              'source_fingerprint': expected_fp,
+              'bridge_status': result.get('status'),
+              'baseline_decision': summary.get('decision'),
+              'baseline_loop_status': summary.get('loop_status'),
+              'claim_status': claim.get('status'),
+              'claim_evidence_ref_status': claim.get('evidence_ref_statuses', {}).get(selector),
+              'oracle_canonical_fingerprint': oracle.get('canonical_fingerprint'),
+              'ephemeral_product_baseline_recorded': True,
+              'formal_product_baseline_recorded': False,
+              'contract_begin_run': False,
+              'canonical_b38_pushed': False,
+              'production_closed': False,
+          }
+          (result_root / 'C3H_A2_4_INTEGRATION_REPORT.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          (result_root / 'source-fingerprint-after.txt').write_text(after + '\n', encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Preserve integration evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p integration-results/evidence
+          if [ -d source/.quality/product-code/stage5g4-c3h-a2-4-bridge-integration/baseline ]; then
+            cp -a source/.quality/product-code/stage5g4-c3h-a2-4-bridge-integration/baseline integration-results/evidence/
+          fi
+          if [ -f source/governance/active-change.json ]; then
+            cp source/governance/active-change.json integration-results/evidence/active-change.json
+          fi
+          git -C source status --short > integration-results/source-git-status.txt
+          git -C source rev-parse HEAD > integration-results/source-head.txt
+          find integration-results -maxdepth 5 -type f -print | sort > integration-results/file-list.txt
+
+      - name: Upload integration probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a2-4a-bridge-integration-probe
+          path: integration-results
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce integration probe success
+        if: always()
+        shell: bash
+        run: |
+          test '${{ steps.bridge.outcome }}' = 'success'
+          test '${{ steps.verify.outcome }}' = 'success'
