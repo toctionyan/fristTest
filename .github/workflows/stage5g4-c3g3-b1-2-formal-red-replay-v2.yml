@@ -68,6 +68,7 @@ jobs:
               ('"- 最低质量模式：static"', '"- 最低质量模式：quick"'),
               ('"modes": ["static"]', '"modes": ["quick"]'),
               ('"--mode",\n            "static",', '"--mode",\n            "quick",'),
+              ('gate_python = (control / "services" / "agent-service" / ".venv" / "bin" / "python").resolve()', 'gate_python = control / "services" / "agent-service" / ".venv" / "bin" / "python"'),
           ]
           for old, new in replacements:
               count = text.count(old)
