@@ -496,3 +496,79 @@ def baseline_oracle_execution_view(
             shutil.rmtree(parent)
         except OSError as exc:
             raise BaselineOracleError(f"failed to clean baseline oracle execution view: {exc}") from exc
+
+def validate_baseline_oracle_claim_bindings(
+    target: dict[str, Any], identity: BaselineOracleOverlayIdentity
+) -> None:
+    """Bind the immutable oracle selectors to this exact parsed transition Target.
+
+    The oracle may only satisfy executable evidence already declared by
+    regression-transition Claims.  It cannot introduce a new Claim, silently
+    substitute a different selector, or leave an overlaid file unbound.
+    """
+    claims_raw = target.get("claims")
+    if not isinstance(claims_raw, list):
+        raise BaselineOracleError("parsed target claims are invalid for baseline oracle binding")
+    claims: dict[str, dict[str, Any]] = {}
+    for raw in claims_raw:
+        if not isinstance(raw, dict):
+            raise BaselineOracleError("parsed target contains an invalid claim")
+        claim_id = str(raw.get("id") or "").strip()
+        if not claim_id or claim_id in claims:
+            raise BaselineOracleError("parsed target claim ids are invalid or duplicated")
+        claims[claim_id] = raw
+
+    payload = identity.payload
+    bindings = payload.get("claim_bindings")
+    file_map = payload.get("overlay_file_map")
+    if not isinstance(bindings, list) or not isinstance(file_map, list):
+        raise BaselineOracleError("baseline oracle identity is missing normalized bindings")
+
+    declared: set[tuple[str, str]] = set()
+    bound_paths: set[str] = set()
+    for raw in bindings:
+        if not isinstance(raw, dict):
+            raise BaselineOracleError("baseline oracle identity contains an invalid claim binding")
+        claim_id = str(raw.get("claim_id") or "")
+        selector = str(raw.get("selector") or "")
+        claim = claims.get(claim_id)
+        if claim is None:
+            raise BaselineOracleError(f"baseline oracle binds unknown claim: {claim_id}")
+        if str(claim.get("closure_requirement") or "") != "regression-transition":
+            raise BaselineOracleError(
+                f"baseline oracle may bind regression-transition claims only: {claim_id}"
+            )
+        refs = {str(value) for value in (claim.get("evidence_refs") or [])}
+        if selector not in refs:
+            raise BaselineOracleError(
+                f"baseline oracle selector is not declared by claim {claim_id}: {selector}"
+            )
+        pair = (claim_id, selector)
+        if pair in declared:
+            raise BaselineOracleError(f"duplicate normalized oracle claim binding: {claim_id} -> {selector}")
+        declared.add(pair)
+        bound_paths.add(selector.split("::", 1)[0])
+
+    overlay_paths = {str(item.get("path") or "") for item in file_map if isinstance(item, dict)}
+    if bound_paths != overlay_paths:
+        raise BaselineOracleError(
+            "every baseline oracle overlay file must be directly bound to a transition claim"
+        )
+
+    actual: set[tuple[str, str]] = set()
+    for claim_id, claim in claims.items():
+        if str(claim.get("closure_requirement") or "") != "regression-transition":
+            continue
+        for ref in claim.get("evidence_refs") or []:
+            ref_text = str(ref)
+            path_text = ref_text.split("::", 1)[0]
+            if "::" in ref_text and path_text in overlay_paths:
+                actual.add((claim_id, ref_text))
+    if actual != declared:
+        missing = sorted(actual - declared)
+        extra = sorted(declared - actual)
+        raise BaselineOracleError(
+            f"baseline oracle claim bindings do not exactly match overlaid transition evidence: "
+            f"missing={missing}, extra={extra}"
+        )
+
