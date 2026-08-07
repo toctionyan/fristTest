@@ -140,6 +140,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
             source_workspace=self.source, manifest_path=manifest, artifact_path=artifact
         )
 
+    # BOO-P01
     def test_valid_manifest_passes_validation(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact)
@@ -147,6 +148,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         self.assertEqual(identity.payload["execution_mode"], oracle.EXECUTION_MODE)
         self.assertEqual(identity.canonical_fingerprint, json.loads(manifest.read_text())["canonical_fingerprint"])
 
+    # BOO-P02 + BOO-N16 defense invariant
     def test_execution_view_applies_only_overlay_and_never_mutates_source(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact)
@@ -159,6 +161,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         self.assertEqual((self.source / TEST_PATH).read_bytes(), BASE_BYTES)
         self.assertEqual(workspace_snapshot(self.source)["fingerprint"], before)
 
+    # BOO-P03
     def test_canonical_identity_is_deterministic_across_declared_order(self) -> None:
         second_path = "services/agent-service/tests/runtime/test_oracle_second.py"
         second_base = b"def test_second_existing():\n    pass\n"
@@ -185,6 +188,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         two = self._validate(second_path_manifest, artifact)
         self.assertEqual(one.canonical_fingerprint, two.canonical_fingerprint)
 
+    # BOO-P04
     def test_execution_view_is_removed_after_context_exit(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact)
@@ -195,18 +199,21 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertFalse(path.parent.exists())
 
+    # BOO-N01
     def test_rejects_schema_version_mismatch(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact, overrides={"schema_version": 2})
         with self.assertRaisesRegex(oracle.BaselineOracleError, "schema_version"):
             self._validate(manifest, artifact)
 
+    # BOO-N02
     def test_rejects_bad_execution_mode(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact, overrides={"execution_mode": "in_place"})
         with self.assertRaisesRegex(oracle.BaselineOracleError, "execution_mode"):
             self._validate(manifest, artifact)
 
+    # BOO-N03 / N04
     def test_rejects_absolute_and_traversal_paths(self) -> None:
         artifact = self._artifact()
         for bad in ("/tmp/x.py", "../x.py", "a/../x.py"):
@@ -218,6 +225,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
                 with self.assertRaises(oracle.BaselineOracleError):
                     self._validate(path, artifact)
 
+    # BOO-N05
     def test_rejects_duplicate_overlay_path_without_deduplication(self) -> None:
         artifact = self._artifact()
         entry = {"path": TEST_PATH, "base_file_sha256": _sha(BASE_BYTES), "overlay_file_sha256": _sha(OVERLAY_BYTES)}
@@ -225,6 +233,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "duplicate overlay path"):
             self._validate(manifest, artifact)
 
+    # BOO-N06
     def test_rejects_missing_source_file(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact)
@@ -236,6 +245,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "source file is missing"):
             self._validate(manifest, artifact)
 
+    # BOO-N07
     def test_rejects_base_file_hash_mismatch(self) -> None:
         artifact = self._artifact()
         entry = {"path": TEST_PATH, "base_file_sha256": "1" * 64, "overlay_file_sha256": _sha(OVERLAY_BYTES)}
@@ -243,12 +253,14 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "base_file_sha256 mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N08
     def test_rejects_base_workspace_fingerprint_mismatch(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact, overrides={"base_workspace_fingerprint": "2" * 64})
         with self.assertRaisesRegex(oracle.BaselineOracleError, "base_workspace_fingerprint mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N09
     def test_rejects_artifact_digest_mismatch(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact)
@@ -256,6 +268,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "overlay_artifact_sha256 mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N10
     def test_rejects_overlay_file_hash_mismatch(self) -> None:
         artifact = self._artifact()
         entry = {"path": TEST_PATH, "base_file_sha256": _sha(BASE_BYTES), "overlay_file_sha256": "3" * 64}
@@ -263,12 +276,14 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "overlay_file_sha256 mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N11
     def test_rejects_undeclared_artifact_member(self) -> None:
         artifact = self._artifact({TEST_PATH: OVERLAY_BYTES, "extra.py": b"pass\n"})
         manifest = self._manifest(artifact)
         with self.assertRaisesRegex(oracle.BaselineOracleError, "member set mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N12
     def test_rejects_missing_artifact_member(self) -> None:
         artifact = self._artifact({"other.py": b"pass\n"})
         payload = self._manifest_payload(artifact)
@@ -277,6 +292,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "member set mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N13
     def test_rejects_duplicate_claim_binding(self) -> None:
         artifact = self._artifact()
         binding = {"claim_id": "TEST-CLAIM-001", "selector": TEST_SELECTOR}
@@ -284,6 +300,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "duplicate claim binding"):
             self._validate(manifest, artifact)
 
+    # BOO-N14
     def test_rejects_missing_provenance_field(self) -> None:
         artifact = self._artifact()
         payload = self._manifest_payload(artifact)
@@ -294,6 +311,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "provenance has invalid fields"):
             self._validate(manifest, artifact)
 
+    # BOO-N15
     def test_rejects_canonical_fingerprint_mismatch(self) -> None:
         artifact = self._artifact()
         manifest = self._manifest(artifact)
@@ -303,6 +321,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
         with self.assertRaisesRegex(oracle.BaselineOracleError, "canonical_fingerprint mismatch"):
             self._validate(manifest, artifact)
 
+    # BOO-N16
     def test_malicious_artifact_traversal_cannot_write_source(self) -> None:
         before = (self.source / TEST_PATH).read_bytes()
         artifact = self._artifact({"../source/services/agent-service/tests/runtime/test_oracle_seed.py": b"pwned"})
@@ -317,6 +336,7 @@ class BaselineOracleAuthorityTest(unittest.TestCase):
             self._validate(manifest, artifact)
         self.assertEqual((self.source / TEST_PATH).read_bytes(), before)
 
+    # BOO-N17
     def test_rejects_overlay_source_path_symlink_escape(self) -> None:
         external = self.root / "external.py"
         external.write_bytes(BASE_BYTES)
