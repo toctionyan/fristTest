@@ -91,166 +91,17 @@ from quality_control.state import (
     _blocked_prerequisite_result, _load_baseline, _load_loop_state, _repair_plan, _state_path,
     _verify_loop_round, _workspace_immutability_result, _write_loop_state,
 )
-
+from quality_control.baseline_oracle import (
+    materialize_baseline_oracle, validate_oracle_claim_bindings,
+)
 
 def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
     # Preserve the historical monkeypatch surface on scripts.quality_loop.shutil.
     _quality_environment.shutil = shutil
     return _quality_environment._environment_problem(workspace, step)
 
-
-
-
-
 class QualityRunConflictError(RuntimeError):
     """Raised when another controller already owns this target/evidence run."""
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 def _run_loop_unlocked(
     workspace: Path,
@@ -264,16 +115,44 @@ def _run_loop_unlocked(
     baseline_evidence: Path | None,
     prior_evidence: Path | None,
     state_dir: Path,
+    baseline_oracle: Path | None = None,
 ) -> dict[str, Any]:
     if prior_evidence is not None:
         raise ValueError("--prior-evidence is no longer supported; every targeted run executes its dependency closure and only a full current-source run can complete a target")
+    if baseline_oracle is not None and not baseline:
+        raise ValueError("--baseline-oracle is valid only together with --baseline")
+    if baseline_oracle is not None and baseline_evidence is not None:
+        raise ValueError("--baseline-oracle cannot be combined with --baseline-evidence")
     policy = _load_json(policy_path)
     ordered_steps = _validate_policy(policy)
     if mode == "release" and target_path is not None:
         configured_signing_key = os.getenv("QUALITY_EVIDENCE_SIGNING_KEY", "")
         if len(configured_signing_key.encode("utf-8")) < 32:
             raise ValueError("release mode requires QUALITY_EVIDENCE_SIGNING_KEY with at least 32 bytes; local mutable trust keys cannot authorize a protected release")
-    target = _parse_target(target_path, workspace=workspace)
+
+    ignored_snapshot_roots = tuple(
+        path for path in (evidence_dir, baseline_evidence) if path is not None
+    )
+    run_start_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
+    oracle_session = None
+    oracle_identity: dict[str, Any] | None = None
+    execution_workspace = workspace
+    execution_target_path = target_path
+    if baseline_oracle is not None:
+        oracle_session = materialize_baseline_oracle(
+            workspace, baseline_oracle, source_snapshot=run_start_snapshot
+        )
+        execution_workspace = oracle_session.execution_workspace
+        try:
+            target_relative = target_path.resolve().relative_to(workspace.resolve())
+        except ValueError as exc:
+            raise ValueError("baseline oracle requires --target inside the source workspace") from exc
+        execution_target_path = execution_workspace / target_relative
+        oracle_identity = oracle_session.identity
+
+    target = _parse_target(execution_target_path, workspace=execution_workspace)
+    if oracle_identity is not None:
+        validate_oracle_claim_bindings(target, oracle_identity)
     replan_predecessor = _validate_replan_predecessor(workspace, target=target)
     _validate_claim_gate_contracts(target, ordered_steps)
     all_steps = _steps_for_mode(ordered_steps, mode)
@@ -295,10 +174,6 @@ def _run_loop_unlocked(
         workspace=workspace,
         target_path=target_path,
     )
-    ignored_snapshot_roots = tuple(
-        path for path in (evidence_dir, baseline_evidence) if path is not None
-    )
-    run_start_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
     baseline_snapshot = run_start_snapshot if baseline and target["context"] == "local-change" else None
     steps = _downstream_steps(all_steps, rerun_from) if rerun_from else all_steps
     evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -357,7 +232,7 @@ def _run_loop_unlocked(
             }
         else:
             print(f"[quality-loop] {mode} running {step['id']}", file=sys.stderr, flush=True)
-            result = _run_step(workspace, evidence_dir, mode, step)
+            result = _run_step(execution_workspace, evidence_dir, mode, step)
             print(f"[quality-loop] {step['id']} -> {result['status']}", file=sys.stderr, flush=True)
         results.append(result)
         result_by_id[str(result["id"])] = result
@@ -438,6 +313,7 @@ def _run_loop_unlocked(
                 "replan_predecessor": replan_predecessor,
                 "workspace_snapshot_file": snapshot_file,
                 "workspace_snapshot_fingerprint": baseline_snapshot["fingerprint"],
+                "baseline_oracle_overlay_identity": oracle_identity,
             }
             (evidence_dir / "baseline-record.json").write_text(
                 json.dumps(baseline_record, ensure_ascii=False, indent=2) + "\n",
@@ -598,6 +474,10 @@ def _run_loop_unlocked(
         "workspace_snapshot_start_fingerprint": run_start_snapshot["fingerprint"],
         "workspace_snapshot_fingerprint": verification_snapshot["fingerprint"],
         "workspace_snapshot_file": workspace_snapshot_file,
+        "baseline_oracle_overlay_identity": oracle_identity,
+        "baseline_oracle_identity_evidence_file": (
+            "baseline-oracle-overlay-identity.json" if oracle_identity is not None else None
+        ),
         "selected_gate_ids": selected_gate_ids,
         "required_gate_ids": required_gate_ids,
         "gate_contract_fingerprints": _gate_contract_fingerprints(all_steps),
@@ -620,6 +500,10 @@ def _run_loop_unlocked(
         ),
         "results": results,
     }
+    if oracle_identity is not None:
+        (evidence_dir / "baseline-oracle-overlay-identity.json").write_text(
+            json.dumps(oracle_identity, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
     (evidence_dir / "run-summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -638,9 +522,9 @@ def _run_loop_unlocked(
         json.dumps(repair, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     _write_evidence_attestation(workspace, evidence_dir)
+    if oracle_session is not None:
+        oracle_session.cleanup()
     return summary
-
-
 
 @contextlib.contextmanager
 def _exclusive_quality_run(
@@ -701,7 +585,6 @@ def _exclusive_quality_run(
             finally:
                 os.close(descriptor)
 
-
 def run_loop(
     workspace: Path,
     policy_path: Path,
@@ -714,6 +597,7 @@ def run_loop(
     baseline_evidence: Path | None,
     prior_evidence: Path | None,
     state_dir: Path,
+    baseline_oracle: Path | None = None,
 ) -> dict[str, Any]:
     with _exclusive_quality_run(
         evidence_dir=evidence_dir,
@@ -735,6 +619,7 @@ def run_loop(
             baseline_evidence=baseline_evidence,
             prior_evidence=prior_evidence,
             state_dir=state_dir,
+            baseline_oracle=baseline_oracle,
         )
 
 def _controller_failure(
@@ -867,7 +752,6 @@ def _controller_failure(
     _write_evidence_attestation(workspace, evidence_dir)
     return summary
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one bounded, reproducible quality validation pass.")
     parser.add_argument("--workspace-root", default=".")
@@ -876,6 +760,10 @@ def main() -> int:
     parser.add_argument("--evidence-dir")
     parser.add_argument("--target", help="required filled quality-loop target markdown record")
     parser.add_argument("--baseline", action="store_true", help="record this pass as the pre-change baseline")
+    parser.add_argument(
+        "--baseline-oracle",
+        help="immutable baseline-only oracle manifest under .quality/baseline-oracles",
+    )
     parser.add_argument("--baseline-evidence", help="evidence directory from the required local baseline pass")
     parser.add_argument("--prior-evidence", help="removed compatibility flag; supplying it is an error because historical PASS evidence is never reused")
     parser.add_argument("--state-dir", help="local quality-loop state directory; defaults to .quality/loop-state")
@@ -918,6 +806,7 @@ def main() -> int:
     evidence_dir = Path(evidence_raw).expanduser().resolve() if evidence_raw else workspace / ".quality" / "evidence" / _safe_run_id()
     target_path = Path(args.target).expanduser().resolve() if args.target else None
     baseline_evidence = Path(args.baseline_evidence).expanduser().resolve() if args.baseline_evidence else None
+    baseline_oracle = Path(args.baseline_oracle).expanduser().resolve() if args.baseline_oracle else None
     prior_evidence = Path(args.prior_evidence).expanduser().resolve() if args.prior_evidence else None
     state_raw = args.state_dir or os.getenv("QUALITY_LOOP_STATE_DIR")
     state_dir = Path(state_raw).expanduser().resolve() if state_raw else workspace / ".quality" / "loop-state"
@@ -935,6 +824,7 @@ def main() -> int:
             baseline_evidence=baseline_evidence,
             prior_evidence=prior_evidence,
             state_dir=state_dir,
+            baseline_oracle=baseline_oracle,
         )
     except QualityRunConflictError as exc:
         # A rejected contender must never write into the active run's evidence
@@ -972,7 +862,6 @@ def main() -> int:
         )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["decision"] == PASS else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
