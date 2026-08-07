@@ -1,0 +1,169 @@
+name: stage5g4-c3g3-b1-1-oracle-input-lock
+
+on:
+  pull_request:
+    branches:
+      - stage5g4-c3g3-a4-bridge-transport
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  oracle-input-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout B1 control branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 0
+
+      - name: Checkout exact B36 reconstruction candidate
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: candidate
+          fetch-depth: 0
+
+      - name: Checkout authoritative C3C payload
+        uses: actions/checkout@v4
+        with:
+          ref: 7ddae7e8db4370b39db6d0187b323076ecb53ab3
+          path: payload
+          fetch-depth: 1
+
+      - name: Reconstruct authoritative newer test bytes
+        shell: bash
+        env:
+          TEST_PATH: services/agent-service/tests/runtime/test_stage4_goal_output_refs.py
+          SELECTOR: test_dependency_goal_output_is_not_reused_across_different_explicit_targets
+          EXPECTED_XZ_SHA256: a3bb48d389d0848760df39f410b60c8ef732203ec1096a5f417f32ea0bf68da7
+          EXPECTED_PATCH_SHA256: c588e7f70e8edefc3b95f39783ef7aa8d0c8cafea11db5ef98f18c67db845169
+          EXPECTED_NEWER_TEST_SHA256: d442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38
+          EXPECTED_BASE_TEST_BLOB: 8950c609bacf6ca115789b7482584ece1fc7113f
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C candidate rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C source rev-parse HEAD:$TEST_PATH)" = "$EXPECTED_BASE_TEST_BLOB"
+          ! grep -q "def ${SELECTOR}(" "source/$TEST_PATH"
+
+          SRC=payload/docs/governance/ci-probes/b38-stage5g4-c3c
+          cat "$SRC"/v2-part-00.b64 "$SRC"/v2-part-01.b64 "$SRC"/v2-part-02.b64 "$SRC"/v2-part-03.b64 > /tmp/safe25.patch.xz.b64
+          base64 -d /tmp/safe25.patch.xz.b64 > /tmp/safe25.patch.xz
+          echo "$EXPECTED_XZ_SHA256  /tmp/safe25.patch.xz" | sha256sum -c -
+          xz -dc /tmp/safe25.patch.xz > /tmp/safe25.patch
+          echo "$EXPECTED_PATCH_SHA256  /tmp/safe25.patch" | sha256sum -c -
+          git -C candidate apply /tmp/safe25.patch
+          echo "$EXPECTED_NEWER_TEST_SHA256  candidate/$TEST_PATH" | sha256sum -c -
+          grep -q "def ${SELECTOR}(" "candidate/$TEST_PATH"
+
+          git -C source diff --exit-code -- .
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+          mkdir -p b1-1-out
+          cp "candidate/$TEST_PATH" b1-1-out/newer-test.py
+          BASE_SHA=$(sha256sum "source/$TEST_PATH" | awk '{print $1}')
+          NEWER_SHA=$(sha256sum "candidate/$TEST_PATH" | awk '{print $1}')
+          printf '%s\n' "$BASE_SHA" > b1-1-out/base-test.sha256
+          printf '%s\n' "$NEWER_SHA" > b1-1-out/newer-test.sha256
+
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, zipfile
+
+          test_path = 'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py'
+          payload = Path('candidate') / test_path
+          output = Path('b1-1-out/overlay.zip')
+          info = zipfile.ZipInfo(test_path, date_time=(1980, 1, 1, 0, 0, 0))
+          info.compress_type = zipfile.ZIP_DEFLATED
+          info.create_system = 3
+          info.external_attr = 0o100644 << 16
+          with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+              archive.writestr(info, payload.read_bytes())
+          with zipfile.ZipFile(output, 'r') as archive:
+              assert archive.namelist() == [test_path]
+              assert hashlib.sha256(archive.read(test_path)).hexdigest() == 'd442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38'
+          overlay_sha = hashlib.sha256(output.read_bytes()).hexdigest()
+          Path('b1-1-out/overlay.zip.sha256').write_text(overlay_sha + '  overlay.zip\n', encoding='utf-8')
+          lock = {
+              'schema_version': 1,
+              'stage': '5G4-C3G3-B1-1',
+              'exact_b36_commit': 'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+              'test_path': test_path,
+              'preferred_selector': test_path + '::test_dependency_goal_output_is_not_reused_across_different_explicit_targets',
+              'base_test_git_blob_sha': '8950c609bacf6ca115789b7482584ece1fc7113f',
+              'base_test_sha256': hashlib.sha256((Path('source') / test_path).read_bytes()).hexdigest(),
+              'newer_test_sha256': hashlib.sha256(payload.read_bytes()).hexdigest(),
+              'overlay_zip_sha256': overlay_sha,
+              'safe25_xz_sha256': 'a3bb48d389d0848760df39f410b60c8ef732203ec1096a5f417f32ea0bf68da7',
+              'safe25_patch_sha256': 'c588e7f70e8edefc3b95f39783ef7aa8d0c8cafea11db5ef98f18c67db845169',
+              'source_provenance': {
+                  'c3c_run_id': 31164615389,
+                  'c3c_artifact_id': 8988471008,
+                  'c3c_artifact_digest': 'sha256:249307d814264638774799c3d7b7c8116ed3aca8f50677b6fe60cf7089d44426',
+                  'c3f_run_id': 31168041077,
+                  'c3f_job_id': 92833286038,
+                  'c3f_artifact_id': 8989792524,
+                  'c3f_artifact_digest': 'sha256:198e9edba2d8f309d74190fd798a8fbc85ccc8563b5c073d52b2c6150aa39623',
+              },
+              'source_workspace_tracked_diff': 'CLEAN',
+              'selector_absent_in_exact_b36': True,
+              'selector_present_in_newer_test': True,
+          }
+          Path('b1-1-out/ORACLE_INPUT_LOCK.json').write_text(json.dumps(lock, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Upload immutable Oracle overlay
+        id: upload_oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3g3-b1-1-oracle-overlay
+          path: b1-1-out/overlay.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Record GitHub artifact provenance
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.upload_oracle.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload_oracle.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, os
+          path = Path('b1-1-out/ORACLE_INPUT_LOCK.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          data['b1_1_workflow'] = {
+              'run_id': int(os.environ['GITHUB_RUN_ID']),
+              'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
+              'head_sha': os.environ['GITHUB_SHA'],
+              'oracle_artifact_id': int(os.environ['ARTIFACT_ID']),
+              'oracle_artifact_wrapper_digest': os.environ['ARTIFACT_DIGEST'],
+          }
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Upload B1-1 lock evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3g3-b1-1-oracle-input-lock
+          path: |
+            b1-1-out/ORACLE_INPUT_LOCK.json
+            b1-1-out/base-test.sha256
+            b1-1-out/newer-test.sha256
+            b1-1-out/overlay.zip.sha256
+            b1-1-out/newer-test.py
+          if-no-files-found: error
+          retention-days: 7
