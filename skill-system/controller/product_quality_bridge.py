@@ -191,6 +191,7 @@ def _run_quality(
     mode: str,
     evidence_dir: Path,
     state_dir: Path,
+    baseline_policy: Path | None = None,
     baseline_oracle_manifest: Path | None = None,
     baseline_oracle_artifact: Path | None = None,
     workspace: Path | None = None,
@@ -204,6 +205,8 @@ def _run_quality(
         )
     if has_oracle_manifest and not baseline:
         raise ValueError("baseline oracle transport is valid only for product baseline")
+    if baseline_policy is not None and not baseline:
+        raise ValueError("baseline policy transport is valid only for product baseline")
     errors = verify_product_contract(product_root)
     if errors and not (baseline and errors == ["product_transition_requires_baseline_evidence"]):
         raise ValueError("product contract gate failed: " + "; ".join(errors))
@@ -219,6 +222,8 @@ def _run_quality(
     ]
     if baseline:
         argv.append("--baseline")
+        if baseline_policy is not None:
+            argv.extend(["--policy", str(baseline_policy)])
         if baseline_oracle_manifest is not None and baseline_oracle_artifact is not None:
             argv.extend(
                 [
@@ -281,6 +286,7 @@ def _run_quality(
 
 def baseline(
     force: bool = False,
+    baseline_policy: str | None = None,
     baseline_oracle_manifest: str | None = None,
     baseline_oracle_artifact: str | None = None,
     *,
@@ -293,6 +299,15 @@ def baseline(
         raise ValueError(
             "baseline oracle transport requires both manifest and artifact inputs"
         )
+    baseline_policy_path = (
+        _relative_file(
+            baseline_policy,
+            label="baseline_policy",
+            workspace=product_root,
+        )
+        if baseline_policy is not None
+        else None
+    )
     oracle_manifest_path = (
         _relative_file(
             baseline_oracle_manifest,
@@ -326,6 +341,7 @@ def baseline(
         mode=mode,
         evidence_dir=evidence_dir,
         state_dir=state_dir,
+        baseline_policy=baseline_policy_path,
         baseline_oracle_manifest=oracle_manifest_path,
         baseline_oracle_artifact=oracle_artifact_path,
         workspace=product_root,
@@ -389,6 +405,10 @@ def main() -> int:
     add_workspace_root(baseline_parser)
     baseline_parser.add_argument("--force", action="store_true")
     baseline_parser.add_argument(
+        "--baseline-policy",
+        help="product-workspace-relative focused policy for product baseline only",
+    )
+    baseline_parser.add_argument(
         "--baseline-oracle-manifest",
         help="product-workspace-relative immutable BaselineOracleOverlay manifest",
     )
@@ -415,6 +435,7 @@ def main() -> int:
         if args.command == "baseline":
             result = baseline(
                 force=args.force,
+                baseline_policy=args.baseline_policy,
                 baseline_oracle_manifest=args.baseline_oracle_manifest,
                 baseline_oracle_artifact=args.baseline_oracle_artifact,
                 workspace=workspace,
