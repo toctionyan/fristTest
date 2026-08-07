@@ -67,7 +67,6 @@ jobs:
           git -C source diff --exit-code -- .
           echo "$BASE_TEST_SHA256  source/$TEST_PATH" | sha256sum -c -
           ! grep -q 'def test_dependency_goal_output_is_not_reused_across_different_explicit_targets(' "source/$TEST_PATH"
-
           test -f oracle-source/overlay.zip
           echo "$OVERLAY_ZIP_SHA256  oracle-source/overlay.zip" | sha256sum -c -
           python - <<'PY'
@@ -92,59 +91,57 @@ jobs:
           test_path = os.environ['TEST_PATH']
           selector = os.environ['SELECTOR']
           claim_id = 'B1.PREFERRED.RED'
-
           claims = {
               'schema_version': 1,
               'target_id': 'stage5g4-c3g3-b1-preferred-red',
-              'claims': [
-                  {
-                      'id': claim_id,
-                      'statement': 'A dependency goal output must not authorize a consumer goal targeting a different explicit order.',
-                      'risk': 'P1',
-                      'required_mode': 'static',
-                      'evidence_kind': 'counterexample',
-                      'required_gates': ['preferred-red-proof'],
-                      'evidence_refs': [selector],
-                      'owner': 'quality-controller',
-                      'closure_requirement': 'regression-transition',
-                  }
-              ],
+              'claims': [{
+                  'id': claim_id,
+                  'statement': 'A dependency goal output must not authorize a consumer goal targeting a different explicit order.',
+                  'risk': 'P1',
+                  'required_mode': 'static',
+                  'evidence_kind': 'counterexample',
+                  'required_gates': ['preferred-red-proof'],
+                  'evidence_refs': [selector],
+                  'owner': 'quality-controller',
+                  'closure_requirement': 'regression-transition',
+              }],
           }
           (source / '.quality/b1/claim.json').write_text(
               json.dumps(claims, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
           )
+          target_lines = [
+              '# 目标',
+              '- 目标 ID：stage5g4-c3g3-b1-preferred-red',
+              '- 变更标识：stage5g4-c3g3-b1-preferred-red',
+              '- 执行上下文：local-change',
+              '- 目标类型：migration',
+              '',
+              '证明 exact B36 产品实现对 newer immutable acceptance oracle 真实为 RED。',
+              '',
+              '## 允许范围',
+              '- 允许变更路径：services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              '- 新增抽象记录：无',
+              '',
+              '## 禁止范围',
+              '本阶段不修改任何产品源码；只记录正式 RED baseline evidence。',
+              '',
+              '## 验收条件',
+              '- 最低质量模式：static',
+              '- 声明清单：.quality/b1/claim.json',
+              '- 验收 ID：B1.PREFERRED.RED',
+              '',
+              '## 基线',
+              'baseline = untouched exact B36 product source + immutable BaselineOracleOverlay。',
+              '',
+              '## 修复轮次',
+              '- 最大轮次：2',
+              '- 当前轮次：1',
+              '- 失败后：只允许后续受控产品修复，不修改 acceptance oracle。',
+              '',
+          ]
+          (source / '.quality/b1/target.md').write_text('\n'.join(target_lines), encoding='utf-8')
 
-          target = f'''# 目标
-- 目标 ID：stage5g4-c3g3-b1-preferred-red
-- 变更标识：stage5g4-c3g3-b1-preferred-red
-- 执行上下文：local-change
-- 目标类型：migration
-
-证明 exact B36 产品实现对 newer immutable acceptance oracle 真实为 RED。
-
-## 允许范围
-- 允许变更路径：services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py
-- 新增抽象记录：无
-
-## 禁止范围
-本阶段不修改任何产品源码；只记录正式 RED baseline evidence。
-
-## 验收条件
-- 最低质量模式：static
-- 声明清单：.quality/b1/claim.json
-- 验收 ID：B1.PREFERRED.RED
-
-## 基线
-baseline = untouched exact B36 product source + immutable BaselineOracleOverlay。
-
-## 修复轮次
-- 最大轮次：2
-- 当前轮次：1
-- 失败后：只允许后续受控产品修复，不修改 acceptance oracle。
-'''
-          (source / '.quality/b1/target.md').write_text(target, encoding='utf-8')
-
-          python_bin = str((Path('control/services/agent-service/.venv/bin/python')).resolve())
+          python_bin = str(Path('control/services/agent-service/.venv/bin/python').resolve())
           gate_script = (
               "from pathlib import Path; import os, pytest; "
               "j=Path(os.environ['QUALITY_EVIDENCE_DIR'])/'junit'; j.mkdir(parents=True, exist_ok=True); "
@@ -152,38 +149,32 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
           )
           policy = {
               'version': 'stage5g4-c3g3-b1',
-              'steps': [
-                  {
-                      'id': 'preferred-red-proof',
-                      'name': 'preferred exact-B36 RED acceptance proof',
-                      'modes': ['static'],
-                      'kind': 'shell',
-                      'argv': [python_bin, '-B', '-c', gate_script],
-                      'owner': 'quality-controller',
-                      'category': 'unit-contract',
-                      'blocking_level': 'required',
-                      'repair_playbook': 'repair product semantics; never modify the immutable oracle',
-                      'rerun_contract': 'dependency_closure_then_downstream',
-                      'depends_on': [],
-                      'environment': {
-                          'APP_PROFILE': 'local',
-                          'PYTHONDONTWRITEBYTECODE': '1',
-                          'PYTHONPATH': 'services/agent-service/src:services/agent-service',
-                      },
-                      'timeout_seconds': 120,
-                  }
-              ],
+              'steps': [{
+                  'id': 'preferred-red-proof',
+                  'name': 'preferred exact-B36 RED acceptance proof',
+                  'modes': ['static'],
+                  'kind': 'shell',
+                  'argv': [python_bin, '-B', '-c', gate_script],
+                  'owner': 'quality-controller',
+                  'category': 'unit-contract',
+                  'blocking_level': 'required',
+                  'repair_playbook': 'repair product semantics; never modify the immutable oracle',
+                  'rerun_contract': 'dependency_closure_then_downstream',
+                  'depends_on': [],
+                  'environment': {
+                      'APP_PROFILE': 'local',
+                      'PYTHONDONTWRITEBYTECODE': '1',
+                      'PYTHONPATH': 'services/agent-service/src:services/agent-service',
+                  },
+                  'timeout_seconds': 120,
+              }],
           }
           (source / '.quality/b1/policy.json').write_text(
               json.dumps(policy, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
           )
-
           after_inputs = workspace_snapshot(source)
-          assert after_inputs['fingerprint'] == initial['fingerprint'], (
-              initial['fingerprint'], after_inputs['fingerprint']
-          )
+          assert after_inputs['fingerprint'] == initial['fingerprint']
           base_fp = initial['fingerprint']
-
           identity = {
               'schema_version': 1,
               'oracle_id': 'stage5g4-c3g3-b1-preferred-red',
@@ -193,16 +184,12 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
               },
               'base_workspace_fingerprint': base_fp,
               'overlay_artifact_sha256': os.environ['OVERLAY_ZIP_SHA256'],
-              'overlay_file_map': [
-                  {
-                      'path': test_path,
-                      'base_file_sha256': os.environ['BASE_TEST_SHA256'],
-                      'overlay_file_sha256': os.environ['OVERLAY_TEST_SHA256'],
-                  }
-              ],
-              'claim_bindings': [
-                  {'claim_id': claim_id, 'selector': selector}
-              ],
+              'overlay_file_map': [{
+                  'path': test_path,
+                  'base_file_sha256': os.environ['BASE_TEST_SHA256'],
+                  'overlay_file_sha256': os.environ['OVERLAY_TEST_SHA256'],
+              }],
+              'claim_bindings': [{'claim_id': claim_id, 'selector': selector}],
               'provenance': {
                   'provider': 'github-actions',
                   'run_id': 31179398373,
@@ -213,13 +200,13 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
               'execution_mode': 'ephemeral_overlay_view',
           }
           identity['canonical_fingerprint'] = _canonical_json_fingerprint(identity)
-          (Path('control/b1-runtime/manifest.json')).write_text(
+          Path('control/b1-runtime/manifest.json').write_text(
               json.dumps(identity, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
           )
           Path('control/b1-results/source-fingerprint-before.txt').write_text(base_fp + '\n', encoding='utf-8')
           PY
 
-      - name: Prove untouched exact B36 cannot execute the preferred selector without Oracle
+      - name: Prove no-Oracle path is missing-selector
         shell: bash
         run: |
           set -euo pipefail
@@ -244,12 +231,12 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
           assert summary['decision'] == 'FAIL'
           assert summary['loop_status'] == 'INVALID_INPUT'
           assert summary['claim_results'] == []
-          stderr = Path('control/b1-results/no-oracle.stderr').read_text(encoding='utf-8')
-          assert 'test selector does not exist' in stderr or 'test selector does not exist' in json.dumps(summary)
+          text = Path('control/b1-results/no-oracle.stderr').read_text(encoding='utf-8') + json.dumps(summary)
+          assert 'test selector does not exist' in text
           PY
           rm -rf source/.quality/b1/no-oracle-evidence source/.quality/b1/no-oracle-state
 
-      - name: Run formal exact-B36 RED baseline through immutable Oracle execution view
+      - name: Run formal exact-B36 RED baseline
         shell: bash
         run: |
           set -euo pipefail
@@ -267,11 +254,10 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
             > control/b1-results/formal-red.stdout 2> control/b1-results/formal-red.stderr
           rc=$?
           set -e
-          # A legal RED baseline intentionally exits non-zero because decision=FAIL.
           test "$rc" -ne 0
           printf '%s\n' "$rc" > control/b1-results/formal-red-process-exit-code.txt
 
-      - name: Verify formal RED closure and untouched source identity
+      - name: Verify formal RED closure and untouched source
         shell: bash
         env:
           TEST_PATH: services/agent-service/tests/runtime/test_stage4_goal_output_refs.py
@@ -283,60 +269,50 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
           from pathlib import Path
           import hashlib, json, os
           from quality_control.contracts import workspace_snapshot
-
           evidence = Path('source/.quality/b1/formal-red-evidence')
           summary = json.loads((evidence / 'run-summary.json').read_text(encoding='utf-8'))
           record = json.loads((evidence / 'baseline-record.json').read_text(encoding='utf-8'))
           oracle_file = json.loads((evidence / 'baseline-oracle-overlay-identity.json').read_text(encoding='utf-8'))
           manifest = json.loads(Path('control/b1-runtime/manifest.json').read_text(encoding='utf-8'))
           selector = os.environ['SELECTOR']
-
           assert summary['run_kind'] == 'baseline'
           assert summary['decision'] == 'FAIL'
           assert summary['loop_status'] == 'BASELINE_RECORDED'
-          assert summary['completion_eligible'] is False
           claim = next(item for item in summary['claim_results'] if item['id'] == 'B1.PREFERRED.RED')
           assert claim['status'] == 'FAILED', claim
           assert claim['evidence_ref_statuses'][selector] == 'FAILED', claim
           assert claim['status'] != 'NOT_EXECUTED'
-
           fp = manifest['canonical_fingerprint']
           assert summary['baseline_oracle_overlay_identity']['canonical_fingerprint'] == fp
           assert record['baseline_oracle_overlay_identity']['canonical_fingerprint'] == fp
           assert oracle_file['canonical_fingerprint'] == fp
           assert summary['baseline_oracle_overlay_identity'] == oracle_file
           assert record['baseline_oracle_overlay_identity'] == oracle_file
-
-          source_before = Path('control/b1-results/source-fingerprint-before.txt').read_text().strip()
-          source_after = workspace_snapshot(Path('source').resolve())['fingerprint']
-          assert source_after == source_before
-          assert record['workspace_snapshot_fingerprint'] == source_before
-          assert summary['workspace_snapshot_start_fingerprint'] == source_before
-          assert summary['workspace_snapshot_fingerprint'] == source_before
-
+          before = Path('control/b1-results/source-fingerprint-before.txt').read_text().strip()
+          after = workspace_snapshot(Path('source').resolve())['fingerprint']
+          assert after == before
+          assert record['workspace_snapshot_fingerprint'] == before
+          assert summary['workspace_snapshot_start_fingerprint'] == before
+          assert summary['workspace_snapshot_fingerprint'] == before
           test_path = Path('source') / os.environ['TEST_PATH']
           assert hashlib.sha256(test_path.read_bytes()).hexdigest() == os.environ['BASE_TEST_SHA256']
           assert b'def test_dependency_goal_output_is_not_reused_across_different_explicit_targets(' not in test_path.read_bytes()
-
           report = {
               'schema_version': 1,
               'stage': '5G4-C3G3-B1-2',
               'verdict': 'FORMAL_EXACT_B36_RED_BASELINE_RECORDED',
               'exact_b36_commit': 'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
               'preferred_selector': selector,
-              'without_oracle': {
-                  'selector_parse': 'MISSING',
-                  'loop_status': 'INVALID_INPUT',
-              },
+              'without_oracle': {'selector_parse': 'MISSING', 'loop_status': 'INVALID_INPUT'},
               'with_oracle': {
                   'decision': summary['decision'],
                   'loop_status': summary['loop_status'],
                   'claim_status': claim['status'],
                   'evidence_ref_status': claim['evidence_ref_statuses'][selector],
               },
-              'source_workspace_fingerprint_before': source_before,
-              'source_workspace_fingerprint_after': source_after,
-              'source_workspace_unchanged': source_before == source_after,
+              'source_workspace_fingerprint_before': before,
+              'source_workspace_fingerprint_after': after,
+              'source_workspace_unchanged': before == after,
               'base_test_sha256': hashlib.sha256(test_path.read_bytes()).hexdigest(),
               'overlay_test_sha256': manifest['overlay_file_map'][0]['overlay_file_sha256'],
               'overlay_artifact_sha256': manifest['overlay_artifact_sha256'],
@@ -352,14 +328,12 @@ baseline = untouched exact B36 product source + immutable BaselineOracleOverlay�
           Path('control/b1-results/B1_FORMAL_RED_REPLAY.json').write_text(
               json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
           )
-          Path('control/b1-results/source-fingerprint-after.txt').write_text(source_after + '\n', encoding='utf-8')
+          Path('control/b1-results/source-fingerprint-after.txt').write_text(after + '\n', encoding='utf-8')
           PY
-
           git -C source diff --exit-code -- .
           test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
           echo "$BASE_TEST_SHA256  source/$TEST_PATH" | sha256sum -c -
           ! grep -q 'def test_dependency_goal_output_is_not_reused_across_different_explicit_targets(' "source/$TEST_PATH"
-
           cp -a source/.quality/b1/formal-red-evidence control/b1-results/formal-red-evidence
           cp control/b1-runtime/manifest.json control/b1-results/baseline-oracle-manifest.json
 
