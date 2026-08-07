@@ -161,9 +161,19 @@ jobs:
           cd exact
           export APP_PROFILE=local
           export PYTHONDONTWRITEBYTECODE=1
-          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
           PY=services/agent-service/.venv/bin/python
-          "$PY" -m pytest -q services/agent-service/tests/architecture/test_*_boundary_scc.py skill-system/tests/test_architecture_cycle_debt.py | tee ../architecture-scc.txt
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
+          "$PY" -m pytest -q services/agent-service/tests/architecture/test_*_boundary_scc.py | tee "$GITHUB_WORKSPACE/architecture-agent-scc.txt"
+          unset PYTHONPATH
+          (
+            cd skill-system
+            ../services/agent-service/.venv/bin/python -m pytest -q tests/test_architecture_cycle_debt.py
+          ) | tee "$GITHUB_WORKSPACE/architecture-skill-debt.txt"
+          printf 'agent: %s\nskill: %s\n' \
+            "$(tail -n 1 "$GITHUB_WORKSPACE/architecture-agent-scc.txt")" \
+            "$(tail -n 1 "$GITHUB_WORKSPACE/architecture-skill-debt.txt")" \
+            > "$GITHUB_WORKSPACE/architecture-scc.txt"
+          cat "$GITHUB_WORKSPACE/architecture-scc.txt"
 
       - name: Run architecture convergence
         shell: bash
@@ -208,7 +218,7 @@ jobs:
               'npm':subprocess.check_output(['npm','--version'],text=True).strip(),
             },
             'focused_regression':last('focused-regression.txt'),
-            'architecture_scc':last('architecture-scc.txt'),
+            'architecture_scc':Path('architecture-scc.txt').read_text().strip(),
             'architecture_status':arch['architecture_status'],
             'architecture_debt_status':arch['architecture_debt_status'],
             'current_cycles':arch['checks']['dependency_cycle_debt']['current_cycles'],
@@ -230,6 +240,8 @@ jobs:
             STAGE5G4_C3C_RESULT.json
             candidate30-before-tests.json
             focused-regression.txt
+            architecture-agent-scc.txt
+            architecture-skill-debt.txt
             architecture-scc.txt
             architecture-convergence.json
           if-no-files-found: error
