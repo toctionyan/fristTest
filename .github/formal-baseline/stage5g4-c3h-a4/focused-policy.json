@@ -1,0 +1,31 @@
+{
+  "version": "stage5g4-c3g3-b1",
+  "steps": [
+    {
+      "id": "preferred-red-proof",
+      "name": "preferred exact-B36 RED acceptance proof",
+      "modes": [
+        "quick"
+      ],
+      "kind": "shell",
+      "argv": [
+        "/home/runner/work/fristTest/fristTest/control/services/agent-service/.venv/bin/python",
+        "-B",
+        "-c",
+        "from pathlib import Path; import os, sys, pytest; sys.path.insert(0, str(Path.cwd() / 'services/agent-service/src')); sys.path.insert(0, str(Path.cwd() / 'services/agent-service')); j=Path(os.environ['QUALITY_EVIDENCE_DIR'])/'junit'; j.mkdir(parents=True, exist_ok=True); raise SystemExit(pytest.main(['-q','services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets','--junitxml='+str(j/'preferred-red-proof.xml')]))"
+      ],
+      "owner": "quality-controller",
+      "category": "unit-contract",
+      "blocking_level": "required",
+      "repair_playbook": "repair product semantics; never modify the immutable oracle",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [],
+      "environment": {
+        "APP_PROFILE": "local",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": "services/agent-service/src:services/agent-service"
+      },
+      "timeout_seconds": 120
+    }
+  ]
+}
