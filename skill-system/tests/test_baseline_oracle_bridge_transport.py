@@ -38,6 +38,7 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         self.assertEqual(baseline_help.returncode, 0, baseline_help.stderr)
         self.assertIn("--baseline-oracle-manifest", baseline_help.stdout)
         self.assertIn("--baseline-oracle-artifact", baseline_help.stdout)
+        self.assertIn("--workspace-root", baseline_help.stdout)
 
         verify_help = subprocess.run(
             [sys.executable, "-B", str(BRIDGE_PATH), "verify", "--help"],
@@ -48,6 +49,7 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         self.assertEqual(verify_help.returncode, 0, verify_help.stderr)
         self.assertNotIn("--baseline-oracle-manifest", verify_help.stdout)
         self.assertNotIn("--baseline-oracle-artifact", verify_help.stdout)
+        self.assertIn("--workspace-root", verify_help.stdout)
 
     def test_run_quality_fails_closed_on_partial_or_nonbaseline_oracle_input(self) -> None:
         bridge = self.bridge
@@ -130,8 +132,8 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         )
         resolved: list[tuple[object, str]] = []
 
-        def fake_relative(raw, *, label):
-            resolved.append((raw, label))
+        def fake_relative(raw, *, label, workspace):
+            resolved.append((raw, label, workspace))
             if label == "baseline_oracle_artifact":
                 raise ValueError("artifact invalid")
             return Path("/tmp/manifest.json")
@@ -150,11 +152,121 @@ class BaselineOracleBridgeTransportTest(unittest.TestCase):
         self.assertEqual(
             resolved,
             [
-                ("manifest.json", "baseline_oracle_manifest"),
-                ("overlay.zip", "baseline_oracle_artifact"),
+                ("manifest.json", "baseline_oracle_manifest", bridge.ROOT.resolve()),
+                ("overlay.zip", "baseline_oracle_artifact", bridge.ROOT.resolve()),
             ],
         )
         rmtree.assert_not_called()
+
+    def test_run_quality_routes_all_product_authority_to_explicit_workspace(self) -> None:
+        bridge = self.bridge
+        with tempfile.TemporaryDirectory() as control_raw, tempfile.TemporaryDirectory() as product_raw:
+            control_root = Path(control_raw)
+            product_root = Path(product_raw).resolve()
+            target = product_root / "governance" / "target.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("target\n", encoding="utf-8")
+            evidence = product_root / ".quality" / "product-code" / "change-1" / "baseline"
+            state = product_root / ".quality" / "product-code" / "change-1" / "state"
+            manifest = product_root / ".quality" / "oracle" / "manifest.json"
+            artifact = product_root / ".quality" / "oracle" / "overlay.zip"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text("{}\n", encoding="utf-8")
+            artifact.write_bytes(b"overlay")
+            fake_contract = SimpleNamespace(
+                change_id="change-1",
+                payload={"quality_target": "governance/target.md"},
+                target_kind=SimpleNamespace(value="migration"),
+            )
+            calls: dict[str, object] = {}
+
+            def fake_gate(workspace):
+                calls["gate_workspace"] = workspace
+                return []
+
+            def fake_load(workspace, require_approved=False):
+                calls["contract_workspace"] = workspace
+                return fake_contract
+
+            def fake_run(argv, **kwargs):
+                calls["argv"] = [str(value) for value in argv]
+                calls["cwd"] = kwargs.get("cwd")
+                evidence.mkdir(parents=True, exist_ok=True)
+                (evidence / "baseline-record.json").write_text("{}\n", encoding="utf-8")
+                (evidence / "run-summary.json").write_text(
+                    '{"run_kind":"baseline","loop_status":"BASELINE_RECORDED"}\n',
+                    encoding="utf-8",
+                )
+                return SimpleNamespace(returncode=1, stdout="expected red", stderr="")
+
+            with (
+                mock.patch.object(bridge, "ROOT", control_root),
+                mock.patch.object(bridge, "QUALITY_LOOP", control_root / "scripts" / "quality_loop.py"),
+                mock.patch.object(bridge, "verify_product_contract", side_effect=fake_gate),
+                mock.patch.object(bridge, "load_contract", side_effect=fake_load),
+                mock.patch.object(bridge, "_resolve_python", return_value=sys.executable),
+                mock.patch.object(bridge.subprocess, "run", side_effect=fake_run),
+            ):
+                result = bridge._run_quality(
+                    baseline=True,
+                    mode="static",
+                    evidence_dir=evidence,
+                    state_dir=state,
+                    baseline_oracle_manifest=manifest,
+                    baseline_oracle_artifact=artifact,
+                    workspace=product_root,
+                )
+
+            self.assertEqual(result["status"], "PASS")
+            self.assertTrue(result["expected_red_baseline"])
+            self.assertEqual(calls["gate_workspace"], product_root)
+            self.assertEqual(calls["contract_workspace"], product_root)
+            self.assertEqual(calls["cwd"], product_root)
+            argv = calls["argv"]
+            workspace_index = argv.index("--workspace-root")
+            self.assertEqual(argv[workspace_index + 1], str(product_root))
+            self.assertEqual(result["workspace_root"], str(product_root))
+            self.assertEqual(result["evidence_dir"], ".quality/product-code/change-1/baseline")
+
+    def test_baseline_resolves_oracle_under_explicit_product_workspace(self) -> None:
+        bridge = self.bridge
+        with tempfile.TemporaryDirectory() as raw:
+            product_root = Path(raw).resolve()
+            manifest = product_root / ".quality" / "oracle" / "manifest.json"
+            artifact = product_root / ".quality" / "oracle" / "overlay.zip"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text("{}\n", encoding="utf-8")
+            artifact.write_bytes(b"overlay")
+            fake_contract = SimpleNamespace(
+                target_kind=SimpleNamespace(value="migration"),
+                payload={"minimum_quality_mode": "static"},
+                change_id="change-1",
+                path=product_root / "governance" / "active-change.json",
+            )
+            captured: dict[str, object] = {}
+
+            def fake_run_quality(**kwargs):
+                captured.update(kwargs)
+                return {
+                    "status": "FAIL",
+                    "evidence_dir": ".quality/product-code/change-1/baseline",
+                }
+
+            with (
+                mock.patch.object(bridge, "load_contract", return_value=fake_contract) as load_contract,
+                mock.patch.object(bridge, "_run_quality", side_effect=fake_run_quality),
+            ):
+                result = bridge.baseline(
+                    baseline_oracle_manifest=".quality/oracle/manifest.json",
+                    baseline_oracle_artifact=".quality/oracle/overlay.zip",
+                    workspace=product_root,
+                )
+
+            self.assertEqual(result["status"], "FAIL")
+            load_contract.assert_called_once_with(product_root, require_approved=False)
+            self.assertEqual(captured["workspace"], product_root)
+            self.assertEqual(captured["baseline_oracle_manifest"], manifest)
+            self.assertEqual(captured["baseline_oracle_artifact"], artifact)
 
     def test_bridge_does_not_own_or_recompute_oracle_identity(self) -> None:
         source = BRIDGE_PATH.read_text(encoding="utf-8")
