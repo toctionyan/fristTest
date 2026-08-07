@@ -141,7 +141,7 @@ jobs:
           cd exact
           export APP_PROFILE=local
           export PYTHONDONTWRITEBYTECODE=1
-          export PYTHONPATH="$PWD/services/agent-service/src"
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
           PY=services/agent-service/.venv/bin/python
           "$PY" -m pytest -q \
             services/agent-service/tests/context/test_reference_resolution_contract.py \
@@ -161,7 +161,7 @@ jobs:
           cd exact
           export APP_PROFILE=local
           export PYTHONDONTWRITEBYTECODE=1
-          export PYTHONPATH="$PWD/services/agent-service/src"
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
           PY=services/agent-service/.venv/bin/python
           "$PY" -m pytest -q services/agent-service/tests/architecture/test_*_boundary_scc.py skill-system/tests/test_architecture_cycle_debt.py | tee ../architecture-scc.txt
 
