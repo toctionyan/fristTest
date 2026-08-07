@@ -1,0 +1,47 @@
+name: stage5g4-c3h-a3-2-focused
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  focused-baseline-policy-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout probe candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact A3-1 candidate blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object skill-system/controller/product_quality_bridge.py)" = "5742e25ecd3f4030b694bec03e8dd85f1a5d10c1"
+          test "$(git hash-object skill-system/tests/test_baseline_oracle_bridge_transport.py)" = "5f6978a0c58b39dda1a62baf587c2d1028773d87"
+          test "$(git hash-object skill-system/controller/product_contract_gate.py)" = "3f6c6ea0721b0e3ddf1631b9f090b90da3ef0a63"
+          test "$(git hash-object skill-system/tests/test_product_quality_bridge.py)" = "43ddaefdaddbf13300dcd23f2a8186ca1c7c8f45"
+
+      - name: Install focused test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Compile focused Controller surface
+        run: |
+          python -m py_compile \
+            skill-system/controller/product_quality_bridge.py \
+            skill-system/controller/product_contract_gate.py \
+            skill-system/tests/test_baseline_oracle_bridge_transport.py \
+            skill-system/tests/test_product_quality_bridge.py
+
+      - name: Run focused baseline-policy transport tests
+        run: |
+          python -m pytest -q \
+            skill-system/tests/test_baseline_oracle_bridge_transport.py \
+            skill-system/tests/test_product_quality_bridge.py
