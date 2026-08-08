@@ -1,0 +1,85 @@
+name: stage5g4-c3h-a5-a2-b-a-permit-preflight
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/stage5g4-c3h-a5-a2-b-a-permit-preflight.yml
+      - .github/formal-begin-inputs/stage5g4-c3h-a5-a2-b/payload.tar.gz.b64
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  permit-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout preflight runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 0
+
+      - name: Checkout exact A3 Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 435fade35f49f1339fe6d3e248982d54a69ee6af
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout fresh exact B36 product source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download admitted formal baseline artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 9013556936
+          path: formal-download
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: toctionyan/fristTest
+          run-id: 31230338354
+
+      - name: Restore baseline and exact frozen governance payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+          test -f formal-download/FORMAL_PRODUCT_BASELINE_ADMISSION_REPORT.json
+          test -d formal-download/root/.quality
+          test -f formal-download/root/governance/active-change.json
+          cp -a formal-download/root/. source/
+
+          base64 -d runner/.github/formal-begin-inputs/stage5g4-c3h-a5-a2-b/payload.tar.gz.b64 > payload.tar.gz
+          test "$(sha256sum payload.tar.gz | awk '{print $1}')" = "a876fb91d5568c98441685e71e5c5afe7f35fe246f77f46e9aabb7b0aa9b581d"
+          mkdir payload
+          tar -xzf payload.tar.gz -C payload
+          cp -a payload/governance/. source/governance/
+
+          test "$(sha256sum payload/preflight.py | awk '{print $1}')" = "8fff63ad476bc4a491c339290258d7ca62e9f3aea39534712ce5aa5bd9084043"
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+      - name: Generate Controller ChangePermit and run read-only begin readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python payload/preflight.py
+
+      - name: Upload permit preflight artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a5-a2-b-a-permit-preflight
+          path: preflight-artifact
+          if-no-files-found: error
+          retention-days: 14
