@@ -53,6 +53,7 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
           "${pythonLocation}/bin/python" -B carrier/scripts/wp08_attempt6_repair_publisher.py candidate
+          "${pythonLocation}/bin/python" -B carrier/scripts/wp08_attempt6_recovery_verifier_patch.py candidate
           cd candidate/services/agent-service
           uv lock
           uv sync --locked --all-groups
@@ -100,6 +101,7 @@ jobs:
           "${pythonLocation}/bin/python" - <<'PY'
           import subprocess
           expected = {
+              'scripts/verify_managed_postgres_recovery.py',
               'services/agent-service/pyproject.toml',
               'services/agent-service/uv.lock',
               'services/agent-service/src/agent_core/config.py',
@@ -124,6 +126,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
+            scripts/verify_managed_postgres_recovery.py \
             services/agent-service/pyproject.toml \
             services/agent-service/uv.lock \
             services/agent-service/src/agent_core/config.py \
