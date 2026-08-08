@@ -64,6 +64,14 @@ jobs:
           assert result.get('status') == 'PASS', result
           PY
 
+      - name: Restore tracked runtime fixtures before source baseline calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git restore --source="$CANDIDATE_HEAD" -- \
+            services/agent-service/runtime/sqlite/document_index_jobs.db \
+            services/agent-service/runtime/vector-store/vector_store.db
+
       - name: Regenerate exact protected-source baseline
         shell: bash
         run: |
@@ -145,6 +153,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Validation can mutate tracked disposable runtime fixtures; never
+          # promote those bytes as source authority.
+          git restore --source="$CANDIDATE_HEAD" -- \
+            services/agent-service/runtime/sqlite/document_index_jobs.db \
+            services/agent-service/runtime/vector-store/vector_store.db
           git clean -fdX
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
