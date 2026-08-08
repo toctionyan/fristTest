@@ -10,6 +10,7 @@ import pytest
 
 WORKSPACE = Path(__file__).resolve().parents[2]
 SCRIPT = WORKSPACE / "scripts" / "wp08_certification_contract.py"
+PROFILE = WORKSPACE / "deployment" / "ci" / "wp08-production-profile.json"
 
 
 def _load_module():
@@ -29,6 +30,7 @@ def _copy(tmp_path: Path) -> Path:
         ".github/workflows/wp08-certification.yml",
         "deployment/ci/release-toolchain-lock.json",
         "deployment/ci/wp08-certification-batches.json",
+        "deployment/ci/wp08-production-profile.json",
         "scripts/run_wp08_certification.py",
         "scripts/prepare_wp08_resume.py",
     ):
@@ -43,7 +45,9 @@ def test_wp08_certification_assets_follow_locked_authority() -> None:
     result = MODULE.validate_static(WORKSPACE)
     assert result["status"] == "PASS"
     assert result["production_closed"] is False
-    assert result["configuration_authority"] == "production-certification-environment"
+    assert result["configuration_authority"] == "versioned-production-profile-with-protected-environment-overrides"
+    assert result["environment_overrides"] is True
+    assert result["production_profile"] == "deployment/ci/wp08-production-profile.json"
     assert result["dispatch_inputs"] is False
     assert result["batch_ids"] == [
         "protected-environment-preflight",
@@ -51,6 +55,22 @@ def test_wp08_certification_assets_follow_locked_authority() -> None:
         "real-model-rag",
         "browser-full-stack",
     ]
+
+
+def test_wp08_production_profile_preserves_current_release_defaults() -> None:
+    profile = json.loads(PROFILE.read_text(encoding="utf-8"))
+    assert profile == {
+        "contract": "wp08-production-profile@1",
+        "model_provider": "deepseek",
+        "model_id": "deepseek-v4-flash",
+        "model_api_base": "https://api.deepseek.com",
+        "embedding_provider": "openai_compatible",
+        "embedding_model": "text-embedding-v4",
+        "embedding_dimension": 1024,
+        "embedding_api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "embedding_batch_size": 10,
+        "production_closed": False,
+    }
 
 
 def test_wp08_workflow_rejects_mutable_action(tmp_path: Path) -> None:
@@ -95,6 +115,39 @@ def test_wp08_workflow_cannot_claim_production_closed(tmp_path: Path) -> None:
     assert caught.value.code == "wp08_production_claim_forbidden"
 
 
+def test_wp08_production_profile_cannot_claim_production_closed(tmp_path: Path) -> None:
+    root = _copy(tmp_path)
+    profile_path = root / "deployment" / "ci" / "wp08-production-profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile["production_closed"] = True
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+    with pytest.raises(MODULE.WP08ContractError) as caught:
+        MODULE.validate_static(root)
+    assert caught.value.code == "wp08_production_profile_claim_forbidden"
+
+
+def test_wp08_production_profile_rejects_secret_material(tmp_path: Path) -> None:
+    root = _copy(tmp_path)
+    profile_path = root / "deployment" / "ci" / "wp08-production-profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile["production_model_api_key"] = "must-never-be-versioned"
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+    with pytest.raises(MODULE.WP08ContractError) as caught:
+        MODULE.validate_static(root)
+    assert caught.value.code == "wp08_production_profile_secret_forbidden"
+
+
+def test_wp08_production_profile_rejects_unofficial_model_base(tmp_path: Path) -> None:
+    root = _copy(tmp_path)
+    profile_path = root / "deployment" / "ci" / "wp08-production-profile.json"
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile["model_api_base"] = "https://example.invalid/v1"
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+    with pytest.raises(MODULE.WP08ContractError) as caught:
+        MODULE.validate_static(root)
+    assert caught.value.code == "wp08_production_profile_model_base_invalid"
+
+
 def test_wp08_workflow_rejects_missing_cross_run_resume_action(tmp_path: Path) -> None:
     root = _copy(tmp_path)
     workflow = root / ".github/workflows/wp08-certification.yml"
@@ -129,11 +182,30 @@ def test_wp08_workflow_rejects_manual_runtime_configuration_inputs(tmp_path: Pat
     assert caught.value.code == "wp08_dispatch_inputs_forbidden"
 
 
-def test_wp08_workflow_records_nonsecret_environment_configuration_evidence() -> None:
+def test_wp08_workflow_keeps_environment_as_optional_nonsecret_override() -> None:
     text = (WORKSPACE / ".github/workflows/wp08-certification.yml").read_text(encoding="utf-8")
-    assert "Resolve protected environment configuration" in text
+    assert "WP08_PRODUCTION_PROFILE: deployment/ci/wp08-production-profile.json" in text
+    assert "vars.REAL_MODEL_CERTIFICATION_PROVIDER" in text
+    assert "vars.OPENAI_MODEL" in text
+    assert "vars.OPENAI_API_BASE" in text
+    assert "vars.EMBEDDING_PROVIDER" in text
+    assert "vars.EMBEDDING_MODEL" in text
+    assert "vars.EMBEDDING_DIM" in text
+    assert "vars.EMBEDDING_API_BASE" in text
+    assert "vars.EMBEDDING_BATCH_SIZE" in text
+    assert "protected_environment_override" in text
+    assert "versioned_production_profile" in text
+
+
+def test_wp08_workflow_records_nonsecret_configuration_evidence_and_keeps_secrets_external() -> None:
+    text = (WORKSPACE / ".github/workflows/wp08-certification.yml").read_text(encoding="utf-8")
+    assert "Resolve versioned production profile and protected environment overrides" in text
     assert "wp08-environment-config.json" in text
     assert "PRODUCTION_MODEL_API_KEY" in text
     assert "PRODUCTION_EMBEDDING_API_KEY" in text
     assert "QUALITY_EVIDENCE_SIGNING_KEY" in text
     assert "inputs." not in text
+    profile_text = PROFILE.read_text(encoding="utf-8").casefold()
+    assert "api_key" not in profile_text
+    assert "secret" not in profile_text
+    assert "password" not in profile_text
