@@ -72,6 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src"
           .venv/bin/python -B -m pytest -q -p no:cacheprovider \
             tests/runtime/test_plan_run_runtime_field_isolation.py \
             --junitxml=../../../b39-focused.xml \
@@ -82,6 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src"
           .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
             tests/context/test_conversation_regression_suite_execution.py \
             tests/context/test_semantic_goal_coverage_suite_execution.py \
@@ -94,6 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src"
           .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
             -m 'not integration and not preprod' \
             --junitxml=../../../b39-agent-standard.xml \
@@ -104,6 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
+          export PYTHONPATH="$PWD/src"
           .venv/bin/python -B -m pytest -q -p no:cacheprovider \
             'tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets' \
             'tests/runtime/test_stage4_goal_output_refs.py::test_completed_dependency_reuses_verified_typed_goal_output' \
@@ -144,6 +148,7 @@ jobs:
           PY
 
       - name: Upload B39 probe evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stage5g4-final-b39-planrun-repair-probe
@@ -157,5 +162,5 @@ jobs:
             b39-agent-standard.stdout.txt
             b39-b38-invariants.xml
             b39-b38-invariants.stdout.txt
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
