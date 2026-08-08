@@ -1,0 +1,304 @@
+name: stage5g4-c3h-a7-a3-authoritative-replan
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  authoritative-replan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout verified replan Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 252c2267508d4d31290af4e9e00fef60acaea698
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Restore authoritative review state and blocker artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "252c2267508d4d31290af4e9e00fef60acaea698"
+
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9017009201/zip > review.zip
+          test "$(sha256sum review.zip | awk '{print $1}')" = \
+            "65b06105f0382de2def15f2bdbb86ad024ec6ff984919f8219232a6660b85d92"
+          mkdir review-download
+          unzip -q review.zip -d review-download
+          test -d review-download/root
+          cp -a review-download/root/. source/
+
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9017326493/zip > blocker-attempt6.zip
+          test "$(sha256sum blocker-attempt6.zip | awk '{print $1}')" = \
+            "938c8b1da1277e1cff7db13d2ecb811f4f4cd929fdf4b3cf2e1c5a681591cb09"
+          mkdir blocker-download
+          unzip -q blocker-attempt6.zip -d blocker-download
+          test -f blocker-download/verify-close-evidence/product-quick.stdout.json
+
+      - name: Verify exact pre-replan authority and write blocker evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p replan-evidence
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+
+          root = Path('source')
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          successor = change + '-r1'
+          active_path = root/'governance/active-change.json'
+          active_raw = active_path.read_bytes()
+          active_sha = hashlib.sha256(active_raw).hexdigest()
+          assert active_sha == '57846b0548c4471ad4412ed5181686d9551c0bc5201f4238b50b0828bc640621'
+          active = json.loads(active_raw)
+          assert active['change_id'] == change
+          assert active['status'] == 'review'
+          assert active['result'] == 'PENDING'
+          assert active.get('verification') is None
+          assert active.get('repair_governance_consumed_at') is None
+          assert active['repair_governance_permit_digest'] == '64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert {r.get('role') for r in active.get('review_attestations', [])} == {'scope-planner','adversarial-reviewer'}
+          assert not any(r.get('role') == 'release-judge' for r in active.get('review_attestations', []))
+
+          manifest = json.loads(Path('review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          expected = {row['path']: row['sha256'] for row in manifest['files']}
+          assert len(expected) == 30
+          assert active['allowed_paths'] == [row['path'] for row in manifest['files']]
+          for rel, expected_sha in expected.items():
+              p = root/rel
+              assert p.is_file(), rel
+              assert hashlib.sha256(p.read_bytes()).hexdigest() == expected_sha, rel
+
+          target = root/'.quality/stage5g4-c3h-a4/formal-baseline/target.md'
+          assert hashlib.sha256(target.read_bytes()).hexdigest() == '54f06043784f24a765e53d14ad6ea4f27d17e94bf35746c5d948b7195699970a'
+          assert '新增抽象记录：无' in target.read_text(encoding='utf-8')
+
+          arch = root/'docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md'
+          assert hashlib.sha256(arch.read_bytes()).hexdigest() == '5510278024f177157dc3edf1d452fd411dc92235fe3a8343c1abbe013dd1e25f'
+          for marker in ('新增项','唯一职责','替换或删除项','删除证据','验证'):
+              assert marker in arch.read_text(encoding='utf-8')
+
+          quick_path = Path('blocker-download/verify-close-evidence/product-quick.stdout.json')
+          quick = json.loads(quick_path.read_text())
+          assert quick['decision'] == 'FAIL'
+          assert quick['loop_status'] == 'INVALID_INPUT'
+          errors = [str(row.get('stderr') or '') for row in quick.get('results', []) if row.get('id') == 'quality-controller-input']
+          assert errors and 'new production source files require' in errors[0]
+          new_files = [
+              'services/agent-service/src/agent_core/context/reference_resolution.py',
+              'services/agent-service/src/agent_core/lifecycle/condition_expression.py',
+              'services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py',
+              'services/agent-service/src/agent_core/lifecycle/goal_granularity.py',
+          ]
+          for rel in new_files:
+              assert rel in errors[0]
+
+          blocker = {
+              'schema_version': 1,
+              'blocker_id': 'A7-A1.FROZEN_TARGET.NEW_ABSTRACTION_OMISSION',
+              'status': 'BLOCKED',
+              'verdict': 'CONTRACT_CLOSE_BLOCKED_BY_FROZEN_TARGET_NEW_ABSTRACTION_OMISSION',
+              'predecessor_change_id': change,
+              'successor_change_id': successor,
+              'frozen_target_sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
+              'declared_new_abstraction_record': '无',
+              'candidate_new_abstraction_record': 'docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md',
+              'candidate_new_abstraction_record_sha256': hashlib.sha256(arch.read_bytes()).hexdigest(),
+              'new_production_python_files': new_files,
+              'fail_closed_error': errors[0],
+              'attempt6': {
+                  'run_id': 31242026621,
+                  'job_id': 93064495227,
+                  'artifact_id': 9017326493,
+                  'artifact_digest': 'sha256:938c8b1da1277e1cff7db13d2ecb811f4f4cd929fdf4b3cf2e1c5a681591cb09',
+                  'product_quick_member': 'verify-close-evidence/product-quick.stdout.json',
+                  'product_quick_member_sha256': hashlib.sha256(quick_path.read_bytes()).hexdigest(),
+              },
+              'pre_replan_contract_sha256': active_sha,
+              'permit_digest': active['repair_governance_permit_digest'],
+              'required_action': 'successor-governance-cycle-with-corrected-target-and-new-baseline',
+          }
+          evidence = root/'governance/replan-blocker-a7-a1.json'
+          evidence.write_text(json.dumps(blocker, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+
+          existing = {}
+          for p in sorted((root/'governance').rglob('*')):
+              if p.is_file() and p != evidence:
+                  existing[p.relative_to(root).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()
+          Path('replan-evidence/governance-before.json').write_text(json.dumps(existing, indent=2)+'\n')
+          Path('replan-evidence/pre-replan.json').write_text(json.dumps({
+              'status':'PASS',
+              'source_head': subprocess.check_output(['git','-C','source','rev-parse','HEAD'], text=True).strip(),
+              'controller_head': subprocess.check_output(['git','-C','control','rev-parse','HEAD'], text=True).strip(),
+              'active_contract_sha256': active_sha,
+              'blocker_evidence': evidence.relative_to(root).as_posix(),
+              'blocker_evidence_sha256': hashlib.sha256(evidence.read_bytes()).hexdigest(),
+              'candidate_path_count': len(expected),
+          }, indent=2)+'\n')
+          PY
+
+      - name: Execute one authoritative fail-closed replan
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd source
+            python -B ../control/skill-system/controller/contract_replan_cli.py replan \
+              --successor-change-id migration-v20.17-b38-context-reference-goal-coverage-r1 \
+              --reason "Frozen formal Target declared no new abstraction record although B38 adds four production modules; exact Controller quality input fails closed and requires a corrected Target/new baseline successor cycle." \
+              --evidence governance/replan-blocker-a7-a1.json
+          ) > replan-evidence/replan.stdout.txt 2> replan-evidence/replan.stderr.txt
+          test ! -s replan-evidence/replan.stderr.txt
+
+      - name: Verify predecessor archive pending successor and product immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+
+          root = Path('source')
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          successor = change + '-r1'
+          history = root/'governance/change-history'/change
+          active = root/'governance/active-change.json'
+          pending_path = root/'governance/pending-replan.json'
+          blocker_path = root/'governance/replan-blocker-a7-a1.json'
+          assert not active.exists()
+          assert history.is_dir()
+          assert pending_path.is_file()
+
+          before = history/'contract-before-replan.json'
+          replanned_path = history/'contract-replanned.json'
+          replan_path = history/'replan.json'
+          assert hashlib.sha256(before.read_bytes()).hexdigest() == '57846b0548c4471ad4412ed5181686d9551c0bc5201f4238b50b0828bc640621'
+
+          replanned = json.loads(replanned_path.read_text())
+          assert replanned['change_id'] == change
+          assert replanned['status'] == 'rejected'
+          assert replanned['result'] == 'ARCHITECTURE_REPLAN_REQUIRED'
+          assert replanned.get('verification') is None
+          assert replanned.get('repair_governance_consumed_at') is None
+          assert replanned['repair_governance_permit_digest'] == '64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert not any(r.get('role') == 'release-judge' for r in replanned.get('review_attestations', []))
+          assert replanned['replan']['successor_change_id'] == successor
+          assert replanned['replan']['evidence'] == 'governance/replan-blocker-a7-a1.json'
+          assert replanned['replan']['evidence_sha256'] == hashlib.sha256(blocker_path.read_bytes()).hexdigest()
+
+          record = json.loads(replan_path.read_text())
+          assert record['predecessor_change_id'] == change
+          assert record['successor_change_id'] == successor
+          assert record['result'] == 'ARCHITECTURE_REPLAN_REQUIRED'
+          assert record.get('verification') is None
+          assert record.get('repair_governance_consumed_at') is None
+          assert record['repair_governance_permit_digest'] == '64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert record['evidence'] == 'governance/replan-blocker-a7-a1.json'
+          assert record['evidence_sha256'] == hashlib.sha256(blocker_path.read_bytes()).hexdigest()
+          assert record['contract_before_sha256'] == hashlib.sha256(before.read_bytes()).hexdigest()
+          assert record['contract_replanned_sha256'] == hashlib.sha256(replanned_path.read_bytes()).hexdigest()
+
+          pending = json.loads(pending_path.read_text())
+          assert pending['predecessor_change_id'] == change
+          assert pending['successor_change_id'] == successor
+          assert pending['replan_record'] == f'governance/change-history/{change}/replan.json'
+          assert pending['replan_record_sha256'] == hashlib.sha256(replan_path.read_bytes()).hexdigest()
+
+          manifest = json.loads(Path('review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          mismatches = []
+          for row in manifest['files']:
+              p = root/row['path']
+              actual = hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'MISSING'
+              if actual != row['sha256']:
+                  mismatches.append({'path':row['path'],'expected':row['sha256'],'actual':actual})
+          assert not mismatches, mismatches
+          assert subprocess.check_output(['git','-C','source','rev-parse','HEAD'], text=True).strip() == 'e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+
+          before_gov = json.loads(Path('replan-evidence/governance-before.json').read_text())
+          allowed_changed = {
+              'governance/active-change.json',
+          }
+          for rel, expected_sha in before_gov.items():
+              if rel in allowed_changed:
+                  continue
+              p = root/rel
+              assert p.is_file(), rel
+              assert hashlib.sha256(p.read_bytes()).hexdigest() == expected_sha, rel
+
+          assert not any(successor in p.as_posix() for p in (root/'.quality').rglob('*'))
+          assert not (root/f'governance/repair-cases/{successor}').exists()
+          assert not (root/f'governance/architecture-decisions/{successor}.json').exists()
+
+          report = {
+              'verdict':'AUTHORITATIVE_BLOCKED_CONTRACT_REPLAN_ESTABLISHED',
+              'predecessor_change_id':change,
+              'predecessor_terminal_status':'rejected',
+              'predecessor_terminal_result':'ARCHITECTURE_REPLAN_REQUIRED',
+              'successor_change_id':successor,
+              'active_pointer_present':False,
+              'pending_replan_present':True,
+              'pending_replan_sha256':hashlib.sha256(pending_path.read_bytes()).hexdigest(),
+              'replan_record_sha256':hashlib.sha256(replan_path.read_bytes()).hexdigest(),
+              'contract_replanned_sha256':hashlib.sha256(replanned_path.read_bytes()).hexdigest(),
+              'blocker_evidence_sha256':hashlib.sha256(blocker_path.read_bytes()).hexdigest(),
+              'repair_governance_permit_digest':'64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d',
+              'repair_governance_consumed_at':None,
+              'verification':None,
+              'release_judge_present':False,
+              'candidate_path_count':30,
+              'candidate_sha_mismatches':mismatches,
+              'source_head':'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+              'controller_head':'252c2267508d4d31290af4e9e00fef60acaea698',
+              'successor_target_materialized':False,
+              'successor_baseline_established':False,
+              'canonical_b38_pushed':False,
+              'production_closed':False,
+          }
+          Path('replan-evidence/AUTHORITATIVE_REPLAN_REPORT.json').write_text(json.dumps(report, indent=2)+'\n')
+          PY
+
+          mkdir -p replan-artifact/governance
+          cp -a replan-evidence replan-artifact/
+          cp source/governance/pending-replan.json replan-artifact/governance/
+          cp source/governance/replan-blocker-a7-a1.json replan-artifact/governance/
+          cp -a source/governance/change-history replan-artifact/governance/
+
+      - name: Upload authoritative replan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a7-a3-authoritative-replan
+          path: replan-artifact
+          if-no-files-found: error
+          retention-days: 30
