@@ -2,6 +2,11 @@ name: wp08-release-coordinator
 
 "on":
   workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+  issue_comment:
+    types:
+      - created
   push:
     branches:
       - main
@@ -51,6 +56,12 @@ jobs:
           case "$GITHUB_EVENT_NAME" in
             workflow_dispatch)
               python -B scripts/wp08_release_coordinator.py --mode authorize
+              ;;
+            schedule)
+              python -B scripts/wp08_release_recovery.py --mode reconcile
+              ;;
+            issue_comment)
+              python -B scripts/wp08_release_recovery.py --mode issue-comment
               ;;
             push)
               python -B scripts/wp08_release_coordinator.py --mode bootstrap
