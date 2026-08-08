@@ -68,6 +68,20 @@ jobs:
           test "$(git -C control rev-parse HEAD)" = '4e3beb4a6a4a8f2f86b60b95eb8166045b411615'
           control/services/agent-service/.venv/bin/python --version
 
+      - name: Correct formal RED evidence assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('runner/.github/scripts/stage5g4_final_b39_governed_repair.py')
+          text=p.read_text(encoding='utf-8')
+          old='''    focused = (evidence / "steps/b39-focused-proof.stdout.txt").read_text(encoding="utf-8")\n    assert "1 failed" in focused\n    assert not (BASELINE / TEST_PATH).exists()\n'''
+          new='''    focused = (evidence / "steps/b39-focused-proof.stdout.txt").read_text(encoding="utf-8")\n    focused_stderr = (evidence / "steps/b39-focused-proof.stderr.txt").read_text(encoding="utf-8")\n    focused_junit = junit_summary(evidence / "junit/b39-focused-proof.xml")\n    dump(EVIDENCE / "g1/baseline-diagnostic.json", {\n        "status": "PASS",\n        "gate_status": next(row["status"] for row in summary["results"] if row["id"] == "b39-focused-proof"),\n        "junit": focused_junit,\n        "stdout_sha256": sha(evidence / "steps/b39-focused-proof.stdout.txt"),\n        "stderr_sha256": sha(evidence / "steps/b39-focused-proof.stderr.txt"),\n    })\n    assert focused_junit == {"tests": 1, "failures": 1, "errors": 0, "skipped": 0}\n    assert "ModuleNotFoundError" not in focused\n    assert "ModuleNotFoundError" not in focused_stderr\n    assert not (BASELINE / TEST_PATH).exists()\n'''
+          assert text.count(old)==1
+          p.write_text(text.replace(old,new),encoding='utf-8')
+          PY
+
       - name: Execute governed B39 repair cycle
         shell: bash
         env:
