@@ -68,6 +68,33 @@ jobs:
           test "$(git -C candidate-source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
           test "$(git -C control rev-parse HEAD)" = "4e3beb4a6a4a8f2f86b60b95eb8166045b411615"
 
+      - name: Correct runner Claim-success schema assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p=Path('runner/.github/scripts/stage5g4_c3h_a7_a8_verify_close.py')
+          before=p.read_bytes()
+          text=before.decode('utf-8')
+          old='assert verification_summary["claim_results"][0]["status"] == "PASSED"'
+          new='assert verification_summary["claim_results"][0]["status"] == "VERIFIED"'
+          assert text.count(old)==1
+          assert 'status = "VERIFIED"' in Path('control/scripts/quality_control/claims.py').read_text()
+          p.write_text(text.replace(old,new),encoding='utf-8')
+          after=p.read_bytes()
+          Path('a7a8-runner-correction.json').write_text(json.dumps({
+            'status':'PASS',
+            'reason':'exact Controller claim schema uses VERIFIED for a closed Claim',
+            'replacement_count':1,
+            'before_sha256':hashlib.sha256(before).hexdigest(),
+            'after_sha256':hashlib.sha256(after).hexdigest(),
+            'product_bytes_modified':False,
+            'controller_bytes_modified':False,
+          },indent=2)+'\n')
+          PY
+
       - name: Execute current quick, Contract verify and Contract close
         shell: bash
         env:
@@ -88,6 +115,7 @@ jobs:
           path: |
             AUTHORITATIVE_A7_A8_REPORT.json
             A7_A8_FAILURE.json
+            a7a8-runner-correction.json
             a7a8-driver.stdout.txt
             a7a8-driver.stderr.txt
             a7a8-driver.exit-code.txt
