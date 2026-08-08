@@ -1,0 +1,68 @@
+name: wp08-release-coordinator
+
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - governance/release-runs/wp08-bootstrap-*.json
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+  workflow_run:
+    workflows:
+      - quality
+      - wp08-full-stack-certification
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: wp08-release-coordinator
+  cancel-in-progress: false
+
+jobs:
+  coordinate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Coordinate authorized WP-08 release run
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              python -B scripts/wp08_release_coordinator.py --mode authorize
+              ;;
+            push)
+              python -B scripts/wp08_release_coordinator.py --mode bootstrap
+              ;;
+            pull_request)
+              python -B scripts/wp08_release_coordinator.py --mode pull-request
+              ;;
+            workflow_run)
+              python -B scripts/wp08_release_coordinator.py --mode workflow-run
+              ;;
+            *)
+              echo "Unsupported coordinator event: $GITHUB_EVENT_NAME" >&2
+              exit 2
+              ;;
+          esac
