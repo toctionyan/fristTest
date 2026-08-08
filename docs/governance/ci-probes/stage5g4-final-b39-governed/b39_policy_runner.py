@@ -1,10 +1,33 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+
+
+def _junit_summary(path: Path) -> dict[str, int] | None:
+    if not path.is_file():
+        return None
+    root = ET.parse(path).getroot()
+    cases = list(root.iter("testcase"))
+    failures = 0
+    errors = 0
+    skipped = 0
+    for case in cases:
+        tags = {child.tag.rsplit("}", 1)[-1] for child in list(case)}
+        failures += int("failure" in tags)
+        errors += int("error" in tags)
+        skipped += int("skipped" in tags)
+    return {
+        "tests": len(cases),
+        "failures": failures,
+        "errors": errors,
+        "skipped": skipped,
+    }
 
 
 def main() -> int:
@@ -49,8 +72,41 @@ def main() -> int:
         "negative": "b39-negative-path.xml",
         "agent-standard": "b39-agent-standard.xml",
     }[step]
-    args = common + selections[step] + [f"--junitxml={junit / output_name}"]
-    return int(pytest.main(args))
+    output_path = junit / output_name
+    args = common + selections[step] + [f"--junitxml={output_path}"]
+    result = int(pytest.main(args))
+
+    summary = _junit_summary(output_path)
+    diagnostics = evidence / "b39-policy-runner-diagnostics"
+    diagnostics.mkdir(parents=True, exist_ok=True)
+    (diagnostics / f"{step}.json").write_text(
+        json.dumps(
+            {
+                "step": step,
+                "pytest_exit_code": result,
+                "junit_path": output_path.relative_to(evidence).as_posix(),
+                "junit": summary,
+                "oracle": str(oracle),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # The baseline driver requires a semantic RED marker.  Emit it only after
+    # the immutable focused oracle actually produced exactly one pytest failure
+    # (not an import/collection error), so textual output can never manufacture
+    # a false baseline transition.
+    if step == "focused" and result != 0:
+        expected_red = {"tests": 1, "failures": 1, "errors": 0, "skipped": 0}
+        if summary != expected_red:
+            print(json.dumps({"status": "UNEXPECTED_FOCUSED_FAILURE", "junit": summary}, ensure_ascii=False))
+            return 3
+        print("B39_FOCUSED_ORACLE_EXPECTED_RED: 1 failed")
+
+    return result
 
 
 if __name__ == "__main__":
