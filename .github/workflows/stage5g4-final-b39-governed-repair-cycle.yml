@@ -172,15 +172,15 @@ jobs:
           base='18d1795ebfd1a1ecb827ce12385b945bac1f74df'
           plan='services/agent-service/src/agent_core/lifecycle/plan_execution.py'
           test_path='services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py'
-          patch='../runner/docs/governance/ci-probes/stage5g4-final-b39-governed/runtime-field-isolation.patch'
-          oracle='../runner/docs/governance/ci-probes/stage5g4-final-b39-governed/test_plan_run_runtime_field_isolation.py'
+          patch='runner/docs/governance/ci-probes/stage5g4-final-b39-governed/runtime-field-isolation.patch'
+          oracle='runner/docs/governance/ci-probes/stage5g4-final-b39-governed/test_plan_run_runtime_field_isolation.py'
 
           test "$(git -C canonical rev-parse HEAD)" = "$base"
           test "$(git -C canonical ls-remote origin refs/heads/$branch | cut -f1)" = "$base"
           test ! -e "canonical/$test_path"
 
-          git -C canonical apply --check "$patch"
-          git -C canonical apply "$patch"
+          git -C canonical apply --check "../$patch"
+          git -C canonical apply "../$patch"
           install -D -m 0644 "$oracle" "canonical/$test_path"
 
           test "$(sha256sum "canonical/$plan" | cut -d' ' -f1)" = '86d2b2adcf2770c7caa7502864dd2d2fdd31341c0054e2105a1f80a1e4b316d4'
@@ -205,7 +205,7 @@ jobs:
 
           test "$(git -C canonical ls-remote origin refs/heads/$branch | cut -f1)" = "$base"
           git -C canonical push origin HEAD:"$branch"
-          git -C canonical rev-parse HEAD | tee B39_CANONICAL_PUBLISH_COMMIT.txt
+          git -C canonical rev-parse HEAD | tee canonical/B39_CANONICAL_PUBLISH_COMMIT.txt
 
       - name: Upload canonical publish receipt
         uses: actions/upload-artifact@v4
