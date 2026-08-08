@@ -1,0 +1,12 @@
+{
+  "contract": "wp08-production-profile@1",
+  "model_provider": "deepseek",
+  "model_id": "deepseek-v4-flash",
+  "model_api_base": "https://api.deepseek.com",
+  "embedding_provider": "openai_compatible",
+  "embedding_model": "text-embedding-v4",
+  "embedding_dimension": 1024,
+  "embedding_api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "embedding_batch_size": 10,
+  "production_closed": false
+}
