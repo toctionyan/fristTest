@@ -20,18 +20,25 @@ jobs:
           path: runner
           fetch-depth: 1
 
-      - name: Checkout fresh exact B36 source
+      - name: Checkout formal source exact B36
         uses: actions/checkout@v4
         with:
           ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
           path: source
           fetch-depth: 1
 
-      - name: Checkout exact B36 baseline replay source
+      - name: Checkout pure exact B36 baseline workspace
         uses: actions/checkout@v4
         with:
           ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
           path: baseline-source
+          fetch-depth: 1
+
+      - name: Checkout pure exact B36 candidate workspace
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: quality-candidate
           fetch-depth: 1
 
       - name: Checkout exact A3 Controller
@@ -47,7 +54,7 @@ jobs:
           python-version: '3.12.13'
           check-latest: false
 
-      - name: Install exact environments and establish job trust key
+      - name: Install exact environments and establish ephemeral CI evidence trust
         shell: bash
         run: |
           set -euo pipefail
@@ -56,7 +63,6 @@ jobs:
           test "$(uv --version | awk '{print $2}')" = "0.11.29"
           uv sync --project control/services/agent-service --locked --all-groups --python 3.12.13
           uv sync --project source/services/agent-service --locked --all-groups --python 3.12.13
-          uv sync --project baseline-source/services/agent-service --locked --all-groups --python 3.12.13
           KEY="$(python3 - <<'PY'
           import secrets
           print(secrets.token_hex(32))
@@ -71,31 +77,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
-          test "$(git -C baseline-source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          for d in source baseline-source quality-candidate; do
+            test "$(git -C "$d" rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          done
           test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+
           gh api /repos/toctionyan/fristTest/actions/artifacts/9017009201/zip > independent-review.zip
           test "$(sha256sum independent-review.zip | awk '{print $1}')" = "65b06105f0382de2def15f2bdbb86ad024ec6ff984919f8219232a6660b85d92"
           mkdir review-download && unzip -q independent-review.zip -d review-download
           cp -a review-download/root/. source/
+
           gh api /repos/toctionyan/fristTest/actions/artifacts/9013556936/zip > formal-baseline.zip
           test "$(sha256sum formal-baseline.zip | awk '{print $1}')" = "02c7caea97f78ed55b7ae4430fb30b9c163df177894e9aca67d4c263edddad83"
           mkdir formal-baseline-download && unzip -q formal-baseline.zip -d formal-baseline-download
           cp -a formal-baseline-download/root/. baseline-source/
 
-      - name: Pre-verify governance and candidate integrity
+          mkdir -p quality-candidate/.quality
+          cp -a formal-baseline-download/root/.quality/stage5g4-c3h-a4 quality-candidate/.quality/
+
+      - name: Pre-verify formal governance and exact candidate integrity
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p verify-close-evidence
           python3 - <<'PY'
-          import hashlib,json,sys
+          import hashlib,json,sys,shutil
           from pathlib import Path
-          root=Path('source'); change='migration-v20.17-b38-context-reference-goal-coverage'
+          root=Path('source'); qc=Path('quality-candidate'); change='migration-v20.17-b38-context-reference-goal-coverage'
           manifest=json.loads(Path('review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
           assert len(manifest['files'])==30
           for r in manifest['files']:
-              assert hashlib.sha256((root/r['path']).read_bytes()).hexdigest()==r['sha256'],r['path']
+              p=root/r['path']; assert hashlib.sha256(p.read_bytes()).hexdigest()==r['sha256'],r['path']
+              q=qc/r['path']; q.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(p,q)
+              assert hashlib.sha256(q.read_bytes()).hexdigest()==r['sha256']
           c=json.loads((root/'governance/active-change.json').read_text())
           assert c['status']=='review' and c['result']=='PENDING' and c.get('verification') is None and c.get('repair_governance_consumed_at') is None
           assert c['repair_governance_permit_digest']=='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
@@ -110,13 +124,11 @@ jobs:
           Path('verify-close-evidence/pre-verify-readiness.json').write_text(json.dumps(ready,indent=2)+'\n')
           PY
 
-      - name: Replay exact B36 RED with current frozen governance and exact Oracle policy
+      - name: Replay exact B36 RED baseline with exact B1 Oracle and policy
         shell: bash
         run: |
           set -euo pipefail
           CHANGE='migration-v20.17-b38-context-reference-goal-coverage'
-          rm -rf baseline-source/governance
-          cp -a source/governance baseline-source/governance
           POLICY="$GITHUB_WORKSPACE/baseline-source/.quality/stage5g4-c3h-a4/formal-baseline/focused-policy.json"
           OM="$GITHUB_WORKSPACE/baseline-source/.quality/stage5g4-c3h-a4/formal-baseline/oracle/manifest.json"
           OA="$GITHUB_WORKSPACE/baseline-source/.quality/stage5g4-c3h-a4/formal-baseline/oracle/overlay.zip"
@@ -127,50 +139,52 @@ jobs:
           test "$(sha256sum "$OM"|awk '{print $1}')" = '3eba94de3750b79d8bdec94b6d7342491082b5558eee650be6abf942afb9b4fa'
           test "$(sha256sum "$OA"|awk '{print $1}')" = 'ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6'
           rm -rf "$EVIDENCE" "$STATE"
-          BPY="$GITHUB_WORKSPACE/baseline-source/services/agent-service/.venv/bin/python"
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
           set +e
-          "$BPY" -B control/scripts/quality_loop.py --workspace-root "$GITHUB_WORKSPACE/baseline-source" --mode quick --target "$TARGET" --evidence-dir "$EVIDENCE" --state-dir "$STATE" --policy "$POLICY" --baseline --baseline-oracle-manifest "$OM" --baseline-oracle-artifact "$OA" > verify-close-evidence/a7-baseline.stdout.json 2> verify-close-evidence/a7-baseline.stderr.txt
+          "$PY" -B control/scripts/quality_loop.py --workspace-root "$GITHUB_WORKSPACE/baseline-source" --mode quick --target "$TARGET" --evidence-dir "$EVIDENCE" --state-dir "$STATE" --policy "$POLICY" --baseline --baseline-oracle-manifest "$OM" --baseline-oracle-artifact "$OA" > verify-close-evidence/a7-baseline.stdout.json 2> verify-close-evidence/a7-baseline.stderr.txt
           RC=$?
           set -e
           test "$RC" -eq 1
           python3 - <<'PY'
-          import json,shutil
+          import json
           from pathlib import Path
-          change='migration-v20.17-b38-context-reference-goal-coverage'
-          ev=Path('baseline-source/.quality/product-code')/change/'a7-trusted-baseline'
+          change='migration-v20.17-b38-context-reference-goal-coverage'; ev=Path('baseline-source/.quality/product-code')/change/'a7-trusted-baseline'
           s=json.loads((ev/'run-summary.json').read_text())
           assert s['run_kind']=='baseline' and s['decision']=='FAIL' and s['loop_status']=='BASELINE_RECORDED'
+          assert s['workspace_snapshot_fingerprint']=='f9ab6acafe592e49534ed6d2fd2b3e9b0f45debc7bb26fbd9a86d06515e1a2fa'
           assert s['policy_fingerprint']=='ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914'
           assert s['baseline_oracle_overlay_identity']['canonical_fingerprint']=='a8315eaa1348eba744379c84e68d6a13fbc0f40578dbbcf8e93ca377541a4f54'
           assert any(x.get('id')=='B1.PREFERRED.RED' and x.get('status')=='FAILED' for x in s['claim_results'])
-          dest=Path('source/.quality/product-code')/change/'a7-trusted-baseline'
-          if dest.exists(): shutil.rmtree(dest)
-          shutil.copytree(ev,dest)
           Path('verify-close-evidence/a7-baseline.run-summary.json').write_bytes((ev/'run-summary.json').read_bytes())
           PY
 
-      - name: Run current B38 quick verification against trusted A7 RED
+      - name: Run pure B38 candidate quick verification against same-job RED
         shell: bash
         run: |
           set -euo pipefail
           CHANGE='migration-v20.17-b38-context-reference-goal-coverage'
-          E="$GITHUB_WORKSPACE/source/.quality/product-code/$CHANGE/verification-quick-a7"
-          S="$GITHUB_WORKSPACE/source/.quality/product-code/$CHANGE/a7-verification-state"
-          T="$GITHUB_WORKSPACE/source/.quality/stage5g4-c3h-a4/formal-baseline/target.md"
-          P="$GITHUB_WORKSPACE/source/.quality/stage5g4-c3h-a4/formal-baseline/focused-policy.json"
-          B="$GITHUB_WORKSPACE/source/.quality/product-code/$CHANGE/a7-trusted-baseline"
+          mkdir -p quality-candidate/.quality/product-code/$CHANGE
+          cp -a baseline-source/.quality/product-code/$CHANGE/a7-trusted-baseline quality-candidate/.quality/product-code/$CHANGE/a7-trusted-baseline
+          E="$GITHUB_WORKSPACE/quality-candidate/.quality/product-code/$CHANGE/verification-quick-a7"
+          S="$GITHUB_WORKSPACE/quality-candidate/.quality/product-code/$CHANGE/a7-verification-state"
+          T="$GITHUB_WORKSPACE/quality-candidate/.quality/stage5g4-c3h-a4/formal-baseline/target.md"
+          P="$GITHUB_WORKSPACE/quality-candidate/.quality/stage5g4-c3h-a4/formal-baseline/focused-policy.json"
+          B="$GITHUB_WORKSPACE/quality-candidate/.quality/product-code/$CHANGE/a7-trusted-baseline"
           rm -rf "$E" "$S"
-          PY="$GITHUB_WORKSPACE/source/services/agent-service/.venv/bin/python"
-          "$PY" -B control/scripts/quality_loop.py --workspace-root "$GITHUB_WORKSPACE/source" --mode quick --target "$T" --evidence-dir "$E" --state-dir "$S" --policy "$P" --baseline-evidence "$B" > verify-close-evidence/product-quick.stdout.json 2> verify-close-evidence/product-quick.stderr.txt
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B control/scripts/quality_loop.py --workspace-root "$GITHUB_WORKSPACE/quality-candidate" --mode quick --target "$T" --evidence-dir "$E" --state-dir "$S" --policy "$P" --baseline-evidence "$B" > verify-close-evidence/product-quick.stdout.json 2> verify-close-evidence/product-quick.stderr.txt
           python3 - <<'PY'
-          import json
+          import hashlib,json,shutil
           from pathlib import Path
-          change='migration-v20.17-b38-context-reference-goal-coverage'; ev=Path('source/.quality/product-code')/change/'verification-quick-a7'
+          change='migration-v20.17-b38-context-reference-goal-coverage'; qc=Path('quality-candidate'); ev=qc/'.quality/product-code'/change/'verification-quick-a7'
           s=json.loads((ev/'run-summary.json').read_text())
           assert s['run_kind']=='verification' and s['decision']=='PASS' and s['loop_status']=='CONVERGED' and s['completion_eligible'] is True
           assert s['unverified_claim_ids']==[]
           assert any(r.get('id')=='preferred-red-proof' and r.get('status')=='PASS' for r in s['results'])
           assert any(x.get('id')=='B1.PREFERRED.RED' and x.get('status')=='VERIFIED' for x in s['claim_results'])
+          dest=Path('source/.quality/product-code')/change/'verification-quick-a7'
+          if dest.exists(): shutil.rmtree(dest)
+          shutil.copytree(ev,dest)
           Path('verify-close-evidence/product-quick.run-summary.json').write_bytes((ev/'run-summary.json').read_bytes())
           PY
           CPY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
@@ -268,7 +282,7 @@ jobs:
           assert out['source_head']=='e0e04d51e9da9790bef7bd0482584f60b8e975a9' and out['controller_head']=='435fade35f49f1339fe6d3e248982d54a69ee6af' and len(profiles)==4 and all(x=='PASS' for x in profiles.values())
           Path('CONTRACT_VERIFY_CLOSE_REPORT.json').write_text(json.dumps(out,indent=2)+'\n')
           PY
-          rm -rf source/services/agent-service/.venv baseline-source/services/agent-service/.venv
+          rm -rf source/services/agent-service/.venv
           mkdir root && rsync -a --exclude='.git' source/ root/
 
       - name: Upload diagnostics always
