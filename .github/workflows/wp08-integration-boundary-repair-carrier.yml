@@ -192,12 +192,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          REPAIR_SHA="$(git rev-parse HEAD)"
           python -B - <<'PY'
           from __future__ import annotations
           import hashlib
           import json
-          import os
           import subprocess
           from datetime import datetime, timezone
           from pathlib import Path
@@ -326,13 +324,13 @@ jobs:
           PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
           AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/wp08-integration-boundary-evidence
-          QUALITY_TARGET: ${{ runner.temp }}/wp08-integration-boundary-target.md
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/wp08-integration-boundary-target.md
         run: |
           set -euo pipefail
           services/agent-service/.venv/bin/python -B scripts/create_ci_quality_target.py \
             --output "$QUALITY_TARGET" \
             --ref "$(git rev-parse HEAD)" \
-            --workflow wp08-integration-boundary-repair \
+            --workflow quality-integration \
             --claims-source governance/claims/v20.6.2-project-integration-certification.json
           services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
             --mode integration --target "$QUALITY_TARGET"
@@ -355,8 +353,8 @@ jobs:
           name: wp08-integration-boundary-repair-evidence
           path: |
             ${{ runner.temp }}/wp08-integration-boundary-evidence
-            ${{ runner.temp }}/wp08-integration-boundary-target.md
-            ${{ runner.temp }}/wp08-integration-boundary-target.claims.json
+            ${{ github.workspace }}/.quality/targets/wp08-integration-boundary-target.md
+            ${{ github.workspace }}/.quality/targets/wp08-integration-boundary-target.claims.json
             ${{ runner.temp }}/wp08-integration-boundary-baseline.json
             ${{ runner.temp }}/model-stub.log
             ${{ runner.temp }}/business.log
