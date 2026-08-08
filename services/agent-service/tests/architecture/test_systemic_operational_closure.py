@@ -192,15 +192,19 @@ def test_browser_gate_uses_real_playwright_desktop_and_mobile() -> None:
 def test_strong_context_browser_gate_is_semantic_and_mutation_guarded() -> None:
     policy = json.loads((ROOT / "governance/quality-loop-policy.json").read_text(encoding="utf-8"))
     steps = {step["id"]: step for step in policy["steps"]}
-    gate = steps["configured-model-browser-conversation"]
-    assert set(gate["modes"]) == {"integration"}
+    duplicate_real_model_gates = {"configured-model-browser-conversation", "configured-model-browser-campaign"}
+    assert duplicate_real_model_gates.isdisjoint(steps)
     assert steps["production-certification-bundle"]["modes"] == ["release"]
-    assert gate["blocking_level"] == "required"
-    assert gate["rerun_contract"] == "dependency_closure_then_downstream"
-    command = " ".join(gate["argv"])
-    assert "--journey strong-context" in command
-    assert "--model-mode configured" in command
-    assert {"product-browser-journey", "strong-context-case-catalog"} <= set(gate["depends_on"])
+    controller_source = (ROOT / "scripts/verify_production_certification_bundle.py").read_text(encoding="utf-8")
+    browser_bundle_source = (ROOT / "scripts/verify_production_browser_bundle.py").read_text(encoding="utf-8")
+    assert '"browser": SCRIPTS / "verify_production_browser_bundle.py"' in controller_source
+    for marker in (
+        '"configured-strong-context"',
+        '"configured-strong-context-campaign"',
+        '"--model-mode", "configured"',
+        '"--runtime-profile", "protected-preprod"',
+    ):
+        assert marker in browser_bundle_source
 
     runner = (ROOT / "scripts/verify_product_browser_journey.py").read_text(encoding="utf-8")
     journey = (ROOT / "services/agent-service/frontend/e2e/strong_context_journey.mjs").read_text(encoding="utf-8")
