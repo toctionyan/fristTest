@@ -118,9 +118,17 @@ jobs:
         run: |
           set -euo pipefail
           PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          set +e
           "$PY" -B control/skill-system/controller/product_quality_bridge.py \
             verify --workspace-root source --mode quick \
-            > verify-close-evidence/product-quick.stdout.json
+            > verify-close-evidence/product-quick.stdout.json \
+            2> verify-close-evidence/product-quick.stderr.txt
+          RC=$?
+          set -e
+          printf '%s\n' "$RC" > verify-close-evidence/product-quick.exit-code.txt
+          cat verify-close-evidence/product-quick.stdout.json
+          cat verify-close-evidence/product-quick.stderr.txt >&2
+          test "$RC" -eq 0
           python3 - <<'PY'
           import json, hashlib
           from pathlib import Path
@@ -311,6 +319,19 @@ jobs:
           rm -rf source/services/agent-service/.venv
           mkdir root
           rsync -a --exclude='.git' source/ root/
+
+      - name: Upload diagnostics always
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a7-a1-diagnostics-${{ github.run_id }}
+          path: |
+            verify-close-evidence/**
+            source/.quality/product-code/migration-v20.17-b38-context-reference-goal-coverage/**
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
 
       - name: Upload closed Contract evidence
         uses: actions/upload-artifact@v4
