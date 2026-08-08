@@ -3,6 +3,12 @@
   "id": "product-contract",
   "description": "验证产品 Change Contract、显式范围、Target 身份和原 Quality Loop 绑定。",
   "commands": [
-    ["{python}", "-B", "skill-system/controller/product_contract_gate.py"]
+    [
+      "{python}",
+      "-B",
+      "skill-system/controller/product_contract_gate.py",
+      "--workspace-root",
+      "{workspace_root}"
+    ]
   ]
 }
