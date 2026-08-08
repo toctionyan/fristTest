@@ -18,6 +18,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from agent_core.composition import get_runtime_registry  # noqa: E402
 from agent_core.rag.bootstrap import RagBootstrapService  # noqa: E402
 from agent_core.runtime.profile import get_runtime_profile  # noqa: E402
 
@@ -30,6 +31,11 @@ def main() -> int:
         raise RuntimeError("ephemeral RAG fixture seeding is limited to local/preprod")
     if (os.getenv("RAG_BACKEND") or "").strip().lower() != "pgvector":
         raise RuntimeError("ephemeral protected RAG fixture requires RAG_BACKEND=pgvector")
+
+    # Management commands do not import the ASGI application.  Initialize the
+    # same explicit Composition Root used by formal app startup before RAG
+    # seeding asks installed modules for their knowledge contributions.
+    get_runtime_registry()
     result = RagBootstrapService().seed_builtin_knowledge()
     if result.get("ready") is not True or result.get("backend") != "pgvector":
         raise RuntimeError(f"protected RAG fixture did not become ready: {result}")
