@@ -84,10 +84,16 @@ finally:
         if callable(close):
             close()
 '''
+    probe_env = {str(key): str(value) for key, value in env.items()}
+    python_paths = [str(AGENT_ROOT), str(AGENT_ROOT / "src")]
+    inherited_pythonpath = str(probe_env.get("PYTHONPATH") or "").strip()
+    if inherited_pythonpath:
+        python_paths.append(inherited_pythonpath)
+    probe_env["PYTHONPATH"] = os.pathsep.join(python_paths)
     completed = subprocess.run(
         [sys.executable, "-B", "-c", code],
         cwd=AGENT_ROOT,
-        env={str(key): str(value) for key, value in env.items()},
+        env=probe_env,
         text=True,
         capture_output=True,
         timeout=180,

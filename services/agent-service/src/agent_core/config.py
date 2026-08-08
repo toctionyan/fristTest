@@ -463,6 +463,15 @@ def clear_checkpointer_cache() -> None:
     _CHECKPOINTER_CONTEXT = None
 
 
+def _normalize_psycopg_connection_url(database_url: str) -> str:
+    """Return a libpq/psycopg URI without rewriting host/query semantics."""
+    normalized = str(database_url or "").strip()
+    for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):
+        if normalized.startswith(prefix):
+            return "postgresql://" + normalized[len(prefix):]
+    return normalized
+
+
 def build_checkpointer():
     global _CHECKPOINTER_CACHE, _CHECKPOINTER_CONNECTION, _CHECKPOINTER_CONTEXT
     # Import checkpoint fencing only when a graph checkpointer is requested.
@@ -502,14 +511,14 @@ def build_checkpointer():
             raise RuntimeError(
                 "CHECKPOINT_BACKEND=postgres requires langgraph-checkpoint-postgres and psycopg."
             ) from e
+        psycopg_url = _normalize_psycopg_connection_url(database_url)
         if os.getenv("CHECKPOINT_SETUP", "true").lower() in {"1", "true", "yes", "on"}:
             # Setup contains PostgreSQL operations (including concurrent index
             # creation) that intentionally run outside turn transactions.
-            with PostgresSaver.from_conn_string(database_url) as setup_saver:
+            # PostgresSaver delegates to psycopg/libpq and therefore must not
+            # receive SQLAlchemy dialect markers such as ``+psycopg``.
+            with PostgresSaver.from_conn_string(psycopg_url) as setup_saver:
                 setup_saver.setup()
-        psycopg_url = database_url.replace(
-            "postgresql+psycopg://", "postgresql://", 1
-        )
         conn = psycopg.connect(
             psycopg_url,
             autocommit=True,
