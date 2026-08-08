@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -142,3 +142,75 @@ jobs:
           assert p['main_modified'] is False
           assert p['production_closed'] is False
           PY
+
+  publish-b39-canonical:
+    needs: b39-governed-repair-cycle
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'stage5g4-final-b39-governed-repair-cycle'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout governed runner head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout canonical B38 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: agent/b38-context-reference-goal-coverage-canonical-20260808
+          path: canonical
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Publish exactly two governed product paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='agent/b38-context-reference-goal-coverage-canonical-20260808'
+          base='18d1795ebfd1a1ecb827ce12385b945bac1f74df'
+          plan='services/agent-service/src/agent_core/lifecycle/plan_execution.py'
+          test_path='services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py'
+          patch='../runner/docs/governance/ci-probes/stage5g4-final-b39-governed/runtime-field-isolation.patch'
+          oracle='../runner/docs/governance/ci-probes/stage5g4-final-b39-governed/test_plan_run_runtime_field_isolation.py'
+
+          test "$(git -C canonical rev-parse HEAD)" = "$base"
+          test "$(git -C canonical ls-remote origin refs/heads/$branch | cut -f1)" = "$base"
+          test ! -e "canonical/$test_path"
+
+          git -C canonical apply --check "$patch"
+          git -C canonical apply "$patch"
+          install -D -m 0644 "$oracle" "canonical/$test_path"
+
+          test "$(sha256sum "canonical/$plan" | cut -d' ' -f1)" = '86d2b2adcf2770c7caa7502864dd2d2fdd31341c0054e2105a1f80a1e4b316d4'
+          test "$(sha256sum "canonical/$test_path" | cut -d' ' -f1)" = 'd5e3a015767842d73f82da3ebaaf4122a64b5fc33a41f77a0226c5bb471074b4'
+
+          python3 - <<'PY'
+          import subprocess
+          expected = {
+              'services/agent-service/src/agent_core/lifecycle/plan_execution.py',
+              'services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py',
+          }
+          rows = subprocess.check_output(['git','-C','canonical','status','--porcelain'], text=True).splitlines()
+          actual = {row[3:] for row in rows if row.strip()}
+          assert actual == expected, (actual, expected, rows)
+          PY
+
+          git -C canonical config user.name 'github-actions[bot]'
+          git -C canonical config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C canonical add -- "$plan" "$test_path"
+          test "$(git -C canonical diff --cached --name-only | sort)" = "$(printf '%s\n%s\n' "$plan" "$test_path" | sort)"
+          git -C canonical commit -m 'Stage 5G4 B39: publish governed PlanRun repair'
+
+          test "$(git -C canonical ls-remote origin refs/heads/$branch | cut -f1)" = "$base"
+          git -C canonical push origin HEAD:"$branch"
+          git -C canonical rev-parse HEAD | tee B39_CANONICAL_PUBLISH_COMMIT.txt
+
+      - name: Upload canonical publish receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-final-b39-canonical-publish
+          path: canonical/B39_CANONICAL_PUBLISH_COMMIT.txt
+          if-no-files-found: error
+          retention-days: 90
