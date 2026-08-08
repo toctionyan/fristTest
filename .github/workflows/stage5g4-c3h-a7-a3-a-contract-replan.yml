@@ -1,0 +1,357 @@
+name: stage5g4-c3h-a7-a3-a-contract-replan
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contract-replan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout runner head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout verified replan Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 252c2267508d4d31290af4e9e00fef60acaea698
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Restore authoritative review state and A7-A1 blocker
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "252c2267508d4d31290af4e9e00fef60acaea698"
+
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9017009201/zip > independent-review.zip
+          test "$(sha256sum independent-review.zip | awk '{print $1}')" = \
+            "65b06105f0382de2def15f2bdbb86ad024ec6ff984919f8219232a6660b85d92"
+          mkdir review-download
+          unzip -q independent-review.zip -d review-download
+          test -d review-download/root
+          cp -a review-download/root/. source/
+
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9017326493/zip > a7-a1-diagnostics.zip
+          test "$(sha256sum a7-a1-diagnostics.zip | awk '{print $1}')" = \
+            "938c8b1da1277e1cff7db13d2ecb811f4f4cd929fdf4b3cf2e1c5a681591cb09"
+          mkdir a7-a1-diagnostics
+          unzip -q a7-a1-diagnostics.zip -d a7-a1-diagnostics
+          test "$(sha256sum a7-a1-diagnostics/verify-close-evidence/product-quick.stdout.json | awk '{print $1}')" = \
+            "9bd06ec12677bd9838f7a5f040af3474971d78121fc58254b21ad7cf1d3fbbdb"
+
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+      - name: Fail-closed preflight and materialize blocker evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p execution-evidence
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+
+          root = Path("source")
+          change = "migration-v20.17-b38-context-reference-goal-coverage"
+          successor = "migration-v20.17-b38-context-reference-goal-coverage-r2"
+          active = root / "governance/active-change.json"
+          assert hashlib.sha256(active.read_bytes()).hexdigest() == "57846b0548c4471ad4412ed5181686d9551c0bc5201f4238b50b0828bc640621"
+          c = json.loads(active.read_text())
+          assert c["change_id"] == change
+          assert c["target_kind"] == "migration"
+          assert c["status"] == "review"
+          assert c["result"] == "PENDING"
+          assert c.get("verification") is None
+          assert c.get("repair_governance_consumed_at") is None
+          assert c["repair_governance_permit_digest"] == "64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d"
+          roles = {r["role"]: r for r in c.get("review_attestations", [])}
+          assert roles["scope-planner"]["decision"] == "PASS"
+          assert roles["adversarial-reviewer"]["decision"] == "PASS"
+          assert "release-judge" not in roles
+
+          target = root / ".quality/stage5g4-c3h-a4/formal-baseline/target.md"
+          assert hashlib.sha256(target.read_bytes()).hexdigest() == "54f06043784f24a765e53d14ad6ea4f27d17e94bf35746c5d948b7195699970a"
+          assert "新增抽象记录：无" in target.read_text()
+
+          pq_path = Path("a7-a1-diagnostics/verify-close-evidence/product-quick.stdout.json")
+          pq = json.loads(pq_path.read_text())
+          assert pq["decision"] == "FAIL"
+          assert pq["loop_status"] == "INVALID_INPUT"
+          assert pq["completion_eligible"] is False
+          failed = [r for r in pq["results"] if r["status"] != "PASS"]
+          assert len(failed) == 1
+          assert failed[0]["id"] == "quality-controller-input"
+          exact_error = (
+              "new production source files require an 新增抽象记录 instead of 无: "
+              "services/agent-service/src/agent_core/context/reference_resolution.py, "
+              "services/agent-service/src/agent_core/lifecycle/condition_expression.py, "
+              "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py, "
+              "services/agent-service/src/agent_core/lifecycle/goal_granularity.py"
+          )
+          assert failed[0]["stderr"].strip() == exact_error
+
+          manifest_path = Path("review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json")
+          manifest = json.loads(manifest_path.read_text())
+          files = manifest["files"]
+          assert len(files) == 30
+          for row in files:
+              p = root / row["path"]
+              assert hashlib.sha256(p.read_bytes()).hexdigest() == row["sha256"], row["path"]
+
+          arch = root / "docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md"
+          assert hashlib.sha256(arch.read_bytes()).hexdigest() == "5510278024f177157dc3edf1d452fd411dc92235fe3a8343c1abbe013dd1e25f"
+
+          def tree_hashes(base: Path):
+              return {
+                  p.relative_to(base).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in sorted(base.rglob("*")) if p.is_file()
+              }
+          before_governance = tree_hashes(root / "governance")
+          before_quality = tree_hashes(root / ".quality")
+          Path("execution-evidence/governance-before.json").write_text(json.dumps(before_governance, sort_keys=True, indent=2)+"\n")
+          Path("execution-evidence/quality-before.json").write_text(json.dumps(before_quality, sort_keys=True, indent=2)+"\n")
+          Path("execution-evidence/active-before.json").write_bytes(active.read_bytes())
+          Path("execution-evidence/candidate30-before.json").write_text(
+              json.dumps({r["path"]: r["sha256"] for r in files}, sort_keys=True, indent=2)+"\n"
+          )
+
+          evidence = {
+            "schema_version": 1,
+            "stage": "5G4-C3H-A7-A1",
+            "verdict": "CONTRACT_CLOSE_BLOCKED_BY_FROZEN_TARGET_NEW_ABSTRACTION_OMISSION",
+            "predecessor_change_id": change,
+            "source_review_artifact": {
+              "run_id": 31241024320,
+              "job_id": 93061868639,
+              "artifact_id": 9017009201,
+              "digest": "sha256:65b06105f0382de2def15f2bdbb86ad024ec6ff984919f8219232a6660b85d92"
+            },
+            "blocker_diagnostic_artifact": {
+              "run_id": 31242026621,
+              "job_id": 93064495227,
+              "artifact_id": 9017326493,
+              "digest": "sha256:938c8b1da1277e1cff7db13d2ecb811f4f4cd929fdf4b3cf2e1c5a681591cb09"
+            },
+            "active_contract_sha256": "57846b0548c4471ad4412ed5181686d9551c0bc5201f4238b50b0828bc640621",
+            "frozen_target": {
+              "path": ".quality/stage5g4-c3h-a4/formal-baseline/target.md",
+              "sha256": "54f06043784f24a765e53d14ad6ea4f27d17e94bf35746c5d948b7195699970a",
+              "declared_new_abstraction_record": "无"
+            },
+            "product_quick": {
+              "stdout_sha256": "9bd06ec12677bd9838f7a5f040af3474971d78121fc58254b21ad7cf1d3fbbdb",
+              "decision": "FAIL",
+              "loop_status": "INVALID_INPUT",
+              "failing_gate": "quality-controller-input",
+              "error": exact_error
+            },
+            "new_production_python_files": [
+              "services/agent-service/src/agent_core/context/reference_resolution.py",
+              "services/agent-service/src/agent_core/lifecycle/condition_expression.py",
+              "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+              "services/agent-service/src/agent_core/lifecycle/goal_granularity.py"
+            ],
+            "candidate_new_abstraction_record": {
+              "path": "docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md",
+              "sha256": "5510278024f177157dc3edf1d452fd411dc92235fe3a8343c1abbe013dd1e25f"
+            },
+            "successor_required": successor,
+            "forbidden_shortcuts": [
+              "no active Contract force overwrite",
+              "no frozen Target mutation",
+              "no baseline identity reuse for the invalid Target",
+              "no release-judge fabrication",
+              "no canonical B38 push"
+            ]
+          }
+          evidence_path = root / "governance/replan-evidence/b38-frozen-target-new-abstraction-omission.json"
+          evidence_path.parent.mkdir(parents=True, exist_ok=True)
+          evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n")
+          assert hashlib.sha256(evidence_path.read_bytes()).hexdigest() == "212c26d5485e495f487b9921f8a1c3bdbaddd2f2f0340e855e0dee4e0cc8a80b"
+
+          PY
+
+      - name: Execute one legal replan
+        shell: bash
+        run: |
+          set -euo pipefail
+          REASON='Frozen formal Target declares 新增抽象记录=无 while B38 creates four production Python modules; successor must bind the accepted architecture record and establish a new exact-B36 baseline.'
+          (
+            cd source
+            python -B ../control/skill-system/controller/contract_replan_cli.py replan \
+              --successor-change-id migration-v20.17-b38-context-reference-goal-coverage-r2 \
+              --reason "$REASON" \
+              --evidence governance/replan-evidence/b38-frozen-target-new-abstraction-omission.json
+          ) > execution-evidence/replan.stdout.txt 2> execution-evidence/replan.stderr.txt
+          cat execution-evidence/replan.stdout.txt
+          cat execution-evidence/replan.stderr.txt >&2
+
+      - name: Verify exact replan transition and no product writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+
+          root = Path("source")
+          change = "migration-v20.17-b38-context-reference-goal-coverage"
+          successor = "migration-v20.17-b38-context-reference-goal-coverage-r2"
+          evidence_rel = "governance/replan-evidence/b38-frozen-target-new-abstraction-omission.json"
+          history = root / "governance/change-history" / change
+          pending_path = root / "governance/pending-replan.json"
+          active = root / "governance/active-change.json"
+
+          assert not active.exists()
+          assert history.is_dir()
+          before_path = history / "contract-before-replan.json"
+          replanned_path = history / "contract-replanned.json"
+          replan_path = history / "replan.json"
+          for p in (before_path, replanned_path, replan_path, pending_path):
+              assert p.is_file(), p
+
+          before_sha = hashlib.sha256(before_path.read_bytes()).hexdigest()
+          assert before_sha == "57846b0548c4471ad4412ed5181686d9551c0bc5201f4238b50b0828bc640621"
+          assert before_path.read_bytes() == Path("execution-evidence/active-before.json").read_bytes()
+
+          replanned = json.loads(replanned_path.read_text())
+          assert replanned["change_id"] == change
+          assert replanned["status"] == "rejected"
+          assert replanned["result"] == "ARCHITECTURE_REPLAN_REQUIRED"
+          assert replanned.get("verification") is None
+          assert replanned.get("repair_governance_consumed_at") is None
+          assert replanned["repair_governance_permit_digest"] == "64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d"
+          assert replanned["replan"]["successor_change_id"] == successor
+          assert replanned["replan"]["evidence"] == evidence_rel
+          assert replanned["replan"]["evidence_sha256"] == "212c26d5485e495f487b9921f8a1c3bdbaddd2f2f0340e855e0dee4e0cc8a80b"
+
+          record = json.loads(replan_path.read_text())
+          assert record["predecessor_change_id"] == change
+          assert record["successor_change_id"] == successor
+          assert record["result"] == "ARCHITECTURE_REPLAN_REQUIRED"
+          assert record["evidence"] == evidence_rel
+          assert record["evidence_sha256"] == "212c26d5485e495f487b9921f8a1c3bdbaddd2f2f0340e855e0dee4e0cc8a80b"
+          assert record["contract_before_sha256"] == before_sha
+          assert record["contract_replanned_sha256"] == hashlib.sha256(replanned_path.read_bytes()).hexdigest()
+          assert record["repair_governance_permit_digest"] == "64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d"
+          assert record.get("repair_governance_consumed_at") is None
+          assert record.get("verification") is None
+
+          pending = json.loads(pending_path.read_text())
+          assert pending["predecessor_change_id"] == change
+          assert pending["successor_change_id"] == successor
+          assert pending["replan_record"] == f"governance/change-history/{change}/replan.json"
+          assert pending["replan_record_sha256"] == hashlib.sha256(replan_path.read_bytes()).hexdigest()
+
+          manifest = json.loads(Path("review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json").read_text())
+          for row in manifest["files"]:
+              assert hashlib.sha256((root/row["path"]).read_bytes()).hexdigest() == row["sha256"], row["path"]
+
+          def tree_hashes(base: Path):
+              return {
+                  p.relative_to(base).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in sorted(base.rglob("*")) if p.is_file()
+              }
+
+          before_gov = json.loads(Path("execution-evidence/governance-before.json").read_text())
+          after_gov = tree_hashes(root / "governance")
+          for rel, digest in before_gov.items():
+              if rel == "active-change.json":
+                  continue
+              assert after_gov.get(rel) == digest, rel
+
+          expected_extra = {
+              evidence_rel.removeprefix("governance/"),
+              f"change-history/{change}/contract-before-replan.json",
+              f"change-history/{change}/contract-replanned.json",
+              f"change-history/{change}/replan.json",
+              "pending-replan.json",
+          }
+          extras = set(after_gov) - set(before_gov)
+          assert extras == expected_extra, (extras, expected_extra)
+          assert "active-change.json" not in after_gov
+
+          before_quality = json.loads(Path("execution-evidence/quality-before.json").read_text())
+          after_quality = tree_hashes(root / ".quality")
+          assert after_quality == before_quality
+
+          assert subprocess.check_output(["git","-C","source","rev-parse","HEAD"], text=True).strip() == "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          assert subprocess.check_output(["git","-C","control","rev-parse","HEAD"], text=True).strip() == "252c2267508d4d31290af4e9e00fef60acaea698"
+
+          report = {
+            "schema_version": 1,
+            "stage": "5G4-C3H-A7-A3-A",
+            "verdict": "AUTHORITATIVE_B38_BLOCKED_CONTRACT_REPLANNED_SUCCESSOR_BOUND",
+            "source_head": "e0e04d51e9da9790bef7bd0482584f60b8e975a9",
+            "controller_head": "252c2267508d4d31290af4e9e00fef60acaea698",
+            "predecessor_change_id": change,
+            "predecessor_contract_before_sha256": before_sha,
+            "predecessor_terminal_status": "rejected",
+            "predecessor_terminal_result": "ARCHITECTURE_REPLAN_REQUIRED",
+            "predecessor_verification": None,
+            "repair_governance_consumed_at": None,
+            "successor_change_id": successor,
+            "pending_replan_record_sha256": pending["replan_record_sha256"],
+            "blocker_evidence": evidence_rel,
+            "blocker_evidence_sha256": "212c26d5485e495f487b9921f8a1c3bdbaddd2f2f0340e855e0dee4e0cc8a80b",
+            "candidate_path_count": 30,
+            "candidate_sha_mismatches": [],
+            "quality_tree_unchanged": True,
+            "non_replan_governance_bytes_unchanged": True,
+            "active_change_present": False,
+            "successor_contract_initialized": False,
+            "corrected_target_created": False,
+            "new_baseline_created": False,
+            "green_tests_run": False,
+            "canonical_b38_pushed": False,
+            "production_closed": False,
+          }
+          Path("REPLAN_EXECUTION_REPORT.json").write_text(json.dumps(report, indent=2)+"\n")
+          PY
+
+      - name: Preserve authoritative replanned state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir root
+          rsync -a --exclude='.git' source/ root/
+
+      - name: Upload replanned state
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a7-a3-a-contract-replan-executed
+          path: |
+            REPLAN_EXECUTION_REPORT.json
+            execution-evidence/**
+            root/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
