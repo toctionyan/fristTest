@@ -1,0 +1,5 @@
+B39 PlanRun repair probe replay 2.
+
+Purpose: force a pull_request synchronize event so GitHub Actions uses the current workflow snapshot, which includes explicit PYTHONPATH binding to candidate/services/agent-service/src.
+
+No product, Controller, baseline, Contract, or repair bytes are changed by this trigger file.
