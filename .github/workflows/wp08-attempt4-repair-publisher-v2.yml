@@ -1,0 +1,120 @@
+name: wp08-attempt4-repair-publisher-v2
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-attempt4-repair-v2:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt4-repair-publisher-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REPAIR_BRANCH: agent/wp08-attempt4-graph-semantic-repair-20260808
+      REPAIR_HEAD: b8a348db154dba0559dab4f156e4c51b9d235666
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.REPAIR_HEAD }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify repair branch authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REPAIR_HEAD"
+          REMOTE="$(git ls-remote origin refs/heads/$REPAIR_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$REPAIR_HEAD"
+
+      - name: Apply exact attempt 4 repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from pathlib import Path
+          ROOT = Path.cwd()
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = ROOT / path
+              text = target.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"replacement_anchor_count:{path}:{count}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          config_path = "services/agent-service/src/agent_core/config.py"
+          replace_once(config_path, 'def build_checkpointer():\n', '''def _normalize_psycopg_connection_url(database_url: str) -> str:\n    """Return a libpq/psycopg URI without rewriting host/query semantics."""\n    normalized = str(database_url or "").strip()\n    for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):\n        if normalized.startswith(prefix):\n            return "postgresql://" + normalized[len(prefix):]\n    return normalized\n\n\ndef build_checkpointer():\n''')
+          replace_once(config_path, '''        if os.getenv("CHECKPOINT_SETUP", "true").lower() in {"1", "true", "yes", "on"}:\n            # Setup contains PostgreSQL operations (including concurrent index\n            # creation) that intentionally run outside turn transactions.\n            with PostgresSaver.from_conn_string(database_url) as setup_saver:\n                setup_saver.setup()\n        psycopg_url = database_url.replace(\n            "postgresql+psycopg://", "postgresql://", 1\n        )\n''', '''        psycopg_url = _normalize_psycopg_connection_url(database_url)\n        if os.getenv("CHECKPOINT_SETUP", "true").lower() in {"1", "true", "yes", "on"}:\n            # Setup contains PostgreSQL operations (including concurrent index\n            # creation) that intentionally run outside turn transactions.\n            # PostgresSaver delegates to psycopg/libpq and therefore must not\n            # receive SQLAlchemy dialect markers such as ``+psycopg``.\n            with PostgresSaver.from_conn_string(psycopg_url) as setup_saver:\n                setup_saver.setup()\n''')
+
+          protocol_path = "services/agent-service/src/agent_core/lifecycle/protocol.py"
+          replace_once(protocol_path, 'REFERENCE_EXPRESSION_SCHEMA: dict[str, Any] = {\n    "oneOf": [\n', '''REFERENCE_EXPRESSION_SCHEMA: dict[str, Any] = {\n    "description": (\n        "只用于引用已经在更早轮次向客户可见的 ResultRef、历史轮次或其展示成员。"\n        "同一当前轮中一个 Goal 依赖另一个尚未执行 Goal 的未来结果时禁止填写 reference_expression；"\n        "这种当前轮先后/结果依赖只能用 depends_on 表达。"\n    ),\n    "oneOf": [\n''')
+          replace_once(protocol_path, '            "显式引用历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"\n', '            "显式引用已经向客户可见的历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"\n            "同一当前轮内 Goal 之间的先后或结果依赖只能填写 depends_on；不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"\n')
+
+          semantic_path = "services/agent-service/scripts/verify_preprod_conversation_smoke.py"
+          replace_once(semantic_path, '''        system = SystemMessage(content=(\n            "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"\n            "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"\n        ))\n''', '''        system = SystemMessage(content=(\n            "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"\n            "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"\n            "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"\n            "不能引用本轮尚未执行目标的未来结果。"\n        ))\n''')
+
+          diagnostic_path = "scripts/verify_production_postgres_bundle.py"
+          replace_once(diagnostic_path, '''    completed = subprocess.run(\n        [sys.executable, "-B", "-c", code],\n        cwd=AGENT_ROOT,\n        env={str(key): str(value) for key, value in env.items()},\n''', '''    probe_env = {str(key): str(value) for key, value in env.items()}\n    python_paths = [str(AGENT_ROOT), str(AGENT_ROOT / "src")]\n    inherited_pythonpath = str(probe_env.get("PYTHONPATH") or "").strip()\n    if inherited_pythonpath:\n        python_paths.append(inherited_pythonpath)\n    probe_env["PYTHONPATH"] = os.pathsep.join(python_paths)\n    completed = subprocess.run(\n        [sys.executable, "-B", "-c", code],\n        cwd=AGENT_ROOT,\n        env=probe_env,\n''')
+
+          test_path = ROOT / "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py"
+          if test_path.exists():
+              raise SystemExit("test_path_already_exists")
+          test_path.write_text('''from __future__ import annotations\n\nimport importlib\nfrom pathlib import Path\n\nimport pytest\n\nfrom agent_core import config\nfrom agent_core.lifecycle.goal_planning import validate_goal_declaration\nfrom agent_core.lifecycle.protocol import DECLARE_TURN_GOALS_SCHEMA, REFERENCE_EXPRESSION_SCHEMA\n\nAGENT_ROOT = Path(__file__).resolve().parents[2]\n\n@pytest.mark.parametrize(("raw", "expected"), [\n    ("postgresql+psycopg://user:pass@127.0.0.1:5432/runtime?sslmode=disable", "postgresql://user:pass@127.0.0.1:5432/runtime?sslmode=disable"),\n    ("postgresql+psycopg2://user:pass@127.0.0.1:5432/runtime", "postgresql://user:pass@127.0.0.1:5432/runtime"),\n    ("postgresql://user:pass@127.0.0.1:5432/runtime", "postgresql://user:pass@127.0.0.1:5432/runtime"),\n])\ndef test_psycopg_connection_url_normalization_preserves_connection_semantics(raw: str, expected: str) -> None:\n    assert config._normalize_psycopg_connection_url(raw) == expected\n\n@pytest.mark.parametrize("dialect", ["psycopg", "psycopg2"])\ndef test_postgres_checkpointer_setup_and_live_connect_share_normalized_uri(monkeypatch: pytest.MonkeyPatch, dialect: str) -> None:\n    config.clear_checkpointer_cache()\n    setup_urls: list[str] = []\n    connect_urls: list[str] = []\n    class SetupSaver:\n        def __enter__(self): return self\n        def __exit__(self, exc_type, exc, tb): return False\n        def setup(self) -> None: return None\n    class FakePostgresSaver:\n        @classmethod\n        def from_conn_string(cls, url: str):\n            setup_urls.append(url)\n            return SetupSaver()\n    class FakeConnection:\n        def close(self) -> None: return None\n    postgres_module = importlib.import_module("langgraph.checkpoint.postgres")\n    psycopg_module = importlib.import_module("psycopg")\n    fencing_module = importlib.import_module("agent_core.runtime.turn_fencing")\n    monkeypatch.setattr(postgres_module, "PostgresSaver", FakePostgresSaver)\n    monkeypatch.setattr(psycopg_module, "connect", lambda url, **kwargs: (connect_urls.append(url) or FakeConnection()))\n    monkeypatch.setattr(fencing_module, "AtomicallyFencedPostgresSaver", lambda conn: conn)\n    monkeypatch.setattr(fencing_module, "FencedCheckpointer", lambda saver: saver)\n    monkeypatch.setenv("CHECKPOINT_BACKEND", "postgres")\n    monkeypatch.setenv("CHECKPOINT_SETUP", "true")\n    monkeypatch.setenv("CHECKPOINT_DATABASE_URL", f"postgresql+{dialect}://user:pass@127.0.0.1:5432/runtime")\n    try:\n        checkpointer = config.build_checkpointer()\n        assert isinstance(checkpointer, FakeConnection)\n        assert setup_urls == ["postgresql://user:pass@127.0.0.1:5432/runtime"]\n        assert connect_urls == ["postgresql://user:pass@127.0.0.1:5432/runtime"]\n    finally:\n        config.clear_checkpointer_cache()\n\ndef test_reference_expression_contract_separates_history_from_same_turn_dependencies() -> None:\n    schema_description = str(REFERENCE_EXPRESSION_SCHEMA.get("description") or "")\n    function_description = str(DECLARE_TURN_GOALS_SCHEMA["function"].get("description") or "")\n    for text in (schema_description, function_description):\n        assert "depends_on" in text\n        assert "当前轮" in text\n        assert "历史" in text\n    smoke = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")\n    assert "同一当前轮中后续目标依赖前一目标时只用 depends_on" in smoke\n    assert "不能引用本轮尚未执行目标的未来结果" in smoke\n\ndef test_unresolved_historical_reference_on_same_turn_dependency_stays_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:\n    monkeypatch.setenv("APP_PROFILE", "local")\n    monkeypatch.setenv("GOAL_ALIGNMENT_VERIFIER_MODE", "candidate")\n    user_text = "查一下我的订单，再查下物流到哪了"\n    result, declared = validate_goal_declaration(\n        state={"current_user_input": user_text, "artifact_ledger": []},\n        args={"goals": [\n            {"goal_id": "g1", "description": "查订单", "evidence_span": "查一下我的订单", "goal_type": "query", "expected_result_cardinality": "collection", "required": True, "depends_on": [], "requested_effect": {"domain": "order", "operation": "list", "object_type": "order"}},\n            {"goal_id": "g2", "description": "查物流", "evidence_span": "查下物流到哪了", "goal_type": "query", "expected_result_cardinality": "collection", "required": True, "depends_on": ["g1"], "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"}, "reference_expression": {"reference_type": "temporal_visible_result", "temporal_relation": "latest", "object_type": "order", "expected_cardinality": "collection", "evidence_span": "查下物流到哪了"}},\n        ]},\n        capability_registry=object(),\n    )\n    assert declared is None\n    assert result["code"] == "GOAL_DECLARATION_INVALID"\n    assert "reference_resolution_not_found:g2" in result["data"]["errors"]\n''', encoding="utf-8")
+          PY
+
+          git add -N services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+          git diff --check
+          python - <<'PY'
+          import subprocess
+          expected = {
+              "scripts/verify_production_postgres_bundle.py",
+              "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
+              "services/agent-service/src/agent_core/config.py",
+              "services/agent-service/src/agent_core/lifecycle/protocol.py",
+              "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py",
+          }
+          actual = set(subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines())
+          if actual != expected:
+              raise SystemExit(f"unexpected_repair_paths:expected={sorted(expected)} actual={sorted(actual)}")
+          PY
+
+      - name: Install locked Agent validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run focused attempt 4 regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B -m pytest -q services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+
+      - name: Publish exact repair bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add scripts/verify_production_postgres_bundle.py services/agent-service/scripts/verify_preprod_conversation_smoke.py services/agent-service/src/agent_core/config.py services/agent-service/src/agent_core/lifecycle/protocol.py services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+          git diff --cached --check
+          git commit -m 'Repair WP-08 attempt 4 graph and semantic reference boundaries'
+          NEW_HEAD="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$REPAIR_HEAD"
+          git push --force-with-lease=refs/heads/${REPAIR_BRANCH}:${REPAIR_HEAD} origin HEAD:${REPAIR_BRANCH}
+          echo "repair_head=$NEW_HEAD"
+          sha256sum scripts/verify_production_postgres_bundle.py services/agent-service/scripts/verify_preprod_conversation_smoke.py services/agent-service/src/agent_core/config.py services/agent-service/src/agent_core/lifecycle/protocol.py services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
