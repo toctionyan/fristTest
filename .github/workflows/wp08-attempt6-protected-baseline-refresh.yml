@@ -1,0 +1,174 @@
+name: wp08-attempt6-protected-baseline-refresh
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-attempt6-protected-baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-protected-baseline-refresh-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      FORMAL_BRANCH: agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808
+      CANDIDATE_HEAD: b8d0f1a4ab3bdea5493a37b76f452a1bc1e19568
+    steps:
+      - name: Checkout exact formal candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.CANDIDATE_HEAD }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact candidate and install locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Revalidate attempt 6 owner repairs before baseline promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m pytest -q \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
+            services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py \
+            skill-system/tests/test_architecture_cycle_debt.py
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'scripts'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service' / 'src'))
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_managed_postgres_recovery import run_managed_postgres_recovery
+          with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as product:
+              result = run_managed_postgres_recovery(product)
+          assert result.get('status') == 'PASS', result
+          PY
+
+      - name: Regenerate exact protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in baseline['protected_roots'])
+          ignored = {'.venv', '.pytest_cache', 'node_modules', '__pycache__'}
+          current: dict[str, str] = {}
+          for name in protected_roots:
+              base = root / name
+              if not base.exists():
+                  continue
+              for path in sorted(item for item in base.rglob('*') if item.is_file()):
+                  if any(part in ignored for part in path.parts):
+                      continue
+                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          old = {str(key): str(value) for key, value in baseline['files'].items()}
+          changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
+          expected = {
+              'services/agent-service/app/services/lifecycle_command_runner.py',
+              'services/agent-service/pyproject.toml',
+              'services/agent-service/scripts/verify_preprod_conversation_smoke.py',
+              'services/agent-service/src/agent_core/config.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py',
+              'services/agent-service/uv.lock',
+          }
+          if changed != expected:
+              raise SystemExit('unexpected_protected_delta:' + json.dumps({
+                  'expected': sorted(expected), 'actual': sorted(changed)
+              }, sort_keys=True))
+          if len(old) != 557 or len(current) != 558:
+              raise SystemExit(f'unexpected_baseline_count:old={len(old)}:current={len(current)}')
+
+          prior_release = baseline.get('source_release_sha256')
+          baseline['generated_from'] = 'git:' + os.environ['CANDIDATE_HEAD']
+          baseline['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['file_count'] = len(current)
+          baseline['files'] = dict(sorted(current.items()))
+          if baseline.get('source_release_sha256') != prior_release:
+              raise SystemExit('source_release_sha256_changed')
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          report = {
+              'status': 'WP08_ATTEMPT6_BASELINE_REFRESH_GENERATED',
+              'candidate_head': os.environ['CANDIDATE_HEAD'],
+              'old_file_count': len(old),
+              'new_file_count': len(current),
+              'approved_paths': sorted(expected),
+              'approved_hashes': {path: current[path] for path in sorted(expected)},
+              'source_release_sha256_preserved': prior_release,
+              'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+          }
+          Path('wp08-attempt6-baseline-refresh-report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate refreshed project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-skill-control-plane.json
+
+      - name: Publish only baseline governance file
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          test "$(git diff --name-only "$CANDIDATE_HEAD" --)" = 'skill-system/registry/product-source-baseline.json'
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh WP-08 attempt 6 protected source baseline'
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${CANDIDATE_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD > wp08-attempt6-baseline-promotion-head.txt
+
+      - name: Upload baseline governance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt6-protected-baseline-promotion
+          path: |
+            wp08-attempt6-baseline-refresh-report.json
+            wp08-attempt6-project-compatibility.json
+            wp08-attempt6-skill-control-plane.json
+            wp08-attempt6-baseline-promotion-head.txt
+          if-no-files-found: error
+          retention-days: 90
