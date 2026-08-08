@@ -459,3 +459,4 @@ jobs:
             a7a6-evidence/
             b38-download/FROZEN_B38_CANDIDATE30_MANIFEST.json
             root/
+          include-hidden-files: true
