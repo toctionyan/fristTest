@@ -9,7 +9,9 @@
       "skill-system/controller/product_quality_bridge.py",
       "current",
       "--mode",
-      "quick"
+      "quick",
+      "--workspace-root",
+      "{workspace_root}"
     ]
   ]
 }
