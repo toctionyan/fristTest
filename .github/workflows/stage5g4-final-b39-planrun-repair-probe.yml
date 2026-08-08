@@ -69,6 +69,9 @@ jobs:
 
       - name: Run root-cause regression proof
         shell: bash
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
@@ -80,6 +83,9 @@ jobs:
 
       - name: Re-run all 31 native failing case families
         shell: bash
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
@@ -93,6 +99,9 @@ jobs:
 
       - name: Re-run full standard Agent suite
         shell: bash
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
@@ -104,6 +113,9 @@ jobs:
 
       - name: Verify B38 seed and same-target invariants
         shell: bash
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
           cd candidate/services/agent-service
