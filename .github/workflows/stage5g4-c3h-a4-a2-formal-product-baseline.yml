@@ -173,7 +173,7 @@ jobs:
           for token in ['ModuleNotFoundError','ERR_MODULE_NOT_FOUND','exit 78','exit_code": 78']:
               assert token not in combined
           claim=summary['claim_results'][0]
-          assert claim['claim_id']=='B1.PREFERRED.RED'
+          assert claim['id']=='B1.PREFERRED.RED'
           assert claim['status']=='FAILED'
           assert claim['evidence_ref_statuses'][selector]=='FAILED'
           assert claim['gate_statuses']=={'preferred-red-proof':'FAIL'}
