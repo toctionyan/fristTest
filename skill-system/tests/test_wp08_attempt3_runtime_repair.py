@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -23,6 +25,16 @@ def test_ephemeral_rag_seed_initializes_composition_before_module_knowledge() ->
     composition_call = text.index("    get_runtime_registry()\n")
     seed_call = text.index("    result = RagBootstrapService().seed_builtin_knowledge()\n")
     assert composition_call < seed_call
+
+
+def test_refreshed_protected_baseline_tracks_exact_rag_seed_bytes() -> None:
+    relative = "services/agent-service/scripts/seed_ephemeral_rag_fixture.py"
+    script = WORKSPACE / relative
+    baseline = json.loads(
+        (WORKSPACE / "skill-system/registry/product-source-baseline.json").read_text(encoding="utf-8")
+    )
+    assert baseline["files"][relative] == hashlib.sha256(script.read_bytes()).hexdigest()
+    assert baseline["generated_from"] == "git:36e4ee90cff488b3aa42dce3bc29548dd9a3fb15"
 
 
 def test_real_model_child_diagnostic_is_bounded_and_secret_redacted() -> None:
