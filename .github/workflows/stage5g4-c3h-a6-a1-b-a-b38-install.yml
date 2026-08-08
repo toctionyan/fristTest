@@ -1,0 +1,260 @@
+name: stage5g4-c3h-a6-a1-b-a-b38-install
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  b38-install:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+        with:
+          path: runner
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 formal source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Checkout exact B36 staging base
+        uses: actions/checkout@v4
+        with:
+          path: staging
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          fetch-depth: 1
+
+      - name: Checkout accepted C3C payload authority
+        uses: actions/checkout@v4
+        with:
+          path: c3c
+          ref: 1aaf0a1736f046a538a778cce4bdd6956bb15580
+          fetch-depth: 1
+
+      - name: Checkout reviewed exact5 payload authority
+        uses: actions/checkout@v4
+        with:
+          path: exact5
+          ref: a92440c3c1d1735af11b44493634dc86b13ad327
+          fetch-depth: 1
+
+      - name: Assert immutable input identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C runner rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C staging rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C c3c rev-parse HEAD)" = "1aaf0a1736f046a538a778cce4bdd6956bb15580"
+          test "$(git -C exact5 rev-parse HEAD)" = "a92440c3c1d1735af11b44493634dc86b13ad327"
+          test "$(git -C c3c hash-object docs/governance/ci-probes/b38-stage5g4-c3c/candidate30-manifest.json)" = "39b14318a4fdb04954059e106a3e6cc310f0dc3c"
+
+      - name: Restore authoritative post-begin state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api -H "Accept: application/vnd.github+json" /repos/${{ github.repository }}/actions/artifacts/9015775887/zip > post-begin.zip
+          test "$(sha256sum post-begin.zip | awk '{print $1}')" = "4b44ffdb3daaf98109c6e7c2ca710dcc3d1754b7b532ee7faae91ea6b026b2c0"
+          mkdir post-begin
+          unzip -q post-begin.zip -d post-begin
+          test -d post-begin/root
+          cp -a post-begin/root/. source/
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(sha256sum source/governance/active-change.json | awk '{print $1}')" = "8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('source/governance/active-change.json').read_text())
+          assert p['status']=='implementing', p
+          assert p['repair_governance_permit_digest']=='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d', p
+          assert p.get('repair_governance_consumed_at') is None, p
+          PY
+          test -z "$(git -C source diff --name-only)"
+
+      - name: Freeze governance identity before product install
+        shell: bash
+        run: |
+          set -euo pipefail
+          find source/governance -type f -print0 | sort -z | xargs -0 sha256sum > governance-before.sha256
+          cp source/governance/active-change.json active-change-before.json
+          git -C source status --porcelain=v1 --untracked-files=all > source-status-before.txt
+
+      - name: Reassemble accepted safe25 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/c3c/docs/governance/ci-probes/b38-stage5g4-c3c"
+          cat "$SRC"/v2-part-00.b64 "$SRC"/v2-part-01.b64 "$SRC"/v2-part-02.b64 "$SRC"/v2-part-03.b64 > safe25.patch.xz.b64
+          base64 -d safe25.patch.xz.b64 > safe25.patch.xz
+          test "$(sha256sum safe25.patch.xz | awk '{print $1}')" = "a3bb48d389d0848760df39f410b60c8ef732203ec1096a5f417f32ea0bf68da7"
+          xz -dc safe25.patch.xz > safe25.patch
+          test "$(sha256sum safe25.patch | awk '{print $1}')" = "c588e7f70e8edefc3b95f39783ef7aa8d0c8cafea11db5ef98f18c67db845169"
+
+      - name: Reassemble accepted exact5 patch set
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/exact5/docs/governance/ci-probes/b38-stage5g4-c3a2"
+          cat "$SRC"/part-00.b64 "$SRC"/part-01.b64 "$SRC"/part-02.b64 "$SRC"/part-03.b64 > exact5.tar.gz.b64
+          base64 -d exact5.tar.gz.b64 > exact5.tar.gz
+          test "$(sha256sum exact5.tar.gz | awk '{print $1}')" = "61271101c405b0eb7cdaf901531fa5f6e802288baeab642427ab2213ffafc078"
+          mkdir exact5patches
+          tar -xzf exact5.tar.gz -C exact5patches
+          test "$(find exact5patches -maxdepth 1 -type f | wc -l | tr -d ' ')" = "5"
+
+      - name: Reconstruct accepted B38 candidate in isolated staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C staging apply --check -p1 "$GITHUB_WORKSPACE/safe25.patch"
+          git -C staging apply -p1 "$GITHUB_WORKSPACE/safe25.patch"
+          patches=(
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_context_visible_result_refs.py.patch"
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_kernel_plan_projection_contract.py.patch"
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_lifecycle_dialogue_runtime.py.patch"
+            "$GITHUB_WORKSPACE/exact5patches/protocol_exact_base_selective.patch"
+            "$GITHUB_WORKSPACE/exact5patches/services_agent-service_src_agent_core_lifecycle_workflow_runtime.py.patch"
+          )
+          for patch in "${patches[@]}"; do git -C staging apply --check -p1 "$patch"; done
+          for patch in "${patches[@]}"; do git -C staging apply -p1 "$patch"; done
+
+      - name: Verify staging is exact frozen 30-path candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          { git -C staging diff --name-only; git -C staging ls-files --others --exclude-standard; } | sort -u > staging-actual-paths.txt
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          m=json.loads(Path('c3c/docs/governance/ci-probes/b38-stage5g4-c3c/candidate30-manifest.json').read_text())
+          actual=[x for x in Path('staging-actual-paths.txt').read_text().splitlines() if x]
+          expected=sorted(r['path'] for r in m['files'])
+          assert m['exact_base_sha']=='e0e04d51e9da9790bef7bd0482584f60b8e975a9', m
+          assert m['change_id']=='migration-v20.17-b38-context-reference-goal-coverage', m
+          assert m['path_count']==30, m
+          assert actual==expected, {'missing': sorted(set(expected)-set(actual)), 'extra': sorted(set(actual)-set(expected))}
+          hashes={r['path']:r['sha256'] for r in m['files']}
+          rows=[]
+          for rel in expected:
+              digest=hashlib.sha256((Path('staging')/rel).read_bytes()).hexdigest()
+              assert digest==hashes[rel], (rel,digest,hashes[rel])
+              rows.append({'path':rel,'sha256':digest})
+          Path('staging-candidate30-verified.json').write_text(json.dumps({'path_count':30,'files':rows},indent=2)+'\n')
+          PY
+
+      - name: Install exactly the frozen 30 files into formal source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, shutil
+          from pathlib import Path
+          m=json.loads(Path('c3c/docs/governance/ci-probes/b38-stage5g4-c3c/candidate30-manifest.json').read_text())
+          for row in m['files']:
+              rel=Path(row['path'])
+              src=Path('staging')/rel
+              dst=Path('source')/rel
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src,dst)
+          PY
+
+      - name: Verify formal installation exact scope SHA and governance invariance
+        shell: bash
+        run: |
+          set -euo pipefail
+          { git -C source diff --name-only; git -C source ls-files --others --exclude-standard | grep -v '^governance/' || true; } | sort -u > source-product-paths-after.txt
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          m=json.loads(Path('c3c/docs/governance/ci-probes/b38-stage5g4-c3c/candidate30-manifest.json').read_text())
+          actual=[x for x in Path('source-product-paths-after.txt').read_text().splitlines() if x]
+          expected=sorted(r['path'] for r in m['files'])
+          assert actual==expected, {'missing': sorted(set(expected)-set(actual)), 'extra': sorted(set(actual)-set(expected))}
+          hashes={r['path']:r['sha256'] for r in m['files']}
+          rows=[]
+          for rel in expected:
+              digest=hashlib.sha256((Path('source')/rel).read_bytes()).hexdigest()
+              assert digest==hashes[rel], (rel,digest,hashes[rel])
+              rows.append({'path':rel,'sha256':digest})
+          Path('installed-candidate30-verified.json').write_text(json.dumps({'path_count':30,'files':rows},indent=2)+'\n')
+          PY
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(sha256sum source/governance/active-change.json | awk '{print $1}')" = "8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8"
+          find source/governance -type f -print0 | sort -z | xargs -0 sha256sum > governance-after.sha256
+          diff -u governance-before.sha256 governance-after.sha256
+          cmp active-change-before.json source/governance/active-change.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('source/governance/active-change.json').read_text())
+          assert p['status']=='implementing', p
+          assert p['repair_governance_permit_digest']=='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d', p
+          assert p.get('repair_governance_consumed_at') is None, p
+          PY
+          git -C source status --porcelain=v1 --untracked-files=all > source-status-after.txt
+
+      - name: Build installation evidence without running tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report={
+            'schema_version':1,
+            'stage':'5G4-C3H-A6-A1-B-A',
+            'verdict':'B38_CANDIDATE30_INSTALLED_EXACT_SCOPE_NO_GREEN_TESTS',
+            'source_head':'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+            'accepted_c3c_run':31164615389,
+            'accepted_c3c_job':92822504259,
+            'accepted_c3c_artifact_id':8988471008,
+            'accepted_c3c_artifact_digest':'sha256:249307d814264638774799c3d7b7c8116ed3aca8f50677b6fe60cf7089d44426',
+            'accepted_c3c_payload_head':'1aaf0a1736f046a538a778cce4bdd6956bb15580',
+            'exact5_payload_head':'a92440c3c1d1735af11b44493634dc86b13ad327',
+            'post_begin_artifact_id':9015775887,
+            'post_begin_contract_sha256':'8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8',
+            'contract_status':'implementing',
+            'repair_governance_permit_digest':'64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d',
+            'candidate_path_count':30,
+            'candidate_installed':True,
+            'governance_unchanged':True,
+            'red_to_green_tests_run':False,
+            'canonical_b38_pushed':False,
+            'production_closed':False,
+          }
+          Path('B38_CANDIDATE_INSTALLATION_REPORT.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+          mkdir root
+          rsync -a --exclude='.git' source/ root/
+          cp c3c/docs/governance/ci-probes/b38-stage5g4-c3c/candidate30-manifest.json FROZEN_B38_CANDIDATE30_MANIFEST.json
+
+      - name: Upload B38 installation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a6-a1-b-a-b38-install
+          path: |
+            B38_CANDIDATE_INSTALLATION_REPORT.json
+            FROZEN_B38_CANDIDATE30_MANIFEST.json
+            staging-candidate30-verified.json
+            installed-candidate30-verified.json
+            staging-actual-paths.txt
+            source-product-paths-after.txt
+            source-status-before.txt
+            source-status-after.txt
+            governance-before.sha256
+            governance-after.sha256
+            active-change-before.json
+            root/**
+          include-hidden-files: true
+          if-no-files-found: error
