@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -65,6 +66,22 @@ class ProductSourceBaselineBindingTests(unittest.TestCase):
         compatibility = _load_project_compatibility()
         snapshot = compatibility.snapshot(ROOT)
         self.assertTrue(machine_local.isdisjoint(snapshot))
+
+    def test_offline_workspace_fallback_excludes_runtime_state_but_keeps_source(self) -> None:
+        compatibility = _load_project_compatibility()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "services/agent-service/src/example.py"
+            runtime_db = root / "services/agent-service/runtime/sqlite/local.db"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            runtime_db.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            runtime_db.write_bytes(b"machine-local")
+
+            snapshot = compatibility.snapshot(root)
+
+        self.assertIn("services/agent-service/src/example.py", snapshot)
+        self.assertNotIn("services/agent-service/runtime/sqlite/local.db", snapshot)
 
     def test_baseline_does_not_claim_production_closure(self) -> None:
         task_ledger = json.loads(
