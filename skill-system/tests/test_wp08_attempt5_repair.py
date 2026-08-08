@@ -42,6 +42,15 @@ def test_pending_interaction_reads_authoritative_live_control(monkeypatch: pytes
     assert control["offer_handle"] == "offer-1"
 
 
+def test_recovery_main_flow_uses_pending_authority_for_both_live_controls() -> None:
+    source = (SCRIPTS / "verify_managed_postgres_recovery.py").read_text(encoding="utf-8")
+    assert 'form, form_control = _pending_interaction(' in source
+    assert '_authority, authority_control = _pending_interaction(' in source
+    assert 'form, form_control = _interaction(started, "collecting_input")' not in source
+    assert '_authority, authority_control = _interaction(input_result, "awaiting_authority")' not in source
+    assert 'f"/api/threads/{thread_id}/pending"' in source
+
+
 def test_managed_postgres_requires_host_side_database_session(monkeypatch: pytest.MonkeyPatch) -> None:
     postgres = managed.ManagedPostgres()
     calls: list[tuple[str, str]] = []
@@ -69,6 +78,17 @@ def test_managed_postgres_requires_host_side_database_session(monkeypatch: pytes
     assert ready is True
     assert error == ""
     assert ("execute", "SELECT 1") in calls
+
+
+def test_managed_postgres_start_cannot_return_on_internal_pg_isready_alone() -> None:
+    source = (SCRIPTS / "run_managed_quality_integration.py").read_text(encoding="utf-8")
+    readiness_branch = '''            if ready.returncode == 0:
+                host_ready, host_error = self._host_database_ready()
+                if host_ready:
+                    return self
+                last_error = f"host_postgres_session:{host_error}"
+'''
+    assert readiness_branch in source
 
 
 def test_goal_contract_requires_unique_local_sibling_spans() -> None:
