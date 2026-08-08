@@ -179,6 +179,8 @@ def main() -> int:
         system = SystemMessage(content=(
             "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
             "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
+            "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
+            "不能引用本轮尚未执行目标的未来结果。"
         ))
         # Protected mode uses the production independent goal-alignment model,
         # so each prototype may consume one declaration call and one verifier call.
