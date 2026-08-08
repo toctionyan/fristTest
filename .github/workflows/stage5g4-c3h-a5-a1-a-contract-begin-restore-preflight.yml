@@ -1,0 +1,216 @@
+name: stage5g4-c3h-a5-a1-a-contract-begin-restore-preflight
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/stage5g4-c3h-a5-a1-a-contract-begin-restore-preflight.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  restore-preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout preflight runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 0
+
+      - name: Checkout exact A3 Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 435fade35f49f1339fe6d3e248982d54a69ee6af
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout fresh exact B36 product source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download admitted formal baseline artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 9013556936
+          path: formal-download
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: toctionyan/fristTest
+          run-id: 31230338354
+
+      - name: Restore artifact over fresh exact B36 checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+          test -f formal-download/FORMAL_PRODUCT_BASELINE_ADMISSION_REPORT.json
+          test -d formal-download/root/.quality
+          test -f formal-download/root/governance/active-change.json
+          cp -a formal-download/root/. source/
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+      - name: Run read-only contract-begin restore preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preflight-artifact
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, subprocess, sys
+
+          source = Path('source').resolve()
+          control = Path('control').resolve()
+          downloaded = Path('formal-download').resolve()
+          out = Path('preflight-artifact').resolve()
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          evidence_rel = f'.quality/product-code/{change}/baseline'
+          evidence = source / evidence_rel
+          expected_b36 = 'e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+          expected_control = '435fade35f49f1339fe6d3e248982d54a69ee6af'
+          expected_fp = 'f9ab6acafe592e49534ed6d2fd2b3e9b0f45debc7bb26fbd9a86d06515e1a2fa'
+          expected_policy = 'ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914'
+          expected_oracle = 'a8315eaa1348eba744379c84e68d6a13fbc0f40578dbbcf8e93ca377541a4f54'
+          expected_overlay = 'ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6'
+
+          sys.path.insert(0, str(control / 'skill-system/controller'))
+          sys.path.insert(0, str(control / 'scripts'))
+          from contract import load_contract
+          from product_contract_gate import verify as verify_product_contract
+          from change_contract_cli import _validate_architecture_inputs
+          from repair_governance import validate_begin_ready
+          from quality_control.contracts import workspace_snapshot
+
+          report = json.loads((downloaded / 'FORMAL_PRODUCT_BASELINE_ADMISSION_REPORT.json').read_text())
+          assert report['verdict'] == 'FORMAL_PRODUCT_BASELINE_ADMISSION_PASS'
+          assert report['formal_product_baseline_admitted'] is True
+          assert report['source_head'] == expected_b36
+          assert report['control_head'] == expected_control
+          assert report['source_fingerprint'] == expected_fp
+          assert report['policy_fingerprint'] == expected_policy
+          assert report['oracle_canonical_fingerprint'] == expected_oracle
+          assert report['baseline_evidence'] == evidence_rel
+
+          assert subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'], text=True).strip() == expected_b36
+          assert workspace_snapshot(source)['fingerprint'] == expected_fp
+
+          contract = load_contract(source, require_approved=False)
+          payload = dict(contract.payload)
+          assert contract.change_id == change
+          assert contract.target_kind.value == 'migration'
+          assert contract.profile == 'product-migration'
+          assert contract.status == 'approved'
+          assert payload['baseline_evidence'] == evidence_rel
+          assert payload['product_validation']['baseline'] == evidence_rel
+          assert payload['product_validation']['baseline_mode'] == 'quick'
+          assert len(payload['allowed_paths']) == 30
+
+          gate_errors = verify_product_contract(source)
+          assert gate_errors == []
+
+          summary = json.loads((evidence / 'run-summary.json').read_text())
+          baseline_record = json.loads((evidence / 'baseline-record.json').read_text())
+          oracle = json.loads((evidence / 'baseline-oracle-overlay-identity.json').read_text())
+          attestation = json.loads((evidence / 'evidence-attestation.json').read_text())
+          assert summary['decision'] == 'FAIL'
+          assert summary['loop_status'] == 'BASELINE_RECORDED'
+          assert summary['policy_fingerprint'] == expected_policy
+          assert baseline_record['workspace_snapshot_fingerprint'] == expected_fp
+          assert oracle['canonical_fingerprint'] == expected_oracle
+          assert oracle['overlay_artifact_sha256'] == expected_overlay
+          assert oracle['base_source_identity']['commit_sha'] == expected_b36
+          assert oracle['base_workspace_fingerprint'] == expected_fp
+
+          attestation_mismatches = []
+          for rel, expected in attestation['files'].items():
+              p = evidence / rel
+              actual = hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+              if actual != expected:
+                  attestation_mismatches.append({'path': rel, 'expected': expected, 'actual': actual})
+          assert len(attestation['files']) == 11
+          assert attestation_mismatches == []
+
+          architecture_error = None
+          try:
+              _validate_architecture_inputs(source, payload)
+          except SystemExit as exc:
+              architecture_error = str(exc)
+          assert architecture_error == 'architecture decision record is required'
+
+          repair_governance_error = None
+          try:
+              validate_begin_ready(source, payload)
+          except ValueError as exc:
+              repair_governance_error = str(exc)
+          assert repair_governance_error == 'repair_governance case directory is required'
+
+          assert payload.get('decision_record') in (None, '')
+          assert payload.get('repair_governance') in (None, '')
+          assert payload.get('repair_governance_consumed_at') in (None, '')
+
+          status = subprocess.check_output(['git','-C',str(source),'status','--porcelain'], text=True)
+          assert status.strip() == '?? governance/active-change.json'
+          quality_files = sorted(
+              p.relative_to(source).as_posix()
+              for p in (source / '.quality').rglob('*') if p.is_file()
+          )
+          assert len(quality_files) >= 22
+
+          result = {
+              'schema_version': 1,
+              'stage': '5G4-C3H-A5-A1-A',
+              'verdict': 'RESTORE_PREFLIGHT_PASS_CONTRACT_BEGIN_BLOCKED_MISSING_GOVERNANCE_INPUTS',
+              'restore_pass': True,
+              'formal_product_baseline_admitted': True,
+              'product_contract_gate_pass': True,
+              'evidence_attestation_pass': True,
+              'source_head': expected_b36,
+              'control_head': expected_control,
+              'source_fingerprint': expected_fp,
+              'baseline_evidence': evidence_rel,
+              'quality_file_count': len(quality_files),
+              'attested_file_count': len(attestation['files']),
+              'attestation_mismatches': attestation_mismatches,
+              'contract_begin_ready': False,
+              'contract_begin_invoked': False,
+              'blockers': [
+                  {
+                      'id': 'A5-A1-BLOCKER-1',
+                      'class': 'MISSING_ARCHITECTURE_DECISION_RECORD',
+                      'error': architecture_error,
+                  },
+                  {
+                      'id': 'A5-A1-BLOCKER-2',
+                      'class': 'MISSING_REPAIR_GOVERNANCE_CHAIN',
+                      'error': repair_governance_error,
+                  },
+              ],
+              'canonical_b38_pushed': False,
+              'production_closed': False,
+          }
+          (out / 'CONTRACT_BEGIN_RESTORE_PREFLIGHT_REPORT.json').write_text(json.dumps(result, indent=2) + '\n')
+          (out / 'source-head.txt').write_text(expected_b36 + '\n')
+          (out / 'source-fingerprint.txt').write_text(expected_fp + '\n')
+          (out / 'source-git-status.txt').write_text(status)
+          (out / 'quality-file-count.txt').write_text(str(len(quality_files)) + '\n')
+          print(json.dumps(result, indent=2))
+          PY
+
+      - name: Upload restore preflight artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a5-a1-a-contract-begin-restore-preflight
+          path: preflight-artifact
+          if-no-files-found: error
+          retention-days: 14
