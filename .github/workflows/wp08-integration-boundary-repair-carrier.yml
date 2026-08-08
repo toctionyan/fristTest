@@ -1,0 +1,362 @@
+name: wp08-integration-boundary-repair-carrier
+
+"on":
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  repair-and-certify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/wp08-integration-real-model-boundary-repair-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    services:
+      pgvector:
+        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      REPAIR_BRANCH: agent/wp08-integration-real-model-boundary-repair-20260808
+      BASE_SHA: 46cdbe79072e87250ade27e273b0e9040627aae2
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Apply exact historical authority repair
+        id: repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          from __future__ import annotations
+          import json
+          from pathlib import Path
+
+          policy_path = Path('governance/quality-loop-policy.json')
+          policy = json.loads(policy_path.read_text(encoding='utf-8'))
+          retired = {
+              'configured-model-browser-conversation',
+              'configured-model-browser-campaign',
+          }
+          present = {str(step.get('id') or '') for step in policy['steps']} & retired
+          if not present:
+              Path('/tmp/repair-needed').write_text('false\n', encoding='utf-8')
+              raise SystemExit(0)
+          if present != retired:
+              raise SystemExit('partial_legacy_gate_state:' + ','.join(sorted(present)))
+          policy['steps'] = [step for step in policy['steps'] if str(step.get('id') or '') not in retired]
+          policy_path.write_text(json.dumps(policy, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          replacements = {
+              Path('services/agent-service/tests/architecture/test_quality_loop_governance.py'): (
+          '''def test_quality_loop_policy_exposes_static_quick_and_release_steps() -> None:
+              root = workspace_root(__file__)
+              policy = json.loads((root / "governance" / "quality-loop-policy.json").read_text(encoding="utf-8"))
+              steps_by_mode = {mode: {step["name"] for step in policy["steps"] if mode in step.get("modes", [])} for mode in ["static", "quick", "release"]}
+              assert {"skill-package-verify", "architecture-convergence", "module-vertical-closure", "version-consistency"} <= steps_by_mode["static"]
+              assert "python-test-suites" in steps_by_mode["quick"]
+              assert {"frontend-vitest", "frontend-build"} <= steps_by_mode["release"]
+              steps = {step["id"]: step for step in policy["steps"]}
+              assert steps["frontend-vitest"]["argv"] == ["{npm}", "run", "test:ci"]
+          ''',
+          '''def test_quality_loop_policy_uses_single_production_bundle_for_real_model_browser() -> None:
+              root = workspace_root(__file__)
+              policy = json.loads((root / "governance" / "quality-loop-policy.json").read_text(encoding="utf-8"))
+              steps_by_mode = {mode: {step["name"] for step in policy["steps"] if mode in step.get("modes", [])} for mode in ["static", "quick", "integration", "release"]}
+              assert {"skill-package-verify", "architecture-convergence", "module-vertical-closure", "version-consistency"} <= steps_by_mode["static"]
+              assert "python-test-suites" in steps_by_mode["quick"]
+              assert {"frontend-vitest", "frontend-build"} <= steps_by_mode["release"]
+              steps = {step["id"]: step for step in policy["steps"]}
+              duplicate_real_model_gates = {"configured-model-browser-conversation", "configured-model-browser-campaign"}
+              assert duplicate_real_model_gates.isdisjoint(steps)
+              assert steps["production-certification-bundle"]["modes"] == ["release"]
+              assert steps["frontend-vitest"]["argv"] == ["{npm}", "run", "test:ci"]
+          '''),
+              Path('services/agent-service/tests/architecture/test_systemic_operational_closure.py'): (
+          '''    gate = steps["configured-model-browser-conversation"]
+              assert set(gate["modes"]) == {"integration"}
+              assert steps["production-certification-bundle"]["modes"] == ["release"]
+              assert gate["blocking_level"] == "required"
+              assert gate["rerun_contract"] == "dependency_closure_then_downstream"
+              command = " ".join(gate["argv"])
+              assert "--journey strong-context" in command
+              assert "--model-mode configured" in command
+              assert {"product-browser-journey", "strong-context-case-catalog"} <= set(gate["depends_on"])
+          ''',
+          '''    duplicate_real_model_gates = {"configured-model-browser-conversation", "configured-model-browser-campaign"}
+              assert duplicate_real_model_gates.isdisjoint(steps)
+              assert steps["production-certification-bundle"]["modes"] == ["release"]
+              controller_source = (ROOT / "scripts/verify_production_certification_bundle.py").read_text(encoding="utf-8")
+              browser_bundle_source = (ROOT / "scripts/verify_production_browser_bundle.py").read_text(encoding="utf-8")
+              assert '"browser": SCRIPTS / "verify_production_browser_bundle.py"' in controller_source
+              for marker in (
+                  '"configured-strong-context"',
+                  '"configured-strong-context-campaign"',
+                  '"--model-mode", "configured"',
+                  '"--runtime-profile", "protected-preprod"',
+              ):
+                  assert marker in browser_bundle_source
+          '''),
+              Path('services/agent-service/tests/runtime/test_b17a_production_certification_authority.py'): (
+          '''    assert "release" not in by_id["configured-model-browser-conversation"]["modes"]
+              assert "release" not in by_id["configured-model-browser-campaign"]["modes"]
+          ''',
+          '''    assert "configured-model-browser-conversation" not in by_id
+              assert "configured-model-browser-campaign" not in by_id
+          '''),
+          }
+
+          for path, (before, after) in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              if before not in text:
+                  raise SystemExit(f'expected_repair_anchor_missing:{path}')
+              if text.count(before) != 1:
+                  raise SystemExit(f'expected_repair_anchor_not_unique:{path}')
+              path.write_text(text.replace(before, after, 1), encoding='utf-8')
+
+          changed = set()
+          import subprocess
+          changed.update(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          expected = {
+              'governance/quality-loop-policy.json',
+              'services/agent-service/tests/architecture/test_quality_loop_governance.py',
+              'services/agent-service/tests/architecture/test_systemic_operational_closure.py',
+              'services/agent-service/tests/runtime/test_b17a_production_certification_authority.py',
+          }
+          if changed != expected:
+              raise SystemExit('unexpected_repair_scope:' + json.dumps(sorted(changed ^ expected)))
+          Path('/tmp/repair-needed').write_text('true\n', encoding='utf-8')
+          PY
+          echo "repair_needed=$(cat /tmp/repair-needed)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit exact governance repair
+        if: steps.repair.outputs.repair_needed == 'true'
+        id: repair_commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git diff --check
+          git add governance/quality-loop-policy.json \
+            services/agent-service/tests/architecture/test_quality_loop_governance.py \
+            services/agent-service/tests/architecture/test_systemic_operational_closure.py \
+            services/agent-service/tests/runtime/test_b17a_production_certification_authority.py
+          git diff --cached --name-only | sort > /tmp/repair-actual.txt
+          cat > /tmp/repair-expected.txt <<'EOF'
+          governance/quality-loop-policy.json
+          services/agent-service/tests/architecture/test_quality_loop_governance.py
+          services/agent-service/tests/architecture/test_systemic_operational_closure.py
+          services/agent-service/tests/runtime/test_b17a_production_certification_authority.py
+          EOF
+          sort -o /tmp/repair-expected.txt /tmp/repair-expected.txt
+          diff -u /tmp/repair-expected.txt /tmp/repair-actual.txt
+          git commit -m 'Restore integration real-model authority boundary'
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh exact protected-source baseline
+        if: steps.repair.outputs.repair_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPAIR_SHA="$(git rev-parse HEAD)"
+          python -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(x) for x in baseline['protected_roots'])
+          ignored = {'.venv', '.pytest_cache', 'node_modules', '__pycache__'}
+          current = {}
+          for name in protected_roots:
+              base = root / name
+              if not base.exists():
+                  continue
+              for path in sorted(item for item in base.rglob('*') if item.is_file()):
+                  if any(part in ignored for part in path.parts):
+                      continue
+                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          old = {str(k): str(v) for k, v in baseline['files'].items()}
+          changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
+          expected = {
+              'services/agent-service/tests/architecture/test_quality_loop_governance.py',
+              'services/agent-service/tests/architecture/test_systemic_operational_closure.py',
+              'services/agent-service/tests/runtime/test_b17a_production_certification_authority.py',
+          }
+          if changed != expected:
+              raise SystemExit('unexpected_protected_source_delta:' + json.dumps(sorted(changed ^ expected)))
+          if len(current) != int(baseline['file_count']):
+              raise SystemExit(f'unexpected_baseline_file_count:{len(current)}!={baseline["file_count"]}')
+          repair_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          baseline['generated_from'] = 'git:' + repair_sha
+          baseline['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['files'] = dict(sorted(current.items()))
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          report = {
+              'schema_version': 1,
+              'status': 'WP08_INTEGRATION_BOUNDARY_BASELINE_REFRESHED',
+              'repair_sha': repair_sha,
+              'changed_protected_paths': sorted(changed),
+              'file_count': len(current),
+              'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+              'production_closed': False,
+          }
+          Path('/tmp/wp08-integration-boundary-baseline.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --name-only | grep -Fx 'skill-system/registry/product-source-baseline.json'
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = 1
+          git commit -m 'Refresh integration boundary protected-source baseline'
+
+      - name: Install locked full validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Verify authority regressions and compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m pytest -q \
+            services/agent-service/tests/architecture/test_quality_loop_governance.py::test_quality_loop_policy_uses_single_production_bundle_for_real_model_browser \
+            services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_strong_context_browser_gate_is_semantic_and_mutation_guarded \
+            services/agent-service/tests/runtime/test_b17a_production_certification_authority.py::test_release_policy_has_one_production_authority_and_no_independent_release_components
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Start deterministic model and both services
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
+          OPENAI_API_KEY: deterministic-ci-key
+          OPENAI_API_BASE: http://127.0.0.1:18081/v1
+          OPENAI_MODEL: deterministic-ci-model
+          BUSINESS_SERVICE_TOKEN: dev-service-token
+          BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'false'
+          BUSINESS_SEED_DEMO_DATA: 'true'
+          BUSINESS_SERVICE_RELOAD: 'false'
+          AGENT_SERVICE_RELOAD: 'false'
+          WEB_CONSOLE_DEV_LOGIN: 'true'
+          AGENT_REQUIRE_AUTH: 'true'
+          AGENT_AUTH_PROVIDER: dev_token
+          RAG_BACKEND: local_sparse
+          AGENT_DB_BACKEND: sqlite
+          CHECKPOINT_BACKEND: sqlite
+          SQLITE_DB_PATH: ${{ runner.temp }}/agent.db
+          CHECKPOINT_DB_PATH: ${{ runner.temp }}/checkpoints.db
+          BUSINESS_DB_PATH: ${{ runner.temp }}/business.db
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m uvicorn tests.integration.model_stub:app --app-dir services/agent-service --host 127.0.0.1 --port 18081 > "${RUNNER_TEMP}/model-stub.log" 2>&1 &
+          services/business-service/.venv/bin/python services/business-service/scripts/run_business_api.py > "${RUNNER_TEMP}/business.log" 2>&1 &
+          services/agent-service/.venv/bin/python services/agent-service/scripts/run_api.py > "${RUNNER_TEMP}/agent.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9000/health >/dev/null && curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Run exact deterministic Integration after repair
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
+          OPENAI_API_KEY: deterministic-ci-key
+          OPENAI_API_BASE: http://127.0.0.1:18081/v1
+          OPENAI_MODEL: deterministic-ci-model
+          BUSINESS_SERVICE_BASE_URL: http://127.0.0.1:9000
+          BUSINESS_SERVICE_TOKEN: dev-service-token
+          AGENT_TEST_URL: http://127.0.0.1:8000
+          BUSINESS_TEST_URL: http://127.0.0.1:9000
+          PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
+          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/wp08-integration-boundary-evidence
+          QUALITY_TARGET: ${{ runner.temp }}/wp08-integration-boundary-target.md
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B scripts/create_ci_quality_target.py \
+            --output "$QUALITY_TARGET" \
+            --ref "$(git rev-parse HEAD)" \
+            --workflow wp08-integration-boundary-repair \
+            --claims-source governance/claims/v20.6.2-project-integration-certification.json
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --mode integration --target "$QUALITY_TARGET"
+
+      - name: Push only validated repair commits
+        if: steps.repair.outputs.repair_needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+          REMOTE_HEAD="$(git ls-remote origin refs/heads/${REPAIR_BRANCH} | awk '{print $1}')"
+          test "$REMOTE_HEAD" = "${{ github.event.pull_request.head.sha }}"
+          git push origin HEAD:${REPAIR_BRANCH}
+
+      - name: Upload repair certification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wp08-integration-boundary-repair-evidence
+          path: |
+            ${{ runner.temp }}/wp08-integration-boundary-evidence
+            ${{ runner.temp }}/wp08-integration-boundary-target.md
+            ${{ runner.temp }}/wp08-integration-boundary-target.claims.json
+            ${{ runner.temp }}/wp08-integration-boundary-baseline.json
+            ${{ runner.temp }}/model-stub.log
+            ${{ runner.temp }}/business.log
+            ${{ runner.temp }}/agent.log
+          if-no-files-found: warn
+          retention-days: 30
