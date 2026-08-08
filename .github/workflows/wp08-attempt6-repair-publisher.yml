@@ -1,0 +1,137 @@
+name: wp08-attempt6-repair-publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-attempt6-repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-repair-publisher-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      REPAIR_BRANCH: agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808
+      BASE_SHA: ef8c84d4926789f7f588f8e904e2d841a5dd3465
+    steps:
+      - name: Checkout carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: wp08-attempt6-repair-publisher-20260808
+          path: carrier
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact repair base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact branch authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$BASE_SHA"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$REPAIR_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$BASE_SHA"
+
+      - name: Bootstrap locked uv and apply exact repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          "${pythonLocation}/bin/python" -B carrier/scripts/wp08_attempt6_repair_publisher.py candidate
+          cd candidate/services/agent-service
+          uv lock
+          uv sync --locked --all-groups
+
+      - name: Run focused owner regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate/services/agent-service/.venv/bin/python -m pytest -q \
+            candidate/services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
+            candidate/services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+
+      - name: Run full managed PostgreSQL public recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from __future__ import annotations
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'scripts'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service' / 'src'))
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_managed_postgres_recovery import run_managed_postgres_recovery
+
+          with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as product:
+              result = run_managed_postgres_recovery(product)
+          if result.get('status') != 'PASS':
+              raise SystemExit('managed_postgres_recovery_not_passed')
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify exact candidate delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git diff --check
+          "${pythonLocation}/bin/python" - <<'PY'
+          import subprocess
+          expected = {
+              'services/agent-service/pyproject.toml',
+              'services/agent-service/uv.lock',
+              'services/agent-service/src/agent_core/config.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'services/agent-service/app/services/lifecycle_command_runner.py',
+              'services/agent-service/scripts/verify_preprod_conversation_smoke.py',
+              'services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py',
+          }
+          rows = subprocess.check_output(['git', 'status', '--porcelain=v1'], text=True).splitlines()
+          actual = {row[3:] for row in rows if len(row) > 3}
+          if actual != expected:
+              raise SystemExit(f'unexpected_changed_paths:{sorted(actual)}')
+          PY
+
+      - name: Publish exact repair candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          REMOTE="$(git ls-remote origin refs/heads/$REPAIR_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$BASE_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/pyproject.toml \
+            services/agent-service/uv.lock \
+            services/agent-service/src/agent_core/config.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/app/services/lifecycle_command_runner.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py
+          git diff --cached --check
+          git commit -m 'WP-08 attempt 6: repair provider, checkpoint and semantic authorities'
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git push --force-with-lease=refs/heads/${REPAIR_BRANCH}:${BASE_SHA} origin HEAD:refs/heads/$REPAIR_BRANCH
