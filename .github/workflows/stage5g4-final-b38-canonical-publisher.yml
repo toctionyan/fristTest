@@ -31,20 +31,29 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Checkout immutable accepted B38 source carrier
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          ref: 1aaf0a1736f046a538a778cce4bdd6956bb15580
-          path: candidate
-          fetch-depth: 1
-          persist-credentials: false
+      - name: Download immutable accepted B38 install artifact
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9016338327/zip" \
+            -o b38-install-artifact.zip
+          echo 'ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8  b38-install-artifact.zip' | sha256sum -c -
+          mkdir install-artifact
+          unzip -q b38-install-artifact.zip -d install-artifact
+          test -f install-artifact/B38_CANDIDATE_INSTALLATION_REPORT.json
+          test -f install-artifact/FROZEN_B38_CANDIDATE30_MANIFEST.json
+          test -d install-artifact/root
 
       - name: Publish exact 30-file canonical B38 branch
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
-          test "$(git -C candidate rev-parse HEAD)" = "1aaf0a1736f046a538a778cce4bdd6956bb15580"
           BRANCH='agent/b38-context-reference-goal-coverage-canonical-20260808'
           if git -C source ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
             echo "canonical target branch already exists; refusing overwrite" >&2
@@ -56,18 +65,23 @@ jobs:
           from pathlib import Path
 
           base='e0e04d51e9da9790bef7bd0482584f60b8e975a9'
-          carrier='1aaf0a1736f046a538a778cce4bdd6956bb15580'
           runner=Path('runner').resolve()
           source=Path('source').resolve()
-          candidate=Path('candidate').resolve()
+          candidate=Path('install-artifact/root').resolve()
           manifest_path=runner/'docs/governance/ci-probes/stage5g4-final-b38-canonical/candidate30.json'
           manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
+          install_manifest=json.loads(Path('install-artifact/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text(encoding='utf-8'))
+          install_report=json.loads(Path('install-artifact/B38_CANDIDATE_INSTALLATION_REPORT.json').read_text(encoding='utf-8'))
           assert manifest['base_sha']==base
-          assert manifest['candidate_source_sha']==carrier
           rows=manifest['files']
-          assert len(rows)==30
-          assert len({r['path'] for r in rows})==30
+          assert len(rows)==30 and len({r['path'] for r in rows})==30
           def sha(p:Path)->str: return hashlib.sha256(p.read_bytes()).hexdigest()
+          expected_map={r['path']:r['sha256'] for r in rows}
+          install_rows=install_manifest.get('files') or install_manifest.get('paths') or []
+          if install_rows and isinstance(install_rows[0],dict):
+              observed={str(r['path']):str(r.get('sha256') or r.get('sha') or '') for r in install_rows}
+              assert set(observed)==set(expected_map)
+              for rel,digest in expected_map.items(): assert observed[rel]==digest,(rel,observed[rel],digest)
           ops=[]
           for row in rows:
               rel=row['path']; expected=row['sha256']
@@ -82,7 +96,7 @@ jobs:
           assert sum(r['operation']=='CREATE' for r in ops)==9
           assert sum(r['operation']=='REPLACE' for r in ops)==21
           changed=subprocess.check_output(['git','-C',str(source),'diff','--name-only','--no-renames',base,'--'],text=True).splitlines()
-          expected_paths=sorted(r['path'] for r in rows)
+          expected_paths=sorted(expected_map)
           assert sorted(changed)==expected_paths, {'changed':changed,'expected':expected_paths}
           status=subprocess.check_output(['git','-C',str(source),'diff','--name-status','--no-renames',base,'--'],text=True).splitlines()
           status_map={line.split('\t',1)[1]:line.split('\t',1)[0] for line in status}
@@ -92,7 +106,8 @@ jobs:
               'schema_version':1,
               'status':'PRECOMMIT_EXACT_SCOPE_PASS',
               'base_sha':base,
-              'candidate_source_sha':carrier,
+              'install_artifact_id':9016338327,
+              'install_artifact_sha256':'ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8',
               'canonical_branch':manifest['canonical_branch'],
               'path_count':30,
               'create_count':9,
@@ -100,6 +115,7 @@ jobs:
               'delete_count':0,
               'files':ops,
               'manifest_sha256':sha(manifest_path),
+              'install_report_verdict':install_report.get('verdict'),
           }
           Path('canonical-publication-precommit.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
@@ -142,14 +158,13 @@ jobs:
           HEAD_SHA="$(git -C source rev-parse HEAD)"
           test "$(git -C source rev-parse HEAD^)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
           python3 - "$HEAD_SHA" <<'PY'
-          import hashlib,json,subprocess,sys
+          import json,subprocess,sys
           from pathlib import Path
           head=sys.argv[1]
           p=json.loads(Path('canonical-publication-precommit.json').read_text())
           source=Path('source')
           changed=subprocess.check_output(['git','-C',str(source),'diff','--name-only','--no-renames','e0e04d51e9da9790bef7bd0482584f60b8e975a9',head,'--'],text=True).splitlines()
-          assert sorted(changed)==sorted(r['path'] for r in p['files'])
-          assert len(changed)==30
+          assert sorted(changed)==sorted(r['path'] for r in p['files']) and len(changed)==30
           p.update({'status':'CANONICAL_COMMIT_EXACT_SCOPE_PASS','canonical_commit':head,'parent_sha':'e0e04d51e9da9790bef7bd0482584f60b8e975a9'})
           Path('canonical-publication-report.json').write_text(json.dumps(p,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
