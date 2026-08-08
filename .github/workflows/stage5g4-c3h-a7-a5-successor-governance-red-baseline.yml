@@ -1,0 +1,351 @@
+name: stage5g4-c3h-a7-a5-successor-governance-red-baseline
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  successor-governance-red-baseline:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout runner head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout verified replan Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 252c2267508d4d31290af4e9e00fef60acaea698
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13 and policy environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install exact policy interpreter environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          uv sync --project control/services/agent-service --locked --all-groups --python 3.12.13
+          test -x control/services/agent-service/.venv/bin/python
+          test "$(control/services/agent-service/.venv/bin/python --version)" = "Python 3.12.13"
+
+      - name: Restore A7-A3/A7-A4 and predecessor review authorities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "252c2267508d4d31290af4e9e00fef60acaea698"
+
+          gh api /repos/toctionyan/fristTest/actions/artifacts/9017895641/zip > a7a3.zip
+          test "$(sha256sum a7a3.zip | awk '{print $1}')" = "3cb1a02770801a4091ae36b098768adaa61846807dc6c5621efafd91d25c44b3"
+          mkdir a7a3-download
+          unzip -q a7a3.zip -d a7a3-download
+
+          gh api /repos/toctionyan/fristTest/actions/artifacts/9018113516/zip > a7a4.zip
+          test "$(sha256sum a7a4.zip | awk '{print $1}')" = "393a091b602c2d60ccc7eb7d045465839fbf174f90d20c4729c8522991ec81b2"
+          mkdir a7a4-download
+          unzip -q a7a4.zip -d a7a4-download
+
+          gh api /repos/toctionyan/fristTest/actions/artifacts/9017009201/zip > review.zip
+          test "$(sha256sum review.zip | awk '{print $1}')" = "65b06105f0382de2def15f2bdbb86ad024ec6ff984919f8219232a6660b85d92"
+          mkdir review-download
+          unzip -q review.zip -d review-download
+
+          mkdir -p source/governance
+          cp -a a7a3-download/governance/change-history source/governance/
+          cp a7a4-download/ACTIVE_SUCCESSOR_CONTRACT.json source/governance/active-change.json
+
+          input="source/.quality/stage5g4-c3h-a7-a4-successor-input"
+          mkdir -p "$input/oracle"
+          cp a7a4-download/CORRECTED_TARGET.md "$input/target.md"
+          cp a7a4-download/SUCCESSOR_CLAIM.json "$input/claim.json"
+          cp a7a4-download/FOCUSED_POLICY.json "$input/focused-policy.json"
+          cp a7a4-download/ORACLE_MANIFEST.json "$input/oracle/manifest.json"
+          cp a7a4-download/ORACLE_OVERLAY.zip "$input/oracle/overlay.zip"
+          cp a7a4-download/CANDIDATE30_MANIFEST.json "$input/candidate30-manifest.json"
+          cp a7a4-download/CANDIDATE_NEW_ABSTRACTION_RECORD.md "$input/candidate-new-abstraction-record.md"
+
+      - name: Execute successor exact-B36 formal RED baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("control/skill-system/controller").resolve()))
+          import product_quality_bridge as bridge
+
+          root=Path("source").resolve()
+          result=bridge.baseline(
+              baseline_policy=".quality/stage5g4-c3h-a7-a4-successor-input/focused-policy.json",
+              baseline_oracle_manifest=".quality/stage5g4-c3h-a7-a4-successor-input/oracle/manifest.json",
+              baseline_oracle_artifact=".quality/stage5g4-c3h-a7-a4-successor-input/oracle/overlay.zip",
+              workspace=root,
+          )
+          Path("baseline-bridge-result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n")
+          assert result["status"]=="PASS", result
+          assert result["run_kind"]=="baseline"
+          assert result["expected_red_baseline"] is True
+          assert result["process_exit_code"] != 0
+
+          active=json.loads((root/"governance/active-change.json").read_text())
+          successor="migration-v20.17-b38-context-reference-goal-coverage-r1"
+          assert active["change_id"]==successor
+          assert active["status"]=="draft"
+          assert active["baseline_evidence"]==f".quality/product-code/{successor}/baseline"
+          summary=json.loads((root/active["baseline_evidence"]/"run-summary.json").read_text())
+          assert summary["run_kind"]=="baseline"
+          assert summary["loop_status"]=="BASELINE_RECORDED"
+          assert summary["decision"]=="FAIL"
+          assert summary["target_identity"]["id"]==successor
+          assert len(summary["results"])==1
+          row=summary["results"][0]
+          assert row["id"]=="preferred-red-proof"
+          assert row["status"]=="FAIL"
+          stdout=(root/active["baseline_evidence"]/"steps/preferred-red-proof.stdout.txt").read_text()
+          assert "prepare_refund_from_eligibility" in stdout
+          assert "1 failed" in stdout
+          assert "ModuleNotFoundError" not in stdout
+          PY
+
+      - name: Materialize successor ADR and Repair Governance chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          root=Path("source")
+          old="migration-v20.17-b38-context-reference-goal-coverage"
+          successor=old+"-r1"
+          oldroot=Path("review-download/root")
+          oldcase=oldroot/f"governance/repair-cases/{old}"
+          case=root/f"governance/repair-cases/{successor}"
+          case.mkdir(parents=True, exist_ok=True)
+          adrdir=root/"governance/architecture-decisions"
+          adrdir.mkdir(parents=True, exist_ok=True)
+
+          def sha(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          def dump(path,obj):
+              path.write_text(json.dumps(obj,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+
+          adr=json.loads((oldroot/f"governance/architecture-decisions/{old}.json").read_text())
+          adr["decision_id"]="ADR-B38-CONTEXT-REFERENCE-GOAL-COVERAGE-R1"
+          adr["change_id"]=successor
+          adr["predecessor_change_id"]=old
+          adr["predecessor_replan_record"]=f"governance/change-history/{old}/replan.json"
+          adr["predecessor_replan_record_sha256"]="0638b0bbb5224ae4b7240772f8230d913b49f400adddb0a06594925032f879e3"
+          adr["successor_reason"]="Correct the predecessor Target's invalid 新增抽象记录：无 declaration while preserving the accepted b38-evolutionary product architecture and frozen 30-path candidate."
+          dump(adrdir/f"{successor}.json",adr)
+
+          baseline_rel=f".quality/product-code/{successor}/baseline"
+          failure=json.loads((oldcase/"failure-case.json").read_text())
+          failure["change_id"]=successor
+          failure["predecessor_change_id"]=old
+          failure["replan_record_sha256"]="0638b0bbb5224ae4b7240772f8230d913b49f400adddb0a06594925032f879e3"
+          failure["reproduction"]["evidence_refs"]=[
+              f"{baseline_rel}/steps/preferred-red-proof.stdout.txt",
+              f"{baseline_rel}/run-summary.json",
+          ]
+          dump(case/"failure-case.json",failure)
+
+          rootcause=json.loads((oldcase/"root-cause-proof.json").read_text())
+          rootcause["change_id"]=successor
+          rootcause["failure_case_sha256"]=sha(case/"failure-case.json")
+          rootcause["predecessor_change_id"]=old
+          rootcause["replan_record_sha256"]="0638b0bbb5224ae4b7240772f8230d913b49f400adddb0a06594925032f879e3"
+          rootcause["evidence_refs"]=[
+              "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
+              f"{baseline_rel}/steps/preferred-red-proof.stdout.txt",
+              f"{baseline_rel}/run-summary.json",
+          ]
+          dump(case/"root-cause-proof.json",rootcause)
+
+          plan=json.loads((oldcase/"repair-plan.json").read_text())
+          plan["change_id"]=successor
+          plan["root_cause_proof_sha256"]=sha(case/"root-cause-proof.json")
+          plan["predecessor_change_id"]=old
+          plan["replan_record_sha256"]="0638b0bbb5224ae4b7240772f8230d913b49f400adddb0a06594925032f879e3"
+          dump(case/"repair-plan.json",plan)
+
+          review=json.loads((oldcase/"plan-review.json").read_text())
+          review["change_id"]=successor
+          review["repair_plan_sha256"]=sha(case/"repair-plan.json")
+          review["predecessor_change_id"]=old
+          review["replan_record_sha256"]="0638b0bbb5224ae4b7240772f8230d913b49f400adddb0a06594925032f879e3"
+          dump(case/"plan-review.json",review)
+          PY
+
+          (
+            cd source
+            python -B ../control/skill-system/controller/change_contract_cli.py configure \
+              --decision-record "governance/architecture-decisions/migration-v20.17-b38-context-reference-goal-coverage-r1.json" \
+              --repair-governance "governance/repair-cases/migration-v20.17-b38-context-reference-goal-coverage-r1"
+            python -B ../control/skill-system/controller/change_contract_cli.py approve
+          )
+
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("control/skill-system/controller").resolve()))
+          import repair_governance
+          root=Path("source").resolve()
+          active=json.loads((root/"governance/active-change.json").read_text())
+          permit=repair_governance.create_permit(root, active)
+          print(permit)
+          PY
+
+      - name: Verify successor governance and RED authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p a7a5-evidence
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          root=Path("source")
+          old="migration-v20.17-b38-context-reference-goal-coverage"
+          successor=old+"-r1"
+          case=root/f"governance/repair-cases/{successor}"
+          active_path=root/"governance/active-change.json"
+          active=json.loads(active_path.read_text())
+          permit=json.loads((case/"change-permit.json").read_text())
+          baseline=json.loads((case/"baseline-manifest.json").read_text())
+          summary=json.loads((root/f".quality/product-code/{successor}/baseline/run-summary.json").read_text())
+          target=root/".quality/stage5g4-c3h-a7-a4-successor-input/target.md"
+          claim=root/".quality/stage5g4-c3h-a7-a4-successor-input/claim.json"
+          policy=root/".quality/stage5g4-c3h-a7-a4-successor-input/focused-policy.json"
+          om=root/".quality/stage5g4-c3h-a7-a4-successor-input/oracle/manifest.json"
+          ov=root/".quality/stage5g4-c3h-a7-a4-successor-input/oracle/overlay.zip"
+          manifest=json.loads((root/".quality/stage5g4-c3h-a7-a4-successor-input/candidate30-manifest.json").read_text())
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+
+          assert subprocess.check_output(["git","-C","source","rev-parse","HEAD"],text=True).strip()=="e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          assert active["change_id"]==successor
+          assert active["status"]=="approved"
+          assert active["result"]=="PENDING"
+          assert active["baseline_evidence"]==f".quality/product-code/{successor}/baseline"
+          assert active["decision_record"]==f"governance/architecture-decisions/{successor}.json"
+          assert active["repair_governance"]==f"governance/repair-cases/{successor}"
+          assert active["verification"] is None
+          assert active["repair_governance_consumed_at"] is None
+
+          assert summary["decision"]=="FAIL"
+          assert summary["loop_status"]=="BASELINE_RECORDED"
+          assert summary["target_identity"]["id"]==successor
+          assert summary["results"][0]["id"]=="preferred-red-proof"
+          assert summary["results"][0]["status"]=="FAIL"
+
+          assert permit["status"]=="ACTIVE"
+          assert permit["expires_after"]=="single-verification"
+          assert permit["allowed_paths"]==[r["path"] for r in manifest["files"]]
+          assert len(permit["allowed_paths"])==30
+          assert permit["baseline_source_fingerprint"]==baseline["source_fingerprint"]
+          assert permit["baseline_workspace_fingerprint"]==baseline["workspace_fingerprint"]
+
+          assert sha(target)=="aff372809b92e43ff1292744969aa3a6f9c3b150eb7cedc4ace25caa48584801"
+          assert sha(claim)=="33de1dee1dfd74f08a8cb89309a734217660ab890ace1b0a99643114c644580e"
+          assert sha(policy)=="ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914"
+          assert sha(om)=="3eba94de3750b79d8bdec94b6d7342491082b5558eee650be6abf942afb9b4fa"
+          assert sha(ov)=="ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6"
+
+          created=[r["path"] for r in manifest["files"] if not (root/r["path"]).exists()]
+          assert len(created)==9
+          assert not (root/"docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md").exists()
+
+          report={
+              "schema_version":1,
+              "verdict":"SUCCESSOR_GOVERNANCE_AND_FORMAL_RED_BASELINE_ESTABLISHED",
+              "source_head":"e0e04d51e9da9790bef7bd0482584f60b8e975a9",
+              "controller_head":"252c2267508d4d31290af4e9e00fef60acaea698",
+              "change_id":successor,
+              "active_contract_sha256":sha(active_path),
+              "contract_status":active["status"],
+              "baseline_evidence":active["baseline_evidence"],
+              "baseline_decision":summary["decision"],
+              "baseline_loop_status":summary["loop_status"],
+              "baseline_target_id":summary["target_identity"]["id"],
+              "preferred_gate_status":summary["results"][0]["status"],
+              "repair_governance_case":active["repair_governance"],
+              "adr_sha256":sha(root/active["decision_record"]),
+              "failure_case_sha256":sha(case/"failure-case.json"),
+              "root_cause_sha256":sha(case/"root-cause-proof.json"),
+              "repair_plan_sha256":sha(case/"repair-plan.json"),
+              "plan_review_sha256":sha(case/"plan-review.json"),
+              "baseline_manifest_sha256":sha(case/"baseline-manifest.json"),
+              "change_permit_sha256":sha(case/"change-permit.json"),
+              "permit_digest":permit["permit_digest"],
+              "allowed_path_count":30,
+              "target_sha256":sha(target),
+              "claim_sha256":sha(claim),
+              "policy_sha256":sha(policy),
+              "oracle_manifest_sha256":sha(om),
+              "oracle_overlay_sha256":sha(ov),
+              "candidate_installed":False,
+              "contract_begin_run":False,
+              "contract_verify_run":False,
+              "contract_close_run":False,
+              "canonical_b38_pushed":False,
+              "production_closed":False,
+          }
+          Path("a7a5-evidence/AUTHORITATIVE_A7_A5_REPORT.json").write_text(json.dumps(report,indent=2)+"\n")
+          PY
+          cp baseline-bridge-result.json a7a5-evidence/
+          cp source/governance/active-change.json a7a5-evidence/
+          cp -a source/governance/architecture-decisions a7a5-evidence/
+          cp -a source/governance/repair-cases a7a5-evidence/
+          mkdir -p a7a5-evidence/formal-red
+          cp source/.quality/product-code/migration-v20.17-b38-context-reference-goal-coverage-r1/baseline/run-summary.json a7a5-evidence/formal-red/
+          cp source/.quality/product-code/migration-v20.17-b38-context-reference-goal-coverage-r1/baseline/baseline-record.json a7a5-evidence/formal-red/
+          cp source/.quality/product-code/migration-v20.17-b38-context-reference-goal-coverage-r1/baseline/steps/preferred-red-proof.stdout.txt a7a5-evidence/formal-red/
+          cp source/.quality/stage5g4-c3h-a7-a4-successor-input/target.md a7a5-evidence/CORRECTED_TARGET.md
+          cp source/.quality/stage5g4-c3h-a7-a4-successor-input/claim.json a7a5-evidence/SUCCESSOR_CLAIM.json
+
+      - name: Assert no B38 installation or lifecycle transition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test ! -e source/docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path("source/governance/active-change.json").read_text())
+          assert a["status"]=="approved"
+          assert a["result"]=="PENDING"
+          assert a["verification"] is None
+          assert a["repair_governance_consumed_at"] is None
+          assert not any(r.get("role")=="release-judge" for r in a["review_attestations"])
+          PY
+
+      - name: Upload A7-A5 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a7-a5-successor-governance-red-baseline
+          path: a7a5-evidence
+          if-no-files-found: error
+          retention-days: 30
