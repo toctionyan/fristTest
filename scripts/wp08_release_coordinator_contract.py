@@ -132,7 +132,7 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
     required_adapter_fragments = (
         'WP08_WORKFLOW_FILE = "wp08-certification.yml"',
         'QUALITY_WORKFLOW_FILE = "quality.yml"',
-        '"actions/workflows/{WP08_WORKFLOW_FILE}/dispatches"',
+        'actions/workflows/{WP08_WORKFLOW_FILE}/dispatches',
         'payload={"ref": MAIN_BRANCH}',
         "multiple active WP-08 release runs are forbidden",
         "workflow dispatch succeeded but the WP-08 run ID could not be resolved",
