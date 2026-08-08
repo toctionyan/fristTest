@@ -268,10 +268,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          services/agent-service/.venv/bin/python -m pytest -q \
-            services/agent-service/tests/architecture/test_quality_loop_governance.py::test_quality_loop_policy_uses_single_production_bundle_for_real_model_browser \
-            services/agent-service/tests/architecture/test_systemic_operational_closure.py::test_strong_context_browser_gate_is_semantic_and_mutation_guarded \
-            services/agent-service/tests/runtime/test_b17a_production_certification_authority.py::test_release_policy_has_one_production_authority_and_no_independent_release_components
+          (
+            cd services/agent-service
+            .venv/bin/python -m pytest -q \
+              tests/architecture/test_quality_loop_governance.py::test_quality_loop_policy_uses_single_production_bundle_for_real_model_browser \
+              tests/architecture/test_systemic_operational_closure.py::test_strong_context_browser_gate_is_semantic_and_mutation_guarded \
+              tests/runtime/test_b17a_production_certification_authority.py::test_release_policy_has_one_production_authority_and_no_independent_release_components
+          )
           services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py
           services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
 
