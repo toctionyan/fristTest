@@ -1,0 +1,156 @@
+name: wp08-attempt6-postgres-diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-structured-transaction-persistence:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-postgres-diagnostic-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ef8c84d4926789f7f588f8e904e2d841a5dd3465
+          fetch-depth: 1
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install locked Agent validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Diagnose exact structured start and pending state
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from __future__ import annotations
+          import json
+          import sys
+          from pathlib import Path
+          from uuid import uuid4
+
+          ROOT = Path.cwd()
+          sys.path.insert(0, str(ROOT / 'scripts'))
+          sys.path.insert(0, str(ROOT / 'services' / 'agent-service'))
+          sys.path.insert(0, str(ROOT / 'services' / 'agent-service' / 'src'))
+
+          import psycopg
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_managed_postgres_recovery import _call, _login
+
+          def clean_response(payload: dict) -> dict:
+              state = payload.get('state') if isinstance(payload.get('state'), dict) else {}
+              interaction = payload.get('interaction') if isinstance(payload.get('interaction'), dict) else {}
+              update = payload.get('interaction_update') if isinstance(payload.get('interaction_update'), dict) else {}
+              return {
+                  'type': payload.get('type'),
+                  'presentation_mode': payload.get('presentation_mode'),
+                  'state': {
+                      key: state.get(key)
+                      for key in ('phase', 'status', 'focused_draft_id', 'active_draft_id', 'active_offer_count')
+                      if key in state
+                  },
+                  'interaction_lifecycle': interaction.get('lifecycle'),
+                  'interaction_id_present': bool(interaction.get('interaction_id')),
+                  'interaction_update': {
+                      key: update.get(key)
+                      for key in ('lifecycle', 'kind', 'interaction_id')
+                      if key in update
+                  },
+                  'answer': payload.get('answer'),
+              }
+
+          report = {'contract': 'wp08-attempt6-postgres-diagnostic@1'}
+          with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as harness:
+              token = _login(harness)
+              thread_id = f'wp08-diag-{uuid4().hex}'
+              started = _call(
+                  harness.agent_url,
+                  '/api/transactions/start',
+                  method='POST',
+                  token=token,
+                  body={
+                      'thread_id': thread_id,
+                      'action_id': 'create_refund',
+                      'target': {'resource_type': 'order', 'order_id': '10002'},
+                      'input_hints': {},
+                      'client_request_id': f'start-{uuid4().hex}',
+                  },
+              )
+              pending = _call(harness.agent_url, f'/api/threads/{thread_id}/pending', token=token)
+              transactions = _call(harness.agent_url, f'/api/transactions?thread_id={thread_id}', token=token)
+
+              safe_url = postgres.url.replace('postgresql+psycopg://', 'postgresql://', 1)
+              with psycopg.connect(safe_url, autocommit=True) as connection:
+                  with connection.cursor() as cursor:
+                      cursor.execute(
+                          'SELECT draft_id, draft_state, tenant_id, user_id, thread_id, projection_json '
+                          'FROM agent_transaction_drafts WHERE thread_id=%s ORDER BY updated_at DESC',
+                          (thread_id,),
+                      )
+                      rows = cursor.fetchall()
+              durable = []
+              for draft_id, draft_state, tenant_id, user_id, stored_thread, projection_raw in rows:
+                  try:
+                      projection = json.loads(projection_raw or '{}')
+                  except Exception:
+                      projection = {}
+                  durable.append({
+                      'draft_id_present': bool(draft_id),
+                      'draft_state': draft_state,
+                      'tenant_id': tenant_id,
+                      'user_id': user_id,
+                      'thread_matches': stored_thread == thread_id,
+                      'projection_keys': sorted(projection.keys()),
+                      'projection_interaction_fields': {
+                          key: bool(projection.get(key))
+                          for key in (
+                              'input_form_id', 'input_form_version', 'input_step', 'input_schema',
+                              'interaction_revision', 'confirmation_id', 'confirmation_version', 'authority_revision'
+                          )
+                      },
+                  })
+
+              report.update({
+                  'started': clean_response(started),
+                  'pending': {
+                      'type': pending.get('type'),
+                      'has_interaction': isinstance(pending.get('interaction'), dict),
+                      'interaction_lifecycle': (pending.get('interaction') or {}).get('lifecycle') if isinstance(pending.get('interaction'), dict) else None,
+                      'item_count': len(pending.get('items') or []),
+                      'transaction_lifecycle_count': len(pending.get('transaction_lifecycle') or []),
+                  },
+                  'transaction_query_count': len(transactions.get('items') or transactions.get('transactions') or []),
+                  'durable_drafts': durable,
+              })
+
+          Path('wp08-attempt6-postgres-diagnostic.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt6-postgres-diagnostic
+          path: wp08-attempt6-postgres-diagnostic.json
+          if-no-files-found: error
+          retention-days: 30
