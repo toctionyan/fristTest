@@ -97,6 +97,11 @@ jobs:
         run: |
           set -euo pipefail
           cd candidate
+          # Test execution may create ignored runtime caches. They are never
+          # candidate source and must not pollute the exact-source delta.
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           git diff --check
           "${pythonLocation}/bin/python" - <<'PY'
           import subprocess
