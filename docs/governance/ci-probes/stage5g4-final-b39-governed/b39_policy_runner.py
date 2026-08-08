@@ -39,6 +39,11 @@ def main() -> int:
     junit = evidence / "junit"
     junit.mkdir(parents=True, exist_ok=True)
 
+    # B39 governance replays the same local-profile test boundary as the
+    # authoritative repair probe.  Keep it explicit inside the gate runner so
+    # an omitted shell env field cannot turn product tests into environment RED.
+    os.environ["APP_PROFILE"] = "local"
+
     sys.path.insert(0, str(workspace / "services/agent-service/src"))
     sys.path.insert(0, str(workspace / "services/agent-service"))
     oracle = Path(__file__).with_name("test_plan_run_runtime_field_isolation.py").resolve()
@@ -87,6 +92,7 @@ def main() -> int:
                 "junit_path": output_path.relative_to(evidence).as_posix(),
                 "junit": summary,
                 "oracle": str(oracle),
+                "app_profile": os.environ["APP_PROFILE"],
             },
             ensure_ascii=False,
             indent=2,
@@ -95,10 +101,10 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    # The baseline driver requires a semantic RED marker.  Emit it only after
+    # The baseline driver requires a semantic RED marker. Emit it only after
     # the immutable focused oracle actually produced exactly one pytest failure
-    # (not an import/collection error), so textual output can never manufacture
-    # a false baseline transition.
+    # (not an import/collection error), so textual output cannot manufacture a
+    # false baseline transition.
     if step == "focused" and result != 0:
         expected_red = {"tests": 1, "failures": 1, "errors": 0, "skipped": 0}
         if summary != expected_red:
