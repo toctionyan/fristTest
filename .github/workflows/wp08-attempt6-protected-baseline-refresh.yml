@@ -64,15 +64,7 @@ jobs:
           assert result.get('status') == 'PASS', result
           PY
 
-      - name: Restore tracked runtime fixtures before source baseline calculation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git restore --source="$CANDIDATE_HEAD" -- \
-            services/agent-service/runtime/sqlite/document_index_jobs.db \
-            services/agent-service/runtime/vector-store/vector_store.db
-
-      - name: Regenerate exact protected-source baseline
+      - name: Regenerate protected baseline from Git-tracked source only
         shell: bash
         run: |
           set -euo pipefail
@@ -81,6 +73,7 @@ jobs:
           import hashlib
           import json
           import os
+          import subprocess
           from datetime import datetime, timezone
           from pathlib import Path
 
@@ -88,20 +81,28 @@ jobs:
           baseline_path = root / 'skill-system/registry/product-source-baseline.json'
           baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
           protected_roots = tuple(str(value) for value in baseline['protected_roots'])
-          ignored = {'.venv', '.pytest_cache', 'node_modules', '__pycache__'}
-          current: dict[str, str] = {}
-          for name in protected_roots:
-              base = root / name
-              if not base.exists():
-                  continue
-              for path in sorted(item for item in base.rglob('*') if item.is_file()):
-                  if any(part in ignored for part in path.parts):
-                      continue
-                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-
+          raw = subprocess.check_output(
+              ['git', 'ls-files', '-z', '--', *protected_roots], cwd=root
+          )
+          tracked = sorted(
+              item.decode('utf-8') for item in raw.split(b'\0') if item
+          )
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
           old = {str(key): str(value) for key, value in baseline['files'].items()}
+          stale_runtime = {
+              'services/agent-service/runtime/sqlite/document_index_jobs.db',
+              'services/agent-service/runtime/vector-store/vector_store.db',
+          }
+          if not stale_runtime.issubset(old):
+              raise SystemExit('expected_stale_runtime_entries_missing_from_old_baseline')
+          if stale_runtime.intersection(current):
+              raise SystemExit('runtime_artifact_is_git_tracked')
+
           changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
-          expected = {
+          expected_product = {
               'services/agent-service/app/services/lifecycle_command_runner.py',
               'services/agent-service/pyproject.toml',
               'services/agent-service/scripts/verify_preprod_conversation_smoke.py',
@@ -110,12 +111,15 @@ jobs:
               'services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py',
               'services/agent-service/uv.lock',
           }
+          expected = expected_product | stale_runtime
           if changed != expected:
               raise SystemExit('unexpected_protected_delta:' + json.dumps({
                   'expected': sorted(expected), 'actual': sorted(changed)
               }, sort_keys=True))
-          if len(old) != 557 or len(current) != 558:
-              raise SystemExit(f'unexpected_baseline_count:old={len(old)}:current={len(current)}')
+          if len(old) != 557:
+              raise SystemExit(f'unexpected_old_baseline_count:{len(old)}')
+          if len(current) != len(old) - len(stale_runtime) + 1:
+              raise SystemExit(f'unexpected_tracked_source_count:{len(current)}')
 
           prior_release = baseline.get('source_release_sha256')
           baseline['generated_from'] = 'git:' + os.environ['CANDIDATE_HEAD']
@@ -129,10 +133,11 @@ jobs:
           report = {
               'status': 'WP08_ATTEMPT6_BASELINE_REFRESH_GENERATED',
               'candidate_head': os.environ['CANDIDATE_HEAD'],
+              'authority': 'git-tracked-protected-source',
               'old_file_count': len(old),
               'new_file_count': len(current),
-              'approved_paths': sorted(expected),
-              'approved_hashes': {path: current[path] for path in sorted(expected)},
+              'approved_product_paths': sorted(expected_product),
+              'removed_runtime_artifacts': sorted(stale_runtime),
               'source_release_sha256_preserved': prior_release,
               'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
           }
@@ -142,6 +147,72 @@ jobs:
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
 
+      - name: Make baseline integrity test use the same Git-tracked authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > skill-system/tests/test_product_source_baseline_binding.py <<'PYTEST'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+          import unittest
+
+
+          ROOT = Path(__file__).resolve().parents[2]
+          BASELINE_PATH = ROOT / "skill-system/registry/product-source-baseline.json"
+
+
+          class ProductSourceBaselineBindingTests(unittest.TestCase):
+              def test_baseline_matches_current_git_tracked_protected_snapshot(self) -> None:
+                  baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+                  generated_from = str(baseline.get("generated_from") or "")
+                  self.assertRegex(generated_from, r"^git:[0-9a-f]{40}$")
+                  protected_roots = tuple(str(value) for value in baseline.get("protected_roots") or ())
+                  self.assertTrue(protected_roots)
+
+                  raw = subprocess.check_output(
+                      ["git", "ls-files", "-z", "--", *protected_roots], cwd=ROOT
+                  )
+                  tracked = sorted(item.decode("utf-8") for item in raw.split(b"\0") if item)
+                  current = {
+                      relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+                      for relative in tracked
+                  }
+                  recorded = {
+                      str(key): str(value) for key, value in (baseline.get("files") or {}).items()
+                  }
+                  self.assertEqual(int(baseline.get("file_count") or 0), len(current))
+                  self.assertEqual(set(recorded), set(current))
+                  for relative, actual_sha in current.items():
+                      self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", recorded[relative]), relative)
+                      self.assertEqual(recorded[relative], actual_sha, relative)
+
+              def test_machine_local_runtime_state_is_not_source_authority(self) -> None:
+                  baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+                  recorded = set((baseline.get("files") or {}).keys())
+                  self.assertNotIn(
+                      "services/agent-service/runtime/sqlite/document_index_jobs.db", recorded
+                  )
+                  self.assertNotIn(
+                      "services/agent-service/runtime/vector-store/vector_store.db", recorded
+                  )
+
+              def test_baseline_does_not_claim_production_closure(self) -> None:
+                  task_ledger = json.loads(
+                      (ROOT / "governance/task-ledger.json").read_text(encoding="utf-8")
+                  )
+                  serialized = json.dumps(task_ledger, ensure_ascii=False)
+                  self.assertNotIn('"production_closed": true', serialized)
+
+
+          if __name__ == "__main__":
+              unittest.main()
+          PYTEST
+
       - name: Validate refreshed project compatibility and full Skill control plane
         shell: bash
         run: |
@@ -149,27 +220,28 @@ jobs:
           services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-project-compatibility.json
           services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-skill-control-plane.json
 
-      - name: Publish only baseline governance file
+      - name: Publish only baseline governance files
         shell: bash
         run: |
           set -euo pipefail
-          # Validation can mutate tracked disposable runtime fixtures; never
-          # promote those bytes as source authority.
-          git restore --source="$CANDIDATE_HEAD" -- \
-            services/agent-service/runtime/sqlite/document_index_jobs.db \
-            services/agent-service/runtime/vector-store/vector_store.db
           git clean -fdX
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
           test "$(git rev-parse HEAD)" = "$CANDIDATE_HEAD"
-          test "$(git diff --name-only "$CANDIDATE_HEAD" --)" = 'skill-system/registry/product-source-baseline.json'
+          printf '%s\n' \
+            'skill-system/registry/product-source-baseline.json' \
+            'skill-system/tests/test_product_source_baseline_binding.py' | sort > /tmp/expected.txt
+          git diff --name-only "$CANDIDATE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
           REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
           test "$REMOTE" = "$CANDIDATE_HEAD"
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git add skill-system/registry/product-source-baseline.json
+          git add \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_product_source_baseline_binding.py
           git diff --cached --check
-          git commit -m 'Refresh WP-08 attempt 6 protected source baseline'
+          git commit -m 'Bind protected source baseline to Git-tracked authority'
           test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
           git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${CANDIDATE_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
           git rev-parse HEAD > wp08-attempt6-baseline-promotion-head.txt
