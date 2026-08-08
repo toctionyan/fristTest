@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "git:2208e958c9813dd8b608dd83b3a059b7decad87a",
+  "generated_from": "git:1e14e46e47e7e834cccf4e1059ecbadc9e87fd28",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-08T14:13:27Z",
+  "generated_at": "2026-08-08T14:45:50Z",
   "protected_roots": [
     "services",
     "web",
@@ -115,7 +115,7 @@
     "services/agent-service/scripts/validate_presentation_contracts.py": "417fd0350ea83d091ca8dfada390afe1c507607d934d36ca93c955ff2044ab52",
     "services/agent-service/scripts/verify_external_business_service.py": "a5db8e7c6fdb5e4e30b4a788afe96003835ae2ed79ce12bc00bf36f7ee1edef9",
     "services/agent-service/scripts/verify_model_smoke.py": "5caf6bdbaf33c7608cb0a51ba41101a595928aa0bdef909db607396b891ea947",
-    "services/agent-service/scripts/verify_preprod_conversation_smoke.py": "fda048e86f446728f5cdafd18b06ce586e9fd921df474ae6ae6790246619d8bf",
+    "services/agent-service/scripts/verify_preprod_conversation_smoke.py": "2c68bf90a7f1de968ace2b1161086b29e04f24d13fb3a27f53a8d22031e9bba9",
     "services/agent-service/scripts/verify_preprod_full_lifecycle.py": "aec95c7815a50afd4737ed1b80153de4547e5852784bd51ae0ba28918b24cc44",
     "services/agent-service/scripts/verify_real_model_certification_bundle.py": "9440ef16bb04b9fe8e66977f6bd5edbf2ebfb5fd26f81899b220278df9f4e9dc",
     "services/agent-service/src/agent_core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -174,7 +174,7 @@
     "services/agent-service/src/agent_core/lifecycle/plan_execution.py": "86d2b2adcf2770c7caa7502864dd2d2fdd31341c0054e2105a1f80a1e4b316d4",
     "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py": "c59e5fa254e69582b576f23294860e379424eeeca6ab03d929645104439e178c",
     "services/agent-service/src/agent_core/lifecycle/pretool_planner.py": "3055619d4a72581900ce2a8cb0e9e8a622448fb8efe5f3d13d295313b644411a",
-    "services/agent-service/src/agent_core/lifecycle/protocol.py": "28a774c2e01c189a39255ed1bb3e858b574a35cc90e55167345bbbac60e34599",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py": "0cfafc679416575394a9de5178da643b2f5c25e4ace628f24260ae3220e3c7e6",
     "services/agent-service/src/agent_core/lifecycle/publish_runtime.py": "38a866c2163db808f5954d787403d70ea3814c986dc8f201a9850085fe0f7838",
     "services/agent-service/src/agent_core/lifecycle/semantic_contract.py": "f5c7beb454b705ccd44d4b0fc5f3003ea8036638fdace79a927899dc5cf80b58",
     "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py": "0313b8ce89ced8b433f209757d5d13408420d20e0692e697b6ed8d28b265452f",
