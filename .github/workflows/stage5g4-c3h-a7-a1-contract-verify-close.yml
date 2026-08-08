@@ -113,43 +113,74 @@ jobs:
           Path("verify-close-evidence/active-before-product-quick.json").write_bytes(active.read_bytes())
           PY
 
-      - name: Run formal product Quality Loop quick verification
+      - name: Run formal product Quality Loop quick verification with exact B1 policy
         shell: bash
         run: |
           set -euo pipefail
-          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          CHANGE="migration-v20.17-b38-context-reference-goal-coverage"
+          EVIDENCE="source/.quality/product-code/$CHANGE/verification-quick-a7"
+          STATE="source/.quality/product-code/$CHANGE/state"
+          TARGET="source/.quality/stage5g4-c3h-a4/formal-baseline/target.md"
+          POLICY="source/.quality/stage5g4-c3h-a4/formal-baseline/focused-policy.json"
+          BASELINE="source/.quality/product-code/$CHANGE/baseline"
+          test "$(sha256sum "$POLICY" | awk '{print $1}')" = \
+            "ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914"
+          rm -rf "$EVIDENCE"
+          PY="$GITHUB_WORKSPACE/source/services/agent-service/.venv/bin/python"
           set +e
-          "$PY" -B control/skill-system/controller/product_quality_bridge.py \
-            verify --workspace-root source --mode quick \
-            > verify-close-evidence/product-quick.stdout.json \
-            2> verify-close-evidence/product-quick.stderr.txt
+          "$PY" -B control/scripts/quality_loop.py \
+            --workspace-root "$GITHUB_WORKSPACE/source" \
+            --mode quick \
+            --target "$GITHUB_WORKSPACE/$TARGET" \
+            --evidence-dir "$GITHUB_WORKSPACE/$EVIDENCE" \
+            --state-dir "$GITHUB_WORKSPACE/$STATE" \
+            --policy "$GITHUB_WORKSPACE/$POLICY" \
+            --baseline-evidence "$GITHUB_WORKSPACE/$BASELINE" \
+            > verify-close-evidence/product-quick.quality-loop.stdout.json \
+            2> verify-close-evidence/product-quick.quality-loop.stderr.txt
           RC=$?
           set -e
-          printf '%s\n' "$RC" > verify-close-evidence/product-quick.exit-code.txt
-          cat verify-close-evidence/product-quick.stdout.json
-          cat verify-close-evidence/product-quick.stderr.txt >&2
+          printf '%s\n' "$RC" > verify-close-evidence/product-quick.quality-loop.exit-code.txt
+          cat verify-close-evidence/product-quick.quality-loop.stdout.json
+          cat verify-close-evidence/product-quick.quality-loop.stderr.txt >&2
           test "$RC" -eq 0
           python3 - <<'PY'
           import json, hashlib
           from pathlib import Path
-          result = json.loads(Path("verify-close-evidence/product-quick.stdout.json").read_text())
-          assert result["status"] == "PASS", result
-          assert result["run_kind"] == "verification", result
-          assert result["mode"] == "quick", result
-          c = json.loads(Path("source/governance/active-change.json").read_text())
-          assert c["status"] == "review"
-          assert c["result"] == "PENDING"
+          change="migration-v20.17-b38-context-reference-goal-coverage"
+          ev=Path("source/.quality/product-code")/change/"verification-quick-a7"
+          summary=json.loads((ev/"run-summary.json").read_text())
+          assert summary["run_kind"]=="verification", summary
+          assert summary["decision"]=="PASS", summary
+          assert summary["loop_status"]=="CONVERGED", summary
+          assert summary["completion_eligible"] is True, summary
+          assert summary["unverified_claim_ids"]==[], summary
+          assert summary["results"][0]["id"]=="preferred-red-proof", summary["results"]
+          assert summary["results"][0]["status"]=="PASS", summary["results"]
+          Path("verify-close-evidence/product-quick.run-summary.json").write_bytes((ev/"run-summary.json").read_bytes())
+          PY
+          CPY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$CPY" -B control/skill-system/controller/product_quality_bridge.py \
+            record --workspace-root source \
+            --evidence ".quality/product-code/$CHANGE/verification-quick-a7" \
+            --mode quick \
+            > verify-close-evidence/product-quick.record.json
+          cat verify-close-evidence/product-quick.record.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rec=json.loads(Path("verify-close-evidence/product-quick.record.json").read_text())
+          assert rec["status"]=="PASS", rec
+          assert rec["run_kind"]=="record-verification", rec
+          c=json.loads(Path("source/governance/active-change.json").read_text())
+          assert c["status"]=="review"
+          assert c["result"]=="PENDING"
           assert c.get("verification") is None
-          pv = c.get("product_validation")
-          assert isinstance(pv, dict)
-          assert pv.get("verification_mode") == "quick"
-          ev = Path("source")/pv["verification"]
-          assert ev.is_dir()
-          summary = json.loads((ev/"run-summary.json").read_text())
-          assert summary["decision"] == "PASS"
-          assert summary["loop_status"] == "CONVERGED"
-          assert summary["completion_eligible"] is True
-          Path("verify-close-evidence/product-validation-after-quick.json").write_text(json.dumps(pv, indent=2)+"\n")
+          pv=c.get("product_validation")
+          assert isinstance(pv,dict)
+          assert pv["verification_mode"]=="quick"
+          assert pv["verification"]==".quality/product-code/migration-v20.17-b38-context-reference-goal-coverage/verification-quick-a7"
+          Path("verify-close-evidence/product-validation-after-quick.json").write_text(json.dumps(pv,indent=2)+"\n")
           PY
 
       - name: Build exact product profile execution mirror
