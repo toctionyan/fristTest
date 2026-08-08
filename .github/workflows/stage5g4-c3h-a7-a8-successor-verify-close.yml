@@ -101,6 +101,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
+          mkdir -p a7a8-evidence/g4
           python3 -B runner/.github/scripts/stage5g4_c3h_a7_a8_verify_close.py \
             > a7a8-driver.stdout.txt 2> a7a8-driver.stderr.txt
           rc=$?
