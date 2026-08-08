@@ -1,0 +1,53 @@
+name: stage5g4-c3h-a7-a2-replan-materialize
+
+on:
+  push:
+    branches:
+      - stage5g4-c3h-a7-a2-controller-replan-lifecycle
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact A3 parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+      - name: Apply frozen Controller replan patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/a7a2.patch.gz.b64 <<'EOF'
+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
+EOF
+          base64 -d /tmp/a7a2.patch.gz.b64 | gzip -d > /tmp/a7a2.patch
+          git apply --check /tmp/a7a2.patch
+          git apply /tmp/a7a2.patch
+      - name: Run focused and adjacent Controller tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest skill-system/tests/test_contract.py
+          python -m unittest skill-system/tests/test_repair_governance.py
+          python -m unittest skill-system/tests/test_product_scope.py
+      - name: Commit only permanent Controller repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/stage5g4-c3h-a7-a2-replan-materialize.yml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add skill-system/controller/change_contract_cli.py skill-system/tests/test_contract.py docs/architecture/QUALITY_LOOP.md .github/workflows/stage5g4-c3h-a7-a2-replan-materialize.yml
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "4"
+          git commit -m "Controller: add fail-closed replan successor lifecycle"
+          git push origin HEAD:stage5g4-c3h-a7-a2-controller-replan-lifecycle
