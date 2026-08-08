@@ -1,0 +1,127 @@
+name: wp08-integration-boundary-byte-publisher
+
+"on":
+  push:
+    branches:
+      - agent/wp08-integration-real-model-boundary-repair-20260808
+    paths:
+      - .github/workflows/wp08-integration-boundary-publisher.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: wp08-integration-boundary-byte-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish-proven-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact publisher trigger
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Recreate exact Integration-PASS repair bytes
+        run: |
+          set -euo pipefail
+          python -B scripts/wp08_integration_boundary_publisher.py \
+            --mode repair \
+            --output "${RUNNER_TEMP}/wp08-repair-oracle.json"
+          git diff --check
+          git diff --name-only | sort | tee "${RUNNER_TEMP}/wp08-repair-diff.txt"
+          cat > "${RUNNER_TEMP}/wp08-repair-expected.txt" <<'EOF'
+          governance/quality-loop-policy.json
+          services/agent-service/tests/architecture/test_quality_loop_governance.py
+          services/agent-service/tests/architecture/test_systemic_operational_closure.py
+          services/agent-service/tests/runtime/test_b17a_production_certification_authority.py
+          EOF
+          sort -o "${RUNNER_TEMP}/wp08-repair-expected.txt" "${RUNNER_TEMP}/wp08-repair-expected.txt"
+          diff -u "${RUNNER_TEMP}/wp08-repair-expected.txt" "${RUNNER_TEMP}/wp08-repair-diff.txt"
+
+      - name: Commit byte-identical proven repair
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add governance/quality-loop-policy.json \
+            services/agent-service/tests/architecture/test_quality_loop_governance.py \
+            services/agent-service/tests/architecture/test_systemic_operational_closure.py \
+            services/agent-service/tests/runtime/test_b17a_production_certification_authority.py
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = 4
+          git commit -m 'Restore Integration real-model authority boundary'
+          git rev-parse HEAD | tee "${RUNNER_TEMP}/wp08-repair-commit.txt"
+
+      - name: Refresh only exact protected-source baseline
+        run: |
+          set -euo pipefail
+          REPAIR_SHA="$(git rev-parse HEAD)"
+          python -B scripts/wp08_integration_boundary_publisher.py \
+            --mode baseline \
+            --generated-from "$REPAIR_SHA" \
+            --output "${RUNNER_TEMP}/wp08-baseline-refresh.json"
+          git diff --check
+          test "$(git diff --name-only | wc -l | tr -d ' ')" = 1
+          test "$(git diff --name-only)" = 'skill-system/registry/product-source-baseline.json'
+          git add skill-system/registry/product-source-baseline.json
+          git commit -m 'Refresh Integration authority protected-source baseline'
+
+      - name: Verify immutable PASS oracle and clean promotion tree
+        run: |
+          set -euo pipefail
+          python -B scripts/wp08_integration_boundary_publisher.py \
+            --mode verify \
+            --output "${RUNNER_TEMP}/wp08-final-oracle.json"
+          git status --porcelain=v1 -uall | tee "${RUNNER_TEMP}/wp08-push-status.txt"
+          test ! -s "${RUNNER_TEMP}/wp08-push-status.txt"
+          git log --oneline -3 | tee "${RUNNER_TEMP}/wp08-local-log.txt"
+
+      - name: Push validated repair with explicit guard diagnostics
+        run: |
+          set -euo pipefail
+          REMOTE_HEAD="$(git ls-remote origin refs/heads/agent/wp08-integration-real-model-boundary-repair-20260808 | awk '{print $1}')"
+          LOCAL_HEAD="$(git rev-parse HEAD)"
+          {
+            printf 'event_head=%s\n' "$GITHUB_SHA"
+            printf 'remote_head=%s\n' "$REMOTE_HEAD"
+            printf 'local_head=%s\n' "$LOCAL_HEAD"
+          } | tee "${RUNNER_TEMP}/wp08-push-guard.txt"
+          test "$REMOTE_HEAD" = "$GITHUB_SHA"
+          set +e
+          git push --porcelain origin HEAD:agent/wp08-integration-real-model-boundary-repair-20260808 \
+            > "${RUNNER_TEMP}/wp08-push-result.txt" 2>&1
+          PUSH_RC=$?
+          set -e
+          cat "${RUNNER_TEMP}/wp08-push-result.txt"
+          printf 'push_exit_code=%s\n' "$PUSH_RC" >> "${RUNNER_TEMP}/wp08-push-guard.txt"
+          test "$PUSH_RC" = 0
+
+      - name: Upload publisher diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wp08-integration-boundary-byte-publisher-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/wp08-repair-oracle.json
+            ${{ runner.temp }}/wp08-repair-diff.txt
+            ${{ runner.temp }}/wp08-repair-expected.txt
+            ${{ runner.temp }}/wp08-repair-commit.txt
+            ${{ runner.temp }}/wp08-baseline-refresh.json
+            ${{ runner.temp }}/wp08-final-oracle.json
+            ${{ runner.temp }}/wp08-push-status.txt
+            ${{ runner.temp }}/wp08-local-log.txt
+            ${{ runner.temp }}/wp08-push-guard.txt
+            ${{ runner.temp }}/wp08-push-result.txt
+          if-no-files-found: warn
+          retention-days: 30
