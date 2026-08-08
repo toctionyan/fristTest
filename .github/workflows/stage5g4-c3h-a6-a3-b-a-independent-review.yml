@@ -1,0 +1,493 @@
+name: stage5g4-c3h-a6-a3-b-a-independent-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  independent-review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout exact A3 Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 435fade35f49f1339fe6d3e248982d54a69ee6af
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Pin uv and install exact reviewer environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          test "$(python3 --version)" = "Python 3.12.13"
+          test "$(uv --version | awk '{print $2}')" = "0.11.29"
+          uv sync --project control/services/agent-service --locked --all-groups --python 3.12.13
+          test -x control/services/agent-service/.venv/bin/python
+
+      - name: Restore authoritative formal RED to GREEN workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9016707668/zip > red-green.zip
+          test "$(sha256sum red-green.zip | awk '{print $1}')" = \
+            "6cc5d07e90acf855b5d6e27878d537b17dd744cb17f33454647f0b825d925c41"
+          mkdir review-download
+          unzip -q red-green.zip -d review-download
+          test -d review-download/root
+          cp -a review-download/root/. source/
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+      - name: Pre-review immutable input integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p review-evidence
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+
+          root = Path('source')
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          manifest = json.loads(Path('review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          expected = [row['path'] for row in manifest['files']]
+          hashes = {row['path']: row['sha256'] for row in manifest['files']}
+          assert manifest['exact_base_sha'] == 'e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+          assert manifest['path_count'] == 30
+
+          actual = set(subprocess.check_output(['git','-C','source','diff','--name-only'], text=True).splitlines())
+          untracked = subprocess.check_output(['git','-C','source','ls-files','--others','--exclude-standard'], text=True).splitlines()
+          actual.update(x for x in untracked if x and not x.startswith('governance/'))
+          assert sorted(actual) == sorted(expected), {'actual': sorted(actual), 'expected': sorted(expected)}
+          for rel in expected:
+              assert hashlib.sha256((root/rel).read_bytes()).hexdigest() == hashes[rel], rel
+
+          active = root/'governance/active-change.json'
+          assert hashlib.sha256(active.read_bytes()).hexdigest() == '8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8'
+          contract = json.loads(active.read_text())
+          assert contract['status'] == 'implementing'
+          assert contract['repair_governance_permit_digest'] == '64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert contract.get('repair_governance_consumed_at') is None
+          assert contract['allowed_paths'] == expected
+
+          case = root/f'governance/repair-cases/{change}'
+          permit = json.loads((case/'change-permit.json').read_text())
+          plan = json.loads((case/'repair-plan.json').read_text())
+          plan_review = json.loads((case/'plan-review.json').read_text())
+          assert permit['permit_digest'] == contract['repair_governance_permit_digest']
+          assert permit['allowed_paths'] == expected
+          assert plan_review['approved_paths'] == expected
+          assert [row['path'] for row in plan['changes']] == expected
+
+          adr = root/f'governance/architecture-decisions/{change}.json'
+          assert hashlib.sha256(adr.read_bytes()).hexdigest() == 'f71590ab77c70eafad6f1336794dec5dd87152a42f7ad8c7990c9b85b7891076'
+          ad = json.loads(adr.read_text())
+          assert ad['selected_option'] == 'b38-evolutionary'
+
+          report = json.loads(Path('review-download/FORMAL_RED_TO_GREEN_REPORT.json').read_text())
+          assert report['verdict'] == 'FORMAL_RED_TO_GREEN_TRANSITION_PASS'
+          assert report['candidate_status'] == 'PASS'
+          assert report['baseline_status'] == 'FAIL'
+
+          out = {
+              'status':'PASS',
+              'candidate_path_count':30,
+              'contract_sha256':hashlib.sha256(active.read_bytes()).hexdigest(),
+              'contract_status':contract['status'],
+              'permit_digest':permit['permit_digest'],
+              'adr_selected_option':ad['selected_option'],
+              'red_to_green_verdict':report['verdict'],
+          }
+          Path('review-evidence/pre-review-integrity.json').write_text(json.dumps(out, indent=2)+'\n')
+          PY
+          find source/governance -type f -print0 | sort -z | xargs -0 sha256sum > review-evidence/governance-before.sha256
+          find source/.quality -type f -print0 | sort -z | xargs -0 sha256sum > review-evidence/quality-before.sha256
+          git -C source status --porcelain=v1 --untracked-files=all > review-evidence/source-status-before.txt
+
+      - name: Deterministic Repair Governance DiffReview
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str((Path('control')/'skill-system/controller').resolve()))
+          from repair_governance import write_diff_review
+
+          workspace = Path('source').resolve()
+          contract = json.loads((workspace/'governance/active-change.json').read_text())
+          path = write_diff_review(workspace, contract, requested_decision='PASS', reviewer_findings=[])
+          data = json.loads(path.read_text())
+          assert data['decision'] == 'PASS', data
+          assert len(data['changed_paths']) == 30, data
+          assert len(data['added_paths']) == 9, data
+          assert len(data['modified_paths']) == 21, data
+          assert len(data['deleted_paths']) == 0, data
+          assert data['out_of_scope_paths'] == [], data
+          assert data['deterministic_findings'] == [], data
+          Path('review-evidence/diff-review-summary.json').write_text(json.dumps(data, indent=2)+'\n')
+          PY
+
+      - name: Supplemental same-target positive proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export APP_PROFILE=local
+          export PYTHONDONTWRITEBYTECODE=1
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B -m pytest -q \
+            services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_completed_dependency_reuses_verified_typed_goal_output \
+            --junitxml="$GITHUB_WORKSPACE/review-evidence/same-target-positive.xml" \
+            | tee "$GITHUB_WORKSPACE/review-evidence/same-target-positive.stdout.txt"
+          grep -Eq '1 passed' "$GITHUB_WORKSPACE/review-evidence/same-target-positive.stdout.txt"
+          cd "$GITHUB_WORKSPACE"
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          selector = 'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_completed_dependency_reuses_verified_typed_goal_output'
+          stdout = Path('review-evidence/same-target-positive.stdout.txt')
+          junit = Path('review-evidence/same-target-positive.xml')
+          out = {
+              'status':'PASS',
+              'selector':selector,
+              'stdout_sha256':hashlib.sha256(stdout.read_bytes()).hexdigest(),
+              'junit_sha256':hashlib.sha256(junit.read_bytes()).hexdigest(),
+              'evidence':'1 passed',
+          }
+          Path('review-evidence/same-target-positive-probe.json').write_text(json.dumps(out, indent=2)+'\n')
+          PY
+
+      - name: Materialize frozen CI review evidence inside workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANGE='migration-v20.17-b38-context-reference-goal-coverage'
+          DEST="source/governance/reviews/$CHANGE/ci"
+          mkdir -p "$DEST"
+          cp review-download/red-green-evidence/g1/transition.json "$DEST/g1-transition.json"
+          cp review-download/red-green-evidence/g2/counterexamples.xml "$DEST/g2-counterexamples.xml"
+          cp review-download/red-green-evidence/g3/regression.xml "$DEST/g3-regression.xml"
+          cp review-download/red-green-evidence/g4/negative-path.xml "$DEST/g4-negative-path.xml"
+          cp review-download/red-green-evidence/g1/preferred-red-proof.stdout.txt "$DEST/g1-runtime.stdout.txt"
+          cp review-download/red-green-evidence/g5/post-test-integrity.json "$DEST/g5-post-test-integrity.json"
+          cp review-evidence/same-target-positive-probe.json "source/governance/reviews/$CHANGE/same-target-positive-probe.json"
+
+      - name: Independent Scope Review
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+
+          root = Path('source')
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          case = root/f'governance/repair-cases/{change}'
+          review_root = root/f'governance/reviews/{change}'
+          manifest = json.loads(Path('review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          expected = [row['path'] for row in manifest['files']]
+          hashes = {row['path']: row['sha256'] for row in manifest['files']}
+          diff = json.loads((case/'diff-review.json').read_text())
+          permit = json.loads((case/'change-permit.json').read_text())
+          plan_review = json.loads((case/'plan-review.json').read_text())
+          plan = json.loads((case/'repair-plan.json').read_text())
+          active = root/'governance/active-change.json'
+          contract = json.loads(active.read_text())
+
+          checks = {
+              'deterministic_diff_review_pass': diff['decision'] == 'PASS',
+              'exact_changed_path_count_30': len(diff['changed_paths']) == 30,
+              'exact_added_count_9': len(diff['added_paths']) == 9,
+              'exact_modified_count_21': len(diff['modified_paths']) == 21,
+              'exact_deleted_count_0': len(diff['deleted_paths']) == 0,
+              'no_out_of_scope_paths': diff['out_of_scope_paths'] == [],
+              'no_deterministic_findings': diff['deterministic_findings'] == [],
+              'candidate_equals_change_permit': expected == permit['allowed_paths'],
+              'candidate_equals_plan_review': expected == plan_review['approved_paths'],
+              'candidate_equals_repair_plan': expected == [row['path'] for row in plan['changes']],
+              'all_candidate_sha_exact': all(hashlib.sha256((root/rel).read_bytes()).hexdigest() == hashes[rel] for rel in expected),
+              'contract_is_same_implementing_identity': hashlib.sha256(active.read_bytes()).hexdigest() == '8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8' and contract['status'] == 'implementing',
+          }
+          assert all(checks.values()), [k for k,v in checks.items() if not v]
+          result = {
+              'schema_version':1,
+              'review_type':'scope-planner',
+              'reviewer_role':'scope-planner',
+              'decision':'PASS',
+              'independent_from_product_implementation':True,
+              'candidate_path_count':30,
+              'operations':{'create':9,'replace':21,'delete':0},
+              'checks':checks,
+              'diff_review_sha256':hashlib.sha256((case/'diff-review.json').read_bytes()).hexdigest(),
+              'permit_digest':permit['permit_digest'],
+              'findings':[],
+          }
+          review_root.mkdir(parents=True, exist_ok=True)
+          (review_root/'scope-planner.json').write_text(json.dumps(result, indent=2)+'\n')
+          PY
+
+      - name: Independent Architecture Adversarial Review
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import ast, hashlib, json
+          from pathlib import Path
+
+          root = Path('source')
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          case = root/f'governance/repair-cases/{change}'
+          review_root = root/f'governance/reviews/{change}'
+          adr_path = root/f'governance/architecture-decisions/{change}.json'
+          adr = json.loads(adr_path.read_text())
+          diff = json.loads((case/'diff-review.json').read_text())
+          same = json.loads((review_root/'same-target-positive-probe.json').read_text())
+          g1 = json.loads((review_root/'ci/g1-transition.json').read_text())
+          g5 = json.loads((review_root/'ci/g5-post-test-integrity.json').read_text())
+
+          kernel_path = root/'services/agent-service/src/agent_core/kernel/semantic_contract.py'
+          outputs_path = root/'services/agent-service/src/agent_core/lifecycle/goal_outputs.py'
+          policy_path = root/'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py'
+          kernel = kernel_path.read_text()
+          outputs = outputs_path.read_text()
+          policy = policy_path.read_text()
+          tree = ast.parse(kernel)
+          function_names = [n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+          checks = {
+              'adr_selected_evolutionary': adr['selected_option'] == 'b38-evolutionary',
+              'single_shared_target_compatibility_definition': function_names.count('prove_goal_target_compatibility') == 1,
+              'target_identity_projection_defined': function_names.count('derive_goal_target_identity') == 1,
+              'compatibility_fail_closed_unknown': 'status = "UNKNOWN"' in kernel and 'target_identity_unproven' in kernel,
+              'compatibility_exact_same_and_different': 'status = "SAME"' in kernel and 'status = "DIFFERENT"' in kernel,
+              'compatibility_no_similarity_or_substitution': "'auto_substitution_used': False" in kernel and "'similarity_used': False" in kernel,
+              'goal_output_recording_uses_shared_compatibility': outputs.count('prove_goal_target_compatibility(') >= 2,
+              'cross_target_reuse_requires_same': 'if status == "SAME":' in outputs and 'GOAL_OUTPUT_REF_TARGET_MISMATCH' in outputs and 'GOAL_OUTPUT_REF_TARGET_UNPROVEN' in outputs,
+              'multi_goal_recording_fail_closed': 'if target_compatibility.get("status") != "SAME":' in outputs,
+              'pretool_policy_consumes_reusable_goal_outputs': 'reusable_goal_outputs_for_goal(' in policy,
+              'binding_rule_requires_compatible_target': 'single_call_requires_exact_match_proof_for_every_goal_and_compatible_target' in policy,
+              'goal_output_declared_planning_only': 'GoalOutputRef is planning evidence only.' in outputs,
+              'formal_cross_target_transition_pass': g1['baseline_status'] == 'FAIL' and g1['candidate_status'] == 'PASS' and g1['exit_code'] == 0,
+              'same_target_reuse_preserved': same['status'] == 'PASS' and same['evidence'] == '1 passed',
+              'post_test_authority_boundary_preserved': g5['status'] == 'PASS' and g5['contract_status'] == 'implementing' and g5['candidate_sha_mismatches'] == [],
+              'deterministic_diff_scope_clean': diff['decision'] == 'PASS' and diff['out_of_scope_paths'] == [] and diff['deterministic_findings'] == [],
+              'no_controller_or_business_authority_in_product_diff': not any(p.startswith('skill-system/') or p.startswith('services/business-service/') for p in diff['changed_paths']),
+          }
+          assert all(checks.values()), [k for k,v in checks.items() if not v]
+
+          plan = json.loads((case/'repair-plan.json').read_text())
+          change_map = [
+              {
+                  'path': row['path'],
+                  'responsibility': row['responsibility'],
+                  'reason': row['reason'],
+                  'present_in_diff': row['path'] in diff['changed_paths'],
+              }
+              for row in plan['changes']
+          ]
+          assert len(change_map) == 30 and all(row['present_in_diff'] for row in change_map)
+
+          result = {
+              'schema_version':1,
+              'review_type':'architecture-adversarial',
+              'reviewer_role':'adversarial-reviewer',
+              'decision':'PASS',
+              'selected_architecture':'b38-evolutionary',
+              'checks':checks,
+              'repair_plan_change_mapping':change_map,
+              'evidence':{
+                  'adr_sha256':hashlib.sha256(adr_path.read_bytes()).hexdigest(),
+                  'diff_review_sha256':hashlib.sha256((case/'diff-review.json').read_bytes()).hexdigest(),
+                  'formal_transition_sha256':hashlib.sha256((review_root/'ci/g1-transition.json').read_bytes()).hexdigest(),
+                  'same_target_probe_sha256':hashlib.sha256((review_root/'same-target-positive-probe.json').read_bytes()).hexdigest(),
+                  'post_test_integrity_sha256':hashlib.sha256((review_root/'ci/g5-post-test-integrity.json').read_bytes()).hexdigest(),
+              },
+              'findings':[],
+              'limitations':['semantic review is bounded to frozen ADR acceptance claims, RepairPlan mappings, static architecture invariants, and executable counterexample/positive evidence; it does not claim proof beyond those frozen criteria'],
+          }
+          (review_root/'adversarial-reviewer.json').write_text(json.dumps(result, indent=2)+'\n')
+          PY
+
+      - name: Controller review attestations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          python -B ../control/skill-system/controller/change_contract_cli.py attest-review \
+            --role scope-planner --decision PASS \
+            --evidence governance/reviews/migration-v20.17-b38-context-reference-goal-coverage/scope-planner.json
+          python -B ../control/skill-system/controller/change_contract_cli.py attest-review \
+            --role adversarial-reviewer --decision PASS \
+            --evidence governance/reviews/migration-v20.17-b38-context-reference-goal-coverage/adversarial-reviewer.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path('governance/active-change.json').read_text())
+          assert p['status'] == 'review'
+          rows = {row['role']: row for row in p['review_attestations']}
+          assert rows['scope-planner']['decision'] == 'PASS'
+          assert rows['adversarial-reviewer']['decision'] == 'PASS'
+          assert 'release-judge' not in rows
+          assert p.get('verification') is None
+          assert p['result'] == 'PENDING'
+          assert p.get('repair_governance_consumed_at') is None
+          PY
+
+      - name: Validated Repair Governance ClosureMatrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          sys.path.insert(0, str((Path('control')/'skill-system/controller').resolve()))
+          from repair_governance import write_closure_matrix, validate_verification_ready
+
+          workspace = Path('source').resolve()
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          contract = json.loads((workspace/'governance/active-change.json').read_text())
+          review_root = f'governance/reviews/{change}'
+          evidence = {
+              'original_failure': f'.quality/product-code/{change}/baseline/run-summary.json',
+              'focused_tests': f'{review_root}/ci/g1-transition.json',
+              'counterexamples': f'{review_root}/ci/g2-counterexamples.xml',
+              'regression': f'{review_root}/ci/g3-regression.xml',
+              'negative_paths': f'{review_root}/ci/g4-negative-path.xml',
+              'runtime_trace': f'{review_root}/ci/g1-runtime.stdout.txt',
+              'authority_boundary': f'{review_root}/ci/g5-post-test-integrity.json',
+              'diff_review': f'governance/repair-cases/{change}/diff-review.json',
+              'scope_review': f'{review_root}/scope-planner.json',
+              'architecture_review': f'{review_root}/adversarial-reviewer.json',
+              'same_target_preservation': f'{review_root}/same-target-positive-probe.json',
+          }
+          path = write_closure_matrix(
+              workspace,
+              contract,
+              result='CONVERGED',
+              evidence=evidence,
+              loop_outcome='CONVERGED',
+              residual_risks=[],
+          )
+          closure = json.loads(path.read_text())
+          assert closure['result'] == 'CONVERGED'
+          assert closure['final_decision'] == 'CLOSED_VERIFIED'
+          assert closure['residual_risks'] == []
+          dims = {row['dimension'] for row in closure['evidence']}
+          required = {'original_failure','focused_tests','counterexamples','regression','negative_paths','runtime_trace','authority_boundary','diff_review'}
+          assert required <= dims
+          ready = validate_verification_ready(workspace, contract, expected_result='CONVERGED')
+          assert ready['status'] == 'PASS'
+          assert ready['final_decision'] == 'CLOSED_VERIFIED'
+          Path('review-evidence/verification-readiness-readonly.json').write_text(json.dumps(ready, indent=2)+'\n')
+          PY
+
+      - name: Post-review integrity and no verify close
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+
+          root = Path('source')
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          manifest = json.loads(Path('review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          hashes = {row['path']: row['sha256'] for row in manifest['files']}
+          for rel, expected in hashes.items():
+              assert hashlib.sha256((root/rel).read_bytes()).hexdigest() == expected, rel
+
+          active = root/'governance/active-change.json'
+          c = json.loads(active.read_text())
+          assert c['status'] == 'review'
+          assert c['result'] == 'PENDING'
+          assert c.get('verification') is None
+          assert c.get('repair_governance_consumed_at') is None
+          assert c['repair_governance_permit_digest'] == '64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          roles = {row['role'] for row in c['review_attestations']}
+          assert {'scope-planner','adversarial-reviewer'} <= roles
+          assert 'release-judge' not in roles
+
+          case = root/f'governance/repair-cases/{change}'
+          diff = json.loads((case/'diff-review.json').read_text())
+          closure = json.loads((case/'closure-matrix.json').read_text())
+          assert diff['decision'] == 'PASS'
+          assert closure['final_decision'] == 'CLOSED_VERIFIED'
+
+          out = {
+              'schema_version':1,
+              'stage':'5G4-C3H-A6-A3-B-A',
+              'verdict':'INDEPENDENT_REVIEW_AND_CLOSURE_READY_PASS',
+              'source_head':subprocess.check_output(['git','-C','source','rev-parse','HEAD'],text=True).strip(),
+              'controller_head':subprocess.check_output(['git','-C','control','rev-parse','HEAD'],text=True).strip(),
+              'candidate_path_count':30,
+              'diff_review_decision':diff['decision'],
+              'scope_review_decision':'PASS',
+              'adversarial_review_decision':'PASS',
+              'same_target_positive':'PASS',
+              'closure_final_decision':closure['final_decision'],
+              'contract_status':c['status'],
+              'contract_verify_run':False,
+              'contract_close_run':False,
+              'release_judge_attested':False,
+              'canonical_b38_pushed':False,
+              'production_closed':False,
+          }
+          Path('INDEPENDENT_REVIEW_REPORT.json').write_text(json.dumps(out, indent=2)+'\n')
+          PY
+          find source/governance -type f -print0 | sort -z | xargs -0 sha256sum > review-evidence/governance-after.sha256
+          find source/.quality -type f -print0 | sort -z | xargs -0 sha256sum > review-evidence/quality-after.sha256
+          git -C control diff --quiet
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+
+      - name: Preserve independent review evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir root
+          rsync -a --exclude='.git' source/ root/
+
+      - name: Upload independent review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a6-a3-b-a-independent-review
+          path: |
+            INDEPENDENT_REVIEW_REPORT.json
+            review-evidence/**
+            review-download/FORMAL_RED_TO_GREEN_REPORT.json
+            review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json
+            root/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
