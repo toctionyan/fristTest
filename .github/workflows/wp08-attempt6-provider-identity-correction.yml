@@ -1,0 +1,102 @@
+name: wp08-attempt6-provider-identity-correction
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  correct-provider-identity:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-provider-identity-correction-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      FORMAL_BRANCH: agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808
+      FORMAL_HEAD: 7debec645219cb3e1dfa283c2dc039c735fd58cd
+    steps:
+      - name: Checkout exact formal candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.FORMAL_HEAD }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact branch authority and remove redundant provider env
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$FORMAL_HEAD"
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$FORMAL_HEAD"
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from pathlib import Path
+          path = Path('services/agent-service/src/agent_core/config.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()\n    model = str(resolved.get("model") or "").strip().lower()\n    base_url = str(resolved.get("base_url") or "").strip().rstrip("/").lower()\n    official_endpoint = base_url in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}\n    return provider == "deepseek" or (official_endpoint and model.startswith("deepseek-"))\n'''
+          new = '''    model = str(resolved.get("model") or "").strip().lower()\n    base_url = str(resolved.get("base_url") or "").strip().rstrip("/").lower()\n    official_endpoint = base_url in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}\n    return official_endpoint and model.startswith("deepseek-")\n'''
+          if text.count(old) != 1:
+              raise SystemExit('deepseek_identity_anchor_mismatch')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Validate provider boundary and architecture config discipline
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m pytest -q \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
+            skill-system/tests/test_architecture_cycle_debt.py
+
+      - name: Reconfirm full managed PostgreSQL recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          import sys
+          from pathlib import Path
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'scripts'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service' / 'src'))
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_managed_postgres_recovery import run_managed_postgres_recovery
+          with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as product:
+              result = run_managed_postgres_recovery(product)
+          assert result.get('status') == 'PASS', result
+          PY
+
+      - name: Verify one-file correction and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          git diff --check
+          test "$(git diff --name-only "$FORMAL_HEAD" --)" = 'services/agent-service/src/agent_core/config.py'
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$FORMAL_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add services/agent-service/src/agent_core/config.py
+          git commit -m 'WP-08 attempt 6: derive DeepSeek identity from official endpoint'
+          test "$(git rev-parse HEAD^)" = "$FORMAL_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${FORMAL_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
