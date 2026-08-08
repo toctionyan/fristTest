@@ -68,6 +68,22 @@ jobs:
           test "$(git -C control rev-parse HEAD)" = '4e3beb4a6a4a8f2f86b60b95eb8166045b411615'
           control/services/agent-service/.venv/bin/python --version
 
+      - name: Preserve Controller venv launcher path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('runner/.github/scripts/stage5g4_final_b39_governed_repair.py')
+          text = p.read_text(encoding='utf-8')
+          old = '"argv": [str(PY.resolve()), "-B", str(runner), arg],'
+          new = '"argv": [str(PY), "-B", str(runner), arg],'
+          assert text.count(old) == 1
+          p.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          test -x control/services/agent-service/.venv/bin/python
+          control/services/agent-service/.venv/bin/python -c 'import pytest; print(pytest.__version__)'
+
       - name: Execute governed B39 repair cycle
         shell: bash
         env:
