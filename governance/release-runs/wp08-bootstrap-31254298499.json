@@ -1,0 +1,11 @@
+{
+  "contract": "wp08-release-bootstrap@1",
+  "release_run_id": "wp08-release-31254298499",
+  "source": "legacy-manual-workflow-dispatch",
+  "authorized_initial_wp08_run_id": 31254298499,
+  "authorized_initial_sha": "a489591acce193f3cf69db3d14c3809d5e7538d4",
+  "authorized_by": "toctionyan",
+  "max_attempts": 8,
+  "reason": "Migrate the already-authorized WP-08 release into the durable coordinator after the uv provenance repair and coordinator installation.",
+  "production_closed": false
+}
