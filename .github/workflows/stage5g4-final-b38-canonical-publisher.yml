@@ -45,133 +45,16 @@ jobs:
           echo 'ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8  b38-install-artifact.zip' | sha256sum -c -
           mkdir install-artifact
           unzip -q b38-install-artifact.zip -d install-artifact
-          test -f install-artifact/B38_CANDIDATE_INSTALLATION_REPORT.json
-          test -f install-artifact/FROZEN_B38_CANDIDATE30_MANIFEST.json
           test -d install-artifact/root
 
-      - name: Publish exact 30-file canonical B38 branch
+      - name: Publish exact staged 30-file canonical B38 branch
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
-          BRANCH='agent/b38-context-reference-goal-coverage-canonical-20260808'
-          if git -C source ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
-            echo "canonical target branch already exists; refusing overwrite" >&2
-            exit 2
-          fi
-          python3 - <<'PY'
-          from __future__ import annotations
-          import hashlib, json, shutil, subprocess
-          from pathlib import Path
-
-          base='e0e04d51e9da9790bef7bd0482584f60b8e975a9'
-          runner=Path('runner').resolve()
-          source=Path('source').resolve()
-          candidate=Path('install-artifact/root').resolve()
-          manifest_path=runner/'docs/governance/ci-probes/stage5g4-final-b38-canonical/candidate30.json'
-          manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
-          install_manifest=json.loads(Path('install-artifact/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text(encoding='utf-8'))
-          install_report=json.loads(Path('install-artifact/B38_CANDIDATE_INSTALLATION_REPORT.json').read_text(encoding='utf-8'))
-          assert manifest['base_sha']==base
-          rows=manifest['files']
-          assert len(rows)==30 and len({r['path'] for r in rows})==30
-          def sha(p:Path)->str: return hashlib.sha256(p.read_bytes()).hexdigest()
-          expected_map={r['path']:r['sha256'] for r in rows}
-          install_rows=install_manifest.get('files') or install_manifest.get('paths') or []
-          if install_rows and isinstance(install_rows[0],dict):
-              observed={str(r['path']):str(r.get('sha256') or r.get('sha') or '') for r in install_rows}
-              assert set(observed)==set(expected_map)
-              for rel,digest in expected_map.items(): assert observed[rel]==digest,(rel,observed[rel],digest)
-          ops=[]
-          for row in rows:
-              rel=row['path']; expected=row['sha256']
-              src=candidate/rel; dst=source/rel
-              assert src.is_file(), rel
-              assert sha(src)==expected, (rel,sha(src),expected)
-              before=subprocess.run(['git','-C',str(source),'cat-file','-e',f'{base}:{rel}'],capture_output=True).returncode==0
-              dst.parent.mkdir(parents=True,exist_ok=True)
-              shutil.copyfile(src,dst)
-              assert sha(dst)==expected
-              ops.append({'path':rel,'operation':'REPLACE' if before else 'CREATE','sha256':expected})
-          assert sum(r['operation']=='CREATE' for r in ops)==9
-          assert sum(r['operation']=='REPLACE' for r in ops)==21
-          changed=subprocess.check_output(['git','-C',str(source),'diff','--name-only','--no-renames',base,'--'],text=True).splitlines()
-          expected_paths=sorted(expected_map)
-          assert sorted(changed)==expected_paths, {'changed':changed,'expected':expected_paths}
-          status=subprocess.check_output(['git','-C',str(source),'diff','--name-status','--no-renames',base,'--'],text=True).splitlines()
-          status_map={line.split('\t',1)[1]:line.split('\t',1)[0] for line in status}
-          for r in ops:
-              assert status_map[r['path']] == ('A' if r['operation']=='CREATE' else 'M'), (r,status_map.get(r['path']))
-          payload={
-              'schema_version':1,
-              'status':'PRECOMMIT_EXACT_SCOPE_PASS',
-              'base_sha':base,
-              'install_artifact_id':9016338327,
-              'install_artifact_sha256':'ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8',
-              'canonical_branch':manifest['canonical_branch'],
-              'path_count':30,
-              'create_count':9,
-              'replace_count':21,
-              'delete_count':0,
-              'files':ops,
-              'manifest_sha256':sha(manifest_path),
-              'install_report_verdict':install_report.get('verdict'),
-          }
-          Path('canonical-publication-precommit.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-          PY
-          git -C source config user.name 'Stage5G4 Canonical Publisher'
-          git -C source config user.email 'stage5g4-canonical@users.noreply.github.com'
-          git -C source switch -c "$BRANCH"
-          git -C source add -- \
-            docs/architecture/V20_17_B38_CONTEXT_REFERENCE_GOAL_COVERAGE.md \
-            services/agent-service/.env.example \
-            services/agent-service/src/agent_core/config.py \
-            services/agent-service/src/agent_core/context/context_bundle.py \
-            services/agent-service/src/agent_core/context/reference_resolution.py \
-            services/agent-service/src/agent_core/context/state_projection.py \
-            services/agent-service/src/agent_core/context/visible_result_refs.py \
-            services/agent-service/src/agent_core/kernel/plan_projection_contract.py \
-            services/agent-service/src/agent_core/kernel/semantic_contract.py \
-            services/agent-service/src/agent_core/lifecycle/condition_expression.py \
-            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
-            services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py \
-            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
-            services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py \
-            services/agent-service/src/agent_core/lifecycle/goal_outputs.py \
-            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
-            services/agent-service/src/agent_core/lifecycle/pretool_planner.py \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
-            services/agent-service/src/agent_core/lifecycle/workflow_runtime.py \
-            services/agent-service/src/agent_core/runtime/capability_effects.py \
-            services/agent-service/src/agent_core/runtime/capability_gate.py \
-            services/agent-service/tests/architecture/test_production_security_contract.py \
-            services/agent-service/tests/context/test_reference_resolution_contract.py \
-            services/agent-service/tests/runtime/test_global_goal_capability_coverage.py \
-            services/agent-service/tests/runtime/test_goal_granularity_and_conditions.py \
-            services/agent-service/tests/runtime/test_pretool_execution_policy.py \
-            services/agent-service/tests/runtime/test_semantic_reference_binding.py \
-            services/agent-service/tests/runtime/test_stage4_goal_output_refs.py
-          test -z "$(git -C source status --porcelain --untracked-files=all | awk '$1=="??" {print}')"
-          git -C source commit -m 'B38: context reference goal coverage'
-          HEAD_SHA="$(git -C source rev-parse HEAD)"
-          test "$(git -C source rev-parse HEAD^)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
-          python3 - "$HEAD_SHA" <<'PY'
-          import json,subprocess,sys
-          from pathlib import Path
-          head=sys.argv[1]
-          p=json.loads(Path('canonical-publication-precommit.json').read_text())
-          source=Path('source')
-          changed=subprocess.check_output(['git','-C',str(source),'diff','--name-only','--no-renames','e0e04d51e9da9790bef7bd0482584f60b8e975a9',head,'--'],text=True).splitlines()
-          assert sorted(changed)==sorted(r['path'] for r in p['files']) and len(changed)==30
-          p.update({'status':'CANONICAL_COMMIT_EXACT_SCOPE_PASS','canonical_commit':head,'parent_sha':'e0e04d51e9da9790bef7bd0482584f60b8e975a9'})
-          Path('canonical-publication-report.json').write_text(json.dumps(p,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-          PY
-          git -C source push origin "HEAD:refs/heads/$BRANCH"
-          REMOTE="$(git -C source ls-remote origin "refs/heads/$BRANCH" | awk '{print $1}')"
-          test "$REMOTE" = "$HEAD_SHA"
-          echo "$HEAD_SHA" > canonical-b38-head.txt
+          python3 -B runner/docs/governance/ci-probes/stage5g4-final-b38-canonical/publish.py \
+            --source source \
+            --artifact-root install-artifact/root \
+            --manifest runner/docs/governance/ci-probes/stage5g4-final-b38-canonical/candidate30.json
 
       - name: Upload canonical publication evidence
         uses: actions/upload-artifact@v4
