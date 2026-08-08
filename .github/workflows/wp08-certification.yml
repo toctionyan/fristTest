@@ -64,120 +64,134 @@ jobs:
           echo "PRODUCTION_CERTIFICATION_TOOLCHAIN_EVIDENCE=$TOOLCHAIN_EVIDENCE" >> "$GITHUB_ENV"
           echo "PRODUCTION_CERTIFICATION_TOOLCHAIN_FINGERPRINT=$TOOLCHAIN_FINGERPRINT" >> "$GITHUB_ENV"
           echo "PRODUCTION_CERTIFICATION_RUN_IDENTITY_FINGERPRINT=$RUN_IDENTITY_FINGERPRINT" >> "$GITHUB_ENV"
-      - name: Resolve protected environment configuration
+      - name: Resolve versioned production profile and protected environment overrides
         env:
+          WP08_PRODUCTION_PROFILE: deployment/ci/wp08-production-profile.json
           CONFIG_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
           CONFIG_MODEL_ID: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
           CONFIG_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
-          CONFIG_EMBEDDING_PROVIDER: ${{ vars.EMBEDDING_PROVIDER || vars.PRODUCTION_EMBEDDING_PROVIDER || 'openai' }}
-          CONFIG_EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL || vars.PRODUCTION_EMBEDDING_MODEL || 'text-embedding-3-small' }}
-          CONFIG_EMBEDDING_DIM: ${{ vars.EMBEDDING_DIM || vars.PRODUCTION_EMBEDDING_DIM || '1536' }}
-          CONFIG_EMBEDDING_API_BASE: ${{ vars.EMBEDDING_API_BASE || vars.EMBEDDING_BASE_URL || vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
+          CONFIG_EMBEDDING_PROVIDER: ${{ vars.EMBEDDING_PROVIDER || vars.PRODUCTION_EMBEDDING_PROVIDER }}
+          CONFIG_EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL || vars.PRODUCTION_EMBEDDING_MODEL }}
+          CONFIG_EMBEDDING_DIM: ${{ vars.EMBEDDING_DIM || vars.PRODUCTION_EMBEDDING_DIM }}
+          CONFIG_EMBEDDING_API_BASE: ${{ vars.EMBEDDING_API_BASE || vars.EMBEDDING_BASE_URL || vars.PRODUCTION_EMBEDDING_API_BASE }}
+          CONFIG_EMBEDDING_BATCH_SIZE: ${{ vars.EMBEDDING_BATCH_SIZE || vars.PRODUCTION_EMBEDDING_BATCH_SIZE }}
           CONFIG_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
           CONFIG_EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
           CONFIG_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
-          CONFIG_RESUME_RUN_ID: ${{ vars.WP08_RESUME_RUN_ID }}
-          CONFIG_RESUME_RUN_ATTEMPT: ${{ vars.WP08_RESUME_RUN_ATTEMPT || '1' }}
         run: |
           set -euo pipefail
-
-          provider="${CONFIG_MODEL_PROVIDER,,}"
-          model_id="$CONFIG_MODEL_ID"
-          model_api_base="${CONFIG_MODEL_API_BASE%/}"
-          embedding_provider="${CONFIG_EMBEDDING_PROVIDER,,}"
-          embedding_model="$CONFIG_EMBEDDING_MODEL"
-          embedding_dim="$CONFIG_EMBEDDING_DIM"
-          embedding_api_base="${CONFIG_EMBEDDING_API_BASE%/}"
-
-          case "$provider" in
-            openai)
-              [[ -n "$model_api_base" ]] || model_api_base="https://api.openai.com/v1"
-              [[ "$model_api_base" == "https://api.openai.com/v1" ]] || {
-                echo "Configured OpenAI certification base must be https://api.openai.com/v1" >&2
-                exit 2
-              }
-              ;;
-            deepseek)
-              [[ -n "$model_api_base" ]] || model_api_base="https://api.deepseek.com"
-              [[ "$model_api_base" == "https://api.deepseek.com" || "$model_api_base" == "https://api.deepseek.com/v1" ]] || {
-                echo "Configured DeepSeek certification base must use the official api.deepseek.com host" >&2
-                exit 2
-              }
-              ;;
-            *)
-              echo "production-certification Environment must define REAL_MODEL_CERTIFICATION_PROVIDER (or PRODUCTION_MODEL_PROVIDER) as openai or deepseek" >&2
-              exit 2
-              ;;
-          esac
-
-          [[ -n "$model_id" ]] || {
-            echo "production-certification Environment must define OPENAI_MODEL (or PRODUCTION_MODEL_ID)" >&2
-            exit 2
-          }
-          [[ -n "$embedding_provider" ]] || {
-            echo "production-certification Environment must define EMBEDDING_PROVIDER" >&2
-            exit 2
-          }
-          [[ -n "$embedding_model" ]] || {
-            echo "production-certification Environment must define EMBEDDING_MODEL" >&2
-            exit 2
-          }
-          [[ "$embedding_dim" =~ ^[1-9][0-9]*$ ]] || {
-            echo "EMBEDDING_DIM must be a positive integer" >&2
-            exit 2
-          }
-          [[ "$embedding_api_base" == https://* ]] || {
-            echo "EMBEDDING_API_BASE must use HTTPS" >&2
-            exit 2
-          }
-          [[ -n "$CONFIG_MODEL_API_KEY" ]] || {
-            echo "PRODUCTION_MODEL_API_KEY Environment secret is missing" >&2
-            exit 2
-          }
-          [[ -n "$CONFIG_EMBEDDING_API_KEY" ]] || {
-            echo "PRODUCTION_EMBEDDING_API_KEY Environment secret is missing" >&2
-            exit 2
-          }
-          [[ -n "$CONFIG_EVIDENCE_SIGNING_KEY" ]] || {
-            echo "QUALITY_EVIDENCE_SIGNING_KEY Environment secret is missing" >&2
-            exit 2
-          }
-
-          {
-            echo "OPENAI_MODEL=$model_id"
-            echo "OPENAI_API_BASE=$model_api_base"
-            echo "REAL_MODEL_CERTIFICATION_PROVIDER=$provider"
-            echo "EMBEDDING_PROVIDER=$embedding_provider"
-            echo "EMBEDDING_MODEL=$embedding_model"
-            echo "EMBEDDING_DIM=$embedding_dim"
-            echo "EMBEDDING_API_BASE=$embedding_api_base"
-            echo "WP08_RESUME_RUN_ID=$CONFIG_RESUME_RUN_ID"
-            echo "WP08_RESUME_RUN_ATTEMPT=$CONFIG_RESUME_RUN_ATTEMPT"
-            echo "WP08_CONFIG_EVIDENCE=${RUNNER_TEMP}/wp08-environment-config.json"
-          } >> "$GITHUB_ENV"
-
-          export RESOLVED_MODEL_PROVIDER="$provider"
-          export RESOLVED_MODEL_ID="$model_id"
-          export RESOLVED_MODEL_API_BASE="$model_api_base"
-          export RESOLVED_EMBEDDING_PROVIDER="$embedding_provider"
-          export RESOLVED_EMBEDDING_MODEL="$embedding_model"
-          export RESOLVED_EMBEDDING_DIM="$embedding_dim"
-          export RESOLVED_EMBEDDING_API_BASE="$embedding_api_base"
           "${pythonLocation}/bin/python" - <<'PY'
+          from __future__ import annotations
+
           import json
           import os
           from pathlib import Path
 
+          profile_path = Path(os.environ["WP08_PRODUCTION_PROFILE"])
+          try:
+              profile = json.loads(profile_path.read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"WP-08 production profile is unreadable: {profile_path}") from exc
+          if not isinstance(profile, dict) or profile.get("contract") != "wp08-production-profile@1":
+              raise SystemExit("WP-08 production profile contract is invalid")
+          if profile.get("production_closed") is not False:
+              raise SystemExit("WP-08 production profile cannot claim production closure")
+
+          forbidden_tokens = ("secret", "api_key", "token", "password", "credential")
+          forbidden_fields = [
+              str(key) for key in profile
+              if any(token in str(key).casefold() for token in forbidden_tokens)
+          ]
+          if forbidden_fields:
+              raise SystemExit("WP-08 production profile must not contain secret material fields")
+
+          override_env = {
+              "model_provider": "CONFIG_MODEL_PROVIDER",
+              "model_id": "CONFIG_MODEL_ID",
+              "model_api_base": "CONFIG_MODEL_API_BASE",
+              "embedding_provider": "CONFIG_EMBEDDING_PROVIDER",
+              "embedding_model": "CONFIG_EMBEDDING_MODEL",
+              "embedding_dimension": "CONFIG_EMBEDDING_DIM",
+              "embedding_api_base": "CONFIG_EMBEDDING_API_BASE",
+              "embedding_batch_size": "CONFIG_EMBEDDING_BATCH_SIZE",
+          }
+
+          def clean(value: object, name: str) -> str:
+              text = str(value if value is not None else "").strip()
+              if "\n" in text or "\r" in text:
+                  raise SystemExit(f"{name} must not contain newline characters")
+              return text
+
+          resolved: dict[str, str] = {}
+          field_sources: dict[str, str] = {}
+          for field, env_name in override_env.items():
+              override = clean(os.environ.get(env_name), env_name)
+              if override:
+                  resolved[field] = override
+                  field_sources[field] = "protected_environment_override"
+              else:
+                  resolved[field] = clean(profile.get(field), f"production_profile.{field}")
+                  field_sources[field] = "versioned_production_profile"
+
+          provider = resolved["model_provider"].casefold()
+          model_id = resolved["model_id"]
+          model_api_base = resolved["model_api_base"].rstrip("/")
+          embedding_provider = resolved["embedding_provider"].casefold()
+          embedding_model = resolved["embedding_model"]
+          embedding_api_base = resolved["embedding_api_base"].rstrip("/")
+          try:
+              embedding_dimension = int(resolved["embedding_dimension"])
+              embedding_batch_size = int(resolved["embedding_batch_size"])
+          except ValueError as exc:
+              raise SystemExit("embedding dimension and batch size must be positive integers") from exc
+
+          if provider == "openai":
+              if model_api_base != "https://api.openai.com/v1":
+                  raise SystemExit("Configured OpenAI certification base must be https://api.openai.com/v1")
+          elif provider == "deepseek":
+              if model_api_base not in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}:
+                  raise SystemExit("Configured DeepSeek certification base must use the official api.deepseek.com host")
+          else:
+              raise SystemExit("resolved certification provider must be openai or deepseek")
+
+          if not model_id:
+              raise SystemExit("resolved certification model ID is empty")
+          if not embedding_provider:
+              raise SystemExit("resolved embedding provider is empty")
+          if not embedding_model:
+              raise SystemExit("resolved embedding model is empty")
+          if embedding_dimension < 1:
+              raise SystemExit("EMBEDDING_DIM must be a positive integer")
+          if embedding_batch_size < 1:
+              raise SystemExit("EMBEDDING_BATCH_SIZE must be a positive integer")
+          if not embedding_api_base.startswith("https://"):
+              raise SystemExit("EMBEDDING_API_BASE must use HTTPS")
+
+          missing_secrets = [
+              name for name in (
+                  "CONFIG_MODEL_API_KEY",
+                  "CONFIG_EMBEDDING_API_KEY",
+                  "CONFIG_EVIDENCE_SIGNING_KEY",
+              )
+              if not os.environ.get(name)
+          ]
+          if missing_secrets:
+              raise SystemExit("production-certification Environment is missing required secret(s): " + ", ".join(missing_secrets))
+
           payload = {
-              "contract": "wp08-environment-configuration@1",
-              "source": "production-certification-environment",
-              "model_provider": os.environ["RESOLVED_MODEL_PROVIDER"],
-              "model_id": os.environ["RESOLVED_MODEL_ID"],
-              "model_api_base": os.environ["RESOLVED_MODEL_API_BASE"],
-              "embedding_provider": os.environ["RESOLVED_EMBEDDING_PROVIDER"],
-              "embedding_model": os.environ["RESOLVED_EMBEDDING_MODEL"],
-              "embedding_dimension": int(os.environ["RESOLVED_EMBEDDING_DIM"]),
-              "embedding_api_base": os.environ["RESOLVED_EMBEDDING_API_BASE"],
+              "contract": "wp08-environment-configuration@2",
+              "source": "versioned-production-profile-with-protected-environment-overrides",
+              "production_profile": profile_path.as_posix(),
+              "production_profile_contract": profile["contract"],
+              "field_sources": field_sources,
+              "model_provider": provider,
+              "model_id": model_id,
+              "model_api_base": model_api_base,
+              "embedding_provider": embedding_provider,
+              "embedding_model": embedding_model,
+              "embedding_dimension": embedding_dimension,
+              "embedding_api_base": embedding_api_base,
+              "embedding_batch_size": embedding_batch_size,
               "secrets_present": {
                   "production_model_api_key": True,
                   "production_embedding_api_key": True,
@@ -186,6 +200,21 @@ jobs:
           }
           output = Path(os.environ["RUNNER_TEMP"]) / "wp08-environment-config.json"
           output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          exported = {
+              "OPENAI_MODEL": model_id,
+              "OPENAI_API_BASE": model_api_base,
+              "REAL_MODEL_CERTIFICATION_PROVIDER": provider,
+              "EMBEDDING_PROVIDER": embedding_provider,
+              "EMBEDDING_MODEL": embedding_model,
+              "EMBEDDING_DIM": str(embedding_dimension),
+              "EMBEDDING_API_BASE": embedding_api_base,
+              "EMBEDDING_BATCH_SIZE": str(embedding_batch_size),
+              "WP08_CONFIG_EVIDENCE": output.as_posix(),
+          }
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as handle:
+              for key, value in exported.items():
+                  handle.write(f"{key}={value}\n")
           PY
       - name: Download previous WP-08 checkpoint
         if: ${{ vars.WP08_RESUME_RUN_ID != '' }}
