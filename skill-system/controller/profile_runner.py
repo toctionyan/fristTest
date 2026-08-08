@@ -36,32 +36,88 @@ def expand_profiles(name: str, seen: set[str] | None = None) -> list[dict[str, A
     ids: set[str] = set()
     for row in rows:
         if row["id"] not in ids:
-            unique.append(row); ids.add(row["id"])
+            unique.append(row)
+            ids.add(row["id"])
     return unique
 
 
-def command_argv(raw: list[str]) -> list[str]:
-    return [sys.executable if value == "{python}" else value for value in raw]
+def _workspace_root(raw: str | Path | None = None) -> Path:
+    path = Path.cwd().resolve() if raw is None else Path(raw).expanduser().resolve()
+    if not path.is_dir():
+        raise ValueError(f"profile workspace root does not exist: {path}")
+    return path
 
 
-def run(name: str) -> dict[str, Any]:
-    results=[]
+def command_argv(raw: list[str], *, workspace: Path) -> list[str]:
+    replacements = {
+        "{python}": sys.executable,
+        "{workspace_root}": str(workspace),
+        "{controller_root}": str(ROOT.resolve()),
+    }
+    return [replacements.get(value, value) for value in raw]
+
+
+def run(name: str, *, workspace: str | Path | None = None) -> dict[str, Any]:
+    workspace_root = _workspace_root(workspace)
+    results: list[dict[str, Any]] = []
     for profile in expand_profiles(name):
         for index, raw in enumerate(profile.get("commands") or [], start=1):
-            argv=command_argv([str(v) for v in raw])
-            completed=subprocess.run(argv,cwd=ROOT,text=True,capture_output=True,check=False)
-            row={"profile":profile["id"],"command_index":index,"argv":argv,"exit_code":completed.returncode,"stdout":completed.stdout,"stderr":completed.stderr,"status":"PASS" if completed.returncode==0 else "FAIL"}
+            argv = command_argv([str(v) for v in raw], workspace=workspace_root)
+            completed = subprocess.run(
+                argv,
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            row = {
+                "profile": profile["id"],
+                "command_index": index,
+                "argv": argv,
+                "controller_cwd": str(ROOT.resolve()),
+                "workspace_root": str(workspace_root),
+                "exit_code": completed.returncode,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "status": "PASS" if completed.returncode == 0 else "FAIL",
+            }
             results.append(row)
             if completed.returncode:
-                return {"status":"FAIL","requested_profile":name,"results":results}
-    return {"status":"PASS","requested_profile":name,"results":results}
+                return {
+                    "status": "FAIL",
+                    "requested_profile": name,
+                    "workspace_root": str(workspace_root),
+                    "results": results,
+                }
+    return {
+        "status": "PASS",
+        "requested_profile": name,
+        "workspace_root": str(workspace_root),
+        "results": results,
+    }
 
 
 def main() -> int:
-    parser=argparse.ArgumentParser(); parser.add_argument("profile"); args=parser.parse_args()
-    try: result=run(args.profile)
-    except (OSError,ValueError,json.JSONDecodeError) as exc: result={"status":"FAIL","requested_profile":args.profile,"error":str(exc),"results":[]}
-    print(json.dumps(result,ensure_ascii=False,indent=2))
-    return 0 if result["status"]=="PASS" else 1
+    parser = argparse.ArgumentParser()
+    parser.add_argument("profile")
+    parser.add_argument(
+        "--workspace-root",
+        help="product/workspace authority for workspace-aware profiles; defaults to the caller's cwd",
+    )
+    args = parser.parse_args()
+    try:
+        result = run(args.profile, workspace=args.workspace_root)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        result = {
+            "status": "FAIL",
+            "requested_profile": args.profile,
+            "workspace_root": str(Path(args.workspace_root).expanduser().resolve()) if args.workspace_root else str(Path.cwd().resolve()),
+            "error": str(exc),
+            "results": [],
+        }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["status"] == "PASS" else 1
 
-if __name__=="__main__": raise SystemExit(main())
+
+if __name__ == "__main__":
+    raise SystemExit(main())
