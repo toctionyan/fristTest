@@ -1,0 +1,131 @@
+name: wp08-attempt6-protected-baseline-refresh-v5
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-attempt6-git-tracked-baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-protected-baseline-refresh-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      FORMAL_BRANCH: agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808
+      CANDIDATE_HEAD: b8d0f1a4ab3bdea5493a37b76f452a1bc1e19568
+    steps:
+      - name: Checkout carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: wp08-attempt6-protected-baseline-refresh-20260808
+          path: carrier
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact formal candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.CANDIDATE_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact candidate and install locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Revalidate attempt 6 functional owners
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate/services/agent-service/.venv/bin/python -m pytest -q \
+            candidate/services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
+            candidate/services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py \
+            candidate/skill-system/tests/test_architecture_cycle_debt.py
+          cd candidate
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'scripts'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service' / 'src'))
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_managed_postgres_recovery import run_managed_postgres_recovery
+          with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as product:
+              result = run_managed_postgres_recovery(product)
+          assert result.get('status') == 'PASS', result
+          PY
+
+      - name: Generate unified Git-tracked source governance
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANDIDATE_HEAD="$CANDIDATE_HEAD" "${pythonLocation}/bin/python" -B \
+            carrier/scripts/wp08_attempt6_git_tracked_baseline_governance.py candidate
+
+      - name: Validate project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee ../wp08-attempt6-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee ../wp08-attempt6-skill-control-plane.json
+
+      - name: Publish only three governance files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          printf '%s\n' \
+            'skill-system/controller/project_compatibility.py' \
+            'skill-system/registry/product-source-baseline.json' \
+            'skill-system/tests/test_product_source_baseline_binding.py' | sort > /tmp/expected.txt
+          git diff --name-only "$CANDIDATE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            skill-system/controller/project_compatibility.py \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_product_source_baseline_binding.py
+          git diff --cached --check
+          git commit -m 'Bind protected source governance to Git-tracked authority'
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${CANDIDATE_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD > ../wp08-attempt6-baseline-promotion-head.txt
+
+      - name: Upload governance evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt6-git-tracked-protected-source-governance
+          path: |
+            candidate/wp08-attempt6-baseline-refresh-report.json
+            wp08-attempt6-project-compatibility.json
+            wp08-attempt6-skill-control-plane.json
+            wp08-attempt6-baseline-promotion-head.txt
+          if-no-files-found: error
+          retention-days: 90
