@@ -4,6 +4,7 @@ import pytest
 
 from agent_core.config import validate_production_security
 from agent_core.lifecycle.goal_planning import _goal_alignment_mode
+from agent_core.lifecycle.goal_granularity import _goal_granularity_mode
 from agent_core.runtime.answer_release_alignment import _mode as answer_alignment_mode
 from agent_core.runtime.semantic_capability_verifier import _profile_mode as capability_alignment_mode
 
@@ -20,6 +21,7 @@ def _protected_agent_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "AGENT_ALLOWED_ORIGINS": "https://console.example.com",
         "CAPABILITY_SEMANTIC_VERIFIER_MODE": "model",
         "GOAL_ALIGNMENT_VERIFIER_MODE": "model",
+        "GOAL_GRANULARITY_VERIFIER_MODE": "model",
         "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model",
         "CHECKPOINT_BACKEND": "postgres",
         "STRICT_PERSISTENCE": "true",
@@ -43,6 +45,7 @@ def _protected_agent_env(monkeypatch: pytest.MonkeyPatch) -> None:
     [
         "CAPABILITY_SEMANTIC_VERIFIER_MODE",
         "GOAL_ALIGNMENT_VERIFIER_MODE",
+        "GOAL_GRANULARITY_VERIFIER_MODE",
         "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE",
     ],
 )
@@ -65,7 +68,7 @@ def test_protected_profile_accepts_only_complete_security_contract(
 
 @pytest.mark.parametrize(
     "resolver",
-    [capability_alignment_mode, _goal_alignment_mode, answer_alignment_mode],
+    [capability_alignment_mode, _goal_alignment_mode, _goal_granularity_mode, answer_alignment_mode],
 )
 def test_runtime_verifier_resolution_is_fail_closed_even_without_startup_validation(
     monkeypatch: pytest.MonkeyPatch, resolver
@@ -74,6 +77,7 @@ def test_runtime_verifier_resolution_is_fail_closed_even_without_startup_validat
     env_name = {
         capability_alignment_mode: "CAPABILITY_SEMANTIC_VERIFIER_MODE",
         _goal_alignment_mode: "GOAL_ALIGNMENT_VERIFIER_MODE",
+        _goal_granularity_mode: "GOAL_GRANULARITY_VERIFIER_MODE",
         answer_alignment_mode: "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE",
     }[resolver]
     monkeypatch.setenv(env_name, "disabled")

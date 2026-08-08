@@ -250,13 +250,32 @@ def goal_effect_match_proof(
                 str(value) for value in list(decision.get("candidate_tools") or [])
             }:
                 role = "unsupported_report"
-        allowed = bool(goal is not None and identity and role != "none")
+        completion_proof_output = None
+        if (
+            contract is not None
+            and contract.contract_version == "2"
+            and contract.planning_contract is not None
+            and contract.planning_contract.completion.mode == "tool_output"
+            and role == "completion"
+        ):
+            completion_proof_output = str(
+                contract.planning_contract.completion.output_name or ""
+            ) or None
+        multi_goal_completion_proof_required = len(requested_ids) > 1 and role == "completion"
+        allowed = bool(
+            goal is not None
+            and identity
+            and role != "none"
+            and (not multi_goal_completion_proof_required or completion_proof_output)
+        )
         all_allowed = all_allowed and allowed
         rows.append(
             {
                 "goal_id": goal_id,
                 "requested_effect_identity": identity or None,
                 "role": role,
+                "completion_proof_output": completion_proof_output,
+                "multi_goal_completion_proof_required": multi_goal_completion_proof_required,
                 "allowed": allowed,
             }
         )

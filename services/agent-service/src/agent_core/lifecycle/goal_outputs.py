@@ -16,6 +16,9 @@ from time import time
 from typing import Any, Iterable
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
+from agent_core.kernel.semantic_contract import semantic_goals
+from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
+from agent_core.runtime.capability_effects import canonical_effect_identity, completion_effects_for_contract, support_effects_for_contract
 from agent_core.ledger import find_handle, scope_for_state
 
 GOAL_OUTPUT_REF_VERSION = "goal-output-ref@1"
@@ -156,6 +159,38 @@ def normalize_goal_output_refs(
     return sorted(valid.values(), key=lambda row: (int(row.get("created_turn") or 0), str(row.get("goal_output_ref_id") or ""))), sorted(set(errors))
 
 
+def _output_artifact_ref(
+    *,
+    output_name: str,
+    result: dict[str, Any],
+    additions: list[dict[str, Any]],
+) -> str:
+    addition_by_handle = {str(row.get("handle") or ""): row for row in additions if str(row.get("handle") or "")}
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    direct_candidates: list[str] = []
+    for key in (output_name, f"{output_name}_handle", f"{output_name}_ref"):
+        value = data.get(key)
+        if isinstance(value, str) and value in addition_by_handle:
+            direct_candidates.append(value)
+    plural = data.get(f"{output_name}_handles")
+    if isinstance(plural, list):
+        direct_candidates.extend(str(value) for value in plural if str(value) in addition_by_handle)
+    direct_candidates = list(dict.fromkeys(direct_candidates))
+    if len(direct_candidates) == 1:
+        return direct_candidates[0]
+    mentioned = list(dict.fromkeys(
+        value for value in _walk_strings(data) if value in addition_by_handle
+    ))
+    if len(mentioned) == 1:
+        return mentioned[0]
+    non_artifact = [
+        str(row.get("handle") or "")
+        for row in additions
+        if str(row.get("kind") or "") != "artifact" and str(row.get("handle") or "")
+    ]
+    return non_artifact[0] if len(non_artifact) == 1 else ""
+
+
 def record_goal_outputs_from_tool_result(
     existing_refs: Iterable[dict[str, Any]] | None,
     *,
@@ -173,26 +208,52 @@ def record_goal_outputs_from_tool_result(
     contract = capability_registry.contract_for_tool(str(tool_name or ""))
     if contract is None or contract.contract_version != "2" or contract.planning_contract is None:
         return [deepcopy(row) for row in list(existing_refs or []) if isinstance(row, dict)]
-    bound_goals = [str(value) for value in goal_ids if str(value)]
-    if len(bound_goals) != 1:
+    bound_goals = list(dict.fromkeys(str(value) for value in goal_ids if str(value)))
+    if not bound_goals:
         return [deepcopy(row) for row in list(existing_refs or []) if isinstance(row, dict)]
     semantic = state.get("frozen_semantic_contract") if isinstance(state.get("frozen_semantic_contract"), dict) else {}
     if not semantic:
         return [deepcopy(row) for row in list(existing_refs or []) if isinstance(row, dict)]
 
-    additions = [deepcopy(row) for row in list(ledger_additions or []) if isinstance(row, dict) and str(row.get("handle") or "")]
-    addition_by_handle = {str(row["handle"]): row for row in additions}
-    mentioned = [value for value in _walk_strings((result or {}).get("data")) if value in addition_by_handle]
-    mentioned = list(dict.fromkeys(mentioned))
-    non_artifact = [str(row.get("handle") or "") for row in additions if str(row.get("kind") or "") != "artifact"]
+    formal_by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in semantic_goals(semantic)
+        if str(row.get("goal_id") or "")
+    }
+    completion_effects = set(completion_effects_for_contract(contract))
+    support_effects = set(support_effects_for_contract(contract))
+    primary_completion_output = (
+        str(contract.planning_contract.completion.output_name or "")
+        if contract.planning_contract.completion.mode == "tool_output"
+        else ""
+    )
+    # The caller is the post-CapabilityGate execution boundary.  Preserve all
+    # explicitly bound formal Goals here; direct unit callers may not carry the
+    # MatchProof object, while production dispatch has already proved the exact
+    # completion/support role for every goal_id.
+    eligible_goals = [goal_id for goal_id in bound_goals if goal_id in formal_by_id]
+    if not eligible_goals:
+        return [deepcopy(row) for row in list(existing_refs or []) if isinstance(row, dict)]
+    if len(eligible_goals) > 1:
+        target_compatibility = prove_goal_target_compatibility(
+            formal_by_id[goal_id] for goal_id in eligible_goals
+        )
+        if target_compatibility.get("status") != "SAME":
+            # CapabilityGate should already have rejected this call.  Keep the
+            # persistent GoalOutputRef owner fail-closed as a second boundary so
+            # forged/replayed direct callers cannot turn one artifact into proof
+            # for multiple frozen targets.
+            return [deepcopy(row) for row in list(existing_refs or []) if isinstance(row, dict)]
 
+    additions = [
+        deepcopy(row) for row in list(ledger_additions or [])
+        if isinstance(row, dict) and str(row.get("handle") or "")
+    ]
     refs = [deepcopy(row) for row in list(existing_refs or []) if isinstance(row, dict)]
     for output in contract.planning_contract.produces:
-        artifact_ref = ""
-        if len(mentioned) == 1:
-            artifact_ref = mentioned[0]
-        elif len(non_artifact) == 1:
-            artifact_ref = non_artifact[0]
+        artifact_ref = _output_artifact_ref(
+            output_name=str(output.name), result=result or {}, additions=additions
+        )
         if not artifact_ref:
             continue
         entry = find_handle(merged_ledger, artifact_ref, scope=scope_for_state(state), active_only=True)
@@ -202,39 +263,66 @@ def record_goal_outputs_from_tool_result(
         freshness_expires = time() + int(output.freshness_seconds or 0) if output.freshness_seconds else 0
         expires_candidates = [value for value in (entry_expires, freshness_expires) if value > 0]
         expires_at = min(expires_candidates) if expires_candidates else 0
-        base = {
-            "version": GOAL_OUTPUT_REF_VERSION,
-            "status": _ACTIVE_STATUS,
-            "verified": True,
-            "producer_goal_id": bound_goals[0],
-            "producer_tool_name": str(tool_name),
-            "source_effect_id": str(effect_id or "") or None,
-            "output_name": str(output.name),
-            "output_type": str(output.type_name),
-            "output_authority": str(output.authority),
-            "completion_proof": bool(output.completion_proof),
-            "artifact_ref": artifact_ref,
-            "target_binding": _target_binding(entry, ledger=merged_ledger, state=state),
-            "scope": deepcopy(entry.get("scope") or scope_for_state(state)),
-            "semantic_contract_id": str(semantic.get("semantic_contract_id") or ""),
-            "semantic_digest": str(semantic.get("semantic_digest") or ""),
-            "capability_registry_version": str(capability_registry.version or ""),
-            "created_turn": int(state.get("turn_index") or semantic.get("turn") or 0),
-            "expires_at": expires_at,
-        }
-        identity = _digest({
-            "producer_goal_id": base["producer_goal_id"],
-            "output_type": base["output_type"],
-            "artifact_ref": base["artifact_ref"],
-            "semantic_contract_id": base["semantic_contract_id"],
-        })
-        base["goal_output_ref_id"] = f"goal-output:{identity[:24]}"
-        candidate = _with_digest(base)
-        refs = [
-            row for row in refs
-            if str(row.get("goal_output_ref_id") or "") != candidate["goal_output_ref_id"]
-        ]
-        refs.append(candidate)
+        for goal_id in eligible_goals:
+            effect_identity = canonical_effect_identity(formal_by_id[goal_id].get("requested_effect"))
+            role = (
+                "completion" if effect_identity in completion_effects
+                else "support" if effect_identity in support_effects
+                else "runtime_bound"
+            )
+            if len(eligible_goals) > 1:
+                # A shared Tool call may attach completion evidence to multiple
+                # Goals only through the single completion output explicitly
+                # named by CapabilityCompletionContract.  Other produced values
+                # remain Ledger facts and cannot become cross-Goal proof by
+                # association.
+                if role != "completion" or str(output.name) != primary_completion_output:
+                    continue
+            base = {
+                "version": GOAL_OUTPUT_REF_VERSION,
+                "status": _ACTIVE_STATUS,
+                "verified": True,
+                "producer_goal_id": goal_id,
+                "producer_goal_ids": eligible_goals,
+                "producer_tool_name": str(tool_name),
+                "source_effect_id": str(effect_id or "") or None,
+                "goal_effect_role": role,
+                "output_name": str(output.name),
+                "output_type": str(output.type_name),
+                "output_authority": str(output.authority),
+                "completion_proof_output_name": (
+                    primary_completion_output if role == "completion" else None
+                ),
+                "completion_proof": bool(
+                    output.completion_proof
+                    and role == "completion"
+                    and (
+                        len(eligible_goals) == 1
+                        or str(output.name) == primary_completion_output
+                    )
+                ),
+                "artifact_ref": artifact_ref,
+                "target_binding": _target_binding(entry, ledger=merged_ledger, state=state),
+                "scope": deepcopy(entry.get("scope") or scope_for_state(state)),
+                "semantic_contract_id": str(semantic.get("semantic_contract_id") or ""),
+                "semantic_digest": str(semantic.get("semantic_digest") or ""),
+                "capability_registry_version": str(capability_registry.version or ""),
+                "created_turn": int(state.get("turn_index") or semantic.get("turn") or 0),
+                "expires_at": expires_at,
+            }
+            identity = _digest({
+                "producer_goal_id": goal_id,
+                "output_type": base["output_type"],
+                "artifact_ref": base["artifact_ref"],
+                "semantic_contract_id": base["semantic_contract_id"],
+            })
+            base["goal_output_ref_id"] = f"goal-output:{identity[:24]}"
+            candidate = _with_digest(base)
+            refs = [
+                row for row in refs
+                if str(row.get("goal_output_ref_id") or "") != candidate["goal_output_ref_id"]
+            ]
+            refs.append(candidate)
     return refs
 
 
@@ -250,10 +338,36 @@ def reusable_goal_outputs_for_goal(
         state=state,
         capability_registry=capability_registry,
     )
-    eligible_refs = [
-        row for row in refs
-        if str(row.get("producer_goal_id") or "") in dependency_goal_ids
-    ]
+    semantic = (
+        state.get("frozen_semantic_contract")
+        if isinstance(state.get("frozen_semantic_contract"), dict)
+        else {}
+    )
+    formal_by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in semantic_goals(semantic)
+        if str(row.get("goal_id") or "")
+    }
+    consumer_goal_id = str(goal_plan.get("goal_id") or "")
+    consumer_goal = formal_by_id.get(consumer_goal_id)
+    eligible_refs: list[dict[str, Any]] = []
+    target_errors: list[str] = []
+    for row in refs:
+        producer_goal_id = str(row.get("producer_goal_id") or "")
+        if producer_goal_id not in dependency_goal_ids:
+            continue
+        producer_goal = formal_by_id.get(producer_goal_id)
+        compatibility = prove_goal_target_compatibility(
+            [goal for goal in (producer_goal, consumer_goal) if isinstance(goal, dict)]
+        )
+        status = str(compatibility.get("status") or "")
+        if status == "SAME":
+            eligible_refs.append(row)
+        elif status == "DIFFERENT":
+            target_errors.append("GOAL_OUTPUT_REF_TARGET_MISMATCH")
+        else:
+            target_errors.append("GOAL_OUTPUT_REF_TARGET_UNPROVEN")
+    errors = sorted(set([*errors, *target_errors]))
     reusable_by_tool: dict[str, set[str]] = {}
     consumed: list[dict[str, Any]] = []
     path_tools = {

@@ -29,6 +29,12 @@ _RUNTIME_STEP_FIELDS = {
     "failure_type",
     "failure_reason",
 }
+_RUNTIME_PER_GOAL_VERIFICATION_FIELDS = {
+    "verified_result_member_count",
+    "goal_cardinality_eligible",
+    "goal_completion_eligible",
+}
+
 _RUNTIME_GOAL_FIELDS = {
     "coverage_status",
     "covered_by_step_ids",
@@ -43,6 +49,8 @@ _RUNTIME_VERIFICATION_FIELDS = {
     "verified_result_member_count",
     "goal_cardinality_eligible",
     "goal_completion_eligible",
+    "goal_cardinality_eligible_by_goal",
+    "goal_completion_eligible_by_goal",
     "superseded_by_effect_id",
     "candidate_repaired",
 }
@@ -79,11 +87,23 @@ def _strip_fields(row: dict[str, Any], denied: set[str]) -> dict[str, Any]:
 def _strip_step_runtime(row: dict[str, Any]) -> dict[str, Any]:
     output = _strip_fields(row, _RUNTIME_STEP_FIELDS)
     verification = output.get("verification") if isinstance(output.get("verification"), dict) else {}
-    output["verification"] = {
+    cleaned = {
         key: deepcopy(value)
         for key, value in verification.items()
         if key not in _RUNTIME_VERIFICATION_FIELDS
     }
+    per_goal = cleaned.get("per_goal") if isinstance(cleaned.get("per_goal"), dict) else None
+    if per_goal is not None:
+        cleaned["per_goal"] = {
+            str(goal_id): {
+                key: deepcopy(value)
+                for key, value in dict(raw).items()
+                if key not in _RUNTIME_PER_GOAL_VERIFICATION_FIELDS
+            }
+            for goal_id, raw in per_goal.items()
+            if isinstance(raw, dict)
+        }
+    output["verification"] = cleaned
     return output
 
 

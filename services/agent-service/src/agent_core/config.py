@@ -171,6 +171,7 @@ def get_runtime_config_diagnostics(mask_secrets: bool = True) -> dict[str, objec
         },
         "capability_semantic_verifier_mode": os.getenv("CAPABILITY_SEMANTIC_VERIFIER_MODE", "auto"),
         "goal_alignment_verifier_mode": os.getenv("GOAL_ALIGNMENT_VERIFIER_MODE", "auto"),
+        "goal_granularity_verifier_mode": os.getenv("GOAL_GRANULARITY_VERIFIER_MODE", "auto"),
         "answer_release_alignment_verifier_mode": os.getenv("ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE", "auto"),
         "agent_require_auth": os.getenv("AGENT_REQUIRE_AUTH", "true" if not is_local_dev() else "false"),
         "agent_auth_provider": os.getenv("AGENT_AUTH_PROVIDER", "remote_userinfo" if not is_local_dev() else "dev_headers"),
@@ -277,6 +278,7 @@ def validate_production_security() -> None:
     for verifier_env in (
         "CAPABILITY_SEMANTIC_VERIFIER_MODE",
         "GOAL_ALIGNMENT_VERIFIER_MODE",
+        "GOAL_GRANULARITY_VERIFIER_MODE",
         "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE",
     ):
         try:

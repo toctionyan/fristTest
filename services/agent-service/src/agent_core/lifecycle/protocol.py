@@ -12,12 +12,77 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
+from agent_core.lifecycle.condition_expression import condition_schema
 from agent_core.kernel.loop_contract import (
     MAX_AGENT_LOOP_STEPS_DEFAULT,
     MAX_SAME_CALLS_PER_TURN_DEFAULT,
 )
 
 MAX_WORK_ITEMS = 12
+
+
+REFERENCE_EXPRESSION_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "reference_type": {"const": "explicit_result_ref"},
+                "result_ref": {"type": "string"},
+                "object_type": {"type": "string"},
+                "expected_cardinality": {"enum": ["single", "collection", "unknown"]},
+                "evidence_span": {"type": "string"},
+            },
+            "required": ["reference_type", "result_ref", "evidence_span"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "reference_type": {"const": "temporal_visible_result"},
+                "temporal_relation": {
+                    "enum": ["latest", "previous", "previous_previous", "visible_turn_offset", "first_visible", "last_same_type", "explicit_turn"]
+                },
+                "visible_turn_offset": {"type": "integer", "minimum": 0, "maximum": 50},
+                "source_turn": {"type": "integer", "minimum": 0},
+                "object_type": {"type": "string"},
+                "expected_cardinality": {"enum": ["single", "collection", "unknown"]},
+                "evidence_span": {"type": "string"},
+            },
+            "required": ["reference_type", "temporal_relation", "evidence_span"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "reference_type": {"const": "ordinal_visible_member"},
+                "temporal_relation": {
+                    "enum": ["latest", "previous", "previous_previous", "visible_turn_offset", "first_visible", "last_same_type", "explicit_turn"]
+                },
+                "visible_turn_offset": {"type": "integer", "minimum": 0, "maximum": 50},
+                "source_turn": {"type": "integer", "minimum": 0},
+                "position": {"type": "integer", "minimum": 1, "maximum": 100},
+                "object_type": {"type": "string"},
+                "expected_cardinality": {"const": "single"},
+                "evidence_span": {"type": "string"},
+            },
+            "required": ["reference_type", "temporal_relation", "position", "evidence_span"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "reference_type": {"const": "explicit_visible_member"},
+                "member_handle": {"type": "string"},
+                "source_result_ref": {"type": "string"},
+                "object_type": {"type": "string"},
+                "expected_cardinality": {"const": "single"},
+                "evidence_span": {"type": "string"},
+            },
+            "required": ["reference_type", "member_handle", "evidence_span"],
+            "additionalProperties": False,
+        },
+    ]
+}
 
 
 _GOAL_LIFECYCLE_ENUM = ["OPEN", "ACTIVE", "BLOCKED", "PAUSED", "COMPLETED", "CANCELLED", "SUPERSEDED"]
@@ -52,7 +117,7 @@ GOAL_CHANGE_SCHEMA: dict[str, Any] = {
                     "properties": {
                         "target_candidate": {"type": "object", "additionalProperties": True},
                         "input_candidates": {"type": "object", "additionalProperties": True},
-                        "condition": {},
+                        "condition": condition_schema(depth=3),
                         "depends_on": {"type": "array", "items": {"type": "string"}},
                     },
                     "minProperties": 1,
@@ -134,6 +199,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
             "requested_effect 使用开放字符串描述用户要实现的业务效果，不得为了匹配现有工具改写为相近能力。"
             "goal_type 仅是旧执行链兼容提示，可省略且不是正式语义。"
             "修改已有 Goal 或 Focus 时必须复制 ContextBundle 中当前 revision，并提供当前用户原话的连续 evidence_span；"
+            "显式引用历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"
             "requested_effect 变化不能 PATCH，必须新建 Goal 并显式 supersede 旧 Goal。此阶段看不到业务工具名。"
         ),
         "parameters": {
@@ -181,8 +247,9 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                                 "description": "需要继续既有 Goal 时引用其 goal_id；不要求改变本轮其他独立 Goal。",
                             },
                             "target_candidate": {"type": "object", "additionalProperties": True},
+                            "reference_expression": deepcopy(REFERENCE_EXPRESSION_SCHEMA),
                             "input_candidates": {"type": "object", "additionalProperties": True},
-                            "condition": {},
+                            "condition": condition_schema(depth=3),
                             "execution_commitment": {"type": "string"},
                         },
                         "required": [
@@ -532,7 +599,7 @@ def agent_loop_schemas(
             "type": "array",
             "minItems": 1,
             "items": {"type": "string"},
-            "description": "此调用明确服务的已冻结语义合同 goal_id。业务调用必须且只能绑定一个目标；终止调用可绑定多个已处理目标。",
+            "description": "此调用明确服务的已冻结语义合同 goal_id。一个能力只有在精确完成每个绑定 Goal、目标兼容且分别有完成证明时才可绑定多个 Goal；终止调用可绑定多个已处理目标。",
         }
         required = list(parameters.get("required") or [])
         if "goal_ids" not in required:

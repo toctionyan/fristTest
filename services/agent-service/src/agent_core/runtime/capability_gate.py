@@ -26,11 +26,13 @@ from agent_core.kernel.capability import ToolCapabilityContract
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.runtime.semantic_capability_verifier import verify_candidate_semantics
 from agent_core.runtime.capability_effects import (
+    canonical_effect_identity,
     completion_effects_for_contract,
     goal_effect_match_proof,
     support_effects_for_contract,
 )
 from agent_core.kernel.semantic_contract import semantic_goals
+from agent_core.kernel.semantic_contract import prove_goal_target_compatibility
 from agent_core.context.visible_result_refs import validate_runtime_result_ref, visible_result_refs_from_ledger
 
 
@@ -398,6 +400,99 @@ def _pretool_frontier_proof(
                 "enforcement": str((row or {}).get("enforcement") or ""),
             })
 
+    shared_binding_check: dict[str, Any] = {
+        "required": len(goal_ids) > 1,
+        "declared": False,
+        "coverage_id": None,
+        "coverage_proofs": {},
+    }
+    if len(goal_ids) > 1:
+        expected_goal_ids = set(goal_ids)
+        formal_goal_by_id = {
+            str(goal.get("goal_id") or ""): goal
+            for goal in semantic_goals(state)
+            if str(goal.get("goal_id") or "")
+        }
+        target_compatibility = prove_goal_target_compatibility(
+            formal_goal_by_id[goal_id]
+            for goal_id in sorted(expected_goal_ids)
+            if goal_id in formal_goal_by_id
+        )
+        if target_compatibility.get("status") == "DIFFERENT":
+            errors.append("multi_goal_target_mismatch")
+        elif target_compatibility.get("status") != "SAME":
+            errors.append("multi_goal_target_unproven")
+        matching_shared = next((
+            row
+            for row in list(policy.get("shared_frontier_bindings") or [])
+            if isinstance(row, dict)
+            and str(row.get("tool_name") or "") == tool_name
+            and {str(value) for value in list(row.get("goal_ids") or []) if str(value)} == expected_goal_ids
+        ), None)
+        if matching_shared is None:
+            errors.append("multi_goal_binding_not_declared_in_pretool_policy")
+        else:
+            coverage_proofs = (
+                matching_shared.get("coverage_proofs")
+                if isinstance(matching_shared.get("coverage_proofs"), dict)
+                else {}
+            )
+            if set(coverage_proofs) != expected_goal_ids or any(
+                not str((coverage_proofs.get(goal_id) or {}).get("output_name") or "")
+                for goal_id in expected_goal_ids
+            ):
+                errors.append("multi_goal_binding_completion_proof_incomplete")
+
+            contract = capability_registry.contract_for_tool(tool_name)
+            planning = (
+                contract.planning_contract
+                if contract is not None
+                and contract.contract_version == "2"
+                and contract.planning_contract is not None
+                else None
+            )
+            primary_output_name = (
+                str(planning.completion.output_name or "")
+                if planning is not None and planning.completion.mode == "tool_output"
+                else ""
+            )
+            primary_output = (
+                next(
+                    (output for output in planning.produces if output.name == primary_output_name),
+                    None,
+                )
+                if planning is not None and primary_output_name
+                else None
+            )
+            formal_by_id = {
+                str(goal.get("goal_id") or ""): goal
+                for goal in semantic_goals(state)
+                if str(goal.get("goal_id") or "")
+            }
+            if primary_output is None or not primary_output.completion_proof:
+                errors.append("multi_goal_binding_primary_completion_output_invalid")
+            else:
+                for goal_id in sorted(expected_goal_ids):
+                    proof_row = coverage_proofs.get(goal_id) or {}
+                    expected_effect = canonical_effect_identity(
+                        (formal_by_id.get(goal_id) or {}).get("requested_effect")
+                    )
+                    if (
+                        str(proof_row.get("requested_effect_identity") or "") != expected_effect
+                        or str(proof_row.get("output_name") or "") != primary_output.name
+                        or str(proof_row.get("output_type") or "") != primary_output.type_name
+                    ):
+                        errors.append(f"multi_goal_binding_completion_proof_mismatch:{goal_id}")
+            shared_binding_check = {
+                "required": True,
+                "declared": not any(
+                    error.startswith("multi_goal_binding_") for error in errors
+                ),
+                "coverage_id": str(matching_shared.get("coverage_id") or "") or None,
+                "coverage_proofs": deepcopy(coverage_proofs),
+                "target_compatibility": target_compatibility,
+            }
+
     allowed = not errors
     if allowed:
         reason_code = "pretool_frontier_allowed"
@@ -414,6 +509,7 @@ def _pretool_frontier_proof(
         "goal_ids": sorted(goal_ids),
         "allowed_capability_tools": sorted(allowed_tools),
         "goal_checks": goal_checks,
+        "shared_binding_check": shared_binding_check,
         "policy_version": policy.get("version"),
         "policy_mode": policy.get("mode"),
         "stored_policy_digest": stored_policy_digest or None,
@@ -753,6 +849,111 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
     }
 
 
+def _semantic_reference_binding_proof(
+    state: dict[str, Any],
+    args: dict[str, Any],
+    *,
+    goal_ids: set[str],
+) -> dict[str, Any]:
+    """Bind tool target arguments to frozen Runtime-resolved references.
+
+    ``context_binding`` remains a compatibility/audit annotation for domain
+    target schemas.  It is never allowed to override the frozen
+    ``ReferenceExpression -> ReferentResolutionProof`` result.  New semantic
+    contracts that carry a resolved historical reference must consume that
+    exact result/member in their formal target.
+    """
+
+    goals = {
+        str(row.get("goal_id") or ""): row
+        for row in semantic_goals(state)
+        if isinstance(row, dict) and str(row.get("goal_id") or "") in goal_ids
+    }
+    target = args.get("target") if isinstance(args.get("target"), dict) else {}
+    mode = str(target.get("mode") or "")
+    actual_handles = {
+        str(target.get(name) or "").strip()
+        for name in ("left_handle", "right_handle", "source_handle")
+        if str(target.get(name) or "").strip()
+    }
+    checks: list[dict[str, Any]] = []
+    errors: list[str] = []
+    canonical_scopes: set[str] = set()
+
+    for goal_id in sorted(goal_ids):
+        goal = goals.get(goal_id) or {}
+        resolved = goal.get("resolved_reference") if isinstance(goal.get("resolved_reference"), dict) else None
+        proof = goal.get("referent_resolution_proof") if isinstance(goal.get("referent_resolution_proof"), dict) else None
+        if resolved is None and proof is None:
+            checks.append({
+                "goal_id": goal_id,
+                "required": False,
+                "matched": True,
+                "reason_code": "no_frozen_historical_reference",
+            })
+            continue
+
+        result_ref = str((resolved or {}).get("result_ref") or "").strip()
+        member_handles = {
+            str(value).strip()
+            for value in list((resolved or {}).get("member_handles") or [])
+            if str(value).strip()
+        }
+        resolution_status = str((proof or {}).get("resolution_status") or "")
+        expected_cardinality = str(goal.get("expected_result_cardinality") or "unknown")
+        if len(member_handles) == 1:
+            canonical_scope = f"member:{next(iter(member_handles))}"
+        else:
+            canonical_scope = f"result:{result_ref}" if result_ref else ""
+        if canonical_scope:
+            canonical_scopes.add(canonical_scope)
+
+        if resolution_status != "UNIQUE" or not resolved:
+            matched = False
+            reason = "frozen_reference_not_unique"
+        elif mode in {"entity_match", "all_orders", ""}:
+            matched = False
+            reason = "resolved_reference_must_use_verified_handle_target"
+        elif expected_cardinality == "single" and member_handles:
+            if mode == "artifact":
+                matched = str(target.get("left_handle") or "") in member_handles
+            else:
+                matched = bool(actual_handles & ({result_ref} | member_handles))
+            reason = "resolved_single_reference_bound" if matched else "resolved_single_reference_target_mismatch"
+        else:
+            matched = bool(result_ref and result_ref in actual_handles)
+            reason = "resolved_collection_reference_bound" if matched else "resolved_collection_reference_target_mismatch"
+
+        if not matched:
+            errors.append(f"semantic_reference_binding:{goal_id}:{reason}")
+        checks.append({
+            "goal_id": goal_id,
+            "required": True,
+            "resolution_status": resolution_status or None,
+            "resolved_result_ref": result_ref or None,
+            "resolved_member_handles": sorted(member_handles),
+            "expected_cardinality": expected_cardinality,
+            "target_mode": mode or None,
+            "actual_target_handles": sorted(actual_handles),
+            "canonical_scope": canonical_scope or None,
+            "matched": matched,
+            "reason_code": reason,
+        })
+
+    if len(canonical_scopes) > 1:
+        errors.append("multi_goal_resolved_reference_incompatible")
+
+    return {
+        "version": "semantic-reference-binding-proof@1",
+        "goal_ids": sorted(goal_ids),
+        "checks": checks,
+        "canonical_scopes": sorted(canonical_scopes),
+        "context_binding_authority": "compatibility_annotation_only",
+        "complete": not errors,
+        "errors": errors,
+    }
+
+
 def _literal_key(value: Any) -> str:
     """Normalize only typography; never translate or infer a business alias."""
     return "".join(re.findall(r"[0-9A-Za-z\u3400-\u9fff]+", str(value or "").casefold()))
@@ -1059,19 +1260,33 @@ def issue_execution_permit(
             "errors": ["visible_result_reference_invalid"],
         }
     )
-    semantic = (
-        verify_candidate_semantics(state=state, tool_name=tool_name, args=normalized_args, contract=contract, effect_id=effect_id)
-        if contract is not None and not arg_errors and parameterization.get("parameterization_complete") and visible_reference.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and contract.execution_kind != "unsupported"
-        else None
-    )
-    semantic_exact = bool(semantic is None or semantic.exact)
-    semantic_errors = [] if semantic_exact else [f"semantic_{semantic.verdict if semantic else 'not_evaluated'}"]
+    semantic = None
     surface = state.get("capability_surface") if isinstance(state.get("capability_surface"), dict) else None
     effect = next((
         row for row in list((state.get("current_turn_plan") or {}).get("effects") or [])
         if isinstance(row, dict) and str(row.get("effect_id") or "") == str(effect_id or "")
     ), {})
     goal_ids = {str(value) for value in list(effect.get("goal_ids") or []) if str(value)}
+    semantic_reference_binding = _semantic_reference_binding_proof(
+        state, normalized_args, goal_ids=goal_ids
+    )
+    semantic = (
+        verify_candidate_semantics(
+            state=state, tool_name=tool_name, args=normalized_args,
+            contract=contract, effect_id=effect_id,
+        )
+        if contract is not None
+        and not arg_errors
+        and parameterization.get("parameterization_complete")
+        and visible_reference.get("complete")
+        and semantic_reference_binding.get("complete")
+        and member_scope.get("complete")
+        and derived_scope.get("complete")
+        and contract.execution_kind != "unsupported"
+        else None
+    )
+    semantic_exact = bool(semantic is None or semantic.exact)
+    semantic_errors = [] if semantic_exact else [f"semantic_{semantic.verdict if semantic else 'not_evaluated'}"]
     surface_rows = [
         row for row in list((surface or {}).get("goals") or [])
         if isinstance(row, dict) and str(row.get("goal_id") or "") in goal_ids
@@ -1136,14 +1351,15 @@ def issue_execution_permit(
         "parameterization": parameterization,
         "parameterization_complete": bool(parameterization.get("parameterization_complete")),
         "visible_result_reference": visible_reference,
+        "semantic_reference_binding": semantic_reference_binding,
         "explicit_member_scope": member_scope,
         "derived_collection_scope": derived_scope,
-        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(visible_reference.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
-        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and visible_reference.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
+        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(visible_reference.get("errors") or []), *list(semantic_reference_binding.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
+        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
         "rejected_candidates": [],
         "scope": _scope(state),
     }
-    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not visible_reference.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
+    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not visible_reference.get("complete") or not semantic_reference_binding.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
         return PermitDecision(
             permitted=False,
             match_proof=proof,
@@ -1158,10 +1374,12 @@ def issue_execution_permit(
                     if not frontier_allowed
                     else "CAPABILITY_GOAL_EFFECT_MISMATCH"
                     if not formal_effect_allowed
+                    else "SEMANTIC_REFERENCE_BINDING_MISMATCH"
+                    if contract is not None and not arg_errors and visible_reference.get("complete") and not semantic_reference_binding.get("complete")
                     else "DERIVED_SINGLETON_REQUIRES_PARENT_SCOPE"
-                    if contract is not None and not arg_errors and visible_reference.get("complete") and member_scope.get("complete") and not derived_scope.get("complete")
+                    if contract is not None and not arg_errors and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and not derived_scope.get("complete")
                     else "EXPLICIT_MEMBER_REQUIRES_SINGLE_MEMBER_TARGET"
-                    if contract is not None and not arg_errors and visible_reference.get("complete") and not member_scope.get("complete")
+                    if contract is not None and not arg_errors and visible_reference.get("complete") and semantic_reference_binding.get("complete") and not member_scope.get("complete")
                     else "VISIBLE_RESULT_REF_INVALID"
                     if contract is not None and not arg_errors and not visible_reference.get("complete")
                     else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"
@@ -1181,10 +1399,12 @@ def issue_execution_permit(
                     if not frontier_allowed
                     else "当前工具不能精确完成或支持其绑定 Goal 的 requested_effect；系统不会用相似能力替代。"
                     if not formal_effect_allowed
+                    else "当前工具目标与冻结语义合同中的历史引用解析证明不一致；系统不会使用较新、相似或更宽的对象替代。"
+                    if contract is not None and not arg_errors and visible_reference.get("complete") and not semantic_reference_binding.get("complete")
                     else "当前候选把已由排序或截取得到的单项再次作为比较全集；请使用该结果记录的父集合引用完成本轮比较。"
-                    if contract is not None and not arg_errors and visible_reference.get("complete") and member_scope.get("complete") and not derived_scope.get("complete")
+                    if contract is not None and not arg_errors and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and not derived_scope.get("complete")
                     else "用户证据明确点名了可见集合中的唯一成员，系统拒绝用整个集合代替该成员；请改用该成员的精确可验证引用。"
-                    if contract is not None and not arg_errors and visible_reference.get("complete") and not member_scope.get("complete")
+                    if contract is not None and not arg_errors and visible_reference.get("complete") and semantic_reference_binding.get("complete") and not member_scope.get("complete")
                     else "当前引用的结果不存在、未向用户展示、已失效或与所需对象形态不符；系统不会改选其他结果。"
                     if contract is not None and not arg_errors and not visible_reference.get("complete")
                     else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"
