@@ -1,0 +1,161 @@
+name: stage5g4-final-b39-planrun-repair-probe
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  b39-planrun-repair-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'stage5g4-final-b39-planrun-repair-probe'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout runner head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout canonical B38 plus promoted baseline
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 18d1795ebfd1a1ecb827ce12385b945bac1f74df
+          path: candidate
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Apply minimal B39 repair and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = '18d1795ebfd1a1ecb827ce12385b945bac1f74df'
+          git -C candidate apply ../runner/docs/governance/ci-probes/stage5g4-final-b39-planrun/runtime-field-isolation.patch
+          cp runner/docs/governance/ci-probes/stage5g4-final-b39-planrun/test_plan_run_runtime_field_isolation.py \
+            candidate/services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py
+          git -C candidate diff --check
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          root=Path('candidate')
+          changed=subprocess.check_output(['git','-C',str(root),'status','--porcelain=v1','--untracked-files=all'],text=True).splitlines()
+          paths=sorted(line[3:] for line in changed if line.strip())
+          expected=sorted([
+            'services/agent-service/src/agent_core/lifecycle/plan_execution.py',
+            'services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py',
+          ])
+          assert paths==expected, {'paths':paths,'expected':expected}
+          PY
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run root-cause regression proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_plan_run_runtime_field_isolation.py \
+            --junitxml=../../../b39-focused.xml \
+            | tee ../../../b39-focused.stdout.txt
+
+      - name: Re-run all 31 native failing case families
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            tests/context/test_conversation_regression_suite_execution.py \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_unsupported_capability_surface_binding.py \
+            --junitxml=../../../b39-native-regression.xml \
+            | tee ../../../b39-native-regression.stdout.txt
+
+      - name: Re-run full standard Agent suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+            -m 'not integration and not preprod' \
+            --junitxml=../../../b39-agent-standard.xml \
+            | tee ../../../b39-agent-standard.stdout.txt
+
+      - name: Verify B38 seed and same-target invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            'tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets' \
+            'tests/runtime/test_stage4_goal_output_refs.py::test_completed_dependency_reuses_verified_typed_goal_output' \
+            --junitxml=../../../b39-b38-invariants.xml \
+            | tee ../../../b39-b38-invariants.stdout.txt
+
+      - name: Build probe report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,subprocess,xml.etree.ElementTree as ET
+          from pathlib import Path
+          def j(path):
+              root=ET.parse(path).getroot()
+              suites=[root] if root.tag=='testsuite' else list(root.iter('testsuite'))
+              return {k:sum(int(float(s.attrib.get(k,0))) for s in suites) for k in ('tests','failures','errors','skipped')}
+          candidate=Path('candidate')
+          paths=sorted(line[3:] for line in subprocess.check_output(['git','-C',str(candidate),'status','--porcelain=v1','--untracked-files=all'],text=True).splitlines() if line.strip())
+          report={
+            'schema_version':1,
+            'verdict':'B39_PLANRUN_RUNTIME_FIELD_ISOLATION_REPAIR_PROBE_PASS',
+            'base_head':'18d1795ebfd1a1ecb827ce12385b945bac1f74df',
+            'changed_paths':paths,
+            'focused':j('b39-focused.xml'),
+            'native_regression':j('b39-native-regression.xml'),
+            'agent_standard':j('b39-agent-standard.xml'),
+            'b38_invariants':j('b39-b38-invariants.xml'),
+            'plan_execution_sha256':hashlib.sha256((candidate/'services/agent-service/src/agent_core/lifecycle/plan_execution.py').read_bytes()).hexdigest(),
+            'regression_test_sha256':hashlib.sha256((candidate/'services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py').read_bytes()).hexdigest(),
+          }
+          assert report['changed_paths']==[
+            'services/agent-service/src/agent_core/lifecycle/plan_execution.py',
+            'services/agent-service/tests/runtime/test_plan_run_runtime_field_isolation.py',
+          ]
+          assert all(row['failures']==0 and row['errors']==0 and row['skipped']==0 for row in [report['focused'],report['native_regression'],report['agent_standard'],report['b38_invariants']])
+          Path('B39_PLANRUN_REPAIR_PROBE_REPORT.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+
+      - name: Upload B39 probe evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-final-b39-planrun-repair-probe
+          path: |
+            B39_PLANRUN_REPAIR_PROBE_REPORT.json
+            b39-focused.xml
+            b39-focused.stdout.txt
+            b39-native-regression.xml
+            b39-native-regression.stdout.txt
+            b39-agent-standard.xml
+            b39-agent-standard.stdout.txt
+            b39-b38-invariants.xml
+            b39-b38-invariants.stdout.txt
+          if-no-files-found: error
+          retention-days: 90
