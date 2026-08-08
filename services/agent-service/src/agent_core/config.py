@@ -77,11 +77,10 @@ def get_model_settings() -> dict[str, object]:
 
 def _use_deepseek_adapter(settings: dict[str, object] | None = None) -> bool:
     resolved = settings or get_model_settings()
-    provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
     model = str(resolved.get("model") or "").strip().lower()
     base_url = str(resolved.get("base_url") or "").strip().rstrip("/").lower()
     official_endpoint = base_url in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
-    return provider == "deepseek" or (official_endpoint and model.startswith("deepseek-"))
+    return official_endpoint and model.startswith("deepseek-")
 
 
 def get_model_profile() -> dict[str, object]:
