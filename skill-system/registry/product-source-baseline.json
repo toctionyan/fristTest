@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "git:212295ff5fa13cccbaa752cc12249434dc15c5a8",
+  "generated_from": "git:36e4ee90cff488b3aa42dce3bc29548dd9a3fb15",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-08T12:27:47Z",
+  "generated_at": "2026-08-08T13:40:50Z",
   "protected_roots": [
     "services",
     "web",
@@ -109,7 +109,7 @@
     "services/agent-service/scripts/run_api.py": "feb61759b8da97baaa3bdf9740a20d1b9d6364c4bd5c48ea41eae39a7230e1e9",
     "services/agent-service/scripts/run_demo.py": "ae2d07e7d602cf8987e95aefe34c7a91e186af8bc005f50dc096df1d9ef46d7a",
     "services/agent-service/scripts/run_eval.py": "5b52ed97a4ae63842dec078fca8ed66bd269b2daecc43e09bff34e5c57ee390d",
-    "services/agent-service/scripts/seed_ephemeral_rag_fixture.py": "6b865f9c85075a21985d3a1d0839d64834bdac781fd5e5145fc29af8771c08d4",
+    "services/agent-service/scripts/seed_ephemeral_rag_fixture.py": "edde088e3de26d44dd04061f945e7bc4c46df249cc367a5568609985b0e2f55b",
     "services/agent-service/scripts/sync_module_manifests.py": "4f67b3b01f225c01b38f3516afe44ba19d5fa13d347f057927e9399431906098",
     "services/agent-service/scripts/test_all.sh": "f0535a715590232fd83e99801eb8d38beede626487c5392899172337b98d031c",
     "services/agent-service/scripts/validate_presentation_contracts.py": "417fd0350ea83d091ca8dfada390afe1c507607d934d36ca93c955ff2044ab52",

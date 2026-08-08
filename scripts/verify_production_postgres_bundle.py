@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_ROOT = ROOT / "services" / "agent-service"
@@ -31,6 +31,76 @@ POSTGRES_TESTS = [
     "tests/integration/test_pgvector_runtime.py",
     "tests/integration/test_atomic_postgres_fencing.py",
 ]
+_SECRET_NAME_TOKENS = ("key", "secret", "token", "password", "credential")
+_POSTGRES_DSN_RE = re.compile(r"(postgresql(?:\+[A-Za-z0-9_-]+)?://)([^@\s]+)@", re.IGNORECASE)
+
+
+def _redact_diagnostic_text(value: Any, env: Mapping[str, str]) -> str:
+    text = str(value or "")
+    for name, secret in env.items():
+        secret_text = str(secret or "")
+        if (
+            len(secret_text) >= 6
+            and any(token in str(name).casefold() for token in _SECRET_NAME_TOKENS)
+        ):
+            text = text.replace(secret_text, "***")
+    text = _POSTGRES_DSN_RE.sub(r"\1***@", text)
+    return text[-2400:]
+
+
+def _last_json_object(stdout: str) -> dict[str, Any]:
+    for line in reversed(str(stdout or "").splitlines()):
+        try:
+            payload = json.loads(line.strip())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _probe_agent_graph(env: Mapping[str, str]) -> dict[str, Any]:
+    """Rebuild AgentService under the exact disposable runtime and emit safe diagnostics."""
+
+    code = r'''
+import json
+from app.services.agent_service import AgentService
+service = None
+try:
+    service = AgentService()
+    print(json.dumps({
+        "graph_ready": service.graph is not None,
+        "agent_runtime_error": service.agent_runtime_error,
+    }, ensure_ascii=False))
+except Exception as exc:
+    print(json.dumps({
+        "graph_ready": False,
+        "constructor_error_type": exc.__class__.__name__,
+        "agent_runtime_error": str(exc),
+    }, ensure_ascii=False))
+finally:
+    if service is not None:
+        close = getattr(service, "close", None)
+        if callable(close):
+            close()
+'''
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", code],
+        cwd=AGENT_ROOT,
+        env={str(key): str(value) for key, value in env.items()},
+        text=True,
+        capture_output=True,
+        timeout=180,
+        check=False,
+    )
+    payload = _last_json_object(completed.stdout)
+    return {
+        "probe_exit_code": int(completed.returncode),
+        "graph_ready": bool(payload.get("graph_ready")),
+        "constructor_error_type": str(payload.get("constructor_error_type") or "") or None,
+        "agent_runtime_error": _redact_diagnostic_text(payload.get("agent_runtime_error"), env) or None,
+        "probe_stderr": _redact_diagnostic_text(completed.stderr, env) or None,
+    }
 
 
 def _database_identity(url: str, *, instance_nonce: str) -> dict[str, Any]:
@@ -126,7 +196,23 @@ def main() -> int:
             image_evidence = postgres.image_evidence
             integration = _run_integration_tests(postgres.url)
             with ProductRuntimeHarness(persistence_url=postgres.url) as product:
-                recovery = run_managed_postgres_recovery(product)
+                try:
+                    recovery = run_managed_postgres_recovery(product)
+                except Exception as exc:
+                    diagnostic = _probe_agent_graph(product.env)
+                    service_logs = {
+                        name: _redact_diagnostic_text(tail, product.env)
+                        for name, tail in product.diagnostic_tails().items()
+                    }
+                    raise ProductionCertificationError(
+                        "postgres_public_recovery_failed",
+                        json.dumps({
+                            "recovery_error_type": exc.__class__.__name__,
+                            "recovery_error": _redact_diagnostic_text(exc, product.env),
+                            "agent_graph_diagnostic": diagnostic,
+                            "service_logs": service_logs,
+                        }, ensure_ascii=False, sort_keys=True),
+                    ) from exc
         result = {
             "contract": "production-postgres-certification@1",
             "status": "PASS",
