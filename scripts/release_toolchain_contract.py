@@ -30,6 +30,9 @@ FINGERPRINT_ENV = "PRODUCTION_CERTIFICATION_TOOLCHAIN_FINGERPRINT"
 EVIDENCE_ENV = "PRODUCTION_CERTIFICATION_TOOLCHAIN_EVIDENCE"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _ACTION_RE = re.compile(r"^\s*(?:-\s+)?uses:\s+([^\s@]+)@([^\s#]+)(?:\s+#\s*(.*))?\s*$")
+_UV_VERSION_OUTPUT_RE = re.compile(
+    r"^uv\s+(?P<version>[0-9]+(?:\.[0-9]+){2})(?:\s+\([A-Za-z0-9_.-]+\))?$"
+)
 
 
 class ReleaseToolchainError(RuntimeError):
@@ -308,6 +311,18 @@ def validate_static_contract(workspace_root: Path) -> dict[str, Any]:
     }
 
 
+def _normalize_uv_version_output(value: str) -> str:
+    raw = str(value or "").strip()
+    match = _UV_VERSION_OUTPUT_RE.fullmatch(raw)
+    if match is None:
+        raise ReleaseToolchainError(
+            "release_uv_version_output_invalid",
+            f"unexpected uv --version output: {raw!r}",
+            environment_blocked=True,
+        )
+    return str(match.group("version"))
+
+
 def _run(command: Sequence[str], *, cwd: Path) -> str:
     try:
         completed = subprocess.run(list(command), cwd=cwd, text=True, capture_output=True, timeout=180, check=False)
@@ -436,7 +451,7 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
     docker = _resolved_executable("docker")
     actual_node = _run([str(node), "--version"], cwd=workspace).lstrip("v")
     actual_npm = _run([str(npm), "--version"], cwd=workspace)
-    actual_uv = _run([str(uv), "--version"], cwd=workspace).removeprefix("uv ").strip()
+    actual_uv = _normalize_uv_version_output(_run([str(uv), "--version"], cwd=workspace))
     docker_client_version = _run([str(docker), "version", "--format", "{{.Client.Version}}"], cwd=workspace)
     docker_server_version = _run([str(docker), "version", "--format", "{{.Server.Version}}"], cwd=workspace)
     expected = {
