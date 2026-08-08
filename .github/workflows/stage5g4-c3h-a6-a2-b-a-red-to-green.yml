@@ -1,0 +1,386 @@
+name: stage5g4-c3h-a6-a2-b-a-red-to-green
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  red-to-green:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout exact A3 Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 435fade35f49f133661f06f0b08299e8801366c742
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Pin uv 0.11.29 and install exact policy interpreter environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          test "$(python3 --version)" = "Python 3.12.13"
+          test "$(uv --version | awk '{print $2}')" = "0.11.29"
+          uv sync --project control/services/agent-service --locked --all-groups --python 3.12.13
+          test -x control/services/agent-service/.venv/bin/python
+          test "$(control/services/agent-service/.venv/bin/python --version)" = "Python 3.12.13"
+
+      - name: Restore authoritative installed B38 artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C runner rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f133661f06f0b08299e8801366c742"
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9016338327/zip > installed-b38.zip
+          test "$(sha256sum installed-b38.zip | awk '{print $1}')" = \
+            "ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8"
+          mkdir installed-download
+          unzip -q installed-b38.zip -d installed-download
+          test -d installed-download/root
+          cp -a installed-download/root/. source/
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+      - name: G0 INPUT_INTEGRITY
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p red-green-evidence/g0 red-green-evidence/g1 red-green-evidence/g2 red-green-evidence/g3 red-green-evidence/g4 red-green-evidence/g5
+          python3 - <<'PY'
+          import hashlib, json, subprocess, zipfile
+          from pathlib import Path
+
+          root=Path('source')
+          change='migration-v20.17-b38-context-reference-goal-coverage'
+          manifest=json.loads(Path('installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          expected=sorted(r['path'] for r in manifest['files'])
+          hashes={r['path']:r['sha256'] for r in manifest['files']}
+
+          assert manifest['exact_base_sha']=='e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+          assert manifest['change_id']==change
+          assert manifest['path_count']==30
+          assert len(expected)==30
+
+          actual=set(subprocess.check_output(['git','-C','source','diff','--name-only'],text=True).splitlines())
+          untracked=subprocess.check_output(['git','-C','source','ls-files','--others','--exclude-standard'],text=True).splitlines()
+          actual.update(x for x in untracked if x and not x.startswith('governance/'))
+          actual=sorted(actual)
+          assert actual==expected, {'missing':sorted(set(expected)-set(actual)),'extra':sorted(set(actual)-set(expected))}
+
+          rows=[]
+          for rel in expected:
+              digest=hashlib.sha256((root/rel).read_bytes()).hexdigest()
+              assert digest==hashes[rel], (rel,digest,hashes[rel])
+              rows.append({'path':rel,'sha256':digest})
+
+          active=root/'governance/active-change.json'
+          assert hashlib.sha256(active.read_bytes()).hexdigest()=='8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8'
+          contract=json.loads(active.read_text())
+          assert contract['status']=='implementing'
+          assert contract['repair_governance_permit_digest']=='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert contract.get('repair_governance_consumed_at') is None
+          assert contract['allowed_paths']==[r['path'] for r in manifest['files']]
+
+          permit=root/f'governance/repair-cases/{change}/change-permit.json'
+          assert hashlib.sha256(permit.read_bytes()).hexdigest()=='ace71b8e4d389cb1a5e993797a0c3acf7bf2ec849827e5f6b90fad28b5c3ed7f'
+          p=json.loads(permit.read_text())
+          assert p['permit_digest']=='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert p['allowed_paths']==[r['path'] for r in manifest['files']]
+
+          formal=root/'.quality/stage5g4-c3h-a4/formal-baseline'
+          oracle_manifest=formal/'oracle/manifest.json'
+          overlay=formal/'oracle/overlay.zip'
+          policy=formal/'focused-policy.json'
+          claim=formal/'claim.json'
+          assert hashlib.sha256(oracle_manifest.read_bytes()).hexdigest()=='3eba94de3750b79d8bdec94b6d7342491082b5558eee650be6abf942afb9b4fa'
+          assert hashlib.sha256(overlay.read_bytes()).hexdigest()=='ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6'
+          assert hashlib.sha256(policy.read_bytes()).hexdigest()=='ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914'
+          om=json.loads(oracle_manifest.read_text())
+          assert om['canonical_fingerprint']=='a8315eaa1348eba744379c84e68d6a13fbc0f40578dbbcf8e93ca377541a4f54'
+          c=json.loads(claim.read_text())
+          assert c['claims'][0]['id']=='B1.PREFERRED.RED'
+          selector='services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets'
+          assert c['claims'][0]['evidence_refs']==[selector]
+
+          test_rel='services/agent-service/tests/runtime/test_stage4_goal_output_refs.py'
+          candidate_test=(root/test_rel).read_bytes()
+          assert hashlib.sha256(candidate_test).hexdigest()=='d442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38'
+          with zipfile.ZipFile(overlay) as zf:
+              oracle_test=zf.read(test_rel)
+          assert hashlib.sha256(oracle_test).hexdigest()=='d442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38'
+          assert oracle_test==candidate_test
+
+          baseline=json.loads((root/f'.quality/product-code/{change}/baseline/run-summary.json').read_text())
+          assert baseline['decision']=='FAIL'
+          assert len(baseline['results'])==1
+          assert baseline['results'][0]['id']=='preferred-red-proof'
+          assert baseline['results'][0]['status']=='FAIL'
+          red_out=(root/f'.quality/product-code/{change}/baseline/steps/preferred-red-proof.stdout.txt').read_text()
+          assert 'prepare_refund_from_eligibility' in red_out
+          assert '1 failed' in red_out
+          assert 'ModuleNotFoundError' not in red_out
+
+          out={
+              'gate':'G0.INPUT_INTEGRITY','status':'PASS','candidate_path_count':30,
+              'candidate_files':rows,
+              'contract_sha256':hashlib.sha256(active.read_bytes()).hexdigest(),
+              'permit_digest':p['permit_digest'],
+              'oracle_manifest_sha256':hashlib.sha256(oracle_manifest.read_bytes()).hexdigest(),
+              'oracle_overlay_sha256':hashlib.sha256(overlay.read_bytes()).hexdigest(),
+              'oracle_canonical_fingerprint':om['canonical_fingerprint'],
+              'policy_sha256':hashlib.sha256(policy.read_bytes()).hexdigest(),
+              'preferred_test_sha256':hashlib.sha256(candidate_test).hexdigest(),
+              'baseline_decision':'FAIL','baseline_gate_status':'FAIL',
+          }
+          Path('red-green-evidence/g0/input-integrity.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          find source/governance -type f -print0 | sort -z | xargs -0 sha256sum > red-green-evidence/g0/governance-before.sha256
+          find source/.quality -type f -print0 | sort -z | xargs -0 sha256sum > red-green-evidence/g0/quality-before.sha256
+          git -C source status --porcelain=v1 --untracked-files=all > red-green-evidence/g0/source-status-before.txt
+          git -C control diff --quiet
+
+      - name: G1 PREFERRED_RED_TO_GREEN_TRANSITION
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          policy_path=Path('source/.quality/stage5g4-c3h-a4/formal-baseline/focused-policy.json')
+          policy=json.loads(policy_path.read_text())
+          assert len(policy['steps'])==1
+          step=policy['steps'][0]
+          assert step['id']=='preferred-red-proof'
+          expected_argv=[
+            '/home/runner/work/fristTest/fristTest/control/services/agent-service/.venv/bin/python',
+            '-B','-c',
+            step['argv'][3],
+          ]
+          assert step['argv']==expected_argv
+          assert step['environment']=={
+            'APP_PROFILE':'local',
+            'PYTHONDONTWRITEBYTECODE':'1',
+            'PYTHONPATH':'services/agent-service/src:services/agent-service',
+          }
+          evidence=Path('red-green-evidence/g1')
+          env=os.environ.copy()
+          env.update(step['environment'])
+          env['QUALITY_EVIDENCE_DIR']=str((Path.cwd()/evidence).resolve())
+          proc=subprocess.run(
+              step['argv'],
+              cwd='source',
+              env=env,
+              text=True,
+              capture_output=True,
+              timeout=step['timeout_seconds'],
+          )
+          (evidence/'preferred-red-proof.stdout.txt').write_text(proc.stdout)
+          (evidence/'preferred-red-proof.stderr.txt').write_text(proc.stderr)
+          (evidence/'preferred-red-proof.exit-code.txt').write_text(str(proc.returncode)+'\n')
+          result={
+              'gate':'G1.PREFERRED_RED_TO_GREEN_TRANSITION',
+              'status':'PASS' if proc.returncode==0 else 'FAIL',
+              'policy_step_id':step['id'],
+              'claim_id':'B1.PREFERRED.RED',
+              'selector':'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_dependency_goal_output_is_not_reused_across_different_explicit_targets',
+              'baseline_status':'FAIL',
+              'candidate_status':'PASS' if proc.returncode==0 else 'FAIL',
+              'exit_code':proc.returncode,
+          }
+          (evidence/'transition.json').write_text(json.dumps(result,indent=2)+'\n')
+          assert proc.returncode==0, result
+          assert '1 passed' in proc.stdout, proc.stdout
+          PY
+
+      - name: G2 COUNTEREXAMPLES
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export APP_PROFILE=local
+          export PYTHONDONTWRITEBYTECODE=1
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B -m pytest -q \
+            services/agent-service/tests/runtime/test_stage4_goal_output_refs.py::test_multi_goal_completion_recording_rejects_different_explicit_targets \
+            services/agent-service/tests/runtime/test_semantic_reference_binding.py \
+            services/agent-service/tests/context/test_reference_resolution_contract.py \
+            --junitxml="$GITHUB_WORKSPACE/red-green-evidence/g2/counterexamples.xml" \
+            | tee "$GITHUB_WORKSPACE/red-green-evidence/g2/counterexamples.stdout.txt"
+
+      - name: G3 REGRESSION
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export APP_PROFILE=local
+          export PYTHONDONTWRITEBYTECODE=1
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B -m pytest -q \
+            services/agent-service/tests/runtime/test_pretool_execution_policy.py \
+            services/agent-service/tests/runtime/test_global_goal_capability_coverage.py \
+            services/agent-service/tests/runtime/test_goal_granularity_and_conditions.py \
+            services/agent-service/tests/architecture/test_production_security_contract.py \
+            --junitxml="$GITHUB_WORKSPACE/red-green-evidence/g3/regression.xml" \
+            | tee "$GITHUB_WORKSPACE/red-green-evidence/g3/regression.stdout.txt"
+
+      - name: G4 NEGATIVE_PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export APP_PROFILE=local
+          export PYTHONDONTWRITEBYTECODE=1
+          export PYTHONPATH="$PWD/services/agent-service/src:$PWD/services/agent-service"
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B -m pytest -q \
+            services/agent-service/tests/runtime/test_global_goal_capability_coverage.py::test_global_coverage_rejects_shared_dispatch_for_different_explicit_targets \
+            services/agent-service/tests/runtime/test_pretool_execution_policy.py::test_capability_gate_frontier_rejects_forged_cross_target_shared_binding \
+            services/agent-service/tests/runtime/test_semantic_reference_binding.py::test_multi_goal_single_call_rejects_different_resolved_targets \
+            services/agent-service/tests/runtime/test_global_goal_capability_coverage.py::test_global_coverage_fails_closed_when_shared_target_identity_is_unknown \
+            --junitxml="$GITHUB_WORKSPACE/red-green-evidence/g4/negative-path.xml" \
+            | tee "$GITHUB_WORKSPACE/red-green-evidence/g4/negative-path.stdout.txt"
+
+      - name: G5 POST_TEST_INTEGRITY
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          root=Path('source')
+          manifest=json.loads(Path('installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text())
+          expected=sorted(r['path'] for r in manifest['files'])
+          hashes={r['path']:r['sha256'] for r in manifest['files']}
+
+          actual=set(subprocess.check_output(['git','-C','source','diff','--name-only'],text=True).splitlines())
+          untracked=subprocess.check_output(['git','-C','source','ls-files','--others','--exclude-standard'],text=True).splitlines()
+          actual.update(x for x in untracked if x and not x.startswith('governance/'))
+          actual=sorted(actual)
+          assert actual==expected, {'missing':sorted(set(expected)-set(actual)),'extra':sorted(set(actual)-set(expected))}
+
+          mismatches=[]
+          for rel in expected:
+              digest=hashlib.sha256((root/rel).read_bytes()).hexdigest()
+              if digest!=hashes[rel]:
+                  mismatches.append({'path':rel,'actual':digest,'expected':hashes[rel]})
+          assert not mismatches, mismatches
+
+          active=root/'governance/active-change.json'
+          assert hashlib.sha256(active.read_bytes()).hexdigest()=='8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8'
+          formal=root/'.quality/stage5g4-c3h-a4/formal-baseline'
+          assert hashlib.sha256((formal/'oracle/manifest.json').read_bytes()).hexdigest()=='3eba94de3750b79d8bdec94b6d7342491082b5558eee650be6abf942afb9b4fa'
+          assert hashlib.sha256((formal/'oracle/overlay.zip').read_bytes()).hexdigest()=='ac86e73820716bdf2a995ffe9fc2813b42cbbda741932a14e10597fe11d72da6'
+          assert hashlib.sha256((formal/'focused-policy.json').read_bytes()).hexdigest()=='ca5ce92e4f93d4c411da7d07abfdf5e49f8955aa3af117acfa2f9acdeb695914'
+          assert hashlib.sha256((root/'services/agent-service/tests/runtime/test_stage4_goal_output_refs.py').read_bytes()).hexdigest()=='d442fd4d03f67e0272cc7d1b4308195e36986944a31193b5b51c5c1065d01f38'
+          c=json.loads(active.read_text())
+          assert c['status']=='implementing'
+          assert c['repair_governance_permit_digest']=='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          assert c.get('repair_governance_consumed_at') is None
+          out={
+              'gate':'G5.POST_TEST_INTEGRITY','status':'PASS',
+              'candidate_path_count':30,'candidate_sha_mismatches':mismatches,
+              'active_contract_sha256':hashlib.sha256(active.read_bytes()).hexdigest(),
+              'contract_status':c['status'],
+              'canonical_b38_pushed':False,'production_closed':False,
+          }
+          Path('red-green-evidence/g5/post-test-integrity.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          find source/governance -type f -print0 | sort -z | xargs -0 sha256sum > red-green-evidence/g5/governance-after.sha256
+          find source/.quality -type f -print0 | sort -z | xargs -0 sha256sum > red-green-evidence/g5/quality-after.sha256
+          diff -u red-green-evidence/g0/governance-before.sha256 red-green-evidence/g5/governance-after.sha256
+          diff -u red-green-evidence/g0/quality-before.sha256 red-green-evidence/g5/quality-after.sha256
+          git -C control diff --quiet
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f133661f06f0b08299e8801366c742"
+
+      - name: Build formal RED to GREEN evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          g0=json.loads(Path('red-green-evidence/g0/input-integrity.json').read_text())
+          g1=json.loads(Path('red-green-evidence/g1/transition.json').read_text())
+          g5=json.loads(Path('red-green-evidence/g5/post-test-integrity.json').read_text())
+          report={
+              'schema_version':1,
+              'stage':'5G4-C3H-A6-A2-B-A',
+              'verdict':'FORMAL_RED_TO_GREEN_TRANSITION_PASS',
+              'source_head':'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+              'controller_head':'435fade35f49f133661f06f0b08299e8801366c742',
+              'installation_artifact_id':9016338327,
+              'installation_artifact_digest':'sha256:ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8',
+              'claim_id':'B1.PREFERRED.RED',
+              'selector':g1['selector'],
+              'baseline_status':'FAIL',
+              'candidate_status':'PASS',
+              'same_oracle_test_bytes':True,
+              'oracle_manifest_sha256':g0['oracle_manifest_sha256'],
+              'oracle_overlay_sha256':g0['oracle_overlay_sha256'],
+              'oracle_canonical_fingerprint':g0['oracle_canonical_fingerprint'],
+              'policy_sha256':g0['policy_sha256'],
+              'candidate_path_count':30,
+              'gates':{
+                  'G0.INPUT_INTEGRITY':'PASS',
+                  'G1.PREFERRED_RED_TO_GREEN_TRANSITION':'PASS',
+                  'G2.COUNTEREXAMPLES':'PASS',
+                  'G3.REGRESSION':'PASS',
+                  'G4.NEGATIVE_PATH':'PASS',
+                  'G5.POST_TEST_INTEGRITY':'PASS',
+              },
+              'contract_status':'implementing',
+              'contract_modified_by_verification':False,
+              'contract_verify_run':False,
+              'contract_close_run':False,
+              'canonical_b38_pushed':False,
+              'production_closed':False,
+          }
+          Path('FORMAL_RED_TO_GREEN_REPORT.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+          mkdir root
+          rsync -a --exclude='.git' source/ root/
+
+      - name: Upload formal RED to GREEN evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a6-a2-b-a-red-to-green
+          path: |
+            FORMAL_RED_TO_GREEN_REPORT.json
+            red-green-evidence/**
+            installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json
+            root/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
