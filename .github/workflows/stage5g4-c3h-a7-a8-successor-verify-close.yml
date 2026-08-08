@@ -1,0 +1,124 @@
+name: stage5g4-c3h-a7-a8-successor-verify-close
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  successor-verify-close:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout runner head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 formal source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout pure exact B36 baseline workspace
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: baseline-source
+          fetch-depth: 1
+
+      - name: Checkout pure exact B36 candidate workspace
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: candidate-source
+          fetch-depth: 1
+
+      - name: Checkout verified profile-workspace Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 4e3beb4a6a4a8f2f86b60b95eb8166045b411615
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install exact Controller verification environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          uv sync --project control/services/agent-service --locked --all-groups --python 3.12.13
+          test -x control/services/agent-service/.venv/bin/python
+          test "$(control/services/agent-service/.venv/bin/python --version)" = "Python 3.12.13"
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C baseline-source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C candidate-source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "4e3beb4a6a4a8f2f86b60b95eb8166045b411615"
+
+      - name: Execute current quick, Contract verify and Contract close
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 -B runner/.github/scripts/stage5g4_c3h_a7_a8_verify_close.py \
+            > a7a8-driver.stdout.txt 2> a7a8-driver.stderr.txt
+          rc=$?
+          echo "$rc" > a7a8-driver.exit-code.txt
+          exit 0
+
+      - name: Upload A7-A8 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a7-a8-successor-verify-close
+          path: |
+            AUTHORITATIVE_A7_A8_REPORT.json
+            A7_A8_FAILURE.json
+            a7a8-driver.stdout.txt
+            a7a8-driver.stderr.txt
+            a7a8-driver.exit-code.txt
+            a7a8-evidence/
+            root/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Enforce A7-A8 result
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f a7a8-driver.exit-code.txt
+          test "$(cat a7a8-driver.exit-code.txt)" = "0"
+          test -f AUTHORITATIVE_A7_A8_REPORT.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path('AUTHORITATIVE_A7_A8_REPORT.json').read_text())
+          assert p['verdict']=='SUCCESSOR_CURRENT_QUICK_CONTRACT_VERIFY_AND_CLOSE_PASS'
+          assert p['current_product_quick']=='PASS'
+          assert p['profile_workspace_authority']=='PASS'
+          assert p['contract_verify']=='PASS'
+          assert p['release_judge']=='PASS'
+          assert p['contract_close']=='PASS'
+          assert p['contract_status']=='closed'
+          assert p['contract_result']=='CONVERGED'
+          assert p['repair_governance_consumed'] is True
+          assert p['candidate_path_count']==30
+          assert p['candidate_sha_mismatches']==[]
+          assert p['canonical_b38_pushed'] is False
+          assert p['production_closed'] is False
+          PY
