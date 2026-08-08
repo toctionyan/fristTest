@@ -1,0 +1,157 @@
+name: wp08-attempt3-protected-baseline-refresh
+
+"on":
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  refresh-attempt3-product-baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt3-protected-baseline-refresh-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TARGET_BRANCH: agent/wp08-attempt3-certification-runtime-repair-20260808
+      CANDIDATE_SOURCE_HEAD: 36e4ee90cff488b3aa42dce3bc29548dd9a3fb15
+      APPROVED_PATH: services/agent-service/scripts/seed_ephemeral_rag_fixture.py
+      APPROVED_SHA256: edde088e3de26d44dd04061f945e7bc4c46df249cc367a5568609985b0e2f55b
+    steps:
+      - name: Checkout exact WP-08 attempt 3 repair candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.CANDIDATE_SOURCE_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact candidate and install locked validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SOURCE_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$TARGET_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_SOURCE_HEAD"
+          test "$(sha256sum "candidate/$APPROVED_PATH" | cut -d' ' -f1)" = "$APPROVED_SHA256"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Regenerate exact historical protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('candidate').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in baseline['protected_roots'])
+          ignored = {'.venv', '.pytest_cache', 'node_modules', '__pycache__'}
+          current: dict[str, str] = {}
+          for name in protected_roots:
+              base = root / name
+              if not base.exists():
+                  continue
+              for path in sorted(item for item in base.rglob('*') if item.is_file()):
+                  if any(part in ignored for part in path.parts):
+                      continue
+                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          old = {str(key): str(value) for key, value in baseline['files'].items()}
+          changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
+          expected = {os.environ['APPROVED_PATH']}
+          if changed != expected:
+              raise SystemExit('unexpected_product_source_delta:' + ','.join(sorted(changed ^ expected)))
+          if len(old) != 556 or len(current) != 556:
+              raise SystemExit(f'unexpected_baseline_count:{len(old)}->{len(current)}')
+          if current.get(os.environ['APPROVED_PATH']) != os.environ['APPROVED_SHA256']:
+              raise SystemExit('approved_hash_mismatch')
+
+          baseline['generated_from'] = 'git:' + os.environ['CANDIDATE_SOURCE_HEAD']
+          baseline['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['file_count'] = len(current)
+          baseline['files'] = dict(sorted(current.items()))
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          report = {
+              'contract': 'wp08-attempt3-protected-baseline-refresh@1',
+              'status': 'GENERATED',
+              'candidate_source_head': os.environ['CANDIDATE_SOURCE_HEAD'],
+              'approved_path': os.environ['APPROVED_PATH'],
+              'approved_sha256': os.environ['APPROVED_SHA256'],
+              'old_file_count': len(old),
+              'new_file_count': len(current),
+              'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+              'production_closed': False,
+          }
+          Path('wp08-attempt3-baseline-refresh-report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate refreshed compatibility and Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py \
+            | tee ../wp08-attempt3-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane \
+            | tee ../wp08-attempt3-skill-control-plane.json
+
+      - name: Publish exactly one baseline governance file to repair branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SOURCE_HEAD"
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected.txt
+          git diff --name-only "$CANDIDATE_SOURCE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh WP-08 attempt 3 protected source baseline'
+          BASELINE_HEAD="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_SOURCE_HEAD"
+          git push --force-with-lease=refs/heads/${TARGET_BRANCH}:${CANDIDATE_SOURCE_HEAD} \
+            origin HEAD:${TARGET_BRANCH}
+          echo "$BASELINE_HEAD" > ../wp08-attempt3-baseline-promotion-head.txt
+
+      - name: Upload baseline refresh evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wp08-attempt3-protected-baseline-refresh
+          path: |
+            wp08-attempt3-baseline-refresh-report.json
+            wp08-attempt3-project-compatibility.json
+            wp08-attempt3-skill-control-plane.json
+            wp08-attempt3-baseline-promotion-head.txt
+          if-no-files-found: error
+          retention-days: 30
