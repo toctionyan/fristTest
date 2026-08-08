@@ -30,19 +30,26 @@ def _load(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _required(path: Path, *, code: str) -> str:
+    if not path.is_file():
+        raise CoordinatorContractError(code, f"required coordinator asset is missing: {path}")
+    return path.read_text(encoding="utf-8")
+
+
 def validate_static(workspace_root: Path) -> dict[str, Any]:
     root = Path(workspace_root).resolve()
     workflow_path = root / ".github" / "workflows" / "wp08-release-coordinator.yml"
     coordinator_path = root / "scripts" / "wp08_release_coordinator.py"
+    state_path = root / "scripts" / "wp08_release_state.py"
+    github_path = root / "scripts" / "wp08_release_github.py"
     lock_path = root / "deployment" / "ci" / "release-toolchain-lock.json"
-    if not workflow_path.is_file() or not coordinator_path.is_file() or not lock_path.is_file():
-        raise CoordinatorContractError(
-            "coordinator_asset_missing",
-            "WP-08 coordinator workflow, script, or release toolchain lock is missing",
-        )
 
-    workflow = workflow_path.read_text(encoding="utf-8")
-    coordinator = coordinator_path.read_text(encoding="utf-8")
+    workflow = _required(workflow_path, code="coordinator_workflow_missing")
+    coordinator = _required(coordinator_path, code="coordinator_orchestrator_missing")
+    state_source = _required(state_path, code="coordinator_state_owner_missing")
+    github_source = _required(github_path, code="coordinator_github_adapter_missing")
+    lock = _load(lock_path)
+
     required_workflow_fragments = (
         "name: wp08-release-coordinator",
         "workflow_dispatch:",
@@ -91,7 +98,6 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
             "coordinator must remain outside protected production secret/write boundaries: " + ", ".join(forbidden),
         )
 
-    lock = _load(lock_path)
     actions = lock.get("github_actions") if isinstance(lock.get("github_actions"), dict) else {}
     for name in ("actions/checkout", "actions/setup-python"):
         row = actions.get(name) if isinstance(actions.get(name), dict) else {}
@@ -102,7 +108,7 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
                 f"{name} is not pinned to the release toolchain authority",
             )
 
-    required_code_fragments = (
+    required_state_fragments = (
         'CONTRACT = "wp08-release-run@1"',
         'BOOTSTRAP_CONTRACT = "wp08-release-bootstrap@1"',
         "DEFAULT_MAX_ATTEMPTS = 8",
@@ -112,24 +118,65 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         'STATUS_ATTEMPT_BUDGET_EXHAUSTED = "ATTEMPT_BUDGET_EXHAUSTED"',
         'STATUS_WP08_PASS = "WP08_PASS"',
         'RETRYABLE_WORKFLOW_CONCLUSIONS = {"cancelled", "timed_out", "stale"}',
-        "semantic ``failure`` never retries blindly",
         "WP08-Release-Run-ID",
         "WP08-Parent-Run-ID",
-        "another WP-08 release run is already active",
-        "completed WP-08 run does not match the current release candidate",
-        'payload={"ref": MAIN_BRANCH}',
-        "production_closed",
+        "WP-08 coordinator cannot claim production_closed",
     )
-    missing_code = [fragment for fragment in required_code_fragments if fragment not in coordinator]
-    if missing_code:
+    missing_state = [fragment for fragment in required_state_fragments if fragment not in state_source]
+    if missing_state:
         raise CoordinatorContractError(
             "coordinator_state_contract_missing",
-            "missing coordinator state controls: " + ", ".join(missing_code),
+            "missing release state controls: " + ", ".join(missing_state),
         )
-    if '"inputs"' in coordinator or "PRODUCTION_MODEL_API_KEY" in coordinator or "QUALITY_EVIDENCE_SIGNING_KEY" in coordinator:
+
+    required_adapter_fragments = (
+        'WP08_WORKFLOW_FILE = "wp08-certification.yml"',
+        'QUALITY_WORKFLOW_FILE = "quality.yml"',
+        '"actions/workflows/{WP08_WORKFLOW_FILE}/dispatches"',
+        'payload={"ref": MAIN_BRANCH}',
+        "multiple active WP-08 release runs are forbidden",
+        "workflow dispatch succeeded but the WP-08 run ID could not be resolved",
+        '"X-GitHub-Api-Version": "2026-03-10"',
+    )
+    missing_adapter = [fragment for fragment in required_adapter_fragments if fragment not in github_source]
+    if missing_adapter:
+        raise CoordinatorContractError(
+            "coordinator_github_adapter_contract_missing",
+            "missing GitHub adapter controls: " + ", ".join(missing_adapter),
+        )
+
+    required_orchestrator_fragments = (
+        "Semantic ``failure`` never retries blindly.",
+        "another WP-08 release run is already active",
+        "completed WP-08 run does not match the current release candidate",
+        "initial_authorization_main_quality_passed",
+        "repair_main_quality_already_passed",
+        "bounded_retry_after_",
+        "STATUS_FAILED_NEEDS_CLASSIFICATION",
+        "STATUS_WAITING_REPAIR_CI",
+    )
+    missing_orchestrator = [
+        fragment for fragment in required_orchestrator_fragments if fragment not in coordinator
+    ]
+    if missing_orchestrator:
+        raise CoordinatorContractError(
+            "coordinator_orchestrator_contract_missing",
+            "missing orchestrator controls: " + ", ".join(missing_orchestrator),
+        )
+
+    combined = "\n".join((coordinator, state_source, github_source))
+    forbidden_runtime_ownership = (
+        "PRODUCTION_MODEL_API_KEY",
+        "PRODUCTION_EMBEDDING_API_KEY",
+        "QUALITY_EVIDENCE_SIGNING_KEY",
+        "OPENAI_API_KEY",
+        "EMBEDDING_API_KEY",
+    )
+    owned = [fragment for fragment in forbidden_runtime_ownership if fragment in combined]
+    if owned:
         raise CoordinatorContractError(
             "coordinator_runtime_configuration_boundary_invalid",
-            "coordinator cannot own model configuration or production secrets",
+            "coordinator modules cannot own production model/runtime secrets: " + ", ".join(owned),
         )
 
     bootstrap_paths = sorted((root / "governance" / "release-runs").glob("wp08-bootstrap-*.json"))
@@ -158,7 +205,9 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "contract": CONTRACT,
         "status": "PASS",
         "workflow": workflow_path.relative_to(root).as_posix(),
-        "coordinator": coordinator_path.relative_to(root).as_posix(),
+        "orchestrator": coordinator_path.relative_to(root).as_posix(),
+        "state_owner": state_path.relative_to(root).as_posix(),
+        "github_adapter": github_path.relative_to(root).as_posix(),
         "single_human_authorization": True,
         "automatic_repair_continuation": True,
         "main_quality_required_before_continuation": True,
