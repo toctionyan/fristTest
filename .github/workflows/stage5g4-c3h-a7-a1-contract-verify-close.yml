@@ -1,0 +1,328 @@
+name: stage5g4-c3h-a7-a1-contract-verify-close
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contract-verify-close:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+        with:
+          path: runner
+          fetch-depth: 1
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 1
+
+      - name: Checkout exact A3 Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 435fade35f49f1339fe6d3e248982d54a69ee6af
+          path: control
+          fetch-depth: 1
+
+      - name: Pin Python 3.12.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install exact Controller and product environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'uv==0.11.29'
+          test "$(python3 --version)" = "Python 3.12.13"
+          test "$(uv --version | awk '{print $2}')" = "0.11.29"
+          uv sync --project control/services/agent-service --locked --all-groups --python 3.12.13
+          uv sync --project source/services/agent-service --locked --all-groups --python 3.12.13
+          test -x control/services/agent-service/.venv/bin/python
+          test -x source/services/agent-service/.venv/bin/python
+
+      - name: Restore authoritative independent-review workspace
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          test "$(git -C control rev-parse HEAD)" = "435fade35f49f1339fe6d3e248982d54a69ee6af"
+          gh api -H "Accept: application/vnd.github+json" \
+            /repos/toctionyan/fristTest/actions/artifacts/9017009201/zip > independent-review.zip
+          test "$(sha256sum independent-review.zip | awk '{print $1}')" = \
+            "65b06105f0382de2def15f2bdbb86ad024ec6ff984919f8219232a6660b85d92"
+          mkdir review-download
+          unzip -q independent-review.zip -d review-download
+          test -d review-download/root
+          cp -a review-download/root/. source/
+          test "$(git -C source rev-parse HEAD)" = "e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+
+      - name: Pre-verify governance and candidate integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p verify-close-evidence
+          python3 - <<'PY'
+          import hashlib, json, subprocess, sys
+          from pathlib import Path
+          root = Path("source")
+          change = "migration-v20.17-b38-context-reference-goal-coverage"
+          manifest = json.loads(Path("review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json").read_text())
+          expected = [r["path"] for r in manifest["files"]]
+          hashes = {r["path"]: r["sha256"] for r in manifest["files"]}
+          assert len(expected) == 30
+          for rel in expected:
+              assert hashlib.sha256((root/rel).read_bytes()).hexdigest() == hashes[rel], rel
+          active = root/"governance/active-change.json"
+          c = json.loads(active.read_text())
+          assert c["status"] == "review"
+          assert c["result"] == "PENDING"
+          assert c.get("verification") is None
+          assert c.get("repair_governance_consumed_at") is None
+          assert c["repair_governance_permit_digest"] == "64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d"
+          roles = {r["role"]: r for r in c["review_attestations"]}
+          assert roles["scope-planner"]["decision"] == "PASS"
+          assert roles["adversarial-reviewer"]["decision"] == "PASS"
+          assert "release-judge" not in roles
+          for role in ("scope-planner","adversarial-reviewer"):
+              p = root/roles[role]["evidence"]
+              assert p.is_file()
+              assert hashlib.sha256(p.read_bytes()).hexdigest() == roles[role]["evidence_sha256"]
+          case = root/f"governance/repair-cases/{change}"
+          assert hashlib.sha256((case/"change-permit.json").read_bytes()).hexdigest() == "ace71b8e4d389cb1a5e993797a0c3acf7bf2ec849827e5f6b90fad28b5c3ed7f"
+          assert hashlib.sha256((case/"diff-review.json").read_bytes()).hexdigest() == "a93e160042f1bbbd60ac48deb7ed9bfbd461d5f206aba374a94c6de863675795"
+          assert hashlib.sha256((case/"closure-matrix.json").read_bytes()).hexdigest() == "5ce80226d05c4b2f903aa2a1af8115e92be502b1769c24d9b7d5c3c04ff20206"
+          sys.path.insert(0, str((Path("control")/"skill-system/controller").resolve()))
+          from repair_governance import validate_verification_ready
+          ready = validate_verification_ready(root.resolve(), c, expected_result="CONVERGED")
+          assert ready["status"] == "PASS"
+          Path("verify-close-evidence/pre-verify-readiness.json").write_text(json.dumps(ready, indent=2)+"\n")
+          Path("verify-close-evidence/active-before-product-quick.json").write_bytes(active.read_bytes())
+          PY
+
+      - name: Run formal product Quality Loop quick verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B control/skill-system/controller/product_quality_bridge.py \
+            verify --workspace-root source --mode quick \
+            > verify-close-evidence/product-quick.stdout.json
+          python3 - <<'PY'
+          import json, hashlib
+          from pathlib import Path
+          result = json.loads(Path("verify-close-evidence/product-quick.stdout.json").read_text())
+          assert result["status"] == "PASS", result
+          assert result["run_kind"] == "verification", result
+          assert result["mode"] == "quick", result
+          c = json.loads(Path("source/governance/active-change.json").read_text())
+          assert c["status"] == "review"
+          assert c["result"] == "PENDING"
+          assert c.get("verification") is None
+          pv = c.get("product_validation")
+          assert isinstance(pv, dict)
+          assert pv.get("verification_mode") == "quick"
+          ev = Path("source")/pv["verification"]
+          assert ev.is_dir()
+          summary = json.loads((ev/"run-summary.json").read_text())
+          assert summary["decision"] == "PASS"
+          assert summary["loop_status"] == "CONVERGED"
+          assert summary["completion_eligible"] is True
+          Path("verify-close-evidence/product-validation-after-quick.json").write_text(json.dumps(pv, indent=2)+"\n")
+          PY
+
+      - name: Build exact product profile execution mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, shutil
+          from pathlib import Path
+          src = Path("source")
+          dst = Path("control")
+          manifest = json.loads(Path("review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json").read_text())
+          for row in manifest["files"]:
+              rel = Path(row["path"])
+              target = dst/rel
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src/rel, target)
+              assert hashlib.sha256(target.read_bytes()).hexdigest() == row["sha256"]
+          for name in ("governance", ".quality"):
+              target = dst/name
+              if target.exists():
+                  shutil.rmtree(target)
+              shutil.copytree(src/name, target)
+          assert (dst/"governance/active-change.json").read_bytes() == (src/"governance/active-change.json").read_bytes()
+          out = {
+              "status": "PASS",
+              "candidate_path_count": len(manifest["files"]),
+              "source_contract_sha256": hashlib.sha256((src/"governance/active-change.json").read_bytes()).hexdigest(),
+              "mirror_contract_sha256": hashlib.sha256((dst/"governance/active-change.json").read_bytes()).hexdigest(),
+              "controller_head": "435fade35f49f1339fe6d3e248982d54a69ee6af",
+          }
+          Path("verify-close-evidence/profile-mirror.json").write_text(json.dumps(out, indent=2)+"\n")
+          PY
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          "$PY" -B control/skill-system/controller/product_contract_gate.py \
+            --workspace-root control > verify-close-evidence/mirror-product-contract.json
+          "$PY" -B control/skill-system/controller/product_quality_bridge.py \
+            current --workspace-root control --mode quick > verify-close-evidence/mirror-product-quality-current.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for p in ("verify-close-evidence/mirror-product-contract.json",
+                    "verify-close-evidence/mirror-product-quality-current.json"):
+              d=json.loads(Path(p).read_text()); assert d["status"]=="PASS", (p,d)
+          PY
+
+      - name: Execute exact A3 Contract verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp source/governance/active-change.json verify-close-evidence/active-before-verify.json
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          (
+            cd source
+            "$PY" -B ../control/skill-system/controller/change_contract_cli.py \
+              verify --result CONVERGED
+          ) > verify-close-evidence/verify.stdout.txt 2> verify-close-evidence/verify.stderr.txt
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path("source")
+          c=json.loads((root/"governance/active-change.json").read_text())
+          assert c["status"]=="verified"
+          assert c["result"]=="CONVERGED"
+          assert c.get("repair_governance_consumed_at") is None
+          v=c["verification"]; assert isinstance(v,dict)
+          ev=root/v["path"]; assert ev.is_file()
+          assert hashlib.sha256(ev.read_bytes()).hexdigest()==v["sha256"]
+          record=json.loads(ev.read_text())
+          assert record["result"]=="CONVERGED"
+          assert record["source_fingerprint"]==v["source_fingerprint"]
+          assert all(r["status"]=="PASS" for r in record["profile_results"])
+          requested=[r["requested_profile"] for r in record["profile_results"]]
+          assert requested==["product-contract","product-portable-conformance","product-security","product-quality-quick"], requested
+          roles={r["role"]:r for r in c["review_attestations"]}
+          assert roles["scope-planner"]["decision"]=="PASS"
+          assert roles["adversarial-reviewer"]["decision"]=="PASS"
+          assert roles["release-judge"]["decision"]=="PASS"
+          assert roles["release-judge"]["evidence"]==v["path"]
+          assert roles["release-judge"]["evidence_sha256"]==v["sha256"]
+          Path("verify-close-evidence/verification-record.json").write_bytes(ev.read_bytes())
+          Path("verify-close-evidence/active-after-verify.json").write_bytes((root/"governance/active-change.json").read_bytes())
+          Path("verify-close-evidence/verification-sha-before-close.txt").write_text(v["sha256"]+"\n")
+          PY
+
+      - name: Execute exact A3 Contract close
+        shell: bash
+        run: |
+          set -euo pipefail
+          PY="$GITHUB_WORKSPACE/control/services/agent-service/.venv/bin/python"
+          (
+            cd source
+            "$PY" -B ../control/skill-system/controller/change_contract_cli.py \
+              close --result CONVERGED
+          ) > verify-close-evidence/close.stdout.txt 2> verify-close-evidence/close.stderr.txt
+          python3 - <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+          root=Path("source")
+          change="migration-v20.17-b38-context-reference-goal-coverage"
+          c=json.loads((root/"governance/active-change.json").read_text())
+          assert c["status"]=="closed"
+          assert c["result"]=="CONVERGED"
+          assert isinstance(c.get("closed_at"),str) and c["closed_at"]
+          assert isinstance(c.get("repair_governance_consumed_at"),str) and c["repair_governance_consumed_at"]
+          v=c["verification"]; ev=root/v["path"]
+          assert hashlib.sha256(ev.read_bytes()).hexdigest()==v["sha256"]
+          assert v["sha256"]==Path("verify-close-evidence/verification-sha-before-close.txt").read_text().strip()
+          roles={r["role"]:r for r in c["review_attestations"]}
+          assert roles["release-judge"]["decision"]=="PASS"
+          assert roles["release-judge"]["evidence_sha256"]==v["sha256"]
+          case=root/f"governance/repair-cases/{change}"
+          assert hashlib.sha256((case/"change-permit.json").read_bytes()).hexdigest()=="ace71b8e4d389cb1a5e993797a0c3acf7bf2ec849827e5f6b90fad28b5c3ed7f"
+          assert hashlib.sha256((case/"diff-review.json").read_bytes()).hexdigest()=="a93e160042f1bbbd60ac48deb7ed9bfbd461d5f206aba374a94c6de863675795"
+          assert hashlib.sha256((case/"closure-matrix.json").read_bytes()).hexdigest()=="5ce80226d05c4b2f903aa2a1af8115e92be502b1769c24d9b7d5c3c04ff20206"
+          sys.path.insert(0,str((Path("control")/"skill-system/controller").resolve()))
+          from repair_governance import validate_verification_ready
+          ready=validate_verification_ready(root.resolve(),c,expected_result="CONVERGED")
+          assert ready["status"]=="PASS"
+          Path("verify-close-evidence/post-close-readiness.json").write_text(json.dumps(ready,indent=2)+"\n")
+          Path("verify-close-evidence/active-after-close.json").write_bytes((root/"governance/active-change.json").read_bytes())
+          PY
+
+      - name: Final closed-state product integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          root=Path("source")
+          manifest=json.loads(Path("review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json").read_text())
+          mismatches=[]
+          for row in manifest["files"]:
+              got=hashlib.sha256((root/row["path"]).read_bytes()).hexdigest()
+              if got!=row["sha256"]: mismatches.append({"path":row["path"],"expected":row["sha256"],"actual":got})
+          assert not mismatches,mismatches
+          c=json.loads((root/"governance/active-change.json").read_text())
+          v=json.loads((root/c["verification"]["path"]).read_text())
+          profiles={r["requested_profile"]:r["status"] for r in v["profile_results"]}
+          out={
+              "schema_version":1,
+              "stage":"5G4-C3H-A7-A1",
+              "verdict":"CONTRACT_VERIFIED_AND_CLOSED_EXACT_A3",
+              "source_head":subprocess.check_output(["git","-C","source","rev-parse","HEAD"],text=True).strip(),
+              "controller_head":subprocess.check_output(["git","-C","control","rev-parse","HEAD"],text=True).strip(),
+              "candidate_path_count":len(manifest["files"]),
+              "candidate_sha_mismatches":mismatches,
+              "product_quick_recorded":True,
+              "required_profiles":profiles,
+              "contract_status":c["status"],
+              "contract_result":c["result"],
+              "release_judge":"PASS",
+              "repair_governance_consumed_at":c["repair_governance_consumed_at"],
+              "closed_at":c["closed_at"],
+              "contract_verify_run":True,
+              "contract_close_run":True,
+              "canonical_b38_pushed":False,
+              "production_closed":False,
+          }
+          assert out["source_head"]=="e0e04d51e9da9790bef7bd0482584f60b8e975a9"
+          assert out["controller_head"]=="435fade35f49f1339fe6d3e248982d54a69ee6af"
+          assert all(v=="PASS" for v in profiles.values())
+          assert len(profiles)==4
+          Path("CONTRACT_VERIFY_CLOSE_REPORT.json").write_text(json.dumps(out,indent=2)+"\n")
+          PY
+          rm -rf source/services/agent-service/.venv
+          mkdir root
+          rsync -a --exclude='.git' source/ root/
+
+      - name: Upload closed Contract evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a7-a1-contract-verify-close
+          path: |
+            CONTRACT_VERIFY_CLOSE_REPORT.json
+            verify-close-evidence/**
+            review-download/INDEPENDENT_REVIEW_REPORT.json
+            review-download/review-download/installed-download/FROZEN_B38_CANDIDATE30_MANIFEST.json
+            root/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
