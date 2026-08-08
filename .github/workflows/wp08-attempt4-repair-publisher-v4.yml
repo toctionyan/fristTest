@@ -1,0 +1,100 @@
+name: wp08-attempt4-repair-publisher-v4
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-attempt4-repair-v4:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt4-repair-publisher-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REPAIR_BRANCH: agent/wp08-attempt4-graph-semantic-repair-20260808
+      REPAIR_HEAD: b8a348db154dba0559dab4f156e4c51b9d235666
+      PUBLISHER_SOURCE: 6273cff609960e8a75ff02f2f415c3b2fbb1e55d
+    steps:
+      - name: Checkout exact publisher source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PUBLISHER_SOURCE }}
+          path: publisher
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Checkout exact repair head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.REPAIR_HEAD }}
+          path: candidate
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Replay exact anchored patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$REPAIR_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$REPAIR_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$REPAIR_HEAD"
+          cd candidate
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from pathlib import Path
+          import textwrap
+          source = Path('../publisher/.github/workflows/wp08-attempt4-repair-publisher-v2.yml').read_text(encoding='utf-8')
+          start = source.index('          from pathlib import Path\n')
+          end = source.index('\n          PY\n\n          git add -N ', start)
+          script = textwrap.dedent(source[start:end])
+          compile(script, 'anchored_attempt4_repair.py', 'exec')
+          exec(script, {'__name__': '__main__'})
+          PY
+          git add -N services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+          git diff --check
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          import subprocess
+          expected = {
+              'scripts/verify_production_postgres_bundle.py',
+              'services/agent-service/scripts/verify_preprod_conversation_smoke.py',
+              'services/agent-service/src/agent_core/config.py',
+              'services/agent-service/src/agent_core/lifecycle/protocol.py',
+              'services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py',
+          }
+          actual = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          if actual != expected:
+              raise SystemExit(f'unexpected_repair_paths:{sorted(actual)}')
+          PY
+      - name: Install locked validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+      - name: Run focused regressions with src authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service
+          PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}" .venv/bin/python -B -m pytest -q tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+      - name: Publish exact tested bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add scripts/verify_production_postgres_bundle.py services/agent-service/scripts/verify_preprod_conversation_smoke.py services/agent-service/src/agent_core/config.py services/agent-service/src/agent_core/lifecycle/protocol.py services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
+          git diff --cached --check
+          git commit -m 'Repair WP-08 attempt 4 graph and semantic reference boundaries'
+          NEW_HEAD="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$REPAIR_HEAD"
+          git push --force-with-lease=refs/heads/${REPAIR_BRANCH}:${REPAIR_HEAD} origin HEAD:${REPAIR_BRANCH}
+          echo "repair_head=$NEW_HEAD"
+          sha256sum scripts/verify_production_postgres_bundle.py services/agent-service/scripts/verify_preprod_conversation_smoke.py services/agent-service/src/agent_core/config.py services/agent-service/src/agent_core/lifecycle/protocol.py services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py
