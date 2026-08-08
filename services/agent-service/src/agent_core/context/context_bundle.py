@@ -17,6 +17,7 @@ from agent_core.context.audit_inspection import build_audit_index
 from agent_core.context.conversation_protocol import compile_provider_context
 from agent_core.context.visible_result_refs import visible_result_refs_from_ledger
 from agent_core.context.referent_sets import build_visible_referent_sets
+from agent_core.context.reference_resolution import reference_resolution_prompt_contract
 from agent_core.context.projection import partition_tool_trace
 from agent_core.context.state_projection import (
     active_goal_blockers,
@@ -224,6 +225,7 @@ class ContextBundleBuilder:
             "execution_diagnostics": diagnostics,
             "visible_result_refs": refs,
             "visible_referent_sets": referent_sets,
+            "reference_resolution_contract": reference_resolution_prompt_contract(),
             "active_transaction_state": active_transaction_state,
             "verified_fact_summary": _verified_fact_summary(state),
             # Multiple blockers may coexist and each remains goal-scoped.

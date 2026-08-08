@@ -239,121 +239,116 @@ def _effect_to_step(
             "completion_owner": "runtime",
             "business_write_allowed": False,
         }
+
     tool_name = str(effect.get("tool_name") or "")
-    declared_ids = {str(row.get("goal_id") or "") for row in goal_rows if str(row.get("goal_id") or "")}
-    requested_goal_ids = tuple(
+    declared_by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in goal_rows
+        if str(row.get("goal_id") or "")
+    }
+    requested_goal_ids = tuple(dict.fromkeys(
         str(value) for value in list(effect.get("goal_ids") or []) if str(value)
-    )
-    goal_ids = requested_goal_ids if len(requested_goal_ids) == 1 and requested_goal_ids[0] in declared_ids else ()
-    completion_types = tuple(
-        dict.fromkeys(str(value) for value in list(effect.get("goal_completion_types") or []) if str(value))
-    )
-    completion_effect_identities = tuple(
-        dict.fromkeys(
-            str(value)
-            for value in list(effect.get("completion_effect_identities") or [])
-            if str(value)
-        )
-    )
-    support_effect_identities = tuple(
-        dict.fromkeys(
-            str(value)
-            for value in list(effect.get("support_effect_identities") or [])
-            if str(value)
-        )
-    )
-    mapped_goal = next((
-        row for row in goal_rows
-        if goal_ids and str(row.get("goal_id") or "") == goal_ids[0]
-    ), {})
-    mapped_goal_type = str(mapped_goal.get("goal_type") or "")
-    mapped_requested_effect_identity = canonical_effect_identity(
-        mapped_goal.get("requested_effect")
-    )
-    expected_cardinality = str(
-        mapped_goal.get("expected_result_cardinality") or "unknown"
-    )
+    ))
+    goal_ids = requested_goal_ids if requested_goal_ids and all(value in declared_by_id for value in requested_goal_ids) else ()
+    completion_types = tuple(dict.fromkeys(
+        str(value) for value in list(effect.get("goal_completion_types") or []) if str(value)
+    ))
+    completion_effect_identities = tuple(dict.fromkeys(
+        str(value) for value in list(effect.get("completion_effect_identities") or []) if str(value)
+    ))
+    support_effect_identities = tuple(dict.fromkeys(
+        str(value) for value in list(effect.get("support_effect_identities") or []) if str(value)
+    ))
     effect_cardinality = str(effect.get("target_cardinality_hint") or "unknown")
     verified_target_count = _verified_target_member_count(effect)
-    cardinality_eligible = not (
-        (
-            expected_cardinality == "single"
-            and effect_cardinality == "collection"
-            and verified_target_count != 1
-        )
-        or (expected_cardinality == "collection" and effect_cardinality == "single")
-        or expected_cardinality == "none"
-    )
-    verification["goal_mapping_required"] = True
-    verification["goal_mapping_complete"] = bool(goal_ids)
-    verification["requested_goal_ids"] = list(requested_goal_ids)
-    verification["goal_completion_types"] = list(completion_types)
-    verification["completion_effect_identities"] = list(completion_effect_identities)
-    verification["support_effect_identities"] = list(support_effect_identities)
-    verification["mapped_goal_type"] = mapped_goal_type or None
-    verification["mapped_requested_effect_identity"] = mapped_requested_effect_identity or None
-    verification["expected_result_cardinality"] = expected_cardinality
-    verification["effect_result_cardinality_hint"] = effect_cardinality
-    verification["verified_target_member_count"] = verified_target_count
-    formal_effect_present = bool(
-        mapped_requested_effect_identity
-        and not mapped_requested_effect_identity.startswith("legacy.")
-    )
-    exact_completion = bool(
-        goal_ids
-        and mapped_requested_effect_identity
-        and mapped_requested_effect_identity in completion_effect_identities
-    )
-    exact_support = bool(
-        goal_ids
-        and mapped_requested_effect_identity
-        and mapped_requested_effect_identity in support_effect_identities
-    )
     surface = state.get("capability_surface") if isinstance(state.get("capability_surface"), dict) else {}
-    surface_goal = next((
-        row for row in list(surface.get("goals") or [])
-        if isinstance(row, dict)
-        and goal_ids
-        and str(row.get("goal_id") or "") == goal_ids[0]
-    ), {})
-    unsupported_completion = bool(
-        goal_ids
-        and str(effect.get("execution_kind") or "") == "unsupported"
-        and str(surface_goal.get("status") or "") in {
-            "absent_proven",
-            "completion_capability_absent",
+    surface_by_goal = {
+        str(row.get("goal_id") or ""): row
+        for row in list(surface.get("goals") or [])
+        if isinstance(row, dict) and str(row.get("goal_id") or "")
+    }
+
+    per_goal: dict[str, dict[str, Any]] = {}
+    for goal_id in goal_ids:
+        mapped_goal = declared_by_id[goal_id]
+        mapped_goal_type = str(mapped_goal.get("goal_type") or "")
+        identity = canonical_effect_identity(mapped_goal.get("requested_effect"))
+        expected_cardinality = str(mapped_goal.get("expected_result_cardinality") or "unknown")
+        cardinality_eligible = not (
+            (expected_cardinality == "single" and effect_cardinality == "collection" and verified_target_count != 1)
+            or (expected_cardinality == "collection" and effect_cardinality == "single")
+            or expected_cardinality == "none"
+        )
+        formal_effect_present = bool(identity and not identity.startswith("legacy."))
+        exact_completion = bool(identity and identity in completion_effect_identities)
+        exact_support = bool(identity and identity in support_effect_identities)
+        surface_goal = surface_by_goal.get(goal_id, {})
+        unsupported_completion = bool(
+            execution_kind == "unsupported"
+            and str(surface_goal.get("status") or "") in {"absent_proven", "completion_capability_absent"}
+            and tool_name in {str(value) for value in list(surface_goal.get("candidate_tools") or [])}
+        )
+        legacy_type_eligible = bool(
+            not formal_effect_present and mapped_goal_type and mapped_goal_type in completion_types
+        )
+        completion_identity_eligible = bool(exact_completion or unsupported_completion or legacy_type_eligible)
+        role = (
+            "completion" if exact_completion
+            else "support" if exact_support
+            else "unsupported_report" if unsupported_completion
+            else "legacy_completion" if legacy_type_eligible
+            else "none"
+        )
+        per_goal[goal_id] = {
+            "mapped_goal_type": mapped_goal_type or None,
+            "mapped_requested_effect_identity": identity or None,
+            "expected_result_cardinality": expected_cardinality,
+            "effect_result_cardinality_hint": effect_cardinality,
+            "verified_target_member_count": verified_target_count,
+            "goal_type_completion_eligible": legacy_type_eligible,
+            "formal_effect_completion_eligible": completion_identity_eligible,
+            "formal_effect_support_eligible": exact_support,
+            "goal_effect_role": role,
+            "goal_cardinality_eligible": cardinality_eligible,
+            "goal_completion_eligible": bool(completion_identity_eligible and cardinality_eligible),
         }
-        and tool_name in {
-            str(value) for value in list(surface_goal.get("candidate_tools") or [])
-        }
-    )
-    legacy_type_eligible = bool(
-        not formal_effect_present
-        and goal_ids
-        and mapped_goal_type
-        and mapped_goal_type in completion_types
-    )
-    completion_identity_eligible = bool(
-        exact_completion or unsupported_completion or legacy_type_eligible
-    )
-    verification["goal_type_completion_eligible"] = legacy_type_eligible
-    verification["formal_effect_completion_eligible"] = completion_identity_eligible
-    verification["formal_effect_support_eligible"] = exact_support
-    verification["goal_effect_role"] = (
-        "completion" if exact_completion
-        else "support" if exact_support
-        else "unsupported_report" if unsupported_completion
-        else "legacy_completion" if legacy_type_eligible
-        else "none"
-    )
-    verification["goal_cardinality_eligible"] = cardinality_eligible
-    verification["goal_completion_eligible"] = bool(
-        completion_identity_eligible and cardinality_eligible
-    )
-    if len(requested_goal_ids) != 1:
-        verification["goal_mapping_error"] = "exactly_one_goal_id_required"
-    elif requested_goal_ids[0] not in declared_ids:
-        verification["goal_mapping_error"] = "unknown_goal_id"
+
+    roles = {goal_id: row["goal_effect_role"] for goal_id, row in per_goal.items()}
+    completion_by_goal = {goal_id: bool(row["goal_completion_eligible"]) for goal_id, row in per_goal.items()}
+    verification.update({
+        "goal_mapping_required": True,
+        "goal_mapping_complete": bool(goal_ids),
+        "requested_goal_ids": list(requested_goal_ids),
+        "goal_completion_types": list(completion_types),
+        "completion_effect_identities": list(completion_effect_identities),
+        "support_effect_identities": list(support_effect_identities),
+        "per_goal": per_goal,
+        "goal_effect_roles": roles,
+        "goal_completion_eligible_by_goal": completion_by_goal,
+        "goal_effect_role": next(iter(set(roles.values()))) if roles and len(set(roles.values())) == 1 else "mixed" if roles else "none",
+        "goal_completion_eligible": bool(completion_by_goal) and all(completion_by_goal.values()),
+        "composite_goal_binding": len(goal_ids) > 1,
+    })
+    if len(goal_ids) == 1:
+        only = per_goal[goal_ids[0]]
+        for key in (
+            "mapped_goal_type", "mapped_requested_effect_identity",
+            "expected_result_cardinality", "effect_result_cardinality_hint",
+            "verified_target_member_count", "goal_type_completion_eligible",
+            "formal_effect_completion_eligible", "formal_effect_support_eligible",
+            "goal_cardinality_eligible",
+        ):
+            verification[key] = deepcopy(only.get(key))
+    if not requested_goal_ids:
+        verification["goal_mapping_error"] = "at_least_one_goal_id_required"
+    elif len(set(requested_goal_ids)) != len(requested_goal_ids):
+        verification["goal_mapping_error"] = "duplicate_goal_id"
+    else:
+        unknown = [value for value in requested_goal_ids if value not in declared_by_id]
+        if unknown:
+            verification["goal_mapping_error"] = "unknown_goal_id"
+            verification["unknown_goal_ids"] = unknown
+
     return AgentStep(
         step_id=f"step:{index}",
         effect_id=str(effect.get("effect_id") or "") or None,
@@ -463,7 +458,11 @@ def _build_goals(
             str(step.get("step_id") or "")
             for step in steps
             if goal_id in {str(value) for value in list(step.get("goal_ids") or [])}
-            and bool((step.get("verification") or {}).get("goal_completion_eligible"))
+            and bool(
+                ((step.get("verification") or {}).get("goal_completion_eligible_by_goal") or {}).get(goal_id)
+                if isinstance((step.get("verification") or {}).get("goal_completion_eligible_by_goal"), dict)
+                else (step.get("verification") or {}).get("goal_completion_eligible")
+            )
         )
         satisfaction_proof = _historical_evidence_satisfaction(state=state, goal=row, calls=calls)
         clarification_bound = goal_id in terminal_bindings.get("ask_user_clarification", set())
@@ -644,6 +643,11 @@ def _plan_structure_payload(plan: dict[str, Any]) -> dict[str, Any]:
                     if isinstance(row.get("verification"), dict)
                     else ""
                 ),
+                "goal_effect_roles": deepcopy(
+                    (row.get("verification") or {}).get("goal_effect_roles")
+                    if isinstance((row.get("verification") or {}).get("goal_effect_roles"), dict)
+                    else {}
+                ),
             }
             for row in list(plan.get("steps") or [])
             if isinstance(row, dict)
@@ -776,7 +780,7 @@ def validate_grounded_execution_plan(
             errors.append({"code": "PLAN_SELF_DEPENDENCY", "effect_id": effect_id})
 
         bound_goal_ids = [str(value) for value in list(row.get("goal_ids") or []) if str(value)]
-        if len(bound_goal_ids) != 1:
+        if not bound_goal_ids:
             errors.append(
                 {
                     "code": "PLAN_EXACT_GOAL_BINDING_REQUIRED",
@@ -784,26 +788,41 @@ def validate_grounded_execution_plan(
                     "goal_ids": bound_goal_ids,
                 }
             )
-        elif bound_goal_ids[0] not in known_goal_ids:
-            errors.append(
-                {
-                    "code": "PLAN_UNKNOWN_BOUND_GOAL",
-                    "effect_id": effect_id,
-                    "goal_id": bound_goal_ids[0],
-                }
-            )
-
-        verification = row.get("verification") if isinstance(row.get("verification"), dict) else {}
-        role = str(verification.get("goal_effect_role") or "")
-        allowed_roles = {"completion", "support", "unsupported_report"}
-        if role not in allowed_roles:
             errors.append(
                 {
                     "code": "PLAN_EXACT_CAPABILITY_ROLE_REQUIRED",
                     "effect_id": effect_id,
-                    "role": role or None,
+                    "goal_id": None,
+                    "role": None,
                 }
             )
+        elif len(bound_goal_ids) != len(set(bound_goal_ids)):
+            errors.append({"code": "PLAN_DUPLICATE_BOUND_GOAL", "effect_id": effect_id})
+        unknown_bound = [goal_id for goal_id in bound_goal_ids if goal_id not in known_goal_ids]
+        if unknown_bound:
+            errors.append(
+                {
+                    "code": "PLAN_UNKNOWN_BOUND_GOAL",
+                    "effect_id": effect_id,
+                    "goal_ids": unknown_bound,
+                }
+            )
+
+        verification = row.get("verification") if isinstance(row.get("verification"), dict) else {}
+        roles = verification.get("goal_effect_roles") if isinstance(verification.get("goal_effect_roles"), dict) else {}
+        legacy_role = str(verification.get("goal_effect_role") or "")
+        allowed_roles = {"completion", "support", "unsupported_report", "legacy_completion"}
+        for goal_id in bound_goal_ids:
+            role = str(roles.get(goal_id) or legacy_role)
+            if role not in allowed_roles:
+                errors.append(
+                    {
+                        "code": "PLAN_EXACT_CAPABILITY_ROLE_REQUIRED",
+                        "effect_id": effect_id,
+                        "goal_id": goal_id,
+                        "role": role or None,
+                    }
+                )
 
     cycle = _dependency_cycle(
         {
@@ -821,10 +840,12 @@ def validate_grounded_execution_plan(
         if bool(row.get("required", True))
         and str(row.get("coverage_status") or "") == GoalCoverageStatus.PENDING.value
         and not any(
-            str(step.get("goal_ids", [""])[0] if list(step.get("goal_ids") or []) else "")
-            == str(row.get("goal_id") or "")
-            and str((step.get("verification") or {}).get("goal_effect_role") or "")
-            in ({"completion", "unsupported_report"} | ({"legacy_completion"} if not semantic else set()))
+            str(row.get("goal_id") or "") in {str(value) for value in list(step.get("goal_ids") or []) if str(value)}
+            and str(
+                ((step.get("verification") or {}).get("goal_effect_roles") or {}).get(str(row.get("goal_id") or ""))
+                if isinstance((step.get("verification") or {}).get("goal_effect_roles"), dict)
+                else (step.get("verification") or {}).get("goal_effect_role") or ""
+            ) in ({"completion", "unsupported_report"} | ({"legacy_completion"} if not semantic else set()))
             for step in steps
         )
     ]
@@ -1085,14 +1106,14 @@ def validate_step_dispatch(
     if step is None:
         return {"ok": False, "code": "WORKFLOW_STEP_REQUIRED", "message": "候选效果没有对应的工作流步骤，本次工具调用未执行。"}
     goal_ids = [str(value) for value in list(step.get("goal_ids") or []) if str(value)]
-    if len(goal_ids) != 1:
+    if not goal_ids or len(goal_ids) != len(set(goal_ids)):
         verification = step.get("verification") if isinstance(step.get("verification"), dict) else {}
         requested = [str(value) for value in list(verification.get("requested_goal_ids") or []) if str(value)]
         code = "WORKFLOW_GOAL_BINDING_INVALID" if requested else "WORKFLOW_GOAL_BINDING_REQUIRED"
         return {
             "ok": False,
             "code": code,
-            "message": "每个业务工具调用必须明确绑定且只能绑定一个已声明目标，本次调用未执行。",
+            "message": "业务工具调用必须绑定至少一个且不重复的已声明 Goal；多 Goal 绑定仍需逐 Goal 精确能力证明。",
             "data": {"effect_id": effect_id, "requested_goal_ids": requested},
         }
     if str(workflow_plan.get("plan_contract_version") or "").startswith("grounded-execution-plan@"):
@@ -1263,37 +1284,66 @@ def _derive_step_result_update_from_step(
     verification["verified_by_runtime"] = True
     verified_count = _verified_result_member_count(result)
     verification["verified_result_member_count"] = verified_count
-    verified_target_count = verification.get("verified_target_member_count")
-    expected_cardinality = str(
-        verification.get("expected_result_cardinality") or "unknown"
-    )
-    effect_cardinality = str(
-        verification.get("effect_result_cardinality_hint") or "unknown"
-    )
-    cardinality_eligible = bool(
-        expected_cardinality not in {"none"}
-        and not (
-            expected_cardinality == "collection"
-            and effect_cardinality == "single"
+    per_goal = verification.get("per_goal") if isinstance(verification.get("per_goal"), dict) else {}
+    if per_goal:
+        updated_per_goal: dict[str, dict[str, Any]] = {}
+        completion_by_goal: dict[str, bool] = {}
+        cardinality_by_goal: dict[str, bool] = {}
+        for goal_id, raw in per_goal.items():
+            row = dict(raw) if isinstance(raw, dict) else {}
+            verified_target_count = row.get("verified_target_member_count")
+            expected_cardinality = str(row.get("expected_result_cardinality") or "unknown")
+            effect_cardinality = str(row.get("effect_result_cardinality_hint") or "unknown")
+            cardinality_eligible = bool(
+                expected_cardinality not in {"none"}
+                and not (expected_cardinality == "collection" and effect_cardinality == "single")
+                and not (
+                    expected_cardinality == "single"
+                    and effect_cardinality == "collection"
+                    and verified_count != 1
+                    and verified_target_count != 1
+                )
+            )
+            completion_identity = bool(
+                row.get("formal_effect_completion_eligible",
+                    row.get("goal_type_completion_eligible", row.get("goal_completion_eligible")))
+            )
+            row["verified_result_member_count"] = verified_count
+            row["goal_cardinality_eligible"] = cardinality_eligible
+            row["goal_completion_eligible"] = bool(completion_identity and cardinality_eligible)
+            updated_per_goal[str(goal_id)] = row
+            cardinality_by_goal[str(goal_id)] = cardinality_eligible
+            completion_by_goal[str(goal_id)] = bool(row["goal_completion_eligible"])
+        verification["per_goal"] = updated_per_goal
+        verification["goal_cardinality_eligible_by_goal"] = cardinality_by_goal
+        verification["goal_completion_eligible_by_goal"] = completion_by_goal
+        verification["goal_cardinality_eligible"] = bool(cardinality_by_goal) and all(cardinality_by_goal.values())
+        verification["goal_completion_eligible"] = bool(completion_by_goal) and all(completion_by_goal.values())
+    else:
+        verified_target_count = verification.get("verified_target_member_count")
+        expected_cardinality = str(verification.get("expected_result_cardinality") or "unknown")
+        effect_cardinality = str(verification.get("effect_result_cardinality_hint") or "unknown")
+        cardinality_eligible = bool(
+            expected_cardinality not in {"none"}
+            and not (expected_cardinality == "collection" and effect_cardinality == "single")
+            and not (
+                expected_cardinality == "single"
+                and effect_cardinality == "collection"
+                and verified_count != 1
+                and verified_target_count != 1
+            )
         )
-        and not (
-            expected_cardinality == "single"
-            and effect_cardinality == "collection"
-            and verified_count != 1
-            and verified_target_count != 1
-        )
-    )
-    verification["goal_cardinality_eligible"] = cardinality_eligible
-    verification["goal_completion_eligible"] = bool(
-        verification.get(
-            "formal_effect_completion_eligible",
+        verification["goal_cardinality_eligible"] = cardinality_eligible
+        verification["goal_completion_eligible"] = bool(
             verification.get(
-                "goal_type_completion_eligible",
-                verification.get("goal_completion_eligible"),
-            ),
+                "formal_effect_completion_eligible",
+                verification.get(
+                    "goal_type_completion_eligible",
+                    verification.get("goal_completion_eligible"),
+                ),
+            )
+            and cardinality_eligible
         )
-        and cardinality_eligible
-    )
     return {
         "status": status,
         "result_summary": str(result.get("message") or "")[:500] or None,

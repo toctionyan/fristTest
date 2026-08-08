@@ -18,6 +18,10 @@ import re
 from typing import Any, Protocol
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
+from agent_core.context.reference_resolution import normalize_reference_expression, resolve_reference_expression
+from agent_core.context.visible_result_refs import visible_result_refs_from_ledger
+from agent_core.lifecycle.condition_expression import condition_goal_dependencies, normalize_condition_expression
+from agent_core.lifecycle.goal_granularity import verify_goal_granularity
 from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
 from agent_core.lifecycle.semantic_contract import (
@@ -558,13 +562,60 @@ def validate_goal_declaration(
                 if _clean_text(value, limit=120)
             ],
         }
-        for key in ("target_candidate", "input_candidates", "condition", "execution_commitment"):
+        for key in ("target_candidate", "input_candidates", "execution_commitment"):
             value = raw.get(key)
             if value not in (None, "", [], {}):
                 row[key] = deepcopy(value)
+        if raw.get("condition") not in (None, "", [], {}):
+            row["_raw_condition"] = deepcopy(raw.get("condition"))
+        if raw.get("reference_expression") not in (None, "", [], {}):
+            row["_raw_reference_expression"] = deepcopy(raw.get("reference_expression"))
         goals.append(row)
 
     ids = {row["goal_id"] for row in goals}
+    visible_refs = visible_result_refs_from_ledger(
+        state.get("artifact_ledger") or [], state=state, limit=20
+    )
+    for row in goals:
+        raw_condition = row.pop("_raw_condition", None)
+        if raw_condition is not None:
+            try:
+                condition = normalize_condition_expression(raw_condition, known_goal_ids=ids)
+                condition_dependencies = condition_goal_dependencies(condition)
+                missing_declared_dependencies = sorted(condition_dependencies - set(row.get("depends_on") or []))
+                if missing_declared_dependencies:
+                    errors.append(
+                        f"condition_dependency_not_declared:{row['goal_id']}:{','.join(missing_declared_dependencies)}"
+                    )
+                row["condition"] = condition
+            except ValueError as exc:
+                errors.append(f"invalid_condition:{row['goal_id']}:{exc}")
+        raw_reference = row.pop("_raw_reference_expression", None)
+        if raw_reference is not None:
+            try:
+                expression = normalize_reference_expression(
+                    raw_reference,
+                    user_text=user_text,
+                    expected_object_type=str((row.get("requested_effect") or {}).get("object_type") or ""),
+                    expected_cardinality=str(row.get("expected_result_cardinality") or "unknown"),
+                )
+                proof = resolve_reference_expression(expression, visible_result_refs=visible_refs)
+                row["reference_expression"] = expression
+                row["referent_resolution_proof"] = proof
+                if str(proof.get("resolution_status") or "") != "UNIQUE":
+                    errors.append(
+                        f"reference_resolution_{str(proof.get('resolution_status') or 'INVALID').lower()}:"
+                        f"{row['goal_id']}"
+                    )
+                else:
+                    row["resolved_reference"] = {
+                        "result_ref": proof.get("resolved_result_ref"),
+                        "member_handles": list(proof.get("resolved_member_handles") or []),
+                        "proof_digest": proof.get("proof_digest"),
+                        "authority": "runtime_resolved_customer_visible_reference",
+                    }
+            except ValueError as exc:
+                errors.append(f"invalid_reference_expression:{row['goal_id']}:{exc}")
     for row in goals:
         invalid = [dep for dep in row["depends_on"] if dep not in ids or dep == row["goal_id"]]
         errors.extend(f"invalid_goal_dependency:{row['goal_id']}:{dep}" for dep in invalid)
@@ -654,6 +705,26 @@ def validate_goal_declaration(
             "data": {"alignment_proof": alignment.as_dict(), **_goal_declaration_repair_context(user_text)},
         }, None)
 
+    granularity = verify_goal_granularity(state=state, goals=deepcopy(goals))
+    if not granularity.exact:
+        code = {
+            "under_split": "GOAL_DECLARATION_UNDER_SPLIT",
+            "over_split": "GOAL_DECLARATION_OVER_SPLIT",
+            "mixed": "GOAL_DECLARATION_GRANULARITY_MIXED",
+            "clarify": "GOAL_DECLARATION_REQUIRES_CLARIFICATION",
+            "indeterminate": "GOAL_GRANULARITY_UNVERIFIED",
+        }.get(granularity.verdict, "GOAL_GRANULARITY_UNVERIFIED")
+        return ({
+            "ok": False,
+            "code": code,
+            "message": "Goal 粒度尚未证明为用户可独立验收的业务结果，Runtime 已阻止能力发现。",
+            "data": {
+                "alignment_proof": alignment.as_dict(),
+                "granularity_proof": granularity.as_dict(),
+                **_goal_declaration_repair_context(user_text),
+            },
+        }, None)
+
     contract_goals = []
     for goal in goals:
         row = deepcopy(goal)
@@ -667,6 +738,7 @@ def validate_goal_declaration(
             summary=_clean_text(args.get("summary"), limit=500),
             goals=contract_goals,
             alignment_proof=alignment.as_dict(),
+            granularity_proof=granularity.as_dict(),
             goal_changes=normalized_goal_changes,
             blocker_resolutions=blocker_resolutions,
             focus_change=normalized_focus_change,
@@ -689,7 +761,10 @@ def validate_goal_declaration(
         row["continuation_of"] = source.get("continuation_of")
         row["expected_tools"] = list(source.get("expected_tools") or [])
         row["requested_effect_source"] = source.get("requested_effect_source")
-        for key in ("target_candidate", "input_candidates", "condition", "execution_commitment"):
+        for key in (
+            "target_candidate", "reference_expression", "referent_resolution_proof",
+            "resolved_reference", "input_candidates", "condition", "execution_commitment"
+        ):
             if key in source:
                 row[key] = deepcopy(source[key])
     # Private same-turn hand-off consumed immediately by tool_execution_runtime.

@@ -2,21 +2,32 @@ from __future__ import annotations
 
 """Validated, frozen semantic contract for one user turn.
 
-This module deliberately contains no capability or tool selection.  It stores
-what the user asked for after candidate validation.  Execution failures may
+This module deliberately contains no capability or tool selection. It stores
+what the user asked for after candidate validation. Execution failures may
 change plan progress, but must not rewrite this contract.
 """
 
 from copy import deepcopy
 from typing import Any, Iterable
 
+from agent_core.context.reference_resolution import (
+    normalize_reference_expression,
+    referent_resolution_proof_integrity,
+)
 from agent_core.kernel.semantic_contract import (
     FROZEN_SEMANTIC_CONTRACT_VERSION,
+    GOAL_TARGET_COMPATIBILITY_VERSION,
     assert_semantic_contract_integrity,
     compute_semantic_digest,
+    derive_goal_target_identity,
     find_goal_dependency_cycle,
+    prove_goal_target_compatibility,
     semantic_contract_integrity,
     semantic_goals,
+)
+from agent_core.lifecycle.condition_expression import (
+    condition_goal_dependencies,
+    normalize_condition_expression,
 )
 
 
@@ -25,12 +36,8 @@ def _text(value: Any, *, limit: int = 2000) -> str:
 
 
 def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, str]:
-    """Normalize an open business-effect identity without language classification.
+    """Normalize an open business-effect identity without language classification."""
 
-    The values are open strings.  The program validates shape only; it does not
-    infer an operation from keywords or coerce an unknown effect into a nearby
-    registered category.
-    """
     source = raw if isinstance(raw, dict) else {}
     effect = {
         "domain": _text(source.get("domain"), limit=120),
@@ -47,7 +54,7 @@ def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, 
     return effect
 
 
-def _normalized_goal(goal: dict[str, Any]) -> dict[str, Any]:
+def _normalized_goal_base(goal: dict[str, Any]) -> dict[str, Any]:
     goal_id = _text(goal.get("goal_id"), limit=200)
     description = _text(goal.get("description"))
     evidence_span = _text(goal.get("evidence_span"))
@@ -74,17 +81,83 @@ def _normalized_goal(goal: dict[str, Any]) -> dict[str, Any]:
     continuation_of = _text(goal.get("continuation_of"), limit=200)
     if continuation_of:
         row["continuation_of"] = continuation_of
-    for key in ("target_candidate", "input_candidates", "condition", "execution_commitment"):
+    for key in (
+        "target_candidate",
+        "input_candidates",
+        "condition",
+        "execution_commitment",
+        "reference_expression",
+        "referent_resolution_proof",
+        "resolved_reference",
+    ):
         value = goal.get(key)
         if value not in (None, "", [], {}):
             row[key] = deepcopy(value)
-    # A legacy execution category may be retained as metadata for adapters, but
-    # it is not part of the formal semantic identity and is never inferred here.
     legacy = _text(goal.get("goal_type"), limit=80)
     if legacy:
         row["compatibility"] = {"legacy_goal_type": legacy}
     return row
 
+
+def _normalize_reference_fields(goal: dict[str, Any], *, user_text: str) -> None:
+    expression = goal.get("reference_expression")
+    proof = goal.get("referent_resolution_proof")
+    resolved = goal.get("resolved_reference")
+    if expression is None and proof is None and resolved is None:
+        return
+    if expression is not None:
+        goal["reference_expression"] = normalize_reference_expression(
+            expression,
+            user_text=user_text,
+            expected_object_type=str((goal.get("requested_effect") or {}).get("object_type") or ""),
+            expected_cardinality=str(goal.get("expected_result_cardinality") or "unknown"),
+        )
+    integrity = referent_resolution_proof_integrity(
+        proof,
+        reference_expression=goal.get("reference_expression") if isinstance(goal.get("reference_expression"), dict) else None,
+    )
+    if not integrity.get("ok"):
+        raise ValueError(
+            f"referent_resolution_proof_invalid:{goal['goal_id']}:"
+            f"{integrity.get('code') or 'UNKNOWN'}"
+        )
+    status = str(proof.get("resolution_status") or "")
+    if status != "UNIQUE":
+        raise ValueError(f"referent_resolution_not_unique:{goal['goal_id']}:{status}")
+    if not isinstance(resolved, dict):
+        raise ValueError(f"resolved_reference_required:{goal['goal_id']}")
+    result_ref = _text(resolved.get("result_ref"), limit=500)
+    members = [str(value) for value in list(resolved.get("member_handles") or []) if str(value)]
+    proof_result_ref = _text(proof.get("resolved_result_ref"), limit=500)
+    proof_members = [str(value) for value in list(proof.get("resolved_member_handles") or []) if str(value)]
+    proof_digest = _text(resolved.get("proof_digest") or proof.get("proof_digest"), limit=128)
+    if not result_ref or not members or not proof_digest:
+        raise ValueError(f"resolved_reference_incomplete:{goal['goal_id']}")
+    if result_ref != proof_result_ref or members != proof_members or proof_digest != proof.get("proof_digest"):
+        raise ValueError(f"resolved_reference_proof_mismatch:{goal['goal_id']}")
+    goal["referent_resolution_proof"] = deepcopy(proof)
+    goal["resolved_reference"] = {
+        "result_ref": result_ref,
+        "member_handles": members,
+        "proof_digest": proof_digest,
+        **(
+            {"position": int(resolved["position"])}
+            if isinstance(resolved.get("position"), int) and not isinstance(resolved.get("position"), bool)
+            else {}
+        ),
+    }
+
+
+def _normalize_condition(goal: dict[str, Any], *, known_goal_ids: set[str]) -> None:
+    if "condition" not in goal:
+        return
+    condition = normalize_condition_expression(goal["condition"], known_goal_ids=known_goal_ids)
+    required_dependencies = condition_goal_dependencies(condition)
+    declared = set(goal.get("depends_on") or [])
+    missing = sorted(required_dependencies - declared)
+    if missing:
+        raise ValueError(f"condition_dependency_not_declared:{goal['goal_id']}:{','.join(missing)}")
+    goal["condition"] = condition
 
 
 def freeze_semantic_contract(
@@ -94,11 +167,12 @@ def freeze_semantic_contract(
     summary: str,
     goals: Iterable[dict[str, Any]],
     alignment_proof: dict[str, Any],
+    granularity_proof: dict[str, Any] | None = None,
     goal_changes: Iterable[dict[str, Any]] | None = None,
     blocker_resolutions: Iterable[dict[str, Any]] | None = None,
     focus_change: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    normalized_goals = [_normalized_goal(dict(goal)) for goal in goals]
+    normalized_goals = [_normalized_goal_base(dict(goal)) for goal in goals]
     goal_ids = [goal["goal_id"] for goal in normalized_goals]
     if len(goal_ids) != len(set(goal_ids)):
         raise ValueError("duplicate_goal_id")
@@ -107,6 +181,8 @@ def freeze_semantic_contract(
         unknown = [item for item in goal["depends_on"] if item not in known]
         if unknown:
             raise ValueError(f"unknown_goal_dependency:{goal['goal_id']}:{','.join(unknown)}")
+        _normalize_condition(goal, known_goal_ids=known)
+        _normalize_reference_fields(goal, user_text=user_text)
     cycle = find_goal_dependency_cycle(normalized_goals)
     if cycle:
         raise ValueError(f"goal_dependency_cycle:{'->'.join(cycle)}")
@@ -125,12 +201,12 @@ def freeze_semantic_contract(
         ],
         "focus_change": deepcopy(focus_change) if isinstance(focus_change, dict) else None,
         "alignment_proof": deepcopy(alignment_proof),
+        "granularity_proof": deepcopy(granularity_proof or {"verdict": "exact", "source": "compatibility_default"}),
         "semantic_rewrite_allowed_after_freeze": False,
     }
     contract["semantic_digest"] = compute_semantic_digest(contract)
     contract["semantic_contract_id"] = f"semantic:{int(turn)}:{contract['semantic_digest'][:20]}"
     return contract
-
 
 
 def semantic_contract_ready(state: dict[str, Any]) -> bool:
@@ -144,27 +220,30 @@ def semantic_contract_ready(state: dict[str, Any]) -> bool:
 
 
 def goal_declaration_projection_from_contract(contract: dict[str, Any]) -> dict[str, Any]:
-    """Create the same-turn declaration projection consumed by planning.
+    """Create the same-turn declaration projection consumed by planning."""
 
-    This is not persisted as an authority and never reads retired state. It is
-    derived only from the frozen semantic contract so execution planning cannot
-    reinterpret user intent.
-    """
     rows: list[dict[str, Any]] = []
     for goal in semantic_goals(contract):
         compatibility = goal.get("compatibility") if isinstance(goal.get("compatibility"), dict) else {}
-        rows.append(
-            {
-                "goal_id": goal["goal_id"],
-                "description": goal["description"],
-                "evidence_span": goal["evidence_span"],
-                "goal_type": str(compatibility.get("legacy_goal_type") or "open"),
-                "requested_effect": deepcopy(goal["requested_effect"]),
-                "expected_result_cardinality": goal.get("expected_result_cardinality") or "none",
-                "required": bool(goal.get("required", True)),
-                "depends_on": list(goal.get("depends_on") or []),
-            }
-        )
+        row = {
+            "goal_id": goal["goal_id"],
+            "description": goal["description"],
+            "evidence_span": goal["evidence_span"],
+            "goal_type": str(compatibility.get("legacy_goal_type") or "open"),
+            "requested_effect": deepcopy(goal["requested_effect"]),
+            "expected_result_cardinality": goal.get("expected_result_cardinality") or "none",
+            "required": bool(goal.get("required", True)),
+            "depends_on": list(goal.get("depends_on") or []),
+        }
+        for key in (
+            "condition",
+            "reference_expression",
+            "referent_resolution_proof",
+            "resolved_reference",
+        ):
+            if key in goal:
+                row[key] = deepcopy(goal[key])
+        rows.append(row)
     return {
         "version": "goal-declaration-projection@1",
         "authority": "derived_from_frozen_semantic_contract",
@@ -174,17 +253,21 @@ def goal_declaration_projection_from_contract(contract: dict[str, Any]) -> dict[
         "summary": _text(contract.get("summary")),
         "goals": rows,
         "alignment_proof": deepcopy(contract.get("alignment_proof") or {}),
+        "granularity_proof": deepcopy(contract.get("granularity_proof") or {}),
     }
 
 
 __all__ = [
     "FROZEN_SEMANTIC_CONTRACT_VERSION",
+    "GOAL_TARGET_COMPATIBILITY_VERSION",
     "assert_semantic_contract_integrity",
     "compute_semantic_digest",
     "find_goal_dependency_cycle",
+    "derive_goal_target_identity",
     "freeze_semantic_contract",
     "goal_declaration_projection_from_contract",
     "normalize_requested_effect",
+    "prove_goal_target_compatibility",
     "semantic_contract_integrity",
     "semantic_contract_ready",
     "semantic_goals",

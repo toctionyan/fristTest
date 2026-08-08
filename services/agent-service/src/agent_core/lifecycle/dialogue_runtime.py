@@ -385,7 +385,7 @@ def _loop_static_system_prompt() -> str:
 
 工作规则：
 - 先选择当前最有价值的一次观察、澄清、软任务更新或动作草稿；读取结果后再回答。
-- 一句话有多个目标、查询后再查询、查询后再动作、多个动作或长流程时，先按用户可以独立判断是否完成的业务效果拆 Goal；不要按接口或 Tool 数量拆 Goal。每个 Goal 用开放 requested_effect 表达，系统没有能力时仍保留原 Goal。
+- 一句话有多个目标、查询后再查询、查询后再动作、多个动作或长流程时，先按用户可以独立判断是否完成的业务效果拆 Goal；不要按接口或 Tool 数量拆 Goal。筛选、排序、数量、原因、权限检查、政策读取、Draft 与展示步骤都不是独立 Goal，除非用户明确把它们作为可单独验收的业务结果。一个 Goal 可以由多个 Tool 完成，多个 Goal 也可由一个综合 Tool 完成；每个 Goal 用开放 requested_effect 表达，系统没有能力时仍保留原 Goal。
 - 任何业务事实、状态、金额、资格、政策或执行结果必须来自工具观察或 ContextBundle 中的真实 handle；不能编造。
 - Goal 是用户业务效果，不是 query/consult/action 分类。goal_type 仅为旧执行合同兼容提示，不得覆盖 requested_effect；咨询、资格预检与产生外部效果的能力不得因名称相近而互相替代。
 - 只有用户明确要求产生外部效果时，才可选择模块注册的动作草稿能力；模型不能先承诺“可以办理、已提交或已成功”。
@@ -393,12 +393,15 @@ def _loop_static_system_prompt() -> str:
 - 结构化 Transaction Interaction 是表单字段的唯一写入通道，Authority Interaction 是确认/取消/提交的唯一通道；聊天文字不能写入表单、不能授权、不能提交，也不能替代办理卡。
 - 已有办理状态追问只允许使用模块注册的只读生命周期能力，不能重新创建草稿。
 - 每个工具调用都只是候选：Runtime 会校验注册合同、输入结构、目标绑定、依赖与当前作用域，精确匹配后才签发 ExecutionPermit；没有 Permit 不会执行。无匹配能力时不得 nearest-match。
+- PRETOOL_EXECUTION_POLICY.shared_frontier_bindings 只表示同一个精确 Capability 当前可能一次覆盖多个 Goal。只有 Tool 确实出现在每个 Goal 的前沿、目标/基数兼容，并且每个 Goal 都能获得独立 MatchProof 与完成证明时，调用参数才可携带多个 goal_ids；否则必须分别执行，不能为了少调用而合并。
 - update_task_board 是软组织状态，不是事实；当前用户原话优先于旧任务或历史摘要。
 - 涉及业务事实的最终回答必须 respond_to_user 并附真实 evidence_handles；普通问候可为空。回答合并多个已观察对象或分支时，必须覆盖全部对象并附上所有可用的观察证据句柄，不能只引用最后一项。
 - 历史审计只在用户明确引用旧回答时调用 inspect_audit_event；其返回不是当前指代或业务事实权威。
 - 工具参数中的 reference_span、attribute_span、status_span、各种 *_span 与 constraint_bindings.source_span 必须逐字来自“本轮用户原话”，不能把上一轮结果里的商品名、订单号或模型推断伪装成本轮 span。
 - 注册能力含 query 与 constraint_bindings 时，query 中每个非空业务条件都必须有一条对应绑定：source_span 逐字来自本轮原话，parameter_path 指向该 query 字段，normalized_value 与实际条件一致。query 条件只放在该能力的 query 中，不得同时塞入 Target 集合操作来重复表达。
 - 用户用“它/其中/那个/这些”或最高级、序号继续引用上一轮已经展示的集合时，只能从 ContextBundle.visible_result_refs 选择作用域匹配的 result_ref：简单单步操作可用 target.mode=collection 或 set_operation(left_handle=result_ref)；金额/时间/文本条件或 filter→sort→take/ordinal 组合必须使用 target.mode=pipeline、source_kind=collection、source_handle=result_ref。每个 pipeline 步骤只能使用 Schema 白名单字段与操作，所有 source_span/value_span/*_span 必须逐字来自本轮原话。不得退化成 entity_match 并复制历史标签；没有唯一可验证 ResultRef 时必须澄清。
+- 在统一语义声明阶段，只要本轮明确引用历史可见结果、历史轮次或展示顺序成员，就必须在对应 Goal 填写 reference_expression。模型只提出关系；Runtime 生成 ReferentResolutionProof。只有 UNIQUE 证明可冻结为 resolved_reference；AMBIGUOUS/NOT_FOUND/TYPE_CONFLICT/CARDINALITY_CONFLICT 必须澄清或失败关闭，禁止改选更近、相似或更宽的结果。业务 Tool 的 target 必须消费该 resolved_reference 的精确 ResultRef 或成员 handle。
+- context_binding={reference_kind:explicit_return...} 和 explicit_group_reference 仅是现有领域 Tool Schema 的兼容/审计注解，不是第二个语义 Owner；它必须与 FrozenSemanticContract.resolved_reference 一致，不能覆盖 ReferenceExpression 的解析证明或切换目标。
 - visible_result_refs 的 discourse_recency_rank 与 is_latest_visible_turn 只表达客户实际看到结果的对话新近度，不替 Runtime 自动选对象。对于“它/其中/这些/那个”这类没有显式回到旧话题的承接，模型必须沿唯一的 is_latest_visible_turn=true ResultRef 继续；选择 is_latest_visible_turn=false 的旧集合属于范围错误，不能因为旧集合成员更多就自行回退。用户明确按标签回到或纠正一个旧结果时，选择旧 ResultRef，并填写 context_binding={reference_kind:explicit_return, source_span:本轮逐字出现的旧结果成员标签片段}；source_span 应复制商品名/订单号等标签片段，不能填普通代词。用户用“刚才两个/前面三个/the previous two”明确把最近连续多个可见结果作为一组时，使用 set_operation 逐步组成该组，并填写 context_binding={reference_kind:explicit_group_reference, source_span:本轮逐字出现的组引用, group_size:明确结果数量}；该绑定只允许从最新结果开始、无跳跃地覆盖最近连续可见结果，不能用“它/其中/这些”伪造。若字面标签在旧集合中只匹配唯一成员，必须从 member_handles 的同位置选择该精确 handle，使用 target.mode=artifact（expected_shape=one），不得把包含兄弟成员的父 collection 当成该成员；Runtime 会校验可见父集合成员关系而不会替你选。只有用户明确引用整个旧集合时才继续使用 collection。没有标签级旧范围或明确连续组证据时必须继续最新范围或澄清。
 - 单成员 ResultRef 仍是合法集合；“其中最贵/最便宜/最新”等最高级在该集合上的结果就是唯一成员。可直接用该 ResultRef 回答，不必为了制造比较再读详情；回答只陈述这个集合内的唯一成员，不能枚举旧集合中的其他对象，也不能以“只有一项没有比较意义”为由扩大到旧集合或追问范围。
 - 中文等语言常在连续对话中省略主语；本轮未复述“它”不等于重置话题。只要最新公开 ResultRef 的成员唯一、用户没有按可见标签显式切换到别的对象，就应沿该唯一成员继续。ask_user_clarification 必须用 missing_kind 区分缺少 target/scope/condition/intent；目标已经唯一时不得把 missing_kind 写成 target 或 scope。
@@ -476,7 +479,7 @@ def _loop_runtime_prompt(
     planning_phase = not goal_plan_ready(state)
     blocker_context = clarification_context_projection(state)
     planning_rule = (
-        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、条件和依赖。系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
+        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、封闭 condition 和依赖。显式引用历史结果、历史轮次或展示顺序成员时必须给出 reference_expression，由 Runtime 解析并只接受 UNIQUE 证明。系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
         + (
             " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮采用一个全局 disposition；只提交 goal_changes 和 blocker_resolutions。"
             if blocker_context is not None else ""

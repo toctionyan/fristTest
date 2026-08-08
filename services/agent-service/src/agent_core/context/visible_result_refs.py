@@ -242,6 +242,30 @@ def _visible_collection_member_ref(
     }
 
 
+
+def _annotate_resource_types(
+    ref: dict[str, Any],
+    *,
+    entries: list[dict[str, Any]] | None,
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach typed member metadata without changing result selection authority."""
+    row = deepcopy(ref)
+    scope = scope_for_state(state)
+    member_types: list[str | None] = []
+    for handle in list(row.get("member_handles") or []):
+        artifact = find_handle(
+            entries,
+            str(handle or ""),
+            scope=scope,
+            allowed_kinds={"artifact"},
+            active_only=True,
+        )
+        member_types.append(str((artifact or {}).get("resource_type") or "") or None)
+    row["member_resource_types"] = member_types
+    row["resource_types"] = list(dict.fromkeys(value for value in member_types if value))
+    return row
+
 def visible_result_refs_from_ledger(
     entries: list[dict[str, Any]] | None,
     *,
@@ -270,7 +294,7 @@ def visible_result_refs_from_ledger(
                 state=state,
                 initial=list(ref.get("lineage_result_refs") or []),
             )
-            rows.append(ref)
+            rows.append(_annotate_resource_types(ref, entries=entries, state=state))
     rows.sort(key=lambda item: (int(item.get("source_turn") or 0), float(item.get("created_at") or 0)), reverse=True)
     limited = rows[:max(0, int(limit))]
     latest_turn = max((int(item.get("source_turn") or 0) for item in limited), default=0)

@@ -122,7 +122,11 @@ def _refresh_goal_coverage(
             step
             for step in steps
             if goal_id in {str(value) for value in list(step.get("goal_ids") or [])}
-            and bool((step.get("verification") or {}).get("goal_completion_eligible"))
+            and bool(
+                ((step.get("verification") or {}).get("goal_completion_eligible_by_goal") or {}).get(goal_id)
+                if isinstance((step.get("verification") or {}).get("goal_completion_eligible_by_goal"), dict)
+                else (step.get("verification") or {}).get("goal_completion_eligible")
+            )
         ]
         row["covered_by_step_ids"] = [
             str(step.get("step_id") or "")

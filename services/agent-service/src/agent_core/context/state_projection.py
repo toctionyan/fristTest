@@ -73,6 +73,9 @@ def goal_records_context_projection(
             "revision": _record_revision(row),
             "depends_on": list(row.get("depends_on") or []),
             "continuation_of": row.get("continuation_of"),
+            "resolved_reference": deepcopy(row.get("resolved_reference"))
+            if isinstance(row.get("resolved_reference"), dict)
+            else None,
             "completion_tool_names": list(row.get("completion_tool_names") or []),
             "updated_turn": row.get("updated_turn"),
             "authority": "semantic_goal_lifecycle_not_business_fact",

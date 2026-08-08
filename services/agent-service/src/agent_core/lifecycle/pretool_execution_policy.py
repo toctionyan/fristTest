@@ -23,6 +23,8 @@ import json
 from typing import Any
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
+from agent_core.kernel.semantic_contract import semantic_goals
+from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
 from agent_core.lifecycle.plan_execution import (
     validate_frozen_plan_definition,
     validate_plan_run,
@@ -44,6 +46,33 @@ def _digest(value: Any) -> str:
         default=str,
     )
     return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _validated_global_coverage(
+    plan: dict[str, Any],
+    *,
+    capability_registry: CapabilityRegistry,
+) -> tuple[dict[str, Any], list[str]]:
+    coverage = (
+        plan.get("global_goal_capability_coverage")
+        if isinstance(plan.get("global_goal_capability_coverage"), dict)
+        else {}
+    )
+    if not coverage:
+        return {}, []
+    errors: list[str] = []
+    stored = str(coverage.get("coverage_digest") or "")
+    if not stored:
+        errors.append("GLOBAL_GOAL_CAPABILITY_COVERAGE_DIGEST_REQUIRED")
+    else:
+        payload = deepcopy(coverage)
+        payload.pop("coverage_digest", None)
+        if stored != _digest(payload):
+            errors.append("GLOBAL_GOAL_CAPABILITY_COVERAGE_DIGEST_INVALID")
+    registry_version = str(coverage.get("capability_registry_version") or "")
+    if registry_version and registry_version != str(capability_registry.version or ""):
+        errors.append("GLOBAL_GOAL_CAPABILITY_COVERAGE_REGISTRY_MISMATCH")
+    return ({} if errors else coverage), errors
 
 
 def _completed_goal_ids(state: dict[str, Any]) -> set[str]:
@@ -314,12 +343,72 @@ def build_pretool_execution_policy(
             "reason": "highest_progress_contract_paths_only",
         })
 
+    global_coverage, coverage_evidence_errors = _validated_global_coverage(
+        plan, capability_registry=capability_registry
+    )
+    declared_shared = {
+        str(row.get("tool_name") or ""): row
+        for row in list(global_coverage.get("shared_capability_bindings") or [])
+        if isinstance(row, dict) and str(row.get("tool_name") or "")
+    }
+    frontier_by_tool: dict[str, set[str]] = {}
+    for row in goal_policies:
+        if str(row.get("status") or "") not in {"FRONTIER_READY", "PATH_COMPLETE_AWAITING_TERMINAL"}:
+            continue
+        goal_id = str(row.get("goal_id") or "")
+        for tool_name in list(row.get("allowed_tools") or []):
+            frontier_by_tool.setdefault(str(tool_name), set()).add(goal_id)
+    formal_goal_by_id = {
+        str(row.get("goal_id") or ""): row
+        for row in semantic_goals(state)
+        if str(row.get("goal_id") or "")
+    }
+    shared_frontier_bindings: list[dict[str, Any]] = []
+    for tool_name, goal_ids in sorted(frontier_by_tool.items()):
+        if len(goal_ids) <= 1:
+            continue
+        target_compatibility = prove_goal_target_compatibility(
+            formal_goal_by_id[goal_id]
+            for goal_id in sorted(goal_ids)
+            if goal_id in formal_goal_by_id
+        )
+        if target_compatibility.get("status") != "SAME":
+            continue
+        declared = declared_shared.get(tool_name) if isinstance(declared_shared.get(tool_name), dict) else {}
+        declared_goal_ids = {
+            str(value) for value in list(declared.get("goal_ids") or []) if str(value)
+        }
+        proof_by_goal = (
+            declared.get("coverage_proofs")
+            if isinstance(declared.get("coverage_proofs"), dict)
+            else {}
+        )
+        if not goal_ids.issubset(declared_goal_ids):
+            continue
+        selected_proofs = {
+            goal_id: deepcopy(proof_by_goal[goal_id])
+            for goal_id in sorted(goal_ids)
+            if isinstance(proof_by_goal.get(goal_id), dict)
+        }
+        if set(selected_proofs) != goal_ids:
+            continue
+        shared_frontier_bindings.append({
+            "tool_name": tool_name,
+            "goal_ids": sorted(goal_ids),
+            "coverage_id": str(declared.get("coverage_id") or ""),
+            "coverage_proofs": selected_proofs,
+            "target_compatibility": target_compatibility,
+            "binding_rule": "single_call_requires_exact_match_proof_for_every_goal_and_compatible_target",
+        })
+
     if evidence_errors:
         # Treat invalid prior progress as zero progress.  The goal policies above
         # were already compiled from contract topology with an empty progress
         # set, so keeping their frontier fails closed instead of widening back to
         # the complete exact capability surface.
         mode = "EVIDENCE_INVALID_ZERO_PROGRESS"
+    elif coverage_evidence_errors:
+        mode = "COVERAGE_INVALID_NO_SHARED_BINDING"
     elif migration_gap_goal_ids:
         mode = "MIXED_ENFORCEMENT"
     else:
@@ -339,6 +428,14 @@ def build_pretool_execution_policy(
         "migration_gap_goal_ids": sorted(set(migration_gap_goal_ids)),
         "dependency_blocked_goal_ids": sorted(set(dependency_blocked_goal_ids)),
         "runtime_evidence_errors": evidence_errors,
+        "coverage_evidence_errors": coverage_evidence_errors,
+        "global_coverage_digest": global_coverage.get("coverage_digest"),
+        "selected_global_coverage_id": (
+            (global_coverage.get("selected_coverage") or {}).get("coverage_id")
+            if isinstance(global_coverage.get("selected_coverage"), dict)
+            else None
+        ),
+        "shared_frontier_bindings": shared_frontier_bindings,
         "creates_permit": False,
         "dispatches_tools": False,
         "mutates_semantics": False,
@@ -362,6 +459,7 @@ def execution_policy_prompt_projection(policy: dict[str, Any] | None) -> dict[st
         "version": row.get("version"),
         "mode": row.get("mode"),
         "allowed_capability_tools": list(row.get("allowed_capability_tools") or []),
+        "shared_frontier_bindings": list(row.get("shared_frontier_bindings") or []),
         "goals": [
             {
                 "goal_id": item.get("goal_id"),
@@ -374,7 +472,7 @@ def execution_policy_prompt_projection(policy: dict[str, Any] | None) -> dict[st
         ],
         "rule": (
             "只能调用 allowed_capability_tools 中的业务能力；该边界只限制候选能力，"
-            "参数、对象、权限、Permit、事务和业务事实仍由后续 Runtime 验证。"
+            "参数、对象、权限、Permit、事务和业务事实仍由后续 Runtime 验证。shared_frontier_bindings 只表示一个 Tool 可候选绑定多个 Goal；每个 Goal 仍需独立 MatchProof 和完成证明。"
         ),
     }
 

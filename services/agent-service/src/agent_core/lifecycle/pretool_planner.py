@@ -15,6 +15,7 @@ import json
 from typing import Any, Iterable
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
+from agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage
 from agent_core.lifecycle.semantic_contract import (
     assert_semantic_contract_integrity,
     semantic_goals,
@@ -301,6 +302,11 @@ def build_pretool_shadow_plan(
     else:
         status = "MIGRATION_GAP_SHADOW"
 
+    global_coverage = build_goal_capability_coverage(
+        goals=goals,
+        goal_plans=goal_plans,
+        capability_registry=capability_registry,
+    )
     snapshot = capability_registry.planning_contract_snapshot(sorted(set(all_candidate_tools)))
     payload: dict[str, Any] = {
         "version": PRETOOL_SHADOW_PLAN_VERSION,
@@ -313,6 +319,7 @@ def build_pretool_shadow_plan(
         "capability_surface": deepcopy(surface),
         "goal_plans": goal_plans,
         "goal_dependency_edges": dependency_edges,
+        "global_goal_capability_coverage": global_coverage,
         "generated_before_model_tool_call": True,
         "observed_model_tool_calls": [],
         "must_not_dispatch": True,

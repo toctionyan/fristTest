@@ -378,3 +378,196 @@ def test_agent_loop_policy_compiler_failure_hides_all_business_tools(monkeypatch
     assert "respond_to_user" in model.bound_names
     assert update["pretool_execution_policy"]["mode"] == "POLICY_BUILD_FAILED_FAIL_CLOSED"
     assert update["pretool_execution_policy"]["allowed_capability_tools"] == []
+
+
+def test_policy_declares_shared_multi_goal_binding_only_with_per_goal_proofs() -> None:
+    from tests.runtime.test_global_goal_capability_coverage import _registry as overview_registry
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+
+    g1 = _goal("g1", domain="order", operation="query_details")
+    g1["target_candidate"] = {"order_id": "10002"}
+    g2 = _goal("g2", domain="order", operation="query_logistics")
+    g2["target_candidate"] = {"order_id": "10002"}
+    contract = _contract([g1, g2])
+    registry = overview_registry()
+    policy = build_pretool_execution_policy(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=registry,
+    )
+
+    assert policy["allowed_capability_tools"] == ["get_order_overview"]
+    assert len(policy["shared_frontier_bindings"]) == 1
+    binding = policy["shared_frontier_bindings"][0]
+    assert binding["tool_name"] == "get_order_overview"
+    assert binding["goal_ids"] == ["g1", "g2"]
+    assert binding["coverage_id"] == "coverage:get_order_overview:g1-g2"
+    assert binding["target_compatibility"]["status"] == "SAME"
+    assert binding["coverage_proofs"]["g1"]["requested_effect_identity"] == "order.query_details:order"
+    assert binding["coverage_proofs"]["g2"]["requested_effect_identity"] == "order.query_logistics:order"
+    assert binding["binding_rule"] == (
+        "single_call_requires_exact_match_proof_for_every_goal_and_compatible_target"
+    )
+
+
+def test_capability_gate_rejects_undeclared_multi_goal_single_dispatch() -> None:
+    from copy import deepcopy
+
+    from tests.runtime.test_global_goal_capability_coverage import _registry as overview_registry
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+    from agent_core.runtime.capability_gate import _canonical_digest, _pretool_frontier_proof
+
+    g1 = _goal("g1", domain="order", operation="query_details")
+    g1["target_candidate"] = {"order_id": "10002"}
+    g2 = _goal("g2", domain="order", operation="query_logistics")
+    g2["target_candidate"] = {"order_id": "10002"}
+    contract = _contract([g1, g2])
+    registry = overview_registry()
+    policy = build_pretool_execution_policy(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=registry,
+    )
+    state = {
+        "frozen_semantic_contract": contract,
+        "pretool_execution_policy": policy,
+    }
+    allowed = _pretool_frontier_proof(
+        state=state,
+        tool_name="get_order_overview",
+        goal_ids={"g1", "g2"},
+        capability_registry=registry,
+    )
+    assert allowed["allowed"] is True
+    assert allowed["shared_binding_check"]["declared"] is True
+
+    tampered = deepcopy(policy)
+    tampered["shared_frontier_bindings"] = []
+    unsigned = deepcopy(tampered)
+    unsigned.pop("policy_digest", None)
+    tampered["policy_digest"] = _canonical_digest(unsigned)
+    rejected = _pretool_frontier_proof(
+        state={
+            "frozen_semantic_contract": contract,
+            "pretool_execution_policy": tampered,
+        },
+        tool_name="get_order_overview",
+        goal_ids={"g1", "g2"},
+        capability_registry=registry,
+    )
+    assert rejected["allowed"] is False
+    assert "multi_goal_binding_not_declared_in_pretool_policy" in rejected["errors"]
+
+
+def test_capability_gate_revalidates_shared_completion_proof_against_contract() -> None:
+    from copy import deepcopy
+
+    from tests.runtime.test_global_goal_capability_coverage import _registry as overview_registry
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+    from agent_core.runtime.capability_gate import _canonical_digest, _pretool_frontier_proof
+
+    g1 = _goal("g1", domain="order", operation="query_details")
+    g1["target_candidate"] = {"order_id": "10002"}
+    g2 = _goal("g2", domain="order", operation="query_logistics")
+    g2["target_candidate"] = {"order_id": "10002"}
+    contract = _contract([g1, g2])
+    registry = overview_registry()
+    policy = build_pretool_execution_policy(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=registry,
+    )
+    tampered = deepcopy(policy)
+    tampered["shared_frontier_bindings"][0]["coverage_proofs"]["g2"][
+        "output_type"
+    ] = "InventedLogisticsProof"
+    unsigned = deepcopy(tampered)
+    unsigned.pop("policy_digest", None)
+    tampered["policy_digest"] = _canonical_digest(unsigned)
+
+    proof = _pretool_frontier_proof(
+        state={
+            "frozen_semantic_contract": contract,
+            "pretool_execution_policy": tampered,
+        },
+        tool_name="get_order_overview",
+        goal_ids={"g1", "g2"},
+        capability_registry=registry,
+    )
+
+    assert proof["allowed"] is False
+    assert "multi_goal_binding_completion_proof_mismatch:g2" in proof["errors"]
+    assert proof["shared_binding_check"]["declared"] is False
+
+
+def test_invalid_global_coverage_disables_only_shared_binding_not_exact_single_goal_frontier() -> None:
+    from copy import deepcopy
+
+    from tests.runtime.test_global_goal_capability_coverage import _registry as overview_registry
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+    from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
+
+    contract = _contract([
+        _goal("g1", domain="order", operation="query_details"),
+        _goal("g2", domain="order", operation="query_logistics"),
+    ])
+    registry = overview_registry()
+    plan = build_pretool_shadow_plan(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=registry,
+    )
+    tampered = deepcopy(plan)
+    tampered["global_goal_capability_coverage"]["coverage_digest"] = "tampered"
+    policy = build_pretool_execution_policy(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=registry,
+        shadow_plan=tampered,
+    )
+
+    assert policy["mode"] == "COVERAGE_INVALID_NO_SHARED_BINDING"
+    assert policy["allowed_capability_tools"] == ["get_order_overview"]
+    assert policy["shared_frontier_bindings"] == []
+    assert policy["coverage_evidence_errors"] == [
+        "GLOBAL_GOAL_CAPABILITY_COVERAGE_DIGEST_INVALID"
+    ]
+
+
+def test_capability_gate_frontier_rejects_forged_cross_target_shared_binding() -> None:
+    from agent_core.runtime.capability_gate import _pretool_frontier_proof
+
+    g1 = _goal("g1", domain="order", operation="query_details")
+    g1["target_candidate"] = {"order_id": "10001"}
+    g2 = _goal("g2", domain="order", operation="query_logistics")
+    g2["target_candidate"] = {"order_id": "10002"}
+    contract = _contract([g1, g2])
+    policy = {
+        "version": "pretool-execution-policy@1",
+        "formal_semantic_contract_id": contract["semantic_contract_id"],
+        "formal_semantic_digest": contract["semantic_digest"],
+        "capability_registry_version": _registry().version,
+        "allowed_capability_tools": ["get_order_overview"],
+        "goal_policies": [
+            {"goal_id": "g1", "status": "FRONTIER_READY", "enforcement": "contract_frontier", "allowed_tools": ["get_order_overview"]},
+            {"goal_id": "g2", "status": "FRONTIER_READY", "enforcement": "contract_frontier", "allowed_tools": ["get_order_overview"]},
+        ],
+        "shared_frontier_bindings": [{
+            "tool_name": "get_order_overview",
+            "goal_ids": ["g1", "g2"],
+            "coverage_id": "forged",
+            "coverage_proofs": {
+                "g1": {"requested_effect_identity": "order.query_details:order", "output_name": "overview", "output_type": "VerifiedOrderOverview"},
+                "g2": {"requested_effect_identity": "order.query_logistics:order", "output_name": "overview", "output_type": "VerifiedOrderOverview"},
+            },
+        }],
+    }
+    from copy import deepcopy
+    from hashlib import sha256
+    import json
+    unsigned = deepcopy(policy)
+    policy["policy_digest"] = sha256(json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    proof = _pretool_frontier_proof(
+        state={"frozen_semantic_contract": contract, "pretool_execution_policy": policy},
+        tool_name="get_order_overview",
+        goal_ids={"g1", "g2"},
+        capability_registry=_registry(),
+    )
+
+    assert proof["allowed"] is False
+    assert "multi_goal_target_mismatch" in proof["errors"]
