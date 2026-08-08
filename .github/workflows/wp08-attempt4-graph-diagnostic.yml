@@ -1,0 +1,154 @@
+name: wp08-attempt4-graph-diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  protected-preprod-graph-diagnostic:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt4-graph-diagnostic-20260808'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact diagnostic candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        shell: bash
+        run: |
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Reproduce protected-preprod graph construction with disposable PostgreSQL
+        shell: bash
+        run: |
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          ROOT = Path.cwd().resolve()
+          AGENT_ROOT = ROOT / "services" / "agent-service"
+          for path in (ROOT / "scripts", AGENT_ROOT, AGENT_ROOT / "src"):
+              if str(path) not in sys.path:
+                  sys.path.insert(0, str(path))
+
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness, AGENT_PYTHON
+
+          def redact(text: object, env: dict[str, str], postgres_url: str) -> str:
+              value = str(text or "")
+              if postgres_url:
+                  value = value.replace(postgres_url, "postgresql+psycopg://***@managed-postgres/runtime")
+              for name, secret in env.items():
+                  secret_text = str(secret or "")
+                  if len(secret_text) >= 8 and any(token in name.casefold() for token in ("key", "secret", "token", "password", "credential")):
+                      value = value.replace(secret_text, "***")
+              return value[-3000:]
+
+          with ManagedPostgres() as postgres:
+              harness = ProductRuntimeHarness(
+                  deterministic_model=True,
+                  persistence_url=postgres.url,
+                  protected_preprod=True,
+                  allowed_origins="http://127.0.0.1:4173",
+              )
+              try:
+                  env = harness.env.copy()
+                  env["PYTHONPATH"] = os.pathsep.join((str(AGENT_ROOT), str(AGENT_ROOT / "src")))
+                  migration = subprocess.run(
+                      [str(AGENT_PYTHON), "-B", "-m", "alembic", "-c", "migrations/alembic.ini", "upgrade", "head"],
+                      cwd=AGENT_ROOT,
+                      env=env,
+                      text=True,
+                      capture_output=True,
+                      timeout=600,
+                      check=False,
+                  )
+                  if migration.returncode != 0:
+                      print(json.dumps({
+                          "status": "FAIL",
+                          "phase": "agent_migration",
+                          "returncode": migration.returncode,
+                          "stderr": redact(migration.stderr, env, postgres.url),
+                      }, ensure_ascii=False))
+                      raise SystemExit(1)
+
+                  code = r'''
+          import json
+          from app.services.agent_service import AgentService
+          service = None
+          try:
+              service = AgentService()
+              print(json.dumps({
+                  "graph_ready": service.graph is not None,
+                  "agent_runtime_error": service.agent_runtime_error,
+                  "rag_bootstrap_error": service.rag_bootstrap_error,
+              }, ensure_ascii=False))
+          except Exception as exc:
+              print(json.dumps({
+                  "graph_ready": False,
+                  "constructor_error_type": exc.__class__.__name__,
+                  "constructor_error": str(exc),
+              }, ensure_ascii=False))
+          finally:
+              if service is not None:
+                  close = getattr(service, "close", None)
+                  if callable(close):
+                      close()
+          '''
+                  probe = subprocess.run(
+                      [str(AGENT_PYTHON), "-B", "-c", code],
+                      cwd=AGENT_ROOT,
+                      env=env,
+                      text=True,
+                      capture_output=True,
+                      timeout=300,
+                      check=False,
+                  )
+                  payload = {}
+                  for line in reversed(probe.stdout.splitlines()):
+                      try:
+                          candidate = json.loads(line)
+                      except json.JSONDecodeError:
+                          continue
+                      if isinstance(candidate, dict):
+                          payload = candidate
+                          break
+                  safe = {
+                      "status": "PASS" if payload.get("graph_ready") is True else "FAIL",
+                      "graph_ready": payload.get("graph_ready") is True,
+                      "agent_runtime_error": redact(payload.get("agent_runtime_error"), env, postgres.url) or None,
+                      "rag_bootstrap_error": redact(payload.get("rag_bootstrap_error"), env, postgres.url) or None,
+                      "constructor_error_type": payload.get("constructor_error_type"),
+                      "constructor_error": redact(payload.get("constructor_error"), env, postgres.url) or None,
+                      "probe_returncode": probe.returncode,
+                      "probe_stderr": redact(probe.stderr, env, postgres.url) or None,
+                  }
+                  print(json.dumps(safe, ensure_ascii=False))
+                  raise SystemExit(0 if safe["graph_ready"] else 1)
+              finally:
+                  harness.stop()
+          PY
