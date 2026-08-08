@@ -60,6 +60,25 @@ class ManagedPostgres:
             timeout=timeout,
         )
 
+    def _host_database_ready(self) -> tuple[bool, str]:
+        try:
+            import psycopg
+        except ImportError as exc:
+            raise RuntimeError(
+                "managed integration requires psycopg for host PostgreSQL readiness"
+            ) from exc
+        safe_url = self.url.replace("postgresql+psycopg://", "postgresql://", 1)
+        try:
+            with psycopg.connect(
+                safe_url, autocommit=True, connect_timeout=3
+            ) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    row = cursor.fetchone()
+            return bool(row and int(row[0]) == 1), ""
+        except Exception as exc:
+            return False, exc.__class__.__name__
+
     def start(self) -> "ManagedPostgres":
         if shutil.which("docker") is None:
             raise RuntimeError("managed integration requires the docker command")
@@ -106,8 +125,12 @@ class ManagedPostgres:
                 timeout=5,
             )
             if ready.returncode == 0:
-                return self
-            last_error = (ready.stderr or ready.stdout).strip()
+                host_ready, host_error = self._host_database_ready()
+                if host_ready:
+                    return self
+                last_error = f"host_postgres_session:{host_error}"
+            else:
+                last_error = (ready.stderr or ready.stdout).strip()
             inspect = self._docker("inspect", "--format", "{{.State.Running}}", self.name)
             if inspect.returncode != 0 or inspect.stdout.strip() != "true":
                 logs = self._docker("logs", "--tail", "80", self.name)

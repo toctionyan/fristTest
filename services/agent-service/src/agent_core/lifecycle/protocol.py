@@ -204,6 +204,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
             "requested_effect 使用开放字符串描述用户要实现的业务效果，不得为了匹配现有工具改写为相近能力。"
             "goal_type 仅是旧执行链兼容提示，可省略且不是正式语义。"
             "修改已有 Goal 或 Focus 时必须复制 ContextBundle 中当前 revision，并提供当前用户原话的连续 evidence_span；"
+            "多 Goal 时，每个 Goal 的 evidence_span 必须是只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复复制给多个 Goal；每个证据片段必须能唯一归属到对应 Goal。"
             "显式引用已经向客户可见的历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"
             "同一当前轮内 Goal 之间的先后或结果依赖只能填写 depends_on；不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"
             "requested_effect 变化不能 PATCH，必须新建 Goal 并显式 supersede 旧 Goal。此阶段看不到业务工具名。"
