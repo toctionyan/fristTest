@@ -69,6 +69,14 @@ def _span_matches_oracle(*, expected: Any, actual: Any) -> bool:
     ))
 
 
+_EFFECT_KEYS = ("domain", "operation", "object_type")
+
+
+def _effect_identity(value: Any) -> tuple[str, str, str]:
+    source = value if isinstance(value, dict) else {}
+    return tuple(str(source.get(key) or "").strip().casefold() for key in _EFFECT_KEYS)  # type: ignore[return-value]
+
+
 def _user_turns(case: dict[str, Any]) -> list[str]:
     return [
         str(row.get("text") or "")
@@ -92,35 +100,43 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
     oracle_to_goal: dict[str, str] = {}
     for expected in oracle:
         evidence = str(expected.get("evidence_span") or "")
-        goal_type = str(expected.get("goal_type") or "")
         required = bool(expected.get("required", True))
-        exact_matches = [
-            row for row in unmatched
-            if str(row.get("evidence_span") or "") == evidence
-            and str(row.get("goal_type") or "") == goal_type
-            and bool(row.get("required", True)) == required
-        ]
-        matches = exact_matches or [
-            row for row in unmatched
-            if _span_matches_oracle(
-                expected=evidence,
-                actual=row.get("evidence_span"),
+        expected_effect = _effect_identity(expected.get("requested_effect"))
+        if not all(expected_effect):
+            raise RuntimeError(
+                f"{case_id}: oracle goal {expected.get('oracle_id')!r} lacks authoritative requested_effect identity"
             )
-            and str(row.get("goal_type") or "") == goal_type
-            and bool(row.get("required", True)) == required
-        ]
+
+        def candidate_matches(row: dict[str, Any], *, fuzzy_span: bool) -> bool:
+            span_ok = (
+                _span_matches_oracle(expected=evidence, actual=row.get("evidence_span"))
+                if fuzzy_span
+                else str(row.get("evidence_span") or "") == evidence
+            )
+            return (
+                span_ok
+                and bool(row.get("required", True)) == required
+                and _effect_identity(row.get("requested_effect")) == expected_effect
+            )
+
+        exact_matches = [row for row in unmatched if candidate_matches(row, fuzzy_span=False)]
+        matches = exact_matches or [row for row in unmatched if candidate_matches(row, fuzzy_span=True)]
         if len(matches) != 1:
             candidates = [
                 {
                     "goal_id": str(row.get("goal_id") or ""),
                     "evidence_span": str(row.get("evidence_span") or ""),
                     "goal_type": str(row.get("goal_type") or ""),
+                    "requested_effect": {
+                        key: str((row.get("requested_effect") or {}).get(key) or "")
+                        for key in _EFFECT_KEYS
+                    } if isinstance(row.get("requested_effect"), dict) else {},
                 }
                 for row in unmatched
             ]
             raise RuntimeError(
                 f"{case_id}: no unique model goal matches oracle span={evidence!r}, "
-                f"type={goal_type!r}, candidates={candidates!r}"
+                f"requested_effect={expected_effect!r}, candidates={candidates!r}"
             )
         matched = matches[0]
         oracle_id = str(expected.get("oracle_id") or "")

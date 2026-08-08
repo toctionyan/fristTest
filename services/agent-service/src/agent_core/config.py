@@ -75,6 +75,15 @@ def get_model_settings() -> dict[str, object]:
     }
 
 
+def _use_deepseek_adapter(settings: dict[str, object] | None = None) -> bool:
+    resolved = settings or get_model_settings()
+    provider = (os.getenv("MODEL_PROVIDER") or "").strip().lower()
+    model = str(resolved.get("model") or "").strip().lower()
+    base_url = str(resolved.get("base_url") or "").strip().rstrip("/").lower()
+    official_endpoint = base_url in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
+    return provider == "deepseek" or (official_endpoint and model.startswith("deepseek-"))
+
+
 def get_model_profile() -> dict[str, object]:
     """Return a non-secret, replayable model identity for debug/audit records.
 
@@ -83,13 +92,17 @@ def get_model_profile() -> dict[str, object]:
     behaves, without exposing API keys or arbitrary endpoint credentials.
     """
     settings = get_model_settings()
+    provider = "deepseek" if _use_deepseek_adapter(settings) else "openai_compatible"
+    deepseek_v4_thinking = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
     return {
-        "provider": "openai_compatible",
+        "provider": provider,
         "model": settings["model"],
         "base_url_configured": bool(settings["base_url"]),
         "temperature": settings["temperature"],
         "timeout_seconds": settings["timeout_seconds"],
         "max_retries": settings["max_retries"],
+        "tool_choice_supported": not deepseek_v4_thinking,
+        "reasoning_content_required_for_tool_calls": deepseek_v4_thinking,
         "structured_output": "continuous_agent_loop_with_grounded_observations_and_action_gateway",
     }
 
@@ -354,13 +367,6 @@ def project_path(value: str | None, default: str) -> Path:
 
 @lru_cache(maxsize=1)
 def get_model():
-    try:
-        from langchain_openai import ChatOpenAI
-    except Exception as e:
-        raise RuntimeError(
-            "缺少 langchain_openai，请先安装 requirements.txt 后再启动 Agent 服务。"
-        ) from e
-
     api_key = os.getenv("OPENAI_API_KEY")
     settings = get_model_settings()
 
@@ -378,6 +384,28 @@ OPENAI_API_BASE=
 """
         )
 
+    if _use_deepseek_adapter(settings):
+        try:
+            from langchain_deepseek import ChatDeepSeek
+        except Exception as exc:
+            raise RuntimeError(
+                "DeepSeek provider requires the declared langchain-deepseek integration."
+            ) from exc
+        return ChatDeepSeek(
+            model=str(settings["model"]),
+            api_key=api_key,
+            api_base=str(settings["base_url"] or "https://api.deepseek.com"),
+            temperature=float(settings["temperature"]),
+            timeout=float(settings["timeout_seconds"]),
+            max_retries=int(settings["max_retries"]),
+        )
+
+    try:
+        from langchain_openai import ChatOpenAI
+    except Exception as exc:
+        raise RuntimeError(
+            "缺少 langchain_openai，请先安装 requirements.txt 后再启动 Agent 服务。"
+        ) from exc
     return ChatOpenAI(
         model=str(settings["model"]),
         api_key=api_key,
