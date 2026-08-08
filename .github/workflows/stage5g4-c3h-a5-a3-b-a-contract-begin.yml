@@ -1,0 +1,185 @@
+name: stage5g4-c3h-a5-a3-b-a-contract-begin
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/stage5g4-c3h-a5-a3-b-a-contract-begin.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  contract-begin:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout begin runner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 0
+
+      - name: Checkout exact A3 Controller
+        uses: actions/checkout@v4
+        with:
+          ref: 435fade35f49f1339fe6d3e248982d54a69ee6af
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout fresh exact B36 source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download admitted formal baseline artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 9013556936
+          path: formal-download
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: toctionyan/fristTest
+          run-id: 31230338354
+
+      - name: Download validated permit-preflight artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 9015510954
+          path: permit-download
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: toctionyan/fristTest
+          run-id: 31236325293
+
+      - name: Reconstruct exact begin workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANGE_ID='migration-v20.17-b38-context-reference-goal-coverage'
+          BEFORE_SHA='95d29d22931d70cca642712cf3cc0e5ebc554248260c3b3686c5424168afa50f'
+          test "$(git -C source rev-parse HEAD)" = 'e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+          test "$(git -C control rev-parse HEAD)" = '435fade35f49f1339fe6d3e248982d54a69ee6af'
+          test -f formal-download/FORMAL_PRODUCT_BASELINE_ADMISSION_REPORT.json
+          test -d formal-download/root/.quality
+          test -f formal-download/root/governance/active-change.json
+          cp -a formal-download/root/. source/
+          mkdir -p source/governance/architecture-decisions
+          mkdir -p "source/governance/repair-cases/$CHANGE_ID"
+          cp permit-download/architecture-decision.json "source/governance/architecture-decisions/$CHANGE_ID.json"
+          cp permit-download/failure-case.json "source/governance/repair-cases/$CHANGE_ID/failure-case.json"
+          cp permit-download/root-cause-proof.json "source/governance/repair-cases/$CHANGE_ID/root-cause-proof.json"
+          cp permit-download/repair-plan.json "source/governance/repair-cases/$CHANGE_ID/repair-plan.json"
+          cp permit-download/plan-review.json "source/governance/repair-cases/$CHANGE_ID/plan-review.json"
+          cp permit-download/baseline-manifest.json "source/governance/repair-cases/$CHANGE_ID/baseline-manifest.json"
+          cp permit-download/change-permit.json "source/governance/repair-cases/$CHANGE_ID/change-permit.json"
+          cp permit-download/configured-active-change.json source/governance/active-change.json
+          test "$(sha256sum source/governance/active-change.json | awk '{print $1}')" = "$BEFORE_SHA"
+          test "$(sha256sum source/governance/repair-cases/$CHANGE_ID/change-permit.json | awk '{print $1}')" = 'ace71b8e4d389cb1a5e993797a0c3acf7bf2ec849827e5f6b90fad28b5c3ed7f'
+          test "$(sha256sum source/governance/repair-cases/$CHANGE_ID/baseline-manifest.json | awk '{print $1}')" = '81110fd100db050fba00a8aeca14a3d449d6c70baacb679a743867cda254387a'
+          test -z "$(git -C source diff --name-only)"
+          test -z "$(git -C source diff --cached --name-only)"
+          git -C source status --porcelain > source-status-before.txt
+          cp source/governance/active-change.json active-change-before.json
+
+      - name: Execute the one legal contract-begin transition
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd source
+            python -B ../control/skill-system/controller/change_contract_cli.py begin
+          ) > begin.stdout.txt 2> begin.stderr.txt
+
+      - name: Verify exact after identity and no product candidate writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHANGE_ID='migration-v20.17-b38-context-reference-goal-coverage'
+          AFTER_SHA='8c6c20783ddd7fd8119974a4ab024f73d95fdd579e392076a53169ec7c8722c8'
+          PERMIT_DIGEST='64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          test "$(git -C source rev-parse HEAD)" = 'e0e04d51e9da9790bef7bd0482584f60b8e975a9'
+          test "$(sha256sum source/governance/active-change.json | awk '{print $1}')" = "$AFTER_SHA"
+          test -z "$(git -C source diff --name-only)"
+          test -z "$(git -C source diff --cached --name-only)"
+          git -C source status --porcelain > source-status-after.txt
+          cp source/governance/active-change.json active-change-after.json
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          change = 'migration-v20.17-b38-context-reference-goal-coverage'
+          permit_digest = '64600b8c72c60a7b56f732042ea67fc74d24932bc3cc0daa0e03a4630815c82d'
+          before = json.loads(Path('active-change-before.json').read_text())
+          after = json.loads(Path('active-change-after.json').read_text())
+          permit = json.loads(Path(f'source/governance/repair-cases/{change}/change-permit.json').read_text())
+          assert before['status'] == 'approved'
+          assert before.get('repair_governance_permit_digest') in (None, '')
+          assert before.get('repair_governance_consumed_at') in (None, '')
+          assert after['status'] == 'implementing'
+          assert after['repair_governance_permit_digest'] == permit_digest == permit['permit_digest']
+          assert after.get('repair_governance_consumed_at') in (None, '')
+          assert after['verification'] is None
+          assert after['result'] == 'PENDING'
+          changed = {
+              key for key in set(before) | set(after)
+              if before.get(key, '__ABSENT__') != after.get(key, '__ABSENT__')
+          }
+          assert changed == {'status', 'repair_governance_permit_digest'}, changed
+          status_lines = Path('source-status-after.txt').read_text().splitlines()
+          assert status_lines, status_lines
+          for line in status_lines:
+              rel = line[3:]
+              assert rel.startswith('governance/'), rel
+          report = {
+              'schema_version': 1,
+              'stage': '5G4-C3H-A5-A3-B-A',
+              'verdict': 'CONTRACT_BEGIN_EXECUTED_EXACT_TRANSITION_PASS',
+              'source_head': 'e0e04d51e9da9790bef7bd0482584f60b8e975a9',
+              'control_head': '435fade35f49f1339fe6d3e248982d54a69ee6af',
+              'before_contract_sha256': hashlib.sha256(Path('active-change-before.json').read_bytes()).hexdigest(),
+              'after_contract_sha256': hashlib.sha256(Path('active-change-after.json').read_bytes()).hexdigest(),
+              'permit_digest': permit_digest,
+              'status_before': before['status'],
+              'status_after': after['status'],
+              'effective_changed_fields': sorted(changed),
+              'repair_governance_consumed_at': after.get('repair_governance_consumed_at'),
+              'tracked_product_diff': 'CLEAN',
+              'b38_candidate_installed': False,
+              'canonical_b38_pushed': False,
+              'production_closed': False,
+          }
+          Path('CONTRACT_BEGIN_EXECUTION_REPORT.json').write_text(json.dumps(report, indent=2) + '\n')
+          print(json.dumps(report, indent=2))
+          PY
+
+      - name: Preserve reconstructable post-begin state
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf begin-artifact
+          mkdir -p begin-artifact/root begin-artifact/evidence
+          if test -d source/.quality; then cp -a source/.quality begin-artifact/root/; fi
+          if test -d source/governance; then cp -a source/governance begin-artifact/root/; fi
+          for f in CONTRACT_BEGIN_EXECUTION_REPORT.json active-change-before.json active-change-after.json begin.stdout.txt begin.stderr.txt source-status-before.txt source-status-after.txt; do
+            if test -f "$f"; then cp "$f" begin-artifact/evidence/; fi
+          done
+          git -C source rev-parse HEAD > begin-artifact/evidence/source-head.txt
+          git -C control rev-parse HEAD > begin-artifact/evidence/control-head.txt
+
+      - name: Upload contract-begin execution artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a5-a3-b-a-contract-begin
+          path: begin-artifact
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
