@@ -1,0 +1,183 @@
+name: stage5g4-final-b38-baseline-refresh
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  refresh-b38-product-baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'stage5g4-final-b38-baseline-refresh'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CANONICAL_BRANCH: agent/b38-context-reference-goal-coverage-canonical-20260808
+      CANONICAL_SOURCE_HEAD: 9c7a5c4ee7863adc8a9b58fd7cb4c402aea1f920
+    steps:
+      - name: Checkout runner head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: runner
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact canonical B38 source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.CANONICAL_SOURCE_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install locked Skill validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANONICAL_SOURCE_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$CANONICAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANONICAL_SOURCE_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          cd candidate/services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Download frozen B38 manifest authority
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9016338327/zip" \
+            -o b38-install-artifact.zip
+          echo 'ad12a58481c1705f6f79a7bafc765a6a307e29f6b91fd05b1dcd1b0f315039f8  b38-install-artifact.zip' | sha256sum -c -
+          mkdir install-artifact
+          unzip -q b38-install-artifact.zip -d install-artifact
+          test -f install-artifact/FROZEN_B38_CANDIDATE30_MANIFEST.json
+
+      - name: Regenerate only the historical protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root=Path('candidate').resolve()
+          baseline_path=root/'skill-system/registry/product-source-baseline.json'
+          baseline=json.loads(baseline_path.read_text(encoding='utf-8'))
+          frozen=json.loads(Path('install-artifact/FROZEN_B38_CANDIDATE30_MANIFEST.json').read_text(encoding='utf-8'))
+          rows=frozen.get('files') or frozen.get('paths') or []
+          if not rows or not isinstance(rows[0],dict):
+              raise SystemExit('frozen_manifest_missing_file_rows')
+          frozen_map={str(r['path']):str(r.get('sha256') or r.get('sha') or '') for r in rows}
+          if len(frozen_map)!=30:
+              raise SystemExit(f'frozen_manifest_path_count:{len(frozen_map)}')
+          protected_roots=tuple(str(x) for x in baseline['protected_roots'])
+          prefixes=tuple(f'{name}/' for name in protected_roots)
+          expected={path:digest for path,digest in frozen_map.items() if path.startswith(prefixes)}
+          if len(expected)!=29:
+              raise SystemExit(f'expected_protected_b38_delta_count:{len(expected)}')
+          ignored={'.venv','.pytest_cache','node_modules','__pycache__'}
+          current={}
+          for name in protected_roots:
+              base=root/name
+              if not base.exists(): continue
+              for path in sorted(item for item in base.rglob('*') if item.is_file()):
+                  if any(part in ignored for part in path.parts): continue
+                  current[path.relative_to(root).as_posix()]=hashlib.sha256(path.read_bytes()).hexdigest()
+          old={str(k):str(v) for k,v in baseline['files'].items()}
+          changed={path for path in set(current)|set(old) if current.get(path)!=old.get(path)}
+          if changed!=set(expected):
+              raise SystemExit('unexpected_product_source_delta:'+','.join(sorted(changed ^ set(expected))))
+          bad={path:{'expected':digest,'actual':current.get(path)} for path,digest in expected.items() if current.get(path)!=digest}
+          if bad:
+              raise SystemExit('approved_hash_mismatch:'+json.dumps(bad,sort_keys=True))
+          if len(old)!=547:
+              raise SystemExit(f'unexpected_old_baseline_count:{len(old)}')
+          if len(current)!=555:
+              raise SystemExit(f'unexpected_new_baseline_count:{len(current)}')
+          # Historical refreshers intentionally preserve source_release_sha256;
+          # it names the prior source-release artifact, while generated_from binds
+          # this historical compatibility snapshot to the new canonical Git source.
+          prior_release=baseline.get('source_release_sha256')
+          baseline['generated_from']='git:'+os.environ['CANONICAL_SOURCE_HEAD']
+          baseline['generated_at']=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z')
+          baseline['file_count']=len(current)
+          baseline['files']=dict(sorted(current.items()))
+          baseline_path.write_text(json.dumps(baseline,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          result={
+              'schema_version':1,
+              'status':'BASELINE_REFRESH_GENERATED',
+              'canonical_source_head':os.environ['CANONICAL_SOURCE_HEAD'],
+              'old_file_count':len(old),
+              'new_file_count':len(current),
+              'approved_protected_delta_count':len(expected),
+              'approved_paths':sorted(expected),
+              'prior_source_release_sha256_preserved':prior_release,
+              'baseline_sha256':hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+          }
+          Path('b38-baseline-refresh-report.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Validate promoted historical baseline and complete Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py \
+            | tee ../project-compatibility-after-refresh.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane \
+            | tee ../skill-control-plane-after-refresh.json
+
+      - name: Publish exact one-file baseline promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          test "$(git rev-parse HEAD)" = "$CANONICAL_SOURCE_HEAD"
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected.txt
+          git diff --name-only "$CANONICAL_SOURCE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Promote B38 protected product-source baseline'
+          BASELINE_HEAD="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$CANONICAL_SOURCE_HEAD"
+          git push --force-with-lease=refs/heads/${CANONICAL_BRANCH}:${CANONICAL_SOURCE_HEAD} \
+            origin HEAD:${CANONICAL_BRANCH}
+          echo "$BASELINE_HEAD" > ../b38-baseline-promotion-head.txt
+
+      - name: Upload B38 baseline promotion evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-final-b38-baseline-promotion
+          path: |
+            b38-baseline-refresh-report.json
+            project-compatibility-after-refresh.json
+            skill-control-plane-after-refresh.json
+            b38-baseline-promotion-head.txt
+          if-no-files-found: error
+          retention-days: 90
