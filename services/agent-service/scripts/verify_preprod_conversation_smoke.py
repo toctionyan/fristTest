@@ -110,7 +110,18 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
             and bool(row.get("required", True)) == required
         ]
         if len(matches) != 1:
-            raise RuntimeError(f"{case_id}: no unique model goal matches oracle span={evidence!r}, type={goal_type!r}")
+            candidates = [
+                {
+                    "goal_id": str(row.get("goal_id") or ""),
+                    "evidence_span": str(row.get("evidence_span") or ""),
+                    "goal_type": str(row.get("goal_type") or ""),
+                }
+                for row in unmatched
+            ]
+            raise RuntimeError(
+                f"{case_id}: no unique model goal matches oracle span={evidence!r}, "
+                f"type={goal_type!r}, candidates={candidates!r}"
+            )
         matched = matches[0]
         oracle_id = str(expected.get("oracle_id") or "")
         goal_id = str(matched.get("goal_id") or "")
@@ -179,6 +190,7 @@ def main() -> int:
         system = SystemMessage(content=(
             "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
             "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
+            "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。"
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))

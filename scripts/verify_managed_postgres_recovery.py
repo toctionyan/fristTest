@@ -66,6 +66,21 @@ def _interaction(payload: dict, lifecycle: str) -> tuple[dict, dict]:
     return interaction, control
 
 
+def _pending_interaction(
+    harness: ProductRuntimeHarness,
+    *,
+    token: str,
+    thread_id: str,
+    lifecycle: str,
+) -> tuple[dict, dict]:
+    payload = _call(
+        harness.agent_url,
+        f"/api/threads/{thread_id}/pending",
+        token=token,
+    )
+    return _interaction(payload, lifecycle)
+
+
 def _input_values(interaction: dict[str, Any]) -> dict[str, str]:
     values: dict[str, str] = {}
     for field in list(interaction.get("fields") or []):
@@ -99,7 +114,9 @@ def run_managed_postgres_recovery(harness: ProductRuntimeHarness) -> dict[str, A
         "input_hints": {},
         "client_request_id": f"start-{uuid4().hex}",
     })
-    form, form_control = _interaction(started, "collecting_input")
+    form, form_control = _pending_interaction(
+        harness, token=token, thread_id=thread_id, lifecycle="collecting_input"
+    )
     draft_id = str(form_control.get("offer_handle") or "")
     if not draft_id:
         raise RuntimeError("managed recovery draft has no durable id")
@@ -116,7 +133,9 @@ def run_managed_postgres_recovery(harness: ProductRuntimeHarness) -> dict[str, A
         "client_request_id": f"input-{uuid4().hex}",
         "input_values": _input_values(form),
     })
-    _authority, authority_control = _interaction(input_result, "awaiting_authority")
+    _authority, authority_control = _pending_interaction(
+        harness, token=token, thread_id=thread_id, lifecycle="awaiting_authority"
+    )
     before_restart = _call(harness.agent_url, f"/api/transactions/{draft_id}", token=token)
     if ((before_restart.get("transaction") or {}).get("draft_state")) != "AWAITING_AUTHORIZATION":
         raise RuntimeError(f"draft did not reach AWAITING_AUTHORIZATION: {before_restart}")
