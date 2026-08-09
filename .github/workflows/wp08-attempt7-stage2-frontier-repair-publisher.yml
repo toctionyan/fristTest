@@ -1,0 +1,96 @@
+name: wp08-attempt7-stage2-frontier-repair-publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  repair-formal-frontier:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-root-fixes-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: 11e119c134906f1395db615762fd45c1e7385c92
+      FORMAL_REF: agent/wp08-attempt7-root-fixes-20260809
+      EXPECTED_FORMAL_HEAD: c56407552a206da33a1bb63249e5a12ff1cc3d1b
+    steps:
+      - name: Checkout carrier repair helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: carrier
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact Stage-1 formal candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.FORMAL_REF }}
+          path: candidate
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify failed Stage-2 authority and install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_FORMAL_HEAD"
+          test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "1"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+
+      - name: Narrow optional support frontier without weakening exact support proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-support-frontier-narrowing-fix.py
+          git -C candidate diff --check
+          printf '%s\n' \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py | sort > /tmp/expected-frontier-repair.txt
+          git -C candidate diff --name-only "$EXPECTED_FORMAL_HEAD" -- | sort > /tmp/actual-frontier-repair.txt
+          diff -u /tmp/expected-frontier-repair.txt /tmp/actual-frontier-repair.txt
+
+      - name: Run failed standard regressions plus Attempt-7 focused execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py
+          cd services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -m pytest -q \
+            tests/runtime/test_pretool_execution_policy.py \
+            tests/runtime/test_stage1_known_architecture_gaps.py \
+            tests/runtime/test_stage4_goal_output_refs.py \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_global_goal_capability_coverage.py
+
+      - name: Publish narrowed formal repair without touching main or Attempt 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$EXPECTED_FORMAL_HEAD"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py
+          git diff --cached --check
+          git commit -m 'Narrow Attempt 7 exact support frontier to direct action paths'
+          git push origin HEAD:refs/heads/$FORMAL_REF
+          git rev-parse HEAD
