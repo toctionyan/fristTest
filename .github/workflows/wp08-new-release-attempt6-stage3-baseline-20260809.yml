@@ -1,0 +1,184 @@
+name: wp08-new-release-attempt6-stage3-baseline
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-bind-baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-new-release-attempt6-stage3-baseline-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
+      FORMAL_REF: agent/wp08-new-release-attempt6-root-fixes-20260809
+      PRODUCT_HEAD: c3930afd15372fe19c5a3cdf076a04c19ab32432
+      SOURCE_RELEASE_SHA256: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
+      PROTECTED_FILE_COUNT: '558'
+    steps:
+      - name: Checkout exact formal stage-2 repair
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.FORMAL_REF }}
+          path: candidate
+          fetch-depth: 5
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify immutable authority and install locked environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$PRODUCT_HEAD"
+          test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "3"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$PRODUCT_HEAD"
+          printf '%s\n' \
+            services/agent-service/src/agent_core/context/reference_resolution.py \
+            services/agent-service/src/agent_core/context/visible_result_refs.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-product-delta.txt
+          git -C candidate diff --name-only "$BASE_SHA" HEAD -- | sort > /tmp/actual-product-delta.txt
+          diff -u /tmp/expected-product-delta.txt /tmp/actual-product-delta.txt
+          git -C candidate diff --check "$BASE_SHA" HEAD --
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
+
+      - name: Regenerate exact protected product baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          "${pythonLocation}/bin/python" - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          if payload.get('schema_version') != 2:
+              raise SystemExit('unexpected baseline schema')
+          if payload.get('protected_roots') != ['services', 'web', 'contracts']:
+              raise SystemExit('unexpected protected roots')
+          expected_source_release = os.environ['SOURCE_RELEASE_SHA256']
+          if payload.get('source_release_sha256') != expected_source_release:
+              raise SystemExit('source_release_sha256 authority moved')
+
+          raw = subprocess.check_output(
+              ['git', 'ls-files', '-z', '--', 'services', 'web', 'contracts'],
+              cwd=root,
+          )
+          paths = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              path: hashlib.sha256((root / path).read_bytes()).hexdigest()
+              for path in paths
+              if (root / path).is_file()
+          }
+          old = {str(k): str(v) for k, v in dict(payload.get('files') or {}).items()}
+          changed = sorted(path for path in set(current) | set(old) if current.get(path) != old.get(path))
+          expected_changed = sorted([
+              'services/agent-service/src/agent_core/context/reference_resolution.py',
+              'services/agent-service/src/agent_core/context/visible_result_refs.py',
+              'services/agent-service/src/agent_core/lifecycle/goal_granularity.py',
+              'services/agent-service/src/agent_core/lifecycle/goal_planning.py',
+              'services/agent-service/src/agent_core/runtime/capability_gate.py',
+          ])
+          if changed != expected_changed:
+              raise SystemExit('unexpected protected delta: ' + json.dumps(changed, ensure_ascii=False))
+          expected_count = int(os.environ['PROTECTED_FILE_COUNT'])
+          if len(current) != expected_count:
+              raise SystemExit(f'protected file count changed: {len(current)} != {expected_count}')
+
+          product_head = os.environ['PRODUCT_HEAD']
+          committed_at = subprocess.check_output(
+              ['git', 'show', '-s', '--format=%cI', product_head], cwd=root, text=True
+          ).strip()
+          timestamp = datetime.fromisoformat(committed_at.replace('Z', '+00:00')).astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+          payload['generated_from'] = f'git:{product_head}'
+          payload['generated_at'] = timestamp
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          report = {
+              'status': 'PASS',
+              'product_head': product_head,
+              'generated_at': timestamp,
+              'protected_file_count': len(current),
+              'source_release_sha256': expected_source_release,
+              'changed_protected_files': changed,
+          }
+          (root / 'wp08-attempt6-stage3-baseline-report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+          PY
+          test "$(git diff --name-only | tr -d '\r')" = "skill-system/registry/product-source-baseline.json"
+          git diff --check
+
+      - name: Prove project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-stage3-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-stage3-skill-control-plane.json
+
+      - name: Prove exact final delta and bind baseline only after gates pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          printf '%s\n' \
+            services/agent-service/src/agent_core/context/reference_resolution.py \
+            services/agent-service/src/agent_core/context/visible_result_refs.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-final-delta.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final-delta.txt
+          diff -u /tmp/expected-final-delta.txt /tmp/actual-final-delta.txt
+          git diff --check "$BASE_SHA" --
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$PRODUCT_HEAD"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Bind attempt 6 root-fix protected baseline'
+          git push origin HEAD:refs/heads/$FORMAL_REF
+          git rev-parse HEAD | tee ../wp08-attempt6-stage3-formal-head.txt
+
+      - name: Upload governed stage-3 evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-new-release-attempt6-stage3-baseline
+          path: |
+            wp08-attempt6-stage3-formal-head.txt
+            candidate/wp08-attempt6-stage3-baseline-report.json
+            candidate/wp08-attempt6-stage3-project-compatibility.json
+            candidate/wp08-attempt6-stage3-skill-control-plane.json
+          if-no-files-found: warn
+          retention-days: 90
