@@ -197,6 +197,27 @@ def _scripted_goals(turn: dict) -> list[dict]:
     return call["args"]["goals"]
 
 
+def _step_index(turn: dict, tool_name: str) -> int:
+    matches = [
+        index
+        for index, step in enumerate(turn["model_steps"])
+        if any(call["name"] == tool_name for call in step["tool_calls"])
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _call(turn: dict, tool_name: str) -> dict:
+    matches = [
+        call
+        for step in turn["model_steps"]
+        for call in step["tool_calls"]
+        if call["name"] == tool_name
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
 def test_shared_scope_ellipsis_oracles_are_independent_not_execution_dataflow() -> None:
     for case_id in (
         "semantic_multi_orders_logistics",
@@ -208,6 +229,30 @@ def test_shared_scope_ellipsis_oracles_are_independent_not_execution_dataflow() 
         assert _scripted_goals(turn)[1]["depends_on"] == []
 
 
+def test_independent_shared_scope_goals_have_same_batch_completion_paths() -> None:
+    orders = _turn("semantic_multi_orders_logistics")
+    assert _step_index(orders, "list_orders") == _step_index(orders, "get_order_logistics")
+    assert _call(orders, "get_order_logistics")["args"]["target"] == {"mode": "all_orders"}
+
+    refund = _turn("semantic_query_then_refund_draft")
+    assert _step_index(refund, "list_orders") == _step_index(refund, "prepare_refund")
+    assert _call(refund, "prepare_refund")["args"]["target"] == {
+        "mode": "entity_match",
+        "attribute_span": "鼠标订单",
+    }
+
+    detail = _turn("semantic_order_detail_and_invoice")
+    assert _step_index(detail, "get_order_details") == _step_index(detail, "list_invoices")
+    assert _call(detail, "get_order_details")["args"]["target"] == {
+        "mode": "artifact",
+        "left_handle": "artifact:fixture:order:10002",
+    }
+    assert _call(detail, "list_invoices")["args"]["target"] == {
+        "mode": "artifact",
+        "left_handle": "artifact:fixture:order:10002",
+    }
+
+
 def test_true_result_reference_oracle_is_still_dependent() -> None:
     turn = _turn("semantic_query_then_refund_consult")
     assert turn["goal_oracle"][1]["evidence_span"] == "它能不能退款"
@@ -215,7 +260,7 @@ def test_true_result_reference_oracle_is_still_dependent() -> None:
     assert _scripted_goals(turn)[1]["depends_on"] == ["g1"]
 
 
-def test_multi_target_write_keeps_target_resolution_as_support_step_not_user_goal() -> None:
+def test_multi_target_write_is_one_user_goal_and_directly_proves_cardinality_boundary() -> None:
     turn = _turn("semantic_multi_target_cancel_boundary")
     assert len(turn["goal_oracle"]) == 1
     goal = turn["goal_oracle"][0]
@@ -227,13 +272,18 @@ def test_multi_target_write_keeps_target_resolution_as_support_step_not_user_goa
     assert len(scripted) == 1
     assert scripted[0]["goal_id"] == "g1"
     assert scripted[0]["depends_on"] == []
-    list_call = next(
-        call
+    emitted_names = [
+        call["name"]
         for step in turn["model_steps"]
         for call in step["tool_calls"]
-        if call["name"] == "list_orders"
-    )
-    assert list_call["args"]["goal_ids"] == ["g1"]
+    ]
+    assert "list_orders" not in emitted_names
+    cancel = _call(turn, "prepare_cancel_order")
+    assert cancel["args"]["target"] == {"mode": "all_orders"}
+    assert cancel["args"]["goal_ids"] == ["g1"]
+    assert "list_orders" not in turn["allowed_tools"]
+    assert "list_orders" not in turn["required_tools"]
+    assert "list_orders" not in _case("semantic_multi_target_cancel_boundary")["execution_contract"]["preproduction_allowed_tools"]
     assert turn["expected"]["goal_count"] == 1
 
 
