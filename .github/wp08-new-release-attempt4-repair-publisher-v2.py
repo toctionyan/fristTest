@@ -66,7 +66,8 @@ old_helper = '''        result, declared = _production_goal_declaration_evaluati
             break
         tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
 '''
-new_helper = '''        try:
+new_helper = '''        # Repair invariant: 不能删除系统没有精确能力的分支；the exact Runtime result below supplies the deterministic reason.
+        try:
             declared = _validate_with_production_goal_contract(
                 case_id=case_id,
                 user_text=user_text,
