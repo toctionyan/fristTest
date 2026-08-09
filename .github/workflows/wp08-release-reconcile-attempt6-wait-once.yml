@@ -1,0 +1,74 @@
+name: wp08-release-reconcile-attempt6-wait-once
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  reconcile:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-release-reconcile-attempt6-wait-once-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      EXPECTED_MAIN_SHA: 07c5fc7a47eb9e9618c619d3c7eca09ad93c5296
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact authoritative main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Wait for exact-main Quality and reconcile through official controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
+          for attempt in $(seq 1 60); do
+            python -B scripts/wp08_release_recovery.py --mode reconcile
+            python - <<'PY' && exit 0 || true
+          import json
+          import os
+          from urllib import request
+          repo = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GITHUB_TOKEN']
+          req = request.Request(
+              f'https://api.github.com/repos/{repo}/issues/267',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f'Bearer {token}',
+                  'X-GitHub-Api-Version': '2026-03-10',
+              },
+          )
+          with request.urlopen(req, timeout=30) as response:
+              issue = json.load(response)
+          body = str(issue.get('body') or '')
+          left_wait = any(
+              state in body
+              for state in (
+                  '"status": "CERTIFYING"',
+                  '"status": "WP08_PASS"',
+                  '"status": "FAILED_NEEDS_CLASSIFICATION"',
+                  '"status": "MAIN_QUALITY_FAILED"',
+                  '"status": "ATTEMPT_BUDGET_EXHAUSTED"',
+              )
+          ) and '"current_candidate_sha": "07c5fc7a47eb9e9618c619d3c7eca09ad93c5296"' in body
+          raise SystemExit(0 if left_wait else 1)
+          PY
+            sleep 15
+          done
+          echo 'Exact-main Quality did not become reconcilable within the bounded wait.' >&2
+          exit 1
