@@ -295,6 +295,9 @@ def test_execution_support_continuation_is_exact_non_completion_and_write_scoped
     assert 'identity in support_effect_identities' in workflow
 
     assert 'str(contract.execution_kind or "") == "action_draft"' in policy
+    assert 'len(closed_paths) == 1' in policy
+    assert 'len(active_paths) == 1' in policy
+    assert 'set(frontier) == active_completion_tools' in policy
     assert '"support_frontier_tools": support_frontier' in policy
     assert '"support_frontier_is_completion": False' in policy
     assert 'tool_name not in completed_tools' in policy

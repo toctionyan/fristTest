@@ -339,8 +339,19 @@ def build_pretool_execution_policy(
             for row in active_paths
             if str(row.get("completion_tool") or "")
         }
+        # Optional read-support is only exposed when the exact effect has
+        # one contract-closed completion path and that path is currently direct.
+        # If the registry already declares alternate closed paths (for example
+        # eligibility -> draft), their own topology remains the sole frontier;
+        # support_effects must not widen it.  This preserves the contract-v2
+        # "highest-progress paths only" invariant while still permitting a
+        # single direct action path to resolve a verified target through an
+        # exact registered safe read.
         action_completion_pending = bool(
             not all_active_complete
+            and len(closed_paths) == 1
+            and len(active_paths) == 1
+            and set(frontier) == active_completion_tools
             and any(
                 (contract := capability_registry.contract_for_tool(name)) is not None
                 and str(contract.execution_kind or "") == "action_draft"
