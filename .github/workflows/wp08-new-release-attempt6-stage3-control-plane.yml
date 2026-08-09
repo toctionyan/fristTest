@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 90
     env:
       BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
-      PRODUCT_HEAD: c3930afd15372fe19c5a3cdf076a04c19ab32432
+      PRODUCT_HEAD: 04917167409c3c40ff7843f74ec8a5f8e88708bd
       FORMAL_BRANCH: agent/wp08-new-release-attempt6-root-fixes-20260809
     steps:
       - name: Checkout exact validated formal repair
@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ env.FORMAL_BRANCH }}
           path: candidate
-          fetch-depth: 5
+          fetch-depth: 7
           persist-credentials: true
 
       - name: Set up governed Python
@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$PRODUCT_HEAD"
           test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "3"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "5"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$PRODUCT_HEAD"
           printf '%s\n' \
@@ -47,6 +47,8 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
             skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-product-delta.txt
           git -C candidate diff --name-only "$BASE_SHA" HEAD -- | sort > /tmp/actual-product-delta.txt
@@ -131,6 +133,8 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/runtime/capability_gate.py \
             skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
             skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-final-delta.txt
           git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final-delta.txt
