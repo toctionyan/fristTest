@@ -191,6 +191,26 @@ def scripted_goals(turn: dict) -> list[dict]:
     return (call.get("args") or {}).get("goals") or []
 
 
+def scripted_call(turn: dict, name: str) -> dict:
+    matches = [
+        call
+        for step in turn.get("model_steps") or []
+        for call in step.get("tool_calls") or []
+        if call.get("name") == name
+    ]
+    if len(matches) != 1:
+        raise SystemExit(f"expected one scripted {name} call, found {len(matches)}")
+    return matches[0]
+
+
+def terminal_steps(turn: dict) -> list[dict]:
+    return [
+        step
+        for step in (turn.get("model_steps") or [])[1:]
+        if any(call.get("name") in {"respond_to_user", "ask_user_clarification"} for call in step.get("tool_calls") or [])
+    ]
+
+
 for case_id in (
     "semantic_multi_orders_logistics",
     "semantic_query_then_refund_draft",
@@ -205,6 +225,35 @@ for case_id in (
     if len(goals) != 2:
         raise SystemExit(f"expected two scripted goals before dependency cleanup: {case_id}")
     goals[1]["depends_on"] = []
+
+# Semantic dependency and execution dataflow are separate contracts.  Once the
+# two user outcomes are independent, every still-pending Goal must have a real
+# completion path in the same candidate plan batch.  Do not use semantic
+# depends_on merely to permit a later execution step.
+orders = turn_for("semantic_multi_orders_logistics")
+orders_list = scripted_call(orders, "list_orders")
+orders_logistics = scripted_call(orders, "get_order_logistics")
+orders_logistics.setdefault("args", {})["target"] = {"mode": "all_orders"}
+orders["model_steps"] = [
+    orders["model_steps"][0],
+    {"tool_calls": [orders_list, orders_logistics]},
+    *terminal_steps(orders),
+]
+
+refund = turn_for("semantic_query_then_refund_draft")
+refund_list = scripted_call(refund, "list_orders")
+refund_prepare = scripted_call(refund, "prepare_refund")
+refund_prepare.setdefault("args", {})["target"] = {
+    "mode": "entity_match",
+    "attribute_span": "鼠标订单",
+}
+refund_prepare["args"]["reference_span"] = "鼠标订单"
+refund_prepare["args"].pop("context_binding", None)
+refund["model_steps"] = [
+    refund["model_steps"][0],
+    {"tool_calls": [refund_list, refund_prepare]},
+    *terminal_steps(refund),
+]
 
 multi = turn_for("semantic_multi_target_cancel_boundary")
 old_oracle = list(multi.get("goal_oracle") or [])
@@ -226,14 +275,27 @@ first_call = next(
     if row.get("name") == "declare_turn_goals"
 )
 first_call["args"]["goals"] = [action_goal]
-for step in multi.get("model_steps") or []:
-    for call in step.get("tool_calls") or []:
-        if call.get("name") == "list_orders":
-            call.setdefault("args", {})["goal_ids"] = ["g1"]
-        elif call.get("name") == "respond_to_user":
-            call.setdefault("args", {})["goal_ids"] = ["g1"]
+prepare_cancel = scripted_call(multi, "prepare_cancel_order")
+prepare_cancel.setdefault("args", {})["target"] = {"mode": "all_orders"}
+prepare_cancel["args"]["reference_span"] = "这些订单"
+prepare_cancel["args"]["goal_ids"] = ["g1"]
+respond = scripted_call(multi, "respond_to_user")
+respond.setdefault("args", {})["goal_ids"] = ["g1"]
+multi["model_steps"] = [
+    multi["model_steps"][0],
+    {"tool_calls": [prepare_cancel]},
+    {"tool_calls": [respond]},
+]
+for key in ("allowed_tools", "required_tools"):
+    multi[key] = [name for name in list(multi.get(key) or []) if name != "list_orders"]
 multi.setdefault("expected", {})["goal_count"] = 1
+case_multi = by_id["semantic_multi_target_cancel_boundary"]
+execution_multi = case_multi.get("execution_contract") if isinstance(case_multi.get("execution_contract"), dict) else {}
+execution_multi["preproduction_allowed_tools"] = [
+    name for name in list(execution_multi.get("preproduction_allowed_tools") or [])
+    if name != "list_orders"
+]
 
 catalog_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-print("attempt7 semantic contract, preprod parity and oracle repair applied")
+print("attempt7 semantic contract, preprod parity, oracle and execution-dataflow repair applied")
