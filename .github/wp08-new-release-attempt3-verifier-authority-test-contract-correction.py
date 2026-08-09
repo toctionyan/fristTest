@@ -23,7 +23,7 @@ replace_once(
 ''',
     '''def _patch_successful_semantic_runtime(monkeypatch, script, tmp_path: Path, *, invoke):
     # A successful semantic-certification fixture must exercise the same protected
-    # independent-verifier authority now required by the live bundle.  This keeps
+    # independent-verifier authority now required by the live bundle. This keeps
     # the provider-attestation test focused without reintroducing candidate-only mode.
     monkeypatch.setenv("APP_PROFILE", "preprod")
     monkeypatch.setenv("GOAL_ALIGNMENT_VERIFIER_MODE", "model")
@@ -46,11 +46,24 @@ replace_once(
 ''',
 )
 
+skill_attempt3_test = ROOT / "skill-system/tests/test_wp08_new_release_attempt3_repair.py"
+replace_once(
+    skill_attempt3_test,
+    '''        self.assertIn('model_call_scope(max_calls=48', source)
+''',
+    '''        # Protected certification now executes declaration + independent alignment
+        # + independent candidate-blind granularity, with at most one repair attempt.
+        self.assertIn('model_call_scope(max_calls=72', source)
+        self.assertIn('"GOAL_GRANULARITY_VERIFIER_MODE"', source)
+''',
+)
+
 print(json.dumps({
     "status": "APPLIED",
     "changed": [
         str(semantic_identity_test.relative_to(ROOT)),
         str(browser_authority_test.relative_to(ROOT)),
+        str(skill_attempt3_test.relative_to(ROOT)),
     ],
-    "reason": "align existing tests with the newly explicit protected granularity-verifier authority",
+    "reason": "align existing regression contracts with protected granularity-verifier authority and its true bounded call envelope",
 }, ensure_ascii=False, indent=2))
