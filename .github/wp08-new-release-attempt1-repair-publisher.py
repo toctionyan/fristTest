@@ -16,9 +16,12 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-# 1) Repair the stale independent semantic oracle.  The production contract
+# 1) Repair the stale independent semantic oracle. The production contract
 # defines Goals as independently completable user business effects; filtering
 # and target selection remain implementation steps rather than standalone Goals.
+# The deterministic candidate must therefore also stop scripting list_orders as
+# a fake Goal-owned prerequisite when the fixture already exposes verified
+# single-member target handles for the two business effects.
 catalog_path = ROOT / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
 payload = json.loads(catalog_path.read_text(encoding="utf-8"))
 case = next((row for row in payload.get("cases", []) if row.get("id") == "semantic_cancel_and_refund_branch"), None)
@@ -35,7 +38,7 @@ cancel_goal.update({
     "goal_type": "action",
     "evidence_span": "把待发货的订单取消",
     "depends_on": [],
-    "required_tools": ["list_orders", "prepare_cancel_order"],
+    "required_tools": ["prepare_cancel_order"],
 })
 refund_goal = deepcopy(old_oracle[2])
 refund_goal.update({
@@ -47,7 +50,9 @@ refund_goal.update({
 })
 turn["goal_oracle"] = [cancel_goal, refund_goal]
 
-steps = turn.get("model_steps") or []
+steps = list(turn.get("model_steps") or [])
+if not steps:
+    raise SystemExit("semantic_cancel_and_refund_branch model_steps missing")
 declaration = steps[0]["tool_calls"][0]["args"]
 old_goals = list(declaration.get("goals") or [])
 if len(old_goals) != 3:
@@ -72,14 +77,39 @@ script_refund.update({
 script_refund["requested_effect"]["raw_description"] = "处理用户目标：已签收的看看能不能退款"
 declaration["goals"] = [script_cancel, script_refund]
 
+# Remove the implementation-shaped list_orders candidate. The fixture ledger
+# already publishes exact order artifacts plus signed/pending single-member
+# views, so the completion tools can bind those verified handles directly.
+filtered_steps = [steps[0]]
 for step in steps[1:]:
-    for call in step.get("tool_calls") or []:
+    calls = [call for call in list(step.get("tool_calls") or []) if isinstance(call, dict)]
+    if calls and all(str(call.get("name") or "") == "list_orders" for call in calls):
+        continue
+    for call in calls:
         name = str(call.get("name") or "")
-        if name in {"list_orders", "prepare_cancel_order"}:
+        if name == "prepare_cancel_order":
             call.setdefault("args", {})["goal_ids"] = ["g1"]
         elif name == "evaluate_refund_eligibility":
             call.setdefault("args", {})["goal_ids"] = ["g2"]
-turn.setdefault("expected", {})["goal_count"] = 2
+    filtered_steps.append(step)
+turn["model_steps"] = filtered_steps
+
+turn["allowed_tools"] = [
+    name for name in list(turn.get("allowed_tools") or []) if str(name) != "list_orders"
+]
+turn["required_tools"] = [
+    name for name in list(turn.get("required_tools") or []) if str(name) != "list_orders"
+]
+expected = turn.setdefault("expected", {})
+expected["goal_count"] = 2
+trace = expected.get("trace") if isinstance(expected.get("trace"), dict) else {}
+trace["must_include"] = [
+    name for name in list(trace.get("must_include") or []) if str(name) != "list_orders"
+]
+expected["trace"] = trace
+port_calls = expected.get("port_calls") if isinstance(expected.get("port_calls"), dict) else {}
+port_calls.pop("query_resources", None)
+expected["port_calls"] = port_calls
 catalog_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -96,7 +126,7 @@ replace_once(
 )
 
 
-# 3) Add secret-free in-flight model-call logging.  Graph snapshots only exist
+# 3) Add secret-free in-flight model-call logging. Graph snapshots only exist
 # after a request reaches a checkpoint; a browser-killed in-flight provider call
 # otherwise leaves no evidence about which bounded lane was waiting.
 gateway_path = ROOT / "services/agent-service/src/agent_core/model_calls/gateway.py"
@@ -176,7 +206,7 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
             oracle[0]["requested_effect"],
             {"domain": "order", "operation": "cancel", "object_type": "order"},
         )
-        self.assertEqual(oracle[0]["required_tools"], ["list_orders", "prepare_cancel_order"])
+        self.assertEqual(oracle[0]["required_tools"], ["prepare_cancel_order"])
         self.assertEqual(oracle[1]["goal_type"], "consult")
         self.assertEqual(oracle[1]["oracle_id"], "g2")
         self.assertEqual(turn["expected"]["goal_count"], 2)
@@ -185,7 +215,7 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
             for row in oracle
         ))
 
-    def test_scripted_support_steps_bind_to_business_goals(self) -> None:
+    def test_scripted_execution_uses_only_business_completion_tools(self) -> None:
         turn = self._case()["execution_contract"]["turn_contracts"][0]
         calls = [
             call
@@ -193,9 +223,12 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
             for call in step.get("tool_calls", [])
         ]
         by_name = {call["name"]: call for call in calls}
-        self.assertEqual(by_name["list_orders"]["args"]["goal_ids"], ["g1"])
+        self.assertNotIn("list_orders", by_name)
         self.assertEqual(by_name["prepare_cancel_order"]["args"]["goal_ids"], ["g1"])
         self.assertEqual(by_name["evaluate_refund_eligibility"]["args"]["goal_ids"], ["g2"])
+        self.assertNotIn("list_orders", turn["required_tools"])
+        self.assertNotIn("list_orders", turn["expected"]["trace"]["must_include"])
+        self.assertNotIn("query_resources", turn["expected"]["port_calls"])
 
     def test_independent_semantic_prompt_uses_production_granularity_rule(self) -> None:
         production = (ROOT / "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py").read_text(encoding="utf-8")
