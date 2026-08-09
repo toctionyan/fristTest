@@ -149,7 +149,8 @@ jobs:
           test "$(git -C candidate rev-parse HEAD)" = "$FINAL_HEAD"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$FINAL_HEAD"
-          test -z "$(git -C candidate status --porcelain)"
+          git -C candidate diff --exit-code
+          git -C candidate diff --cached --exit-code
 
       - name: Upload governed exact-final evidence
         if: always()
