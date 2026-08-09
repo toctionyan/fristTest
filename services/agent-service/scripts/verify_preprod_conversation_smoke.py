@@ -78,6 +78,11 @@ def _effect_identity(value: Any) -> tuple[str, str, str]:
     return tuple(str(source.get(key) or "").strip().casefold() for key in _EFFECT_KEYS)  # type: ignore[return-value]
 
 
+def _effect_key(value: tuple[str, str, str]) -> str:
+    domain, operation, object_type = value
+    return f"{domain}.{operation}:{object_type}" if domain and operation and object_type else ""
+
+
 def _user_turns(case: dict[str, Any]) -> list[str]:
     return [
         str(row.get("text") or "")
@@ -86,7 +91,14 @@ def _user_turns(case: dict[str, Any]) -> list[str]:
     ]
 
 
-def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dict[str, Any]]) -> None:
+def _match_oracle(
+    *,
+    case_id: str,
+    oracle: list[dict[str, Any]],
+    goals: list[dict[str, Any]],
+    registered_effect_identities: set[str] | None = None,
+) -> None:
+    registered_effect_identities = registered_effect_identities or set()
     if len(goals) != len(oracle):
         raise RuntimeError(f"{case_id}: goal count mismatch, expected {len(oracle)}, got {len(goals)}")
     goal_ids = [str(row.get("goal_id") or "") for row in goals]
@@ -103,9 +115,12 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
         evidence = str(expected.get("evidence_span") or "")
         required = bool(expected.get("required", True))
         expected_effect = _effect_identity(expected.get("requested_effect"))
+        match_mode = str(expected.get("requested_effect_match") or "exact").strip().casefold()
+        if match_mode not in {"exact", "unregistered_open"}:
+            raise RuntimeError(f"{case_id}: unsupported requested_effect_match={match_mode!r}")
         if not all(expected_effect):
             raise RuntimeError(
-                f"{case_id}: oracle goal {expected.get('oracle_id')!r} lacks authoritative requested_effect identity"
+                f"{case_id}: oracle goal {expected.get('oracle_id')!r} lacks requested_effect identity"
             )
 
         def candidate_matches(row: dict[str, Any], *, fuzzy_span: bool) -> bool:
@@ -114,10 +129,15 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
                 if fuzzy_span
                 else str(row.get("evidence_span") or "") == evidence
             )
+            candidate_effect = _effect_identity(row.get("requested_effect"))
+            if match_mode == "unregistered_open":
+                effect_ok = bool(all(candidate_effect)) and _effect_key(candidate_effect) not in registered_effect_identities
+            else:
+                effect_ok = _effect_identity(row.get("requested_effect")) == expected_effect
             return (
                 span_ok
                 and bool(row.get("required", True)) == required
-                and _effect_identity(row.get("requested_effect")) == expected_effect
+                and effect_ok
             )
 
         exact_matches = [row for row in unmatched if candidate_matches(row, fuzzy_span=False)]
@@ -137,7 +157,7 @@ def _match_oracle(*, case_id: str, oracle: list[dict[str, Any]], goals: list[dic
             ]
             raise RuntimeError(
                 f"{case_id}: no unique model goal matches oracle span={evidence!r}, "
-                f"requested_effect={expected_effect!r}, candidates={candidates!r}"
+                f"requested_effect={expected_effect!r}, match_mode={match_mode!r}, candidates={candidates!r}"
             )
         matched = matches[0]
         oracle_id = str(expected.get("oracle_id") or "")
@@ -202,11 +222,17 @@ def main() -> int:
             raise RuntimeError("preproduction semantic prototypes must currently be single-turn")
 
         model = get_model()
+        effect_index = capability_effect_index(get_runtime_registry().capabilities)
         effect_vocabulary_json = json.dumps(
-            capability_effect_index(get_runtime_registry().capabilities),
+            effect_index,
             ensure_ascii=False,
             sort_keys=True,
         )
+        registered_effect_identities = {
+            str(row.get("requested_effect_identity") or "").strip().casefold()
+            for row in list(effect_index.get("effects") or [])
+            if isinstance(row, dict) and str(row.get("requested_effect_identity") or "").strip()
+        }
         bound = model.bind_tools(planning_schemas()) if hasattr(model, "bind_tools") else model
         evidence: list[dict[str, Any]] = []
         system = SystemMessage(content=(
@@ -215,6 +241,7 @@ def main() -> int:
             "requested_effect 必须完整填写 domain、operation、object_type；若下面登记词汇中存在与用户业务效果精确对应的身份，必须逐字段使用；"
             "若不存在精确对应，保留开放业务效果，禁止用 query/action 等泛化类别或相近能力迁就。"
             f"当前部署登记的业务效果身份及模块语义边界（只帮助模型选择结构化 identity；Runtime 仍 exact-match，不是关键词分类器）：{effect_vocabulary_json}。"
+            "能力词汇中没有精确身份的分支也必须保留成独立 Goal；requested_effect 要写用户实际请求的开放业务效果，不能写 unsupported_request、能力缺失或系统不支持来替代用户语义。"
             "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
             "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。"
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
@@ -240,7 +267,12 @@ def main() -> int:
                 args = candidates[0].get("args") if isinstance(candidates[0].get("args"), dict) else {}
                 goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
                 oracle = [row for row in list(turn.get("goal_oracle") or []) if isinstance(row, dict)]
-                _match_oracle(case_id=case["id"], oracle=oracle, goals=goals)
+                _match_oracle(
+                    case_id=case["id"],
+                    oracle=oracle,
+                    goals=goals,
+                    registered_effect_identities=registered_effect_identities,
+                )
                 declared = _validate_with_production_goal_contract(
                     case_id=str(case["id"]),
                     user_text=str(turn["user_text"]),

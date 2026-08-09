@@ -1256,10 +1256,11 @@
                   "report_unsupported_request"
                 ],
                 "requested_effect": {
-                  "domain": "open",
-                  "operation": "unsupported_request",
-                  "object_type": "request"
-                }
+                  "domain": "delivery",
+                  "operation": "query_courier_contact",
+                  "object_type": "courier"
+                },
+                "requested_effect_match": "unregistered_open"
               }
             ],
             "model_steps": [
@@ -1292,9 +1293,9 @@
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
-                            "domain": "open",
-                            "operation": "unsupported_request",
-                            "object_type": "request",
+                            "domain": "delivery",
+                            "operation": "query_courier_contact",
+                            "object_type": "courier",
                             "raw_description": "处理用户目标：快递员手机号"
                           }
                         }
@@ -1475,10 +1476,11 @@
                   "report_unsupported_request"
                 ],
                 "requested_effect": {
-                  "domain": "open",
-                  "operation": "unsupported_request",
-                  "object_type": "request"
-                }
+                  "domain": "delivery",
+                  "operation": "query_courier_contact",
+                  "object_type": "courier"
+                },
+                "requested_effect_match": "unregistered_open"
               }
             ],
             "model_steps": [
@@ -1497,9 +1499,9 @@
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
-                            "domain": "open",
-                            "operation": "unsupported_request",
-                            "object_type": "request",
+                            "domain": "delivery",
+                            "operation": "query_courier_contact",
+                            "object_type": "courier",
                             "raw_description": "处理用户目标：快递员电话"
                           }
                         }

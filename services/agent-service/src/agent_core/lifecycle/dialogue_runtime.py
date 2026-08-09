@@ -8,7 +8,12 @@ try:
 except Exception:  # pragma: no cover
     AIMessage = HumanMessage = SystemMessage = None  # type: ignore
 
-from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, agent_loop_schemas, planning_schemas
+from agent_core.lifecycle.protocol import (
+    ASK_USER_CLARIFICATION_SCHEMA,
+    TERMINAL_TOOL_NAMES,
+    agent_loop_schemas,
+    planning_schemas,
+)
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.plan_projection_contract import read_plan_projection
 from agent_core.observability.audit_turn_trace import create_plan_id
@@ -60,6 +65,29 @@ from agent_core.runtime.node_support import (
 
 FINAL_PROTOCOL_MAX_RETRIES = 1
 GOAL_DECLARATION_MAX_RETRIES = 2
+
+
+def _declaration_clarification_required(state: dict[str, Any]) -> bool:
+    """Detect a same-turn declaration rejection that explicitly requires input."""
+    if goal_plan_ready(state):
+        return False
+    plan = state.get("current_turn_plan") if isinstance(state.get("current_turn_plan"), dict) else {}
+    if int(plan.get("turn") or -1) != int(state.get("turn_index") or 0):
+        return False
+    if not any(
+        isinstance(call, dict) and str(call.get("name") or "") == "declare_turn_goals"
+        for call in list(plan.get("tool_calls") or [])
+    ):
+        return False
+    for row in reversed(list(state.get("tool_trace") or [])):
+        if not isinstance(row, dict) or str(row.get("name") or "") != "declare_turn_goals":
+            continue
+        result = row.get("result") if isinstance(row.get("result"), dict) else {}
+        return bool(
+            not result.get("ok")
+            and str(result.get("code") or "") == "GOAL_DECLARATION_REQUIRES_CLARIFICATION"
+        )
+    return False
 
 
 def get_model():
@@ -435,6 +463,7 @@ def _loop_runtime_prompt(
     step = int(state.get("agent_loop_step") or 0)
     final_retry = int(state.get("answer_protocol_retry") or 0)
     budget = compute_loop_budget(state)
+    declaration_clarification_mode = _declaration_clarification_required(state)
     terminal_rule = (
         "历史审计已返回上一轮公开回答及其 result_handles；下一步只能 respond_to_user，使用这些真实句柄回答历史召回，不得把历史实体伪装成本轮 span 后重新查询。"
         if budget.reason == "verified_history_recall_ready"
@@ -442,7 +471,12 @@ def _loop_runtime_prompt(
         if budget.terminal_only
         else "可继续选择一次必要观察；不要重复同一参数工具。"
     )
-    if str(state.get("status") or "") == "ClarificationNotNeededRetry":
+    if declaration_clarification_mode:
+        protocol_repair_rule = (
+            "上一次 declare_turn_goals 已由独立语义验证明确判定需要用户澄清；本次不能再次声明 Goal，"
+            "也不能调用任何业务能力。只能调用一次 ask_user_clarification，直接询问缺失的对象、范围、条件或真实意图。"
+        )
+    elif str(state.get("status") or "") == "ClarificationNotNeededRetry":
         protocol_repair_rule = (
             "上一次澄清被 Runtime 拒绝：普通承接已有唯一的最新公开范围，不能复活更旧、更宽的集合制造歧义。"
             "本次必须沿唯一 is_latest_visible_turn ResultRef 调用当前业务能力或给出已有证据回答，不得再次澄清。"
@@ -479,15 +513,21 @@ def _loop_runtime_prompt(
         protocol_repair_rule = "所有面向用户的结论或问题都必须通过 respond_to_user 或 ask_user_clarification 发出，不能只输出纯文本。"
     planning_phase = not goal_plan_ready(state)
     blocker_context = clarification_context_projection(state)
-    planning_rule = (
-        "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、封闭 condition 和依赖。显式引用历史结果、历史轮次或展示顺序成员时必须给出 reference_expression，由 Runtime 解析并只接受 UNIQUE 证明。系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
-        + (
-            " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮采用一个全局 disposition；只提交 goal_changes 和 blocker_resolutions。"
-            if blocker_context is not None else ""
+    if declaration_clarification_mode:
+        planning_rule = (
+            "当前处于语义冻结前的澄清暂停阶段：独立验证已证明当前候选不能安全冻结。"
+            "只能向用户提出一个最小必要澄清问题；不得改写或冻结 requested_effect，不得发现、调用或暗示任何业务能力。"
         )
-        if planning_phase
-        else "本轮正式语义已冻结。能力发现和执行只能实现这些 Goal，不能因工具失败或能力缺失改写 requested_effect。每个业务工具调用必须显式绑定一个 goal_id；终止调用必须覆盖全部已处理 Goal。"
-    )
+    elif planning_phase:
+        planning_rule = (
+            "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出开放 requested_effect(domain/operation/object_type/raw_description)、字面 evidence_span、对象/输入候选、封闭 condition 和依赖。显式引用历史结果、历史轮次或展示顺序成员时必须给出 reference_expression，由 Runtime 解析并只接受 UNIQUE 证明。系统没有对应能力时仍保留原 Goal，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
+            + (
+                " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮采用一个全局 disposition；只提交 goal_changes 和 blocker_resolutions。"
+                if blocker_context is not None else ""
+            )
+        )
+    else:
+        planning_rule = "本轮正式语义已冻结。能力发现和执行只能实现这些 Goal，不能因工具失败或能力缺失改写 requested_effect。每个业务工具调用必须显式绑定一个 goal_id；终止调用必须覆盖全部已处理 Goal。"
     surface = state.get("capability_surface") if isinstance(state.get("capability_surface"), dict) else None
     if capability_registry is not None and not planning_phase and surface is None:
         surface = _discover_capability_surface(state, capability_registry)
@@ -495,7 +535,7 @@ def _loop_runtime_prompt(
     capability_rules = (
         capability_registry.planner_capability_rules(surfaced_tools)
         if capability_registry is not None and not planning_phase
-        else "目标声明阶段不暴露业务能力。"
+        else ("语义冻结前澄清阶段不暴露业务能力。" if declaration_clarification_mode else "目标声明阶段不暴露业务能力。")
     )
     return f"""【当前规划阶段】
 {planning_rule}
@@ -761,6 +801,7 @@ def agent_loop_node(
     try:
         model = model_resolver()
         planning_phase = not goal_plan_ready(state)
+        declaration_clarification_mode = planning_phase and _declaration_clarification_required(state)
         pre_model_budget = compute_loop_budget(state)
         history_recall_ready = (
             not planning_phase
@@ -839,7 +880,9 @@ def agent_loop_node(
                     "mutates_business_state": False,
                 }
         schemas = (
-            planning_schemas()
+            [deepcopy(ASK_USER_CLARIFICATION_SCHEMA)]
+            if declaration_clarification_mode
+            else planning_schemas()
             if planning_phase
             else agent_loop_schemas(
                 capability_registry,
@@ -876,13 +919,18 @@ def agent_loop_node(
             model,
             schemas,
             require_tool_call=(
-                planning_phase
+                declaration_clarification_mode
+                or planning_phase
                 or terminal_protocol_repair
                 or workflow_completion_repair
                 or history_recall_ready
                 or clarification_scope_repair
             ),
-            required_tool_name="declare_turn_goals" if planning_phase else None,
+            required_tool_name=(
+                "ask_user_clarification"
+                if declaration_clarification_mode
+                else "declare_turn_goals" if planning_phase else None
+            ),
             allow_tool_choice=bool(get_model_profile().get("tool_choice_supported", True)),
         )
         response, model_call = invoke_model(
@@ -902,6 +950,105 @@ def agent_loop_node(
         )
         raw_calls = _tool_calls(response)
         raw_content = str(getattr(response, "content", "") or "").strip()
+        if declaration_clarification_mode:
+            invalid = [call for call in raw_calls if str(call.get("name") or "") != "ask_user_clarification"]
+            next_step = int(state.get("agent_loop_step") or 0) + 1
+            ai = _as_ai_message(response, raw_calls)
+            debug_call = {
+                "node": "agent_loop",
+                "model_profile": get_model_profile(),
+                "loop_step": next_step,
+                "tool_call_count": len(raw_calls),
+                "tool_names": [str(call.get("name") or "") for call in raw_calls],
+                "workflow_level": None,
+                "workflow_status": "declaration_clarification",
+                "response_content": raw_content,
+                "model_call": model_call,
+            }
+            if invalid or len(raw_calls) != 1:
+                retry = int(state.get("goal_declaration_retry") or 0) + 1
+                exhausted = retry >= GOAL_DECLARATION_MAX_RETRIES
+                return {
+                    "messages": [ai],
+                    "agent_loop_step": next_step,
+                    "goal_declaration_retry": retry,
+                    "phase": "final" if exhausted else "agent_loop",
+                    "status": "GoalDeclarationClarificationUnavailable" if exhausted else "GoalDeclarationClarificationProtocolRetry",
+                    "current_final_answer": (
+                        "当前仍缺少必要信息，系统未执行任何业务操作；请重新说明要查询的对象或范围。"
+                        if exhausted else None
+                    ),
+                    "debug_llm_calls": [*(state.get("debug_llm_calls") or []), debug_call],
+                    "model_call_trace": [*(state.get("model_call_trace") or []), model_call],
+                    "decision_chain": _append_decision(
+                        state,
+                        stage="agent_loop",
+                        decision="declaration_clarification_protocol_violation",
+                        details={"emitted_tools": [str(call.get("name") or "") for call in raw_calls], "retry": retry},
+                    ),
+                }
+            call = raw_calls[0]
+            if (scope_conflict := _unnecessary_unique_scope_clarification(state, call)) is not None:
+                return {
+                    "messages": [ai],
+                    "agent_loop_step": next_step,
+                    "current_final_answer": _loop_budget_fallback(state),
+                    "phase": "final",
+                    "status": "UnnecessaryClarificationFallback",
+                    "debug_llm_calls": [*(state.get("debug_llm_calls") or []), debug_call],
+                    "model_call_trace": [*(state.get("model_call_trace") or []), model_call],
+                    "decision_chain": _append_decision(
+                        state,
+                        stage="agent_loop",
+                        decision="declaration_clarification_rejected_for_unique_scope",
+                        details=scope_conflict,
+                    ),
+                }
+            answer, error, handles = _answer_from_terminal_tool(state, call)
+            if error is not None or answer is None:
+                return {
+                    "messages": [ai],
+                    "agent_loop_step": next_step,
+                    "current_final_answer": "当前仍缺少必要信息，系统未执行任何业务操作；请重新说明要查询的对象或范围。",
+                    "phase": "final",
+                    "status": "GoalDeclarationClarificationUnavailable",
+                    "debug_llm_calls": [*(state.get("debug_llm_calls") or []), debug_call],
+                    "model_call_trace": [*(state.get("model_call_trace") or []), model_call],
+                    "decision_chain": _append_decision(
+                        state,
+                        stage="agent_loop",
+                        decision="declaration_clarification_terminal_rejected",
+                        details={"reason": error},
+                    ),
+                }
+            final_ai = AIMessage(
+                content=answer,
+                additional_kwargs={"context_trust": "safe_nonbusiness", "evidence_handles": handles},
+            ) if AIMessage else None
+            messages = [ai]
+            acknowledgment = _append_terminal_protocol_message(call, code="FINAL_ACCEPTED")
+            if acknowledgment is not None:
+                messages.append(acknowledgment)
+            if final_ai is not None:
+                messages.append(final_ai)
+            terminal_runtime = _terminal_runtime_outcome(state, call=call, answer=answer, evidence_handles=handles)
+            return {
+                "messages": messages,
+                "agent_loop_step": next_step,
+                "current_final_answer": answer,
+                "answer_evidence_handles": handles,
+                **({"runtime_outcome": terminal_runtime} if terminal_runtime is not None else {}),
+                "phase": "final",
+                "status": "GeneralFinalAnswer",
+                "debug_llm_calls": [*(state.get("debug_llm_calls") or []), debug_call],
+                "model_call_trace": [*(state.get("model_call_trace") or []), model_call],
+                "decision_chain": _append_decision(
+                    state,
+                    stage="agent_loop",
+                    decision="declaration_clarification_accepted",
+                    details={"missing_kind": str((call.get("args") or {}).get("missing_kind") or "")},
+                ),
+            }
         if planning_phase:
             invalid = [call for call in raw_calls if str(call.get("name") or "") != "declare_turn_goals"]
             if invalid or len(raw_calls) != 1:
