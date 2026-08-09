@@ -1,0 +1,203 @@
+name: wp08-attempt7-final-repair-carrier
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-final-repair-carrier-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      BASE_SHA: 482e7aca41dc8e14f737f1d68540ea24cbc3d1cf
+      FORMAL_BRANCH: agent/wp08-attempt7-final-semantic-browser-repair-20260809
+    steps:
+      - name: Checkout carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: wp08-attempt7-final-repair-carrier-20260809
+          path: carrier
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact protected-main candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact authority and install locked environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$BASE_SHA"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
+
+      - name: Apply exact attempt 7 correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/scripts/wp08_attempt7_final_repair_carrier.py candidate
+          git -C candidate diff --check
+          printf '%s\n' \
+            'scripts/verify_product_browser_journey.py' \
+            'services/agent-service/scripts/verify_preprod_conversation_smoke.py' \
+            'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py' \
+            'services/agent-service/src/agent_core/lifecycle/protocol.py' \
+            'skill-system/tests/test_wp08_attempt7_final_repair.py' | sort > /tmp/expected-source.txt
+          git -C candidate status --porcelain=v1 | sed 's/^...//' | sort > /tmp/actual-source.txt
+          diff -u /tmp/expected-source.txt /tmp/actual-source.txt
+
+      - name: Run focused semantic and browser-diagnostic counterexamples
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_attempt7_final_repair.py
+
+      - name: Run native standard Python suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p candidate/.quality/attempt7-final-repair/junit candidate/.quality/attempt7-final-repair/coverage
+          candidate/services/agent-service/.venv/bin/python -B \
+            candidate/scripts/run_python_test_suites.py candidate --mode standard \
+            --junit-dir candidate/.quality/attempt7-final-repair/junit \
+            --coverage-dir candidate/.quality/attempt7-final-repair/coverage
+
+      - name: Commit exact source correction before baseline binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            scripts/verify_product_browser_journey.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            skill-system/tests/test_wp08_attempt7_final_repair.py
+          git diff --cached --check
+          git commit -m 'Align exact semantic effects and protected browser diagnostics'
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          echo "PRODUCT_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Regenerate protected source baseline from exact product commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('candidate').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in baseline['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          old = {str(key): str(value) for key, value in baseline['files'].items()}
+          expected = {
+              'services/agent-service/scripts/verify_preprod_conversation_smoke.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'services/agent-service/src/agent_core/lifecycle/protocol.py',
+          }
+          changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
+          if changed != expected:
+              raise SystemExit('unexpected_protected_delta:' + json.dumps({'expected': sorted(expected), 'actual': sorted(changed)}, sort_keys=True))
+          if len(old) != len(current):
+              raise SystemExit(f'unexpected_protected_file_count:old={len(old)}:current={len(current)}')
+          prior_release = baseline.get('source_release_sha256')
+          product_head = os.environ['PRODUCT_HEAD']
+          baseline['generated_from'] = 'git:' + product_head
+          baseline['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['file_count'] = len(current)
+          baseline['files'] = dict(sorted(current.items()))
+          if baseline.get('source_release_sha256') != prior_release:
+              raise SystemExit('source_release_sha256_changed')
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          report = {
+              'status': 'WP08_ATTEMPT7_FINAL_REPAIR_BASELINE_GENERATED',
+              'base_sha': os.environ['BASE_SHA'],
+              'product_head': product_head,
+              'protected_file_count': len(current),
+              'changed_protected_paths': sorted(changed),
+              'changed_sha256': {path: current[path] for path in sorted(changed)},
+              'source_release_sha256_preserved': prior_release,
+              'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+          }
+          (root / 'wp08-attempt7-final-repair-report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt7-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt7-skill-control-plane.json
+
+      - name: Commit baseline, prove exact six-file delta and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Bind attempt 7 final repair protected source baseline'
+          test "$(git rev-parse HEAD^)" = "$PRODUCT_HEAD"
+          printf '%s\n' \
+            'scripts/verify_product_browser_journey.py' \
+            'services/agent-service/scripts/verify_preprod_conversation_smoke.py' \
+            'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py' \
+            'services/agent-service/src/agent_core/lifecycle/protocol.py' \
+            'skill-system/registry/product-source-baseline.json' \
+            'skill-system/tests/test_wp08_attempt7_final_repair.py' | sort > /tmp/expected-final.txt
+          git diff --name-only "$BASE_SHA" HEAD | sort > /tmp/actual-final.txt
+          diff -u /tmp/expected-final.txt /tmp/actual-final.txt
+          git diff --check "$BASE_SHA" HEAD
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$BASE_SHA"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${BASE_SHA} origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD | tee wp08-attempt7-published-head.txt
+
+      - name: Upload governed repair evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt7-final-repair-carrier-evidence
+          path: |
+            candidate/wp08-attempt7-final-repair-report.json
+            candidate/wp08-attempt7-project-compatibility.json
+            candidate/wp08-attempt7-skill-control-plane.json
+            candidate/wp08-attempt7-published-head.txt
+            candidate/.quality/attempt7-final-repair/junit
+          if-no-files-found: warn
+          retention-days: 90
