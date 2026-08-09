@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt4-repair-publisher.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt4-repair-publisher-v2.py
           git -C candidate diff --check
 
       - name: Run focused counterexamples and semantic execution regressions
