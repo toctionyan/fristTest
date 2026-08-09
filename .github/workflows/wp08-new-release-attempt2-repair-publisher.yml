@@ -1,16 +1,18 @@
 name: wp08-new-release-attempt2-repair-publisher
-# Existing carrier workflow; this follow-up push activates it after the file exists on-branch.
 
 on:
-  push:
-    branches: [wp08-new-release-attempt2-repair-publisher-20260809]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   validate-and-publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-new-release-attempt2-repair-publisher-20260809'
     runs-on: ubuntu-24.04
+    timeout-minutes: 70
     env:
       BASE_SHA: 0355133f25aa661b282a3c69054448663829b029
       FORMAL_BRANCH: agent/wp08-new-release-attempt2-semantic-clarification-repair-20260809
@@ -18,7 +20,7 @@ jobs:
       - name: Checkout carrier helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: carrier
           fetch-depth: 1
 
@@ -34,6 +36,7 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.12.13'
+          check-latest: false
 
       - name: Verify authority and install locked environments
         shell: bash
