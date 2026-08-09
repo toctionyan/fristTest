@@ -21,6 +21,8 @@ expected = {
     "services/agent-service/scripts/verify_preprod_full_lifecycle.py",
     "services/agent-service/src/agent_core/config.py",
     "services/agent-service/src/agent_core/model_calls/real_model_certification_bundle.py",
+    "services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py",
+    "services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py",
     "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py",
 }
 changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
