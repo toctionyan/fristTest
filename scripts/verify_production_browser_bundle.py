@@ -81,6 +81,7 @@ def _validate_runtime_authority(runtime: Mapping[str, Any]) -> None:
     required_verifiers = {
         "CAPABILITY_SEMANTIC_VERIFIER_MODE": "model",
         "GOAL_ALIGNMENT_VERIFIER_MODE": "model",
+        "GOAL_GRANULARITY_VERIFIER_MODE": "model",
         "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model",
     }
     if not isinstance(verifier_modes, Mapping) or any(

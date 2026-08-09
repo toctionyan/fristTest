@@ -92,7 +92,7 @@ def get_model_profile() -> dict[str, object]:
     """
     settings = get_model_settings()
     provider = "deepseek" if _use_deepseek_adapter(settings) else "openai_compatible"
-    deepseek_v4_thinking = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
+    deepseek_v4 = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
     return {
         "provider": provider,
         "model": settings["model"],
@@ -100,8 +100,12 @@ def get_model_profile() -> dict[str, object]:
         "temperature": settings["temperature"],
         "timeout_seconds": settings["timeout_seconds"],
         "max_retries": settings["max_retries"],
-        "tool_choice_supported": not deepseek_v4_thinking,
-        "reasoning_content_required_for_tool_calls": deepseek_v4_thinking,
+        # Agent planning, routing and verifier calls are latency-bounded control-plane work.
+        # DeepSeek V4 defaults to thinking=enabled, so production opts out explicitly here.
+        "thinking_mode": "disabled" if deepseek_v4 else "provider_default",
+        # Keep the existing conservative V4 tool-choice boundary in this latency-only repair.
+        "tool_choice_supported": not deepseek_v4,
+        "reasoning_content_required_for_tool_calls": False,
         "structured_output": "continuous_agent_loop_with_grounded_observations_and_action_gateway",
     }
 
@@ -396,6 +400,7 @@ OPENAI_API_BASE=
             raise RuntimeError(
                 "DeepSeek provider requires the declared langchain-deepseek integration."
             ) from exc
+        deepseek_v4 = str(settings["model"]).strip().lower().startswith("deepseek-v4")
         return ChatDeepSeek(
             model=str(settings["model"]),
             api_key=api_key,
@@ -403,6 +408,9 @@ OPENAI_API_BASE=
             temperature=float(settings["temperature"]),
             timeout=float(settings["timeout_seconds"]),
             max_retries=int(settings["max_retries"]),
+            # V4 defaults to thinking=enabled. Control-plane calls must remain inside the
+            # existing 25s x 2-attempt provider envelope, so disable thinking explicitly.
+            extra_body={"thinking": {"type": "disabled"}} if deepseek_v4 else None,
         )
 
     try:

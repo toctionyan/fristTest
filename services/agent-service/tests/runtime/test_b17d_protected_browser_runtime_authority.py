@@ -57,6 +57,7 @@ def _runtime_authority() -> dict[str, Any]:
         "verifier_modes": {
             "CAPABILITY_SEMANTIC_VERIFIER_MODE": "model",
             "GOAL_ALIGNMENT_VERIFIER_MODE": "model",
+            "GOAL_GRANULARITY_VERIFIER_MODE": "model",
             "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model",
         },
     }

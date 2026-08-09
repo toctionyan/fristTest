@@ -329,6 +329,7 @@ def main() -> int:
         harness.env.update({
             "CAPABILITY_SEMANTIC_VERIFIER_MODE": "model",
             "GOAL_ALIGNMENT_VERIFIER_MODE": "model",
+            "GOAL_GRANULARITY_VERIFIER_MODE": "model",
             "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model",
         })
         base = harness.agent_url

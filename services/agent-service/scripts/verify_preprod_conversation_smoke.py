@@ -38,6 +38,7 @@ from agent_core.model_calls import (  # noqa: E402
     resolve_real_model_identity,
 )
 from agent_core.runtime.node_support import tool_calls  # noqa: E402
+from agent_core.runtime.profile import resolve_verifier_mode  # noqa: E402
 from agent_core.composition import get_runtime_registry  # noqa: E402
 from agent_core.runtime.capability_effects import capability_effect_index  # noqa: E402
 
@@ -289,9 +290,27 @@ def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     return "real_model_identity_invalid"
 
 
+def _semantic_verifier_authority() -> dict[str, str]:
+    modes = {
+        name: resolve_verifier_mode(name)
+        for name in (
+            "GOAL_ALIGNMENT_VERIFIER_MODE",
+            "GOAL_GRANULARITY_VERIFIER_MODE",
+        )
+    }
+    invalid = {name: value for name, value in modes.items() if value != "model"}
+    if invalid:
+        raise RuntimeError(
+            "semantic certification requires protected model verifier authority: "
+            + json.dumps(invalid, sort_keys=True)
+        )
+    return modes
+
+
 def main() -> int:
     try:
         identity = resolve_real_model_identity()
+        verifier_authority = _semantic_verifier_authority()
         payload = json.loads(CATALOG.read_text(encoding="utf-8"))
         cases = [
             row for row in payload.get("cases") or []
@@ -330,9 +349,11 @@ def main() -> int:
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
-        # Each prototype may consume one declaration plus an independent validator,
-        # and at most one bounded declaration repair with the same validator path.
-        with model_call_scope(max_calls=48, scope="preprod_semantic_goal_prototypes") as calls:
+        # Each accepted declaration is checked by both independent model validators
+        # (alignment + candidate-blind granularity). A rejected declaration may be repaired
+        # once through the exact same protected path, so the worst-case bounded envelope is
+        # 12 prototypes * 2 declaration attempts * 3 model calls = 72.
+        with model_call_scope(max_calls=72, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
                 turn = case["execution_contract"]["turn_contracts"][0]
                 goals, declared, declaration_evidence, declaration_attempts = _declare_with_bounded_production_repair(
@@ -375,6 +396,7 @@ def main() -> int:
             "identity": identity,
             "certification_session": certification_session_evidence(component="semantic", identity=identity),
             "model_profile": get_model_profile(),
+            "verifier_authority": verifier_authority,
             "calls": calls.summary(),
             "cases": evidence,
             "guarantee": (
