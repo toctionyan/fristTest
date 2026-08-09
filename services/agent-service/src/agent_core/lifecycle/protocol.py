@@ -341,6 +341,15 @@ ASK_USER_CLARIFICATION_SCHEMA: dict[str, Any] = {
             "question": {"type": "string"}, "reason": {"type": "string"},
             "missing_kind": {"type": "string", "enum": ["target", "scope", "condition", "intent"]},
             "evidence_handles": {"type": "array", "items": {"type": "string"}},
+            "goal_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "uniqueItems": True,
+                "description": (
+                    "仅在本轮正式语义已冻结时使用：列出真正因本次缺失输入而暂停的 Goal。"
+                    "语义冻结前可以省略；多个待处理 Goal 时不得用它扩大或改写用户目标。"
+                ),
+            },
         }, "required": ["question", "reason", "missing_kind", "evidence_handles"], "additionalProperties": False},
     },
 }

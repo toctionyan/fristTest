@@ -47,7 +47,13 @@ def goal_blockers_for_clarification(
         and bool(row.get("required", True))
         and str(row.get("coverage_status") or "") in {"PENDING", "BLOCKED"}
     }
-    selected = pending_ids or set(bound_goal_ids)
+    bound_set = set(bound_goal_ids)
+    if bound_set:
+        selected = (pending_ids & bound_set) if pending_ids else bound_set
+    elif len(pending_ids) == 1:
+        selected = set(pending_ids)
+    else:
+        selected = set()
     goals = [
         row for row in formal_goals
         if isinstance(row, dict) and str(row.get("goal_id") or "") in selected

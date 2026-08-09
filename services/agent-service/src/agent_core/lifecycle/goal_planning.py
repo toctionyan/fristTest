@@ -223,7 +223,12 @@ class ModelGoalAlignmentVerifier:
         active_structured_interaction: dict[str, Any] | None = None,
     ) -> GoalAlignmentVerdict:
         from agent_core.config import get_model
-        from agent_core.model_calls import invoke_model, structured_verifier_messages
+        from agent_core.model_calls import (
+            classify_model_failure,
+            invoke_model,
+            is_environmental_model_failure_category,
+            structured_verifier_messages,
+        )
 
         instruction = (
                 "Judge whether DECLARED_GOALS preserves every distinct outcome requested in USER_TEXT. "
@@ -260,38 +265,73 @@ class ModelGoalAlignmentVerifier:
             "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
             "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
         }
-        try:
-            response, _trace = invoke_model(
-                purpose="turn_goal_alignment_verifier",
-                model=get_model(),
-                payload=structured_verifier_messages(
-                    role="turn_goal_alignment_verifier",
-                    instruction=instruction,
-                    decision_rules=decision_rules,
-                    payload=prompt,
-                ),
-            )
+        format_repair: str | None = None
+        last_indeterminate = GoalAlignmentVerdict(
+            "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
+        )
+        for attempt in range(2):
+            try:
+                response, _trace = invoke_model(
+                    purpose="turn_goal_alignment_verifier",
+                    model=get_model(),
+                    payload=structured_verifier_messages(
+                        role="turn_goal_alignment_verifier",
+                        instruction=instruction,
+                        decision_rules=decision_rules,
+                        payload=prompt,
+                        format_repair=format_repair,
+                    ),
+                )
+            except Exception as exc:
+                category = classify_model_failure(exc)
+                if is_environmental_model_failure_category(category):
+                    raise
+                return GoalAlignmentVerdict(
+                    "indeterminate",
+                    (),
+                    (),
+                    "goal_alignment_verifier_unavailable",
+                    "model",
+                    True,
+                    {"exception": exc.__class__.__name__, "error_category": category},
+                )
             parsed = _extract_json(str(getattr(response, "content", response) or ""))
             if parsed is None:
-                return GoalAlignmentVerdict(
-                    "indeterminate", (), (), "goal_alignment_non_json", "model", True, {}
+                verdict = GoalAlignmentVerdict(
+                    "indeterminate",
+                    (),
+                    (),
+                    "goal_alignment_non_json",
+                    "model",
+                    True,
+                    {"format_repair_attempted": attempt > 0},
                 )
-            return _as_alignment_verdict(
-                parsed,
-                user_text=user_text,
-                source="model",
-                independent=True,
+            else:
+                verdict = _as_alignment_verdict(
+                    parsed,
+                    user_text=user_text,
+                    source="model",
+                    independent=True,
+                )
+            if verdict.verdict != "indeterminate":
+                return verdict
+            last_indeterminate = GoalAlignmentVerdict(
+                verdict.verdict,
+                verdict.evidence_spans,
+                verdict.missing_spans,
+                verdict.reason_code,
+                verdict.source,
+                verdict.independent,
+                {**verdict.details, "format_repair_attempted": attempt > 0},
             )
-        except Exception as exc:
-            return GoalAlignmentVerdict(
-                "indeterminate",
-                (),
-                (),
-                "goal_alignment_verifier_unavailable",
-                "model",
-                True,
-                {"exception": exc.__class__.__name__},
-            )
+            if attempt == 0:
+                format_repair = (
+                    "The previous verifier response did not satisfy the machine-readable JSON contract. "
+                    "Return exactly one JSON object using only verdict, evidence_spans, missing_spans and reason_code; "
+                    "all spans must be literal substrings of USER_TEXT. Do not change or expand the semantic task."
+                )
+        return last_indeterminate
+
 
 
 class CandidateOnlyGoalAlignmentVerifier:
