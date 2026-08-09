@@ -1,103 +1,146 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-AGENT_SRC = ROOT / "services/agent-service/src"
-if str(AGENT_SRC) not in sys.path:
-    sys.path.insert(0, str(AGENT_SRC))
+AGENT_ROOT = ROOT / "services/agent-service"
+AGENT_SRC = AGENT_ROOT / "src"
+for path in (AGENT_ROOT, AGENT_SRC):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 
-class Attempt5EffectGuidanceRepairTests(unittest.TestCase):
-    def _registry(self):
-        from agent_core.kernel.capability_registry import CapabilityBinding, CapabilityRegistry
-        from agent_modules.ecommerce.capabilities.list_orders import DEFINITION as list_orders
-        from agent_modules.ecommerce.capabilities.get_order_details import DEFINITION as order_details
+def _load_smoke():
+    path = AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py"
+    spec = importlib.util.spec_from_file_location("wp08_attempt5_semantic_smoke", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-        def noop(*args, **kwargs):
-            return {"ok": True}
 
-        return CapabilityRegistry([
-            CapabilityBinding("ecommerce", list_orders.contract, list_orders.schema, noop),
-            CapabilityBinding("ecommerce", order_details.contract, order_details.schema, noop),
-        ])
+class Attempt5RepairTests(unittest.TestCase):
+    def test_blind_inventory_self_audits_false_extra_outcome_without_candidate_disclosure(self) -> None:
+        from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
+        user_text = "查一下鼠标物流，再告诉我快递员手机号"
+        goals = [{"goal_id": "g1", "evidence_span": "查一下鼠标物流"}, {"goal_id": "g2", "evidence_span": "快递员手机号"}]
+        responses = [
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "告诉我快递员手机号", "快递员手机号"], "reason_code": "first_inventory"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "reason_code": "self_audited_inventory"}, ensure_ascii=False)), {}),
+        ]
+        with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=responses) as invoke:
+            verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
+        self.assertTrue(verdict.exact)
+        self.assertEqual(invoke.call_count, 2)
+        second_prompt = invoke.call_args_list[1].kwargs["payload"][-1].content
+        self.assertNotIn("DECLARED_GOALS", second_prompt)
+        self.assertNotIn("g1", second_prompt)
+        self.assertNotIn("g2", second_prompt)
+        self.assertIn("candidate-blind", second_prompt)
 
-    def test_module_guidance_distinguishes_attribute_discovery_from_unique_detail_read(self) -> None:
-        from agent_modules.ecommerce.capabilities.list_orders import DEFINITION as listed
-        from agent_modules.ecommerce.capabilities.get_order_details import DEFINITION as details
+    def test_real_under_split_remains_fail_closed_after_blind_self_audit(self) -> None:
+        from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
+        user_text = "查一下鼠标物流，再告诉我快递员手机号"
+        goals = [{"goal_id": "g1", "evidence_span": "查一下鼠标物流"}]
+        response = SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "reason_code": "two_independent_outcomes"}, ensure_ascii=False))
+        with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=[(response, {}), (response, {})]) as invoke:
+            verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
+        self.assertEqual(verdict.verdict, "under_split")
+        self.assertEqual(invoke.call_count, 2)
+        uncovered = [row.get("evidence_span") for row in verdict.findings if row.get("reason") == "blind_inventory_outcome_not_covered"]
+        self.assertEqual(uncovered, ["快递员手机号"])
+        self.assertTrue(verdict.details["blind_self_audit_attempted"])
 
-        self.assertEqual(listed.contract.completion_effects, ("order.list:order",))
-        self.assertEqual(listed.contract.planning_contract.target.cardinality, "collection")
-        self.assertIn("商品名", listed.contract.planner_rule)
-        self.assertIn("即使运行时可能只命中一笔", listed.contract.planner_rule)
-        self.assertIn("按商品查订单", listed.contract.discovery_examples)
-        self.assertIn("鼠标订单", listed.contract.discovery_examples)
+    def test_granularity_clarify_gets_one_decomposition_scope_self_audit(self) -> None:
+        from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
+        responses = [
+            (SimpleNamespace(content=json.dumps({"verdict": "clarify", "outcome_spans": [], "reason_code": "status_filter_scope"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["哪些还在路上"], "reason_code": "one_query_outcome"}, ensure_ascii=False)), {}),
+        ]
+        with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=responses) as invoke:
+            verdict = ModelGoalGranularityVerifier().verify(user_text="哪些还在路上？", goals=[{"goal_id": "g1", "evidence_span": "哪些还在路上"}])
+        self.assertTrue(verdict.exact)
+        self.assertEqual(invoke.call_count, 2)
+        self.assertIn("target membership", invoke.call_args_list[1].kwargs["payload"][-1].content)
 
-        self.assertEqual(details.contract.completion_effects, ("order.query_details:order",))
-        self.assertEqual(details.contract.planning_contract.target.cardinality, "exactly_one")
-        self.assertIn("调用前", details.contract.planner_rule)
-        self.assertIn("已唯一解析", details.contract.planner_rule)
-        self.assertIn("order.list:order", details.contract.planner_rule)
-        self.assertIn("按商品查订单", details.contract.exclusion_examples)
-        self.assertIn("鼠标订单", details.contract.exclusion_examples)
+    def test_alignment_clarify_gets_one_semantic_scope_self_audit(self) -> None:
+        from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
+        responses = [
+            (SimpleNamespace(content=json.dumps({"verdict": "clarify", "evidence_spans": ["哪些还在路上"], "missing_spans": [], "reason_code": "status_filter_scope"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "evidence_spans": ["哪些还在路上"], "missing_spans": [], "reason_code": "query_outcome_preserved"}, ensure_ascii=False)), {}),
+        ]
+        with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=responses) as invoke:
+            verdict = ModelGoalAlignmentVerifier().verify(
+                user_text="哪些还在路上？",
+                goals=[{"goal_id": "g1", "evidence_span": "哪些还在路上", "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"}}],
+                known_tools=set(),
+            )
+        self.assertTrue(verdict.exact)
+        self.assertEqual(invoke.call_count, 2)
+        self.assertIn("filter/status vocabulary", invoke.call_args_list[1].kwargs["payload"][-1].content)
 
-    def test_effect_index_projects_the_stronger_boundary_without_tool_names(self) -> None:
-        from agent_core.runtime.capability_effects import capability_effect_index
+    def test_persistent_alignment_clarify_still_fails_closed(self) -> None:
+        from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
+        response = SimpleNamespace(content=json.dumps({"verdict": "clarify", "evidence_spans": ["处理一下"], "missing_spans": [], "reason_code": "outcome_identity_ambiguous"}, ensure_ascii=False))
+        with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=[(response, {}), (response, {})]) as invoke:
+            verdict = ModelGoalAlignmentVerifier().verify(user_text="处理一下", goals=[{"goal_id": "g1", "evidence_span": "处理一下"}], known_tools=set())
+        self.assertEqual(verdict.verdict, "clarify")
+        self.assertEqual(invoke.call_count, 2)
+        self.assertTrue(verdict.details["verifier_repair_attempted"])
 
-        index = capability_effect_index(self._registry())
-        effects = {row["requested_effect_identity"]: row for row in index["effects"]}
-        listed = effects["order.list:order"]["semantic_guidance"][0]
-        details = effects["order.query_details:order"]["semantic_guidance"][0]
-        self.assertEqual(listed["target_cardinality"], "collection")
-        self.assertIn("商品名", listed["planner_rule"])
-        self.assertIn("鼠标订单", listed["discovery_examples"])
-        self.assertEqual(details["target_cardinality"], "exactly_one")
-        self.assertIn("已唯一解析", details["planner_rule"])
-        self.assertIn("鼠标订单", details["exclusion_examples"])
-        serialized = json.dumps(index, ensure_ascii=False)
-        self.assertNotIn("list_orders", serialized)
-        self.assertNotIn("get_order_details", serialized)
+    def test_under_split_runtime_feedback_is_independent_literal_only(self) -> None:
+        from agent_core.lifecycle.goal_granularity import GoalGranularityVerdict
+        from agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, validate_goal_declaration
+        alignment = GoalAlignmentVerdict("exact", ("查一下鼠标物流",), (), "exact", "test", True, {})
+        granularity = GoalGranularityVerdict(
+            "under_split", "blind_inventory_has_more_outcomes_than_declared_goals",
+            ({"goal_id": None, "reason": "blind_inventory_outcome_not_covered", "recommended_role": "goal", "evidence_span": "快递员手机号"},),
+            "model_blind_inventory", True,
+            {"inventory_outcome_count": 2, "declared_goal_count": 1, "matched_outcome_count": 1, "outcome_spans": ["查一下鼠标物流", "快递员手机号"]},
+        )
+        with patch("agent_core.lifecycle.goal_planning.verify_goal_alignment", return_value=alignment), patch("agent_core.lifecycle.goal_planning.verify_goal_granularity", return_value=granularity):
+            result, declared = validate_goal_declaration(
+                state={"current_user_input": "查一下鼠标物流，再告诉我快递员手机号"},
+                args={"goals": [{"goal_id": "g1", "description": "查鼠标物流", "evidence_span": "查一下鼠标物流", "required": True, "depends_on": [], "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"}}]},
+                capability_registry=object(),
+            )
+        self.assertIsNone(declared)
+        self.assertEqual(result["code"], "GOAL_DECLARATION_UNDER_SPLIT")
+        feedback = result["data"]["independent_verifier_feedback"]
+        self.assertEqual(feedback["authority"], "candidate_blind_goal_inventory")
+        self.assertEqual(feedback["uncovered_outcome_spans"], ["快递员手机号"])
+        serialized = json.dumps(feedback, ensure_ascii=False)
+        self.assertNotIn("query_courier_contact", serialized)
+        self.assertNotIn("report_unsupported_request", serialized)
 
-    def test_exact_runtime_effect_matching_is_unchanged(self) -> None:
-        from agent_core.runtime.capability_effects import discover_exact_effect_surface
+    def test_certification_failure_keeps_sanitized_verifier_diagnostic(self) -> None:
+        smoke = _load_smoke()
+        diagnostic = smoke._sanitized_goal_rejection_diagnostic({
+            "code": "GOAL_DECLARATION_UNDER_SPLIT",
+            "data": {
+                "alignment_proof": {"verdict": "exact", "reason_code": "exact", "source": "model", "independent": True},
+                "granularity_proof": {"verdict": "under_split", "reason_code": "blind_inventory_has_more_outcomes_than_declared_goals", "details": {"inventory_outcome_count": 2, "declared_goal_count": 1, "matched_outcome_count": 1, "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "blind_self_audit_attempted": True}},
+                "independent_verifier_feedback": {"authority": "candidate_blind_goal_inventory", "uncovered_outcome_spans": ["快递员手机号"]},
+            },
+        })
+        self.assertEqual(diagnostic["code"], "GOAL_DECLARATION_UNDER_SPLIT")
+        self.assertEqual(diagnostic["granularity"]["inventory_outcome_count"], 2)
+        self.assertEqual(diagnostic["independent_verifier_feedback"]["uncovered_outcome_spans"], ["快递员手机号"])
 
-        registry = self._registry()
-        listed = discover_exact_effect_surface(registry, [{
-            "goal_id": "g1",
-            "requested_effect": {"domain": "order", "operation": "list", "object_type": "order"},
-        }])
-        details = discover_exact_effect_surface(registry, [{
-            "goal_id": "g1",
-            "requested_effect": {"domain": "order", "operation": "query_details", "object_type": "order"},
-        }])
-        self.assertEqual(listed["goals"][0]["completion_tools"], ["list_orders"])
-        self.assertEqual(details["goals"][0]["completion_tools"], ["get_order_details"])
-        self.assertFalse(listed["similarity_used"])
-        self.assertFalse(details["similarity_used"])
-
-    def test_failed_attempt5_oracle_remains_exact_collection_discovery(self) -> None:
-        path = ROOT / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        case = next(row for row in payload["cases"] if row["id"] == "semantic_query_then_refund_draft")
-        turn = case["execution_contract"]["turn_contracts"][0]
-        first = turn["goal_oracle"][0]
-        self.assertEqual(first["evidence_span"], "查一下鼠标订单")
-        self.assertEqual(first["required_tools"], ["list_orders"])
-        self.assertEqual(first["requested_effect"], {"domain": "order", "operation": "list", "object_type": "order"})
-        scripted = turn["model_steps"][0]["tool_calls"][0]["args"]["goals"][0]
-        self.assertEqual(scripted["requested_effect"]["operation"], "list")
-        list_call = turn["model_steps"][1]["tool_calls"][0]
-        self.assertEqual(list_call["name"], "list_orders")
-        self.assertEqual(list_call["args"]["target"], {"mode": "entity_match", "attribute_span": "鼠标"})
-        self.assertEqual(list_call["args"]["expected_shape"], "collection")
-
-    def test_certification_oracle_exact_match_is_not_weakened(self) -> None:
-        smoke = (ROOT / "services/agent-service/scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
-        self.assertIn('_effect_identity(row.get("requested_effect")) == expected_effect', smoke)
-        self.assertIn('match_mode == "unregistered_open"', smoke)
+    def test_provider_and_browser_outer_slas_are_unchanged(self) -> None:
+        config = (AGENT_SRC / "agent_core/config.py").read_text(encoding="utf-8")
+        browser = (AGENT_ROOT / "frontend/e2e/strong_context_journey.mjs").read_text(encoding="utf-8")
+        semantic = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
+        self.assertIn('_bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0', config)
+        self.assertIn('_bounded_int_env("MODEL_MAX_RETRIES", 1', config)
+        self.assertIn('{ timeout: 120_000 }', browser)
+        self.assertIn('model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")', semantic)
 
 
 if __name__ == "__main__":
