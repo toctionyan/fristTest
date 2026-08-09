@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate-stage2:
@@ -16,15 +16,15 @@ jobs:
     env:
       BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
       FORMAL_REF: agent/wp08-new-release-attempt6-root-fixes-20260809
-      EXPECTED_FORMAL_HEAD: e338a6f213db4b2d8d558a1a71f82192d59b4cfa
+      EXPECTED_FORMAL_HEAD: c3930afd15372fe19c5a3cdf076a04c19ab32432
     steps:
       - name: Checkout exact formal repair
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ env.FORMAL_REF }}
           path: candidate
-          fetch-depth: 3
-          persist-credentials: true
+          fetch-depth: 4
+          persist-credentials: false
 
       - name: Set up governed Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_FORMAL_HEAD"
           test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "2"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "3"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           printf '%s\n' \
             services/agent-service/src/agent_core/context/reference_resolution.py \
@@ -54,23 +54,6 @@ jobs:
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
           (cd candidate/services/agent-service && uv sync --locked --all-groups)
           (cd candidate/services/business-service && uv sync --locked --all-groups)
-
-      - name: Restore explicit candidate-blind self-audit marker
-        shell: bash
-        run: |
-          set -euo pipefail
-          "${pythonLocation}/bin/python" - <<'PY'
-          from pathlib import Path
-          path = Path('candidate/services/agent-service/src/agent_core/lifecycle/goal_granularity.py')
-          text = path.read_text(encoding='utf-8')
-          old = 'Re-audit USER_TEXT only. Return each independently acceptable business result exactly once'
-          new = 'Re-audit USER_TEXT only in candidate-blind mode. Return each independently acceptable business result exactly once'
-          if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one self-audit marker target, found {text.count(old)}')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-          PY
-          git -C candidate diff --check
-          test "$(git -C candidate diff --name-only | tr -d '\r')" = "services/agent-service/src/agent_core/lifecycle/goal_granularity.py"
 
       - name: Run focused root-cause and preserved semantic regressions
         shell: bash
@@ -106,28 +89,12 @@ jobs:
             --junit-dir "${RUNNER_TEMP}/attempt6-stage2-standard-junit" \
             --coverage-dir "${RUNNER_TEMP}/attempt6-stage2-coverage"
 
-      - name: Publish only after all stage-2 tests pass
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd candidate
-          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
-          test "$(git ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$EXPECTED_FORMAL_HEAD"
-          git config user.name 'customer-agent-governance[bot]'
-          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git add services/agent-service/src/agent_core/lifecycle/goal_granularity.py
-          git diff --cached --check
-          git commit -m 'Preserve candidate-blind granularity self-audit marker'
-          git push origin HEAD:refs/heads/$FORMAL_REF
-          git rev-parse HEAD | tee ../wp08-attempt6-stage2-formal-head.txt
-
       - name: Upload stage-2 validation evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: wp08-new-release-attempt6-stage2-validation
           path: |
-            wp08-attempt6-stage2-formal-head.txt
             ${{ runner.temp }}/attempt6-stage2-junit
             ${{ runner.temp }}/attempt6-stage2-standard-junit
           if-no-files-found: warn
