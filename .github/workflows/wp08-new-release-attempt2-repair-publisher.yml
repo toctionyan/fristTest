@@ -1,4 +1,5 @@
 name: wp08-new-release-attempt2-repair-publisher
+# Existing carrier workflow; this follow-up push activates it after the file exists on-branch.
 
 on:
   push:
