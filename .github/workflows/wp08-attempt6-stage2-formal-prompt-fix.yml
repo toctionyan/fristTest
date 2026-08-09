@@ -1,0 +1,58 @@
+name: wp08-attempt6-stage2-formal-prompt-fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-formal:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-new-release-attempt6-stage2-validation-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
+      FORMAL_BRANCH: agent/wp08-new-release-attempt6-root-fixes-20260809
+    steps:
+      - name: Checkout formal repair branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.FORMAL_BRANCH }}
+          fetch-depth: 4
+          persist-credentials: true
+
+      - name: Preserve candidate-blind self-audit wording contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('services/agent-service/src/agent_core/lifecycle/goal_granularity.py')
+          text = path.read_text(encoding='utf-8')
+          old = '"Re-audit USER_TEXT only. Return each independently acceptable "'
+          new = '"Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable "'
+          if new in text:
+              print('candidate-blind wording already present')
+          else:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one self-audit repair string, found {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git diff --check
+          changed="$(git diff --name-only)"
+          if [ -z "$changed" ]; then
+            exit 0
+          fi
+          test "$changed" = "services/agent-service/src/agent_core/lifecycle/goal_granularity.py"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add services/agent-service/src/agent_core/lifecycle/goal_granularity.py
+          git commit -m 'Preserve candidate-blind self-audit prompt contract'
+          git push origin HEAD:refs/heads/$FORMAL_BRANCH
