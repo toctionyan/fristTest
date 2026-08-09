@@ -1819,10 +1819,11 @@
                   "report_unsupported_request"
                 ],
                 "requested_effect": {
-                  "domain": "open",
-                  "operation": "unsupported_request",
-                  "object_type": "request"
-                }
+                  "domain": "order",
+                  "operation": "delete_record",
+                  "object_type": "order"
+                },
+                "requested_effect_match": "unregistered_open"
               }
             ],
             "model_steps": [
@@ -1841,9 +1842,9 @@
                           "required": true,
                           "depends_on": [],
                           "requested_effect": {
-                            "domain": "open",
-                            "operation": "unsupported_request",
-                            "object_type": "request",
+                            "domain": "order",
+                            "operation": "delete_record",
+                            "object_type": "order",
                             "raw_description": "处理用户目标：订单记录删掉"
                           }
                         }

@@ -454,6 +454,12 @@ def reference_resolution_prompt_contract() -> dict[str, Any]:
                 "Only a UNIQUE runtime proof may become a frozen resolved "
                 "reference; ambiguity requires clarification."
             ),
+            (
+                "An unqualified continuation that semantically denotes the result just discussed "
+                "should be proposed as temporal_visible_result/latest. Older visible results remain "
+                "available for explicit return, but their mere presence does not make the latest "
+                "continuation ambiguous; Runtime never auto-selects the relation."
+            ),
         ],
     }
 
