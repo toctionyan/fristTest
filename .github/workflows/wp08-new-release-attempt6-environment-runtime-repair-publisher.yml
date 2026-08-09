@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt6-environment-runtime-repair-publisher-v2.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt6-environment-runtime-repair-publisher-v3.py
           git -C candidate diff --check
 
       - name: Run focused environment-runtime and release-control regressions
