@@ -1,0 +1,102 @@
+name: wp08-new-release-attempt1-root-fix-publisher
+
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wp08-new-release-attempt1-root-fix-publisher
+  cancel-in-progress: false
+
+jobs:
+  stage1:
+    if: github.event.pull_request.head.ref == 'wp08-new-release-attempt1-root-fix-publisher-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BASE_SHA: 30631197ce24ebd5fc2f2605fafdcb92b78becb2
+      FORMAL_BRANCH: agent/wp08-new-release-attempt1-root-fixes-20260810
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout temporary publisher and exact main candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify authority and stage exact product repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git ls-remote origin refs/heads/$FORMAL_BRANCH)"
+          cp .github/wp08-new-release-attempt1-root-fixes.py "${RUNNER_TEMP}/apply.py"
+          git checkout --detach "$BASE_SHA"
+          python "${RUNNER_TEMP}/apply.py"
+          printf '%s\n' \
+            services/agent-service/src/agent_core/context/reference_resolution.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
+            skill-system/tests/test_wp08_new_release_attempt1_root_fixes.py | sort > /tmp/expected.txt
+          git diff --name-only | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --check
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd services/agent-service && uv sync --locked --all-groups)
+
+      - name: Run focused semantic and strong-context regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            skill-system/tests/test_wp08_new_release_attempt1_root_fixes.py \
+            skill-system/tests/test_wp08_post_final_attempt8_alignment_grounding.py \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py
+          cd services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -B -m pytest -q \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_global_goal_capability_coverage.py \
+            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            tests/runtime/test_wp08_attempt6_release_repairs.py
+
+      - name: Prove unchanged release envelopes
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")' services/agent-service/scripts/verify_preprod_conversation_smoke.py
+          grep -F '_bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0' services/agent-service/src/agent_core/config.py
+          grep -F '_bounded_int_env("MODEL_MAX_RETRIES", 1' services/agent-service/src/agent_core/config.py
+          grep -F '{ timeout: 120_000 }' services/agent-service/frontend/e2e/strong_context_journey.mjs
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+
+      - name: Publish exact formal Stage-1 repair branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/context/reference_resolution.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
+            skill-system/tests/test_wp08_new_release_attempt1_root_fixes.py
+          git diff --cached --check
+          git commit -m 'Repair Attempt 1 open-effect oracle and visible-result recency semantics'
+          git push origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD
