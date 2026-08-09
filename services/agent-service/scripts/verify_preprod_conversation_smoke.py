@@ -351,9 +351,9 @@ def main() -> int:
         ))
         # Each accepted declaration is checked by both independent model validators
         # (alignment + candidate-blind granularity). A rejected declaration may be repaired
-        # once through the exact same protected path, so the worst-case bounded envelope is
-        # 12 prototypes * 2 declaration attempts * 3 model calls = 72.
-        with model_call_scope(max_calls=72, scope="preprod_semantic_goal_prototypes") as calls:
+        # once through the exact same protected path. Each independent verifier may use one
+        # format-only repair, so the worst-case envelope is 12 * 2 * (1 declaration + 2 alignment + 2 granularity) = 120.
+        with model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
                 turn = case["execution_contract"]["turn_contracts"][0]
                 goals, declared, declaration_evidence, declaration_attempts = _declare_with_bounded_production_repair(

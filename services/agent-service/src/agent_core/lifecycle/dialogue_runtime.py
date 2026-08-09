@@ -636,6 +636,38 @@ def _loop_messages(
     ]
 
 
+
+def _clarification_terminal_goal_ids(
+    workflow_plan: dict[str, Any] | None,
+    call: dict[str, Any],
+) -> list[str]:
+    """Bind a clarification pause without inventing or widening semantics.
+
+    A singleton pending Goal is a deterministic orchestration fact and may be
+    bound without asking the model to repeat its ID.  When several required
+    Goals remain pending, only an explicit unique subset from the currently
+    pending set is accepted.  Invalid/unknown bindings fail closed as empty.
+    """
+    plan = workflow_plan if isinstance(workflow_plan, dict) else {}
+    pending = [
+        str(goal.get("goal_id") or "")
+        for goal in list(plan.get("goals") or [])
+        if isinstance(goal, dict)
+        and bool(goal.get("required", True))
+        and str(goal.get("goal_id") or "")
+        and str(goal.get("coverage_status") or "") in {"PENDING", "BLOCKED"}
+    ]
+    pending = list(dict.fromkeys(pending))
+    pending_set = set(pending)
+    args = call.get("args") if isinstance(call.get("args"), dict) else {}
+    explicit = [str(value) for value in list(args.get("goal_ids") or []) if str(value)]
+    if explicit:
+        if len(explicit) != len(set(explicit)) or any(value not in pending_set for value in explicit):
+            return []
+        return explicit
+    return pending if len(pending) == 1 else []
+
+
 def _bind_loop_tools(
     model: Any,
     schemas: list[dict[str, Any]],
@@ -1317,17 +1349,28 @@ def agent_loop_node(
                 }
             if isinstance(frozen_plan_definition, dict) and isinstance(plan_run, dict):
                 terminal_args = terminal[0].get("args") if isinstance(terminal[0].get("args"), dict) else {}
-                terminal_goal_ids = [
-                    str(value)
-                    for value in list(terminal_args.get("goal_ids") or [])
-                    if str(value)
-                ]
+                terminal_name = str(terminal[0].get("name") or "")
+                terminal_goal_ids = (
+                    _clarification_terminal_goal_ids(workflow_plan, terminal[0])
+                    if terminal_name == "ask_user_clarification"
+                    else [
+                        str(value)
+                        for value in list(terminal_args.get("goal_ids") or [])
+                        if str(value)
+                    ]
+                )
+                normalized_terminal_call = terminal[0]
+                if terminal_name == "ask_user_clarification" and terminal_goal_ids:
+                    normalized_terminal_call = {
+                        **terminal[0],
+                        "args": {**terminal_args, "goal_ids": terminal_goal_ids},
+                    }
                 try:
                     plan_run = record_terminal_goal_outcome(
                         definition=frozen_plan_definition,
                         plan_run=plan_run,
                         goal_ids=terminal_goal_ids,
-                        terminal_tool=str(terminal[0].get("name") or ""),
+                        terminal_tool=terminal_name,
                     )
                     workflow_plan = project_plan_runtime(
                         definition=frozen_plan_definition,
@@ -1384,7 +1427,7 @@ def agent_loop_node(
                     }
                     clarification_patch["goal_blockers"] = goal_blockers_for_clarification(
                         state=clarification_state,
-                        call=terminal[0],
+                        call=normalized_terminal_call,
                         capability_surface=capability_surface,
                     )
                 return {

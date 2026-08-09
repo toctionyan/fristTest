@@ -113,7 +113,7 @@ class ProtectedVerifierAuthorityTests(unittest.TestCase):
 
     def test_semantic_budget_covers_worst_case_bounded_repair(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
-        self.assertIn('model_call_scope(max_calls=72, scope="preprod_semantic_goal_prototypes")', source)
+        self.assertIn('model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")', source)
         self.assertIn('"verifier_authority": verifier_authority', source)
 
     def test_deepseek_side_candidate_is_composed_without_raising_outer_slas(self) -> None:
