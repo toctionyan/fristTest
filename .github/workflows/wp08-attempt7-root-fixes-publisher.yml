@@ -54,6 +54,7 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-frozen-granularity-authority-fix.py
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-semantic-contract-fix.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-execution-dataflow-fix.py
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-root-fix-tests.py
           git -C candidate diff --check
 
