@@ -1,0 +1,56 @@
+name: wp08-attempt7-capability-diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-root-fixes-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 11e119c134906f1395db615762fd45c1e7385c92
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Install locked agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd services/agent-service && uv sync --locked --all-groups)
+      - name: Inspect cancel and sibling capability contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python - <<'PY'
+          import json
+          from agent_core.composition import get_runtime_registry
+          from agent_core.runtime.capability_effects import completion_effects_for_contract, support_effects_for_contract
+
+          registry = get_runtime_registry().capabilities
+          rows = {}
+          for name in ('list_orders', 'get_order_logistics', 'prepare_refund', 'get_order_details', 'list_invoices', 'prepare_cancel_order'):
+              contract = registry.contract_for_tool(name)
+              rows[name] = {
+                  'schema': registry.function_schema(name),
+                  'contract': {
+                      key: getattr(contract, key, None)
+                      for key in ('key','tool_name','execution_kind','target_policy','description')
+                  } if contract is not None else None,
+                  'completion_effects': completion_effects_for_contract(contract) if contract is not None else None,
+                  'support_effects': support_effects_for_contract(contract) if contract is not None else None,
+              }
+          print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+          PY
