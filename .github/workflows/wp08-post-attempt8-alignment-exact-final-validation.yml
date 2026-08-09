@@ -1,0 +1,167 @@
+name: wp08-post-attempt8-alignment-exact-final-validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-exact-final:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-post-attempt8-alignment-exact-final-validation-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASE_SHA: 1ed0be9a2ad0965813142c532df3d13bb1b225e1
+      FORMAL_REF: agent/wp08-post-final-attempt8-alignment-grounding-repair-20260810
+      FINAL_HEAD: 2ec2893bfc2e4942432b0841643ae7c9d6e1ee61
+      BASELINE_PRODUCT_HEAD: 9f7cdcca101b630f5c30ddda138773b09b578edb
+      SOURCE_RELEASE_SHA256: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
+      EXPECTED_BASELINE_SHA256: 2084abe127268bc941a41be8e9039b80043e20b1c9c7a1bd55838f39fa8861d1
+      PROTECTED_FILE_COUNT: '558'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact final post-Attempt8 repair
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.FORMAL_REF }}
+          path: candidate
+          fetch-depth: 3
+          persist-credentials: false
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact final authority and four-file delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$FINAL_HEAD"
+          test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "2"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$FINAL_HEAD"
+          printf '%s\n' \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_post_final_attempt8_alignment_grounding.py | sort > /tmp/expected-final-delta.txt
+          git -C candidate diff --name-only "$BASE_SHA" HEAD -- | sort > /tmp/actual-final-delta.txt
+          diff -u /tmp/expected-final-delta.txt /tmp/actual-final-delta.txt
+          git -C candidate diff --check "$BASE_SHA" HEAD --
+          test -z "$(git -C candidate status --porcelain=v1 -uall)"
+
+      - name: Verify committed baseline bytes and authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          "${pythonLocation}/bin/python" - <<'PY' | tee wp08-post-attempt8-alignment-exact-final-baseline.json
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path('skill-system/registry/product-source-baseline.json')
+          raw = path.read_bytes()
+          payload = json.loads(raw.decode('utf-8'))
+          errors = []
+          expected = {
+              'schema_version': 2,
+              'generated_from': f"git:{os.environ['BASELINE_PRODUCT_HEAD']}",
+              'source_release_sha256': os.environ['SOURCE_RELEASE_SHA256'],
+              'file_count': int(os.environ['PROTECTED_FILE_COUNT']),
+              'protected_roots': ['services', 'web', 'contracts'],
+          }
+          for key, value in expected.items():
+              if payload.get(key) != value:
+                  errors.append(f'{key}:{payload.get(key)!r}!={value!r}')
+          files = payload.get('files')
+          if not isinstance(files, dict) or len(files) != expected['file_count']:
+              errors.append(f"files_count:{len(files) if isinstance(files, dict) else 'invalid'}!={expected['file_count']}")
+          digest = hashlib.sha256(raw).hexdigest()
+          if digest != os.environ['EXPECTED_BASELINE_SHA256']:
+              errors.append(f"baseline_sha256:{digest}!={os.environ['EXPECTED_BASELINE_SHA256']}")
+          result = {
+              'status': 'PASS' if not errors else 'FAIL',
+              'errors': errors,
+              'final_head': os.environ['FINAL_HEAD'],
+              'baseline_product_head': os.environ['BASELINE_PRODUCT_HEAD'],
+              'baseline_sha256': digest,
+              'source_release_sha256': payload.get('source_release_sha256'),
+              'protected_file_count': len(files) if isinstance(files, dict) else None,
+          }
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          if errors:
+              raise SystemExit(1)
+          PY
+
+      - name: Install locked Agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+
+      - name: Rerun exact-final focused post-Attempt8 and preserved regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/post-attempt8-exact-final-junit"
+          cd candidate
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            skill-system/tests/test_wp08_post_final_attempt8_alignment_grounding.py \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
+            --junitxml="${RUNNER_TEMP}/post-attempt8-exact-final-junit/skill-focused.xml"
+          cd services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_global_goal_capability_coverage.py \
+            tests/runtime/test_b17d_protected_browser_runtime_authority.py \
+            tests/runtime/test_wp08_attempt6_release_repairs.py \
+            --junitxml="${RUNNER_TEMP}/post-attempt8-exact-final-junit/runtime-focused.xml"
+          grep -F 'model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")' scripts/verify_preprod_conversation_smoke.py
+          grep -F '_bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0' src/agent_core/config.py
+          grep -F '_bounded_int_env("MODEL_MAX_RETRIES", 1' src/agent_core/config.py
+          grep -F '{ timeout: 120_000 }' frontend/e2e/strong_context_journey.mjs
+
+      - name: Prove project compatibility and full Skill control plane on final bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-post-attempt8-alignment-exact-final-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-post-attempt8-alignment-exact-final-skill-control-plane.json
+
+      - name: Recheck exact final refs and tracked bytes remained immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$FINAL_HEAD"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$FINAL_HEAD"
+          git -C candidate diff --exit-code
+          git -C candidate diff --cached --exit-code
+
+      - name: Upload governed exact-final evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-post-attempt8-alignment-exact-final-validation
+          path: |
+            candidate/wp08-post-attempt8-alignment-exact-final-baseline.json
+            candidate/wp08-post-attempt8-alignment-exact-final-project-compatibility.json
+            candidate/wp08-post-attempt8-alignment-exact-final-skill-control-plane.json
+            ${{ runner.temp }}/post-attempt8-exact-final-junit
+          if-no-files-found: warn
+          retention-days: 90
