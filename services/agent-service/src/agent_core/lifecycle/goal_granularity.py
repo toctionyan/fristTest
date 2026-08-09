@@ -456,7 +456,7 @@ class ModelGoalGranularityVerifier:
                 )
             if attempt == 0:
                 verifier_repair = (
-                    "Re-audit USER_TEXT only. Return each independently acceptable business result exactly once and also re-audit "
+                    "Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable business result exactly once and also re-audit "
                     "the true result-dependency graph among those outcomes. Do not duplicate nested spans. Filters, status predicates, "
                     "target selectors, ordering, exclusions, cardinality and form values stay inside the outcome they constrain. "
                     "Sentence order, shared topic/object and unsupported/open status do not create dependency; an edge exists only when "
