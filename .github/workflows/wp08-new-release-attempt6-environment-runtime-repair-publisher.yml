@@ -138,16 +138,23 @@ jobs:
           git push origin HEAD:refs/heads/$FORMAL_BRANCH
           git rev-parse HEAD | tee ../wp08-attempt6-final-head.txt
 
-      - name: Upload governed validation evidence
+      - name: Upload governed validation evidence and exact source export
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: wp08-new-release-attempt6-environment-runtime-repair-validation
+          name: wp08-new-release-attempt6-repair-validation
           path: |
             wp08-attempt6-product-head.txt
             wp08-attempt6-final-head.txt
             candidate/wp08-attempt6-project-compatibility.json
             candidate/wp08-attempt6-skill-control-plane.json
+            candidate/.github/workflows/wp08-certification.yml
+            candidate/scripts/verify_product_browser_journey.py
+            candidate/scripts/wp08_release_coordinator.py
+            candidate/scripts/wp08_release_github.py
+            candidate/scripts/wp08_release_recovery.py
+            candidate/scripts/wp08_release_state.py
+            candidate/skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py
             ${{ runner.temp }}/attempt6-junit
           if-no-files-found: warn
           retention-days: 90
