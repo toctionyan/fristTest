@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,20 +18,66 @@ from repair_governance import TRANSITION_KINDS, load_chain  # type: ignore
 PROTECTED_NAMES = ("services", "web", "contracts")
 BASELINE_FILE = Path("skill-system/registry/product-source-baseline.json")
 IGNORED_PARTS = {".venv", ".pytest_cache", "node_modules", "__pycache__"}
+MACHINE_LOCAL_PARTS = {"runtime"}
 PERMIT_BASELINE_STATUSES = {"approved", "implementing", "review", "verified"}
+
+
+def _git_tracked_protected_paths(root: Path) -> list[str] | None:
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if top.returncode != 0:
+        return None
+    try:
+        if Path(top.stdout.strip()).resolve() != root.resolve():
+            return None
+    except (OSError, RuntimeError):
+        return None
+    listed = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--", *PROTECTED_NAMES],
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    if listed.returncode != 0:
+        return None
+    return sorted(
+        item.decode("utf-8") for item in listed.stdout.split(b"\0") if item
+    )
 
 
 def snapshot(root: Path = ROOT) -> dict[str, str]:
     root = root.resolve()
+    tracked = _git_tracked_protected_paths(root)
+    if tracked is not None:
+        return {
+            relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+            for relative in tracked
+            if (root / relative).is_file()
+        }
+
+    # Packaged/offline workspaces may intentionally omit .git. Keep the
+    # compatibility verifier usable there, while excluding machine-local
+    # runtime state that the repository itself declares non-source.
     rows: dict[str, str] = {}
     for name in PROTECTED_NAMES:
         protected_root = root / name
         if not protected_root.exists():
             continue
         for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
-            if any(part in IGNORED_PARTS for part in path.parts):
+            relative = path.relative_to(root)
+            if any(part in IGNORED_PARTS for part in relative.parts):
                 continue
-            rows[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            if any(part in MACHINE_LOCAL_PARTS for part in relative.parts) and path.name != ".gitkeep":
+                continue
+            rows[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return rows
 
 

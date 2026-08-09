@@ -66,6 +66,28 @@ def _interaction(payload: dict, lifecycle: str) -> tuple[dict, dict]:
     return interaction, control
 
 
+def _pending_live_interaction(
+    harness: ProductRuntimeHarness,
+    *,
+    token: str,
+    thread_id: str,
+) -> tuple[dict, dict]:
+    payload = _call(
+        harness.agent_url,
+        f"/api/threads/{thread_id}/pending",
+        token=token,
+    )
+    if payload.get("type") != "interaction_required":
+        raise RuntimeError(f"expected live transaction interaction: {payload}")
+    interaction = payload.get("interaction")
+    if not isinstance(interaction, dict):
+        raise RuntimeError(f"pending response has no interaction: {payload}")
+    control = interaction.get("control")
+    if not isinstance(control, dict):
+        raise RuntimeError(f"interaction has no control: {payload}")
+    return interaction, control
+
+
 def _pending_interaction(
     harness: ProductRuntimeHarness,
     *,
@@ -73,18 +95,23 @@ def _pending_interaction(
     thread_id: str,
     lifecycle: str,
 ) -> tuple[dict, dict]:
-    payload = _call(
-        harness.agent_url,
-        f"/api/threads/{thread_id}/pending",
-        token=token,
+    interaction, control = _pending_live_interaction(
+        harness, token=token, thread_id=thread_id
     )
-    return _interaction(payload, lifecycle)
+    if interaction.get("lifecycle") != lifecycle:
+        raise RuntimeError(
+            f"unexpected interaction lifecycle, expected {lifecycle}: {interaction}"
+        )
+    return interaction, control
 
 
 def _input_values(interaction: dict[str, Any]) -> dict[str, str]:
     values: dict[str, str] = {}
+    current_step = max(1, int(interaction.get("current_step") or 1))
     for field in list(interaction.get("fields") or []):
         if not isinstance(field, dict) or not field.get("required", True):
+            continue
+        if max(1, int(field.get("step") or 1)) != current_step:
             continue
         name = str(field.get("name") or "")
         if not name:
@@ -120,22 +147,45 @@ def run_managed_postgres_recovery(harness: ProductRuntimeHarness) -> dict[str, A
     draft_id = str(form_control.get("offer_handle") or "")
     if not draft_id:
         raise RuntimeError("managed recovery draft has no durable id")
-    input_result = _call(harness.agent_url, "/api/transactions/input", method="POST", token=token, body={
-        "thread_id": thread_id,
-        "interaction_mode": "submit_input",
-        "offer_handle": form_control["offer_handle"],
-        "action_id": form_control["action_id"],
-        "target_handle": form_control["target_handle"],
-        "form_id": form_control["form_id"],
-        "form_version": int(form_control["form_version"]),
-        "form_step": int(form_control["form_step"]),
-        "conversation_revision": int(form_control["conversation_revision"]),
-        "client_request_id": f"input-{uuid4().hex}",
-        "input_values": _input_values(form),
-    })
-    _authority, authority_control = _pending_interaction(
-        harness, token=token, thread_id=thread_id, lifecycle="awaiting_authority"
-    )
+    authority_control: dict[str, Any] | None = None
+    previous_step = 0
+    for _ in range(8):
+        current_step = int(form_control.get("form_step") or 0)
+        if current_step <= previous_step:
+            raise RuntimeError(
+                f"managed recovery form did not advance monotonically: {previous_step} -> {current_step}"
+            )
+        previous_step = current_step
+        _call(harness.agent_url, "/api/transactions/input", method="POST", token=token, body={
+            "thread_id": thread_id,
+            "interaction_mode": "submit_input",
+            "offer_handle": form_control["offer_handle"],
+            "action_id": form_control["action_id"],
+            "target_handle": form_control["target_handle"],
+            "form_id": form_control["form_id"],
+            "form_version": int(form_control["form_version"]),
+            "form_step": current_step,
+            "conversation_revision": int(form_control["conversation_revision"]),
+            "client_request_id": f"input-{uuid4().hex}",
+            "input_values": _input_values(form),
+        })
+        live, live_control = _pending_live_interaction(
+            harness, token=token, thread_id=thread_id
+        )
+        lifecycle = str(live.get("lifecycle") or "")
+        if lifecycle == "awaiting_authority":
+            authority_control = live_control
+            break
+        if lifecycle != "collecting_input":
+            raise RuntimeError(f"unexpected post-input lifecycle: {lifecycle}")
+        next_step = int(live_control.get("form_step") or 0)
+        if next_step <= current_step:
+            raise RuntimeError(
+                f"managed recovery form stalled at step {current_step}: next={next_step}"
+            )
+        form, form_control = live, live_control
+    if authority_control is None:
+        raise RuntimeError("managed recovery form exceeded bounded step budget")
     before_restart = _call(harness.agent_url, f"/api/transactions/{draft_id}", token=token)
     if ((before_restart.get("transaction") or {}).get("draft_state")) != "AWAITING_AUTHORIZATION":
         raise RuntimeError(f"draft did not reach AWAITING_AUTHORIZATION: {before_restart}")

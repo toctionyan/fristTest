@@ -12,6 +12,7 @@ dependencies = [
   "python-multipart>=0.0.9",
   "langchain-core>=0.3.0",
   "langchain-openai>=0.2.0",
+  "langchain-deepseek>=1.1.0,<2.0.0",
   "langgraph>=0.2.50",
   "langgraph-checkpoint-sqlite>=2.0.0",
   "langgraph-checkpoint-postgres>=2.0.0",

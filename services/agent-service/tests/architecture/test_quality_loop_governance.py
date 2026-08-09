@@ -494,6 +494,11 @@ def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_to
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "list",
+                    "object_type": "order",
+                },
                 "required_tools": ["list_orders"],
             }
         ],
@@ -505,6 +510,11 @@ def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_to
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "list",
+                    "object_type": "order",
+                },
             }
         ],
     )
@@ -521,6 +531,11 @@ def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "query_status",
+                    "object_type": "refund",
+                },
             }
         ],
         goals=[
@@ -530,6 +545,11 @@ def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "query_status",
+                    "object_type": "refund",
+                },
             }
         ],
     )
@@ -547,6 +567,11 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                     "goal_type": "query",
                     "required": True,
                     "depends_on": [],
+                    "requested_effect": {
+                        "domain": "refund",
+                        "operation": "query_status",
+                        "object_type": "refund",
+                    },
                 }
             ],
             goals=[
@@ -556,9 +581,19 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                     "goal_type": "query",
                     "required": True,
                     "depends_on": [],
+                    "requested_effect": {
+                        "domain": "refund",
+                        "operation": "query_status",
+                        "object_type": "refund",
+                    },
                 }
             ],
         )
+    ambiguous_effect = {
+        "domain": "order",
+        "operation": "update",
+        "object_type": "order",
+    }
     with pytest.raises(RuntimeError, match="no unique model goal"):
         smoke._match_oracle(
             case_id="ambiguous-containment",
@@ -569,6 +604,7 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                     "goal_type": "action",
                     "required": True,
                     "depends_on": [],
+                    "requested_effect": ambiguous_effect,
                 },
                 {
                     "oracle_id": "ship",
@@ -576,6 +612,7 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                     "goal_type": "action",
                     "required": True,
                     "depends_on": [],
+                    "requested_effect": ambiguous_effect,
                 },
             ],
             goals=[
@@ -585,6 +622,7 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                     "goal_type": "action",
                     "required": True,
                     "depends_on": [],
+                    "requested_effect": ambiguous_effect,
                 },
                 {
                     "goal_id": "combined-b",
@@ -592,10 +630,10 @@ def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None
                     "goal_type": "action",
                     "required": True,
                     "depends_on": [],
+                    "requested_effect": ambiguous_effect,
                 },
             ],
         )
-
 
 def test_process_group_cleanup_handles_permission_error_after_parent_exit(
     monkeypatch: pytest.MonkeyPatch,

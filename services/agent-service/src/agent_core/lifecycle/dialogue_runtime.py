@@ -601,6 +601,7 @@ def _bind_loop_tools(
     *,
     require_tool_call: bool,
     required_tool_name: str | None = None,
+    allow_tool_choice: bool = True,
 ) -> Any:
     """Bind the current protocol surface and enforce bounded repair calls.
 
@@ -612,7 +613,7 @@ def _bind_loop_tools(
     """
     if not hasattr(model, "bind_tools"):
         return model
-    if require_tool_call:
+    if require_tool_call and allow_tool_choice:
         try:
             # A single protocol tool has a stronger contract than generic
             # ``required``. DeepSeek-compatible providers may satisfy
@@ -881,6 +882,7 @@ def agent_loop_node(
                 or clarification_scope_repair
             ),
             required_tool_name="declare_turn_goals" if planning_phase else None,
+            allow_tool_choice=bool(get_model_profile().get("tool_choice_supported", True)),
         )
         response, model_call = invoke_model(
             purpose="agent_loop",
