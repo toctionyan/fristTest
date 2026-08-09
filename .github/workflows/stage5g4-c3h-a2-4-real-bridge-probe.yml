@@ -1,0 +1,92 @@
+name: stage5g4-c3h-a2-4-real-bridge-integration-probe
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  real-bridge-external-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout probe harness
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: probe
+          fetch-depth: 1
+
+      - name: Checkout exact A2 candidate control plane
+        uses: actions/checkout@v4
+        with:
+          ref: 610c6f9aff0a8c9336614b85e9d91ba89f51b40b
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout untouched exact B36 product source
+        uses: actions/checkout@v4
+        with:
+          ref: e0e04d51e9da9790bef7bd0482584f60b8e975a9
+          path: source
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Prepare exact-B36 locked test environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv sync --project source/services/agent-service --locked --all-groups --python 3.12
+          uv sync --project source/services/business-service --locked --all-groups --python 3.12
+          test -x source/services/agent-service/.venv/bin/python
+          test -x source/services/business-service/.venv/bin/python
+
+      - name: Download immutable B1 Oracle overlay
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: 8994125634
+          path: oracle-source
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 31179398373
+
+      - name: Run real Bridge external exact-B36 Oracle probe
+        id: integration_probe
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f oracle-source/overlay.zip
+          python -B probe/docs/governance/ci-probes/stage5g4-c3h-a2-4/run_real_bridge_probe.py \
+            --control control \
+            --source source \
+            --overlay oracle-source/overlay.zip \
+            --output c3h-a2-4-results
+
+      - name: Upload integration probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5g4-c3h-a2-4-real-bridge-integration-probe
+          path: c3h-a2-4-results
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce integration probe success
+        if: always()
+        shell: bash
+        run: |
+          test '${{ steps.integration_probe.outcome }}' = 'success'

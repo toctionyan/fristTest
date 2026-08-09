@@ -91,6 +91,10 @@ from quality_control.state import (
     _blocked_prerequisite_result, _load_baseline, _load_loop_state, _repair_plan, _state_path,
     _verify_loop_round, _workspace_immutability_result, _write_loop_state,
 )
+from quality_control.baseline_oracle import (
+    BaselineOracleOverlayIdentity, baseline_oracle_execution_view,
+    validate_baseline_oracle_claim_bindings,
+)
 
 
 def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
@@ -104,6 +108,44 @@ def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
 
 class QualityRunConflictError(RuntimeError):
     """Raised when another controller already owns this target/evidence run."""
+
+
+@contextlib.contextmanager
+def _baseline_execution_scope(
+    workspace: Path,
+    target_path: Path,
+    *,
+    baseline: bool,
+    baseline_oracle_manifest: Path | None,
+    baseline_oracle_artifact: Path | None,
+):
+    """Yield the workspace/Target pair that is authoritative for execution only.
+
+    Source identity and snapshots remain owned by ``workspace``.  When an oracle
+    is supplied, only Target/Claim selector parsing and governed Gate execution
+    see the ephemeral overlay view.
+    """
+    has_manifest = baseline_oracle_manifest is not None
+    has_artifact = baseline_oracle_artifact is not None
+    if has_manifest != has_artifact:
+        raise ValueError(
+            "baseline oracle requires both manifest and artifact inputs"
+        )
+    if not has_manifest:
+        yield workspace, target_path, None
+        return
+    if not baseline:
+        raise ValueError("baseline oracle inputs are valid only for --baseline runs")
+    try:
+        target_relative = target_path.resolve().relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise ValueError("baseline oracle requires target inside the source workspace") from exc
+    with baseline_oracle_execution_view(
+        source_workspace=workspace,
+        manifest_path=baseline_oracle_manifest,
+        artifact_path=baseline_oracle_artifact,
+    ) as view:
+        yield view.path, view.path / target_relative, view.identity
 
 
 
@@ -264,6 +306,8 @@ def _run_loop_unlocked(
     baseline_evidence: Path | None,
     prior_evidence: Path | None,
     state_dir: Path,
+    baseline_oracle_manifest: Path | None = None,
+    baseline_oracle_artifact: Path | None = None,
 ) -> dict[str, Any]:
     if prior_evidence is not None:
         raise ValueError("--prior-evidence is no longer supported; every targeted run executes its dependency closure and only a full current-source run can complete a target")
@@ -273,97 +317,121 @@ def _run_loop_unlocked(
         configured_signing_key = os.getenv("QUALITY_EVIDENCE_SIGNING_KEY", "")
         if len(configured_signing_key.encode("utf-8")) < 32:
             raise ValueError("release mode requires QUALITY_EVIDENCE_SIGNING_KEY with at least 32 bytes; local mutable trust keys cannot authorize a protected release")
-    target = _parse_target(target_path, workspace=workspace)
-    replan_predecessor = _validate_replan_predecessor(workspace, target=target)
-    _validate_claim_gate_contracts(target, ordered_steps)
-    all_steps = _steps_for_mode(ordered_steps, mode)
-    if (
-        not baseline
-        and rerun_from is None
-        and MODE_RANK[mode] < MODE_RANK[str(target["minimum_mode"])]
-    ):
-        raise ValueError(
-            f"target requires 最低质量模式：{target['minimum_mode']}; --mode {mode} is insufficient"
-        )
-    policy_fingerprint = _sha256_file(policy_path)
-    baseline_record, state = _verify_loop_round(
-        target=target,
-        baseline_evidence=baseline_evidence,
-        policy_fingerprint=policy_fingerprint,
-        state_dir=state_dir,
-        baseline=baseline,
-        workspace=workspace,
-        target_path=target_path,
-    )
+    if baseline_oracle_manifest is not None and baseline_evidence is not None:
+        raise ValueError("baseline oracle cannot be combined with --baseline-evidence")
     ignored_snapshot_roots = tuple(
         path for path in (evidence_dir, baseline_evidence) if path is not None
     )
     run_start_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
-    baseline_snapshot = run_start_snapshot if baseline and target["context"] == "local-change" else None
-    steps = _downstream_steps(all_steps, rerun_from) if rerun_from else all_steps
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(target_path, evidence_dir / "target.md")
-    shutil.copyfile(policy_path, evidence_dir / "quality-loop-policy.json")
-    claim_manifest_evidence_file = "claim-manifest.json"
-    shutil.copyfile(
-        workspace / str(target["claim_manifest"]),
-        evidence_dir / claim_manifest_evidence_file,
-    )
-    requirement_catalog_evidence_file: str | None = None
-    if target.get("requirement_catalog"):
-        requirement_catalog_evidence_file = "requirement-catalog.json"
-        shutil.copyfile(
-            workspace / str(target["requirement_catalog"]),
-            evidence_dir / requirement_catalog_evidence_file,
-        )
 
-    # Targeted runs re-execute their entire dependency closure.  Historical PASS
-    # rows and copied JUnit/coverage files are never accepted as prerequisites.
-    reusable: dict[str, dict[str, Any]] = {}
-
-    results: list[dict[str, Any]] = []
-    result_by_id: dict[str, dict[str, Any]] = {}
-    for step in steps:
-        dependencies = [str(dep) for dep in step.get("depends_on") or []]
-        absent_prerequisites = [dep for dep in dependencies if dep not in result_by_id and dep not in reusable]
-        failed_dependencies = [
-            dep
-            for dep in dependencies
-            if dep in result_by_id and result_by_id[dep]["status"] != PASS
-        ]
-        if absent_prerequisites:
-            result = _blocked_prerequisite_result(
-                step,
-                absent_prerequisites,
-                "the selected dependency closure is internally incomplete",
+    with _baseline_execution_scope(
+        workspace,
+        target_path,
+        baseline=baseline,
+        baseline_oracle_manifest=baseline_oracle_manifest,
+        baseline_oracle_artifact=baseline_oracle_artifact,
+    ) as (execution_workspace, execution_target_path, baseline_oracle_identity):
+        target = _parse_target(execution_target_path, workspace=execution_workspace)
+        if baseline_oracle_identity is not None:
+            validate_baseline_oracle_claim_bindings(target, baseline_oracle_identity)
+        replan_predecessor = _validate_replan_predecessor(workspace, target=target)
+        _validate_claim_gate_contracts(target, ordered_steps)
+        all_steps = _steps_for_mode(ordered_steps, mode)
+        if (
+            not baseline
+            and rerun_from is None
+            and MODE_RANK[mode] < MODE_RANK[str(target["minimum_mode"])]
+        ):
+            raise ValueError(
+                f"target requires 最低质量模式：{target['minimum_mode']}; --mode {mode} is insufficient"
             )
-        elif failed_dependencies:
-            result = {
-                "id": step["id"],
-                "name": step.get("name", step["id"]),
-                "status": UPSTREAM_SKIPPED,
-                "owner": step.get("owner", "unassigned"),
-                "category": step.get("category", "verification"),
-                "blocking_level": step.get("blocking_level", "required"),
-                "repair_playbook": step.get("repair_playbook", "repair the failed upstream gate"),
-                "depends_on": dependencies,
-                "started_at": _now(),
-                "ended_at": _now(),
-                "exit_code": None,
-                "duration_ms": 0,
-                "stdout": "",
-                "stderr": "upstream gate did not pass: " + ", ".join(failed_dependencies),
-                "metadata": {"failed_dependencies": failed_dependencies},
-            }
-        else:
-            print(f"[quality-loop] {mode} running {step['id']}", file=sys.stderr, flush=True)
-            result = _run_step(workspace, evidence_dir, mode, step)
-            print(f"[quality-loop] {step['id']} -> {result['status']}", file=sys.stderr, flush=True)
-        results.append(result)
-        result_by_id[str(result["id"])] = result
-        _write_step_evidence(evidence_dir, result)
+        policy_fingerprint = _sha256_file(policy_path)
+        baseline_record, state = _verify_loop_round(
+            target=target,
+            baseline_evidence=baseline_evidence,
+            policy_fingerprint=policy_fingerprint,
+            state_dir=state_dir,
+            baseline=baseline,
+            workspace=workspace,
+            target_path=target_path,
+        )
+        baseline_snapshot = run_start_snapshot if baseline and target["context"] == "local-change" else None
+        steps = _downstream_steps(all_steps, rerun_from) if rerun_from else all_steps
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(target_path, evidence_dir / "target.md")
+        shutil.copyfile(policy_path, evidence_dir / "quality-loop-policy.json")
+        claim_manifest_evidence_file = "claim-manifest.json"
+        shutil.copyfile(
+            workspace / str(target["claim_manifest"]),
+            evidence_dir / claim_manifest_evidence_file,
+        )
+        requirement_catalog_evidence_file: str | None = None
+        if target.get("requirement_catalog"):
+            requirement_catalog_evidence_file = "requirement-catalog.json"
+            shutil.copyfile(
+                workspace / str(target["requirement_catalog"]),
+                evidence_dir / requirement_catalog_evidence_file,
+            )
 
-    run_end_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
+        # Targeted runs re-execute their entire dependency closure.  Historical PASS
+        # rows and copied JUnit/coverage files are never accepted as prerequisites.
+        reusable: dict[str, dict[str, Any]] = {}
+
+        results: list[dict[str, Any]] = []
+        result_by_id: dict[str, dict[str, Any]] = {}
+        for step in steps:
+            dependencies = [str(dep) for dep in step.get("depends_on") or []]
+            absent_prerequisites = [dep for dep in dependencies if dep not in result_by_id and dep not in reusable]
+            failed_dependencies = [
+                dep
+                for dep in dependencies
+                if dep in result_by_id and result_by_id[dep]["status"] != PASS
+            ]
+            if absent_prerequisites:
+                result = _blocked_prerequisite_result(
+                    step,
+                    absent_prerequisites,
+                    "the selected dependency closure is internally incomplete",
+                )
+            elif failed_dependencies:
+                result = {
+                    "id": step["id"],
+                    "name": step.get("name", step["id"]),
+                    "status": UPSTREAM_SKIPPED,
+                    "owner": step.get("owner", "unassigned"),
+                    "category": step.get("category", "verification"),
+                    "blocking_level": step.get("blocking_level", "required"),
+                    "repair_playbook": step.get("repair_playbook", "repair the failed upstream gate"),
+                    "depends_on": dependencies,
+                    "started_at": _now(),
+                    "ended_at": _now(),
+                    "exit_code": None,
+                    "duration_ms": 0,
+                    "stdout": "",
+                    "stderr": "upstream gate did not pass: " + ", ".join(failed_dependencies),
+                    "metadata": {"failed_dependencies": failed_dependencies},
+                }
+            else:
+                print(f"[quality-loop] {mode} running {step['id']}", file=sys.stderr, flush=True)
+                result = _run_step(execution_workspace, evidence_dir, mode, step)
+                print(f"[quality-loop] {step['id']} -> {result['status']}", file=sys.stderr, flush=True)
+            results.append(result)
+            result_by_id[str(result["id"])] = result
+            _write_step_evidence(evidence_dir, result)
+
+        run_end_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
+    baseline_oracle_identity_payload = (
+        dict(baseline_oracle_identity.payload)
+        if baseline_oracle_identity is not None
+        else None
+    )
+    baseline_oracle_identity_evidence_file: str | None = None
+    if baseline_oracle_identity_payload is not None:
+        baseline_oracle_identity_evidence_file = "baseline-oracle-overlay-identity.json"
+        (evidence_dir / baseline_oracle_identity_evidence_file).write_text(
+            json.dumps(baseline_oracle_identity_payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     if run_end_snapshot["fingerprint"] != run_start_snapshot["fingerprint"]:
         immutability_result = _workspace_immutability_result(run_start_snapshot, run_end_snapshot)
         results.append(immutability_result)
@@ -438,6 +506,8 @@ def _run_loop_unlocked(
                 "replan_predecessor": replan_predecessor,
                 "workspace_snapshot_file": snapshot_file,
                 "workspace_snapshot_fingerprint": baseline_snapshot["fingerprint"],
+                "baseline_oracle_overlay_identity": baseline_oracle_identity_payload,
+                "baseline_oracle_identity_evidence_file": baseline_oracle_identity_evidence_file,
             }
             (evidence_dir / "baseline-record.json").write_text(
                 json.dumps(baseline_record, ensure_ascii=False, indent=2) + "\n",
@@ -598,6 +668,8 @@ def _run_loop_unlocked(
         "workspace_snapshot_start_fingerprint": run_start_snapshot["fingerprint"],
         "workspace_snapshot_fingerprint": verification_snapshot["fingerprint"],
         "workspace_snapshot_file": workspace_snapshot_file,
+        "baseline_oracle_overlay_identity": baseline_oracle_identity_payload,
+        "baseline_oracle_identity_evidence_file": baseline_oracle_identity_evidence_file,
         "selected_gate_ids": selected_gate_ids,
         "required_gate_ids": required_gate_ids,
         "gate_contract_fingerprints": _gate_contract_fingerprints(all_steps),
@@ -714,6 +786,8 @@ def run_loop(
     baseline_evidence: Path | None,
     prior_evidence: Path | None,
     state_dir: Path,
+    baseline_oracle_manifest: Path | None = None,
+    baseline_oracle_artifact: Path | None = None,
 ) -> dict[str, Any]:
     with _exclusive_quality_run(
         evidence_dir=evidence_dir,
@@ -735,6 +809,8 @@ def run_loop(
             baseline_evidence=baseline_evidence,
             prior_evidence=prior_evidence,
             state_dir=state_dir,
+            baseline_oracle_manifest=baseline_oracle_manifest,
+            baseline_oracle_artifact=baseline_oracle_artifact,
         )
 
 def _controller_failure(
@@ -876,6 +952,14 @@ def main() -> int:
     parser.add_argument("--evidence-dir")
     parser.add_argument("--target", help="required filled quality-loop target markdown record")
     parser.add_argument("--baseline", action="store_true", help="record this pass as the pre-change baseline")
+    parser.add_argument(
+        "--baseline-oracle-manifest",
+        help="immutable BaselineOracleOverlay manifest; valid only with --baseline",
+    )
+    parser.add_argument(
+        "--baseline-oracle-artifact",
+        help="immutable BaselineOracleOverlay ZIP/TAR artifact; valid only with --baseline",
+    )
     parser.add_argument("--baseline-evidence", help="evidence directory from the required local baseline pass")
     parser.add_argument("--prior-evidence", help="removed compatibility flag; supplying it is an error because historical PASS evidence is never reused")
     parser.add_argument("--state-dir", help="local quality-loop state directory; defaults to .quality/loop-state")
@@ -918,6 +1002,16 @@ def main() -> int:
     evidence_dir = Path(evidence_raw).expanduser().resolve() if evidence_raw else workspace / ".quality" / "evidence" / _safe_run_id()
     target_path = Path(args.target).expanduser().resolve() if args.target else None
     baseline_evidence = Path(args.baseline_evidence).expanduser().resolve() if args.baseline_evidence else None
+    baseline_oracle_manifest = (
+        Path(args.baseline_oracle_manifest).expanduser().resolve()
+        if args.baseline_oracle_manifest
+        else None
+    )
+    baseline_oracle_artifact = (
+        Path(args.baseline_oracle_artifact).expanduser().resolve()
+        if args.baseline_oracle_artifact
+        else None
+    )
     prior_evidence = Path(args.prior_evidence).expanduser().resolve() if args.prior_evidence else None
     state_raw = args.state_dir or os.getenv("QUALITY_LOOP_STATE_DIR")
     state_dir = Path(state_raw).expanduser().resolve() if state_raw else workspace / ".quality" / "loop-state"
@@ -935,6 +1029,8 @@ def main() -> int:
             baseline_evidence=baseline_evidence,
             prior_evidence=prior_evidence,
             state_dir=state_dir,
+            baseline_oracle_manifest=baseline_oracle_manifest,
+            baseline_oracle_artifact=baseline_oracle_artifact,
         )
     except QualityRunConflictError as exc:
         # A rejected contender must never write into the active run's evidence
