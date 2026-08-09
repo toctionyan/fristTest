@@ -17,6 +17,7 @@ jobs:
       BASE_SHA: 11e119c134906f1395db615762fd45c1e7385c92
       FORMAL_REF: agent/wp08-attempt7-root-fixes-20260809
       EXPECTED_FORMAL_HEAD: b947451ca4869775c9fc7633a781860234dda9b8
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Checkout exact formal Attempt-7 repair
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
