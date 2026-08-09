@@ -73,7 +73,9 @@ new_helper = '''        try:
                 goals=goals,
             )
             return goals, declared, {"trace": trace, "attestation": attestation}, attempt
-        except _ProductionGoalDeclarationRejected as exc:
+        except RuntimeError as exc:
+            if not isinstance(exc, _ProductionGoalDeclarationRejected):
+                raise
             result = exc.result
             last_result = result
         if attempt >= 2:
@@ -86,8 +88,8 @@ smoke.write_text(source.replace(old_helper, new_helper, 1), encoding="utf-8")
 
 test_text = test_text.replace(
     '        self.assertIn("_production_goal_declaration_evaluation", helper)\n',
-    '        self.assertIn("_validate_with_production_goal_contract", helper)\n        self.assertIn("except _ProductionGoalDeclarationRejected as exc", helper)\n',
+    '        self.assertIn("_validate_with_production_goal_contract", helper)\n        self.assertIn("except RuntimeError as exc", helper)\n        self.assertIn("isinstance(exc, _ProductionGoalDeclarationRejected)", helper)\n',
     1,
 )
 test_file.write_text(test_text, encoding="utf-8")
-print("WP08_ATTEMPT4_VALIDATION_INTERCEPTION_COMPATIBILITY_PRESERVED")
+print("WP08_ATTEMPT4_RUNTIMEERROR_GOVERNANCE_COMPATIBILITY_PRESERVED")
