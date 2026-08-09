@@ -16,6 +16,7 @@ jobs:
     env:
       BASE_SHA: d55ce8147c96155021fcab084ece854f0d1520ce
       FORMAL_BRANCH: agent/wp08-new-release-attempt1-semantic-observability-repair-20260809
+      PYTHONPATH: ${{ github.workspace }}/candidate/services/agent-service:${{ github.workspace }}/candidate/services/agent-service/src
     steps:
       - name: Checkout carrier helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
