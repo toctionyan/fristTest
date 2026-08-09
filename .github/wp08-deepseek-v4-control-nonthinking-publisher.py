@@ -90,6 +90,21 @@ replace_once(
 )
 replace_once(
     provider_test,
+    '''    monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
+    agent_config.get_model.cache_clear()
+''',
+    '''    monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
+    # Do not inherit timeout/retry overrides from unrelated standard-suite tests.
+    # This provider-construction test proves the exact governed control-plane envelope.
+    monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "25")
+    monkeypatch.setenv("MODEL_MAX_RETRIES", "1")
+    agent_config.get_model.cache_clear()
+''',
+)
+replace_once(
+    provider_test,
     '''        model = agent_config.get_model()
         assert model.__class__.__module__.startswith("langchain_deepseek")
         assert str(getattr(model, "model_name", "")) == "deepseek-v4-flash"
