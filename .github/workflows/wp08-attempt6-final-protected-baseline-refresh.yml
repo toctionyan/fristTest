@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate-baseline:
@@ -111,6 +111,28 @@ jobs:
           services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-final-project-compatibility.json
           services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-final-skill-control-plane.json
 
+      - name: Publish only validated baseline to formal branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected.txt
+          git diff --name-only "$CANDIDATE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh final protected source baseline'
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${CANDIDATE_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD > wp08-attempt6-final-baseline-promotion-head.txt
+
       - name: Upload validated baseline artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -120,5 +142,6 @@ jobs:
             candidate/wp08-attempt6-final-baseline-refresh-report.json
             candidate/wp08-attempt6-final-project-compatibility.json
             candidate/wp08-attempt6-final-skill-control-plane.json
+            candidate/wp08-attempt6-final-baseline-promotion-head.txt
           if-no-files-found: error
           retention-days: 90
