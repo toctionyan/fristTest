@@ -1,0 +1,126 @@
+name: wp08-attempt7-root-fixes-publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-stage1:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-root-fixes-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: 11e119c134906f1395db615762fd45c1e7385c92
+      FORMAL_BRANCH: agent/wp08-attempt7-root-fixes-20260809
+    steps:
+      - name: Checkout carrier helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: carrier
+          fetch-depth: 1
+
+      - name: Checkout exact failed Attempt 7 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact stage-1 authority and install locked agent environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+
+      - name: Apply frozen verifier authority, shared-scope semantics and oracle repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-frozen-granularity-authority-fix.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-semantic-contract-fix.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-root-fix-tests.py
+          git -C candidate diff --check
+
+      - name: Run syntax and focused Attempt-7 regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m py_compile \
+            candidate/services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/protocol.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            candidate/services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            candidate/skill-system/tests/test_wp08_attempt7_root_fixes.py
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py \
+            skill-system/tests/test_wp08_post_attempt8_dependency_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
+          cd services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -m pytest -q \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_global_goal_capability_coverage.py \
+            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py
+          grep -F 'model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")' scripts/verify_preprod_conversation_smoke.py
+          grep -F '{ timeout: 120_000 }' frontend/e2e/strong_context_journey.mjs
+
+      - name: Prove exact stage-1 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git add -N skill-system/tests/test_wp08_attempt7_root_fixes.py
+          printf '%s\n' \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py | sort > /tmp/expected-stage1.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-stage1.txt
+          diff -u /tmp/expected-stage1.txt /tmp/actual-stage1.txt
+          git diff --check "$BASE_SHA" --
+
+      - name: Publish formal stage-1 repair without consuming Attempt 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py
+          git diff --cached --check
+          git commit -m 'Repair Attempt 7 frozen semantic dependency authority'
+          git push origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD
