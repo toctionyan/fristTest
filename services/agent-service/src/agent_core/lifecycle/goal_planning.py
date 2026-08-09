@@ -518,32 +518,61 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
 
 
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
-    if str(getattr(granularity, "verdict", "") or "") != "under_split":
-        return {}
-    spans: list[str] = []
-    for finding in tuple(getattr(granularity, "findings", ()) or ()):
-        if not isinstance(finding, dict):
-            continue
-        if str(finding.get("reason") or "") != "blind_inventory_outcome_not_covered":
-            continue
-        span = _clean_text(finding.get("evidence_span"), limit=240)
-        if span and span not in spans:
-            spans.append(span)
-    if not spans:
-        return {}
-    return {
-        "independent_verifier_feedback": {
-            "authority": "candidate_blind_goal_inventory",
-            "required_action": "redeclaration_preserving_existing_goals_and_adding_uncovered_outcomes",
-            "uncovered_outcome_spans": spans,
-            "constraints": [
-                "literal_user_text_spans_only",
-                "do_not_infer_or_copy_tool_or_capability_identity",
-                "preserve_unsupported_or_open_business_effects",
-                "do_not_delete_already_preserved_independent_outcomes",
-            ],
+    verdict = str(getattr(granularity, "verdict", "") or "")
+    reason_code = str(getattr(granularity, "reason_code", "") or "")
+    details = getattr(granularity, "details", {})
+    details = details if isinstance(details, dict) else {}
+    if verdict == "under_split":
+        spans: list[str] = []
+        for finding in tuple(getattr(granularity, "findings", ()) or ()):
+            if not isinstance(finding, dict):
+                continue
+            if str(finding.get("reason") or "") != "blind_inventory_outcome_not_covered":
+                continue
+            span = _clean_text(finding.get("evidence_span"), limit=240)
+            if span and span not in spans:
+                spans.append(span)
+        if not spans:
+            return {}
+        return {
+            "independent_verifier_feedback": {
+                "authority": "candidate_blind_goal_inventory",
+                "required_action": "redeclaration_preserving_existing_goals_and_adding_uncovered_outcomes",
+                "uncovered_outcome_spans": spans,
+                "constraints": [
+                    "literal_user_text_spans_only",
+                    "do_not_infer_or_copy_tool_or_capability_identity",
+                    "preserve_unsupported_or_open_business_effects",
+                    "do_not_delete_already_preserved_independent_outcomes",
+                ],
+            }
         }
-    }
+    if verdict == "mixed" and reason_code == "blind_inventory_dependency_graph_mismatch":
+        edges: list[dict[str, str]] = []
+        for raw in list(details.get("dependency_edges") or []):
+            if not isinstance(raw, dict):
+                continue
+            dependent_span = _clean_text(raw.get("dependent_span"), limit=240)
+            prerequisite_span = _clean_text(raw.get("requires_result_of_span"), limit=240)
+            if dependent_span and prerequisite_span:
+                edges.append({
+                    "dependent_span": dependent_span,
+                    "requires_result_of_span": prerequisite_span,
+                })
+        return {
+            "independent_verifier_feedback": {
+                "authority": "candidate_blind_goal_inventory",
+                "required_action": "redeclaration_preserving_candidate_blind_dependency_graph",
+                "dependency_edges": edges,
+                "constraints": [
+                    "dependency_edges_are_literal_user_text_relations_not_oracle_answers",
+                    "sentence_order_shared_topic_and_capability_absence_do_not_create_dependency",
+                    "true_current_turn_result_dependency_must_be_preserved",
+                    "do_not_change_requested_effect_to_fit_available_capabilities",
+                ],
+            }
+        }
+    return {}
 
 
 def validate_goal_declaration(
