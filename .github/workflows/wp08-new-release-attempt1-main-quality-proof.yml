@@ -1,0 +1,98 @@
+name: wp08-new-release-attempt1-main-quality-proof
+
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: wp08-new-release-attempt1-main-quality-proof
+  cancel-in-progress: false
+
+jobs:
+  prove-main-quality:
+    if: github.event.pull_request.head.ref == 'wp08-new-release-attempt1-main-quality-proof-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      EXPECTED_MAIN_SHA: 1e1b7b76da1a4980f11121af1bd61485e30ab8eb
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact repaired authoritative main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove completed successful push Quality on exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
+          python - <<'PY'
+          import json
+          import os
+          import time
+          from urllib import parse, request
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GITHUB_TOKEN']
+          expected_sha = os.environ['EXPECTED_MAIN_SHA']
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+          deadline = time.time() + 15 * 60
+          last = None
+          while time.time() < deadline:
+              query = parse.urlencode({'event': 'push', 'branch': 'main', 'per_page': 50})
+              req = request.Request(
+                  f'https://api.github.com/repos/{repo}/actions/workflows/quality.yml/runs?{query}',
+                  headers=headers,
+              )
+              with request.urlopen(req, timeout=30) as response:
+                  payload = json.load(response)
+              matches = [
+                  row for row in payload.get('workflow_runs') or []
+                  if str(row.get('head_sha') or '') == expected_sha
+                  and str(row.get('head_branch') or '') == 'main'
+                  and str(row.get('event') or '') == 'push'
+              ]
+              if matches:
+                  run = max(matches, key=lambda row: int(row.get('id') or 0))
+                  last = {
+                      'id': int(run.get('id') or 0),
+                      'status': str(run.get('status') or ''),
+                      'conclusion': str(run.get('conclusion') or ''),
+                      'head_sha': str(run.get('head_sha') or ''),
+                  }
+                  print(json.dumps({'exact_main_quality': last}, sort_keys=True), flush=True)
+                  if last['status'] == 'completed':
+                      if last['conclusion'] != 'success':
+                          raise SystemExit('exact-main Quality completed non-success: ' + json.dumps(last, sort_keys=True))
+                      break
+              time.sleep(15)
+          else:
+              raise SystemExit('timed out waiting for exact-main Quality: ' + json.dumps(last, sort_keys=True))
+
+          print(json.dumps({
+              'status': 'PASS',
+              'candidate_sha': expected_sha,
+              'quality_run_id': last['id'],
+              'quality_conclusion': last['conclusion'],
+          }, sort_keys=True))
+          PY
+
+      - name: Recheck main stayed exact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
