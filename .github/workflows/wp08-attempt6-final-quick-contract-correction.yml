@@ -1,0 +1,127 @@
+name: wp08-attempt6-final-quick-contract-correction
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/wp08-attempt6-final-quick-contract-correction.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Checkout exact formal candidate and apply two test-contract corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          FORMAL_BRANCH='agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808'
+          EXPECTED='50cab5534a9c409c1d5d16e21e5c38afe5622a72'
+          ACTUAL="$(git ls-remote origin "refs/heads/${FORMAL_BRANCH}" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          git checkout --detach "$EXPECTED"
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('services/agent-service/tests/architecture/test_command_and_model_governance.py')
+          text = p.read_text(encoding='utf-8')
+          old = '''    assert graph.updated == [
+              ({"configurable": {}}, {"runtime_outcome": {"outcome_type": "authority_required"}}, "action_gateway")
+          ]'''
+          new = '''    assert graph.updated == [
+              (
+                  {"configurable": {}},
+                  {
+                      "phase": "action_gateway",
+                      "runtime_outcome": {"outcome_type": "authority_required"},
+                  },
+                  "action_gateway",
+              )
+          ]'''
+          assert text.count(old) == 1, 'structured-command assertion anchor mismatch'
+          p.write_text(text.replace(old, new), encoding='utf-8')
+
+          p = Path('services/agent-service/tests/architecture/test_dependency_lock_contract.py')
+          text = p.read_text(encoding='utf-8')
+          anchor = '''def _canonical_requirement(raw: str) -> tuple[str, tuple[str, ...], str]:
+              from packaging.requirements import Requirement
+
+              requirement = Requirement(raw)
+              return (
+                  requirement.name.lower().replace("_", "-"),
+                  tuple(sorted(requirement.extras)),
+                  str(requirement.specifier),
+              )
+          '''
+          replacement = '''def _canonical_specifier(raw: str) -> str:
+              from packaging.specifiers import SpecifierSet
+
+              return str(SpecifierSet(raw))
+
+
+          def _canonical_requirement(raw: str) -> tuple[str, tuple[str, ...], str]:
+              from packaging.requirements import Requirement
+
+              requirement = Requirement(raw)
+              return (
+                  requirement.name.lower().replace("_", "-"),
+                  tuple(sorted(requirement.extras)),
+                  _canonical_specifier(str(requirement.specifier)),
+              )
+          '''
+          assert text.count(anchor) == 1, 'canonical requirement anchor mismatch'
+          text = text.replace(anchor, replacement)
+          old_lock = '                str(entry.get("specifier", "")),\n'
+          new_lock = '                _canonical_specifier(str(entry.get("specifier", ""))),\n'
+          assert text.count(old_lock) == 1, 'locked specifier anchor mismatch'
+          p.write_text(text.replace(old_lock, new_lock), encoding='utf-8')
+          PY
+          test "$(git diff --name-only | sort | paste -sd ',' -)" = 'services/agent-service/tests/architecture/test_command_and_model_governance.py,services/agent-service/tests/architecture/test_dependency_lock_contract.py'
+
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Run focused contract corrections
+        run: |
+          cd services/agent-service
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/architecture/test_command_and_model_governance.py::test_structured_command_facade_runs_public_wrapper_then_resumes_graph \
+            tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible
+
+      - name: Run complete Agent standard suite
+        run: |
+          cd services/agent-service
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider -m 'not integration and not preprod'
+
+      - name: Publish only validated two-file correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          FORMAL_BRANCH='agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808'
+          EXPECTED='50cab5534a9c409c1d5d16e21e5c38afe5622a72'
+          ACTUAL="$(git ls-remote origin "refs/heads/${FORMAL_BRANCH}" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add services/agent-service/tests/architecture/test_command_and_model_governance.py \
+                  services/agent-service/tests/architecture/test_dependency_lock_contract.py
+          test "$(git diff --cached --name-only | sort | paste -sd ',' -)" = 'services/agent-service/tests/architecture/test_command_and_model_governance.py,services/agent-service/tests/architecture/test_dependency_lock_contract.py'
+          git commit -m 'test: align final quick contracts with attempt6 authorities'
+          git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
