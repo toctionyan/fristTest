@@ -1,0 +1,70 @@
+name: wp08-attempt7-dependency-oracle-audit
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-dependency-oracle-audit-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 11e119c134906f1395db615762fd45c1e7385c92
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Enumerate semantic oracle dependency contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json')
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          rows = []
+          for case in payload.get('cases') or []:
+              contract = case.get('execution_contract') or {}
+              for turn_index, turn in enumerate(contract.get('turn_contracts') or []):
+                  oracle = turn.get('goal_oracle') or []
+                  if not any(goal.get('depends_on') for goal in oracle):
+                      continue
+                  rows.append({
+                      'case_id': case.get('id'),
+                      'turn_index': turn_index,
+                      'user_text': turn.get('user_text'),
+                      'oracle': [
+                          {
+                              'oracle_id': goal.get('oracle_id'),
+                              'evidence_span': goal.get('evidence_span'),
+                              'depends_on': goal.get('depends_on') or [],
+                              'requested_effect': goal.get('requested_effect') or {},
+                          }
+                          for goal in oracle
+                      ],
+                      'scripted': [
+                          {
+                              'goal_id': goal.get('goal_id'),
+                              'evidence_span': goal.get('evidence_span'),
+                              'depends_on': goal.get('depends_on') or [],
+                              'requested_effect': goal.get('requested_effect') or {},
+                          }
+                          for step in (turn.get('model_steps') or [])[:1]
+                          for call in step.get('tool_calls') or []
+                          if call.get('name') == 'declare_turn_goals'
+                          for goal in (call.get('args') or {}).get('goals') or []
+                      ],
+                  })
+          print(json.dumps({'nonempty_dependency_case_count': len(rows), 'rows': rows}, ensure_ascii=False, indent=2))
+          PY
