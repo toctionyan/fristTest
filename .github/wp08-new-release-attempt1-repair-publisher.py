@@ -19,9 +19,10 @@ def replace_once(path: Path, old: str, new: str) -> None:
 # 1) Repair the stale independent semantic oracle. The production contract
 # defines Goals as independently completable user business effects; filtering
 # and target selection remain implementation steps rather than standalone Goals.
-# The deterministic candidate must therefore also stop scripting list_orders as
-# a fake Goal-owned prerequisite when the fixture already exposes verified
-# single-member target handles for the two business effects.
+# The deterministic candidate must therefore stop scripting list_orders as a
+# fake Goal. Each real business capability binds the user's literal status
+# predicate directly through the typed all_orders target DSL, so Runtime—not a
+# guessed historical artifact—proves the single order target.
 catalog_path = ROOT / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
 payload = json.loads(catalog_path.read_text(encoding="utf-8"))
 case = next((row for row in payload.get("cases", []) if row.get("id") == "semantic_cancel_and_refund_branch"), None)
@@ -77,9 +78,6 @@ script_refund.update({
 script_refund["requested_effect"]["raw_description"] = "处理用户目标：已签收的看看能不能退款"
 declaration["goals"] = [script_cancel, script_refund]
 
-# Remove the implementation-shaped list_orders candidate. The fixture ledger
-# already publishes exact order artifacts plus signed/pending single-member
-# views, so the completion tools can bind those verified handles directly.
 filtered_steps = [steps[0]]
 for step in steps[1:]:
     calls = [call for call in list(step.get("tool_calls") or []) if isinstance(call, dict)]
@@ -87,10 +85,23 @@ for step in steps[1:]:
         continue
     for call in calls:
         name = str(call.get("name") or "")
+        args = call.setdefault("args", {})
         if name == "prepare_cancel_order":
-            call.setdefault("args", {})["goal_ids"] = ["g1"]
+            args["goal_ids"] = ["g1"]
+            args["target"] = {
+                "mode": "all_orders",
+                "status": "待发货",
+                "status_span": "待发货",
+            }
+            args["reference_span"] = "待发货的订单"
         elif name == "evaluate_refund_eligibility":
-            call.setdefault("args", {})["goal_ids"] = ["g2"]
+            args["goal_ids"] = ["g2"]
+            args["target"] = {
+                "mode": "all_orders",
+                "status": "已签收",
+                "status_span": "已签收",
+            }
+            args["reference_span"] = "已签收的"
     filtered_steps.append(step)
 turn["model_steps"] = filtered_steps
 
@@ -108,7 +119,7 @@ trace["must_include"] = [
 ]
 expected["trace"] = trace
 port_calls = expected.get("port_calls") if isinstance(expected.get("port_calls"), dict) else {}
-port_calls.pop("query_resources", None)
+port_calls["query_resources"] = {"min": 2}
 expected["port_calls"] = port_calls
 catalog_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -215,7 +226,7 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
             for row in oracle
         ))
 
-    def test_scripted_execution_uses_only_business_completion_tools(self) -> None:
+    def test_scripted_execution_binds_literal_status_directly_to_business_tools(self) -> None:
         turn = self._case()["execution_contract"]["turn_contracts"][0]
         calls = [
             call
@@ -224,11 +235,15 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
         ]
         by_name = {call["name"]: call for call in calls}
         self.assertNotIn("list_orders", by_name)
-        self.assertEqual(by_name["prepare_cancel_order"]["args"]["goal_ids"], ["g1"])
-        self.assertEqual(by_name["evaluate_refund_eligibility"]["args"]["goal_ids"], ["g2"])
+        cancel = by_name["prepare_cancel_order"]["args"]
+        refund = by_name["evaluate_refund_eligibility"]["args"]
+        self.assertEqual(cancel["goal_ids"], ["g1"])
+        self.assertEqual(cancel["target"], {"mode": "all_orders", "status": "待发货", "status_span": "待发货"})
+        self.assertEqual(refund["goal_ids"], ["g2"])
+        self.assertEqual(refund["target"], {"mode": "all_orders", "status": "已签收", "status_span": "已签收"})
         self.assertNotIn("list_orders", turn["required_tools"])
         self.assertNotIn("list_orders", turn["expected"]["trace"]["must_include"])
-        self.assertNotIn("query_resources", turn["expected"]["port_calls"])
+        self.assertEqual(turn["expected"]["port_calls"]["query_resources"], {"min": 2})
 
     def test_independent_semantic_prompt_uses_production_granularity_rule(self) -> None:
         production = (ROOT / "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py").read_text(encoding="utf-8")
