@@ -1,0 +1,187 @@
+name: wp08-post-attempt8-repair-publisher-v3
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish-v3:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-post-attempt8-repair-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      FORMAL_BRANCH: agent/wp08-post-attempt8-semantic-trace-repair-20260809
+      CANDIDATE_HEAD: 734e767b0510da51d040acf5ddd8e6bbbe794afb
+    steps:
+      - name: Checkout carrier helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: carrier
+          fetch-depth: 1
+
+      - name: Checkout exact formal base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.CANDIDATE_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact base and install locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+
+      - name: Apply exact bounded repair and corrected assertion
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-post-attempt8-repair-publisher.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-post-attempt8-test-correction.py
+          git -C candidate diff --check
+
+      - name: Run focused semantic and trace regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_post_attempt8_repair.py \
+            skill-system/tests/test_wp08_attempt7_final_repair.py \
+            services/agent-service/tests/runtime/test_global_goal_capability_coverage.py \
+            services/agent-service/tests/runtime/test_capability_contract_v2.py
+
+      - name: Run native standard Python suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/post-attempt8-junit" "${RUNNER_TEMP}/post-attempt8-coverage"
+          cd candidate
+          services/agent-service/.venv/bin/python -B scripts/run_python_test_suites.py \
+            --mode standard \
+            --junit-dir "${RUNNER_TEMP}/post-attempt8-junit" \
+            --coverage-dir "${RUNNER_TEMP}/post-attempt8-coverage"
+
+      - name: Prove managed PostgreSQL trace diagnostics through repository authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from pathlib import Path
+          import importlib.util
+          import sys
+
+          root = Path.cwd().resolve()
+          for path in (root / 'scripts', root / 'services/agent-service', root / 'services/agent-service/src'):
+              sys.path.insert(0, str(path))
+
+          from run_managed_quality_integration import ManagedPostgres
+          from agent_core.persistence.database_settings import DatabaseSettings
+          from agent_core.persistence.sqlalchemy_provider import build_sqlalchemy_store_provider
+
+          spec = importlib.util.spec_from_file_location(
+              'post_attempt8_browser_pg', root / 'scripts/verify_product_browser_journey.py'
+          )
+          assert spec is not None and spec.loader is not None
+          browser = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(browser)
+
+          with ManagedPostgres() as postgres:
+              provider = build_sqlalchemy_store_provider(DatabaseSettings(
+                  backend='postgres', database_url=postgres.url,
+                  sqlite_path=root / 'runtime-unused.db', create_schema=True,
+              ))
+              provider.traces.log_event('thread-pg', 'u001', 'chat_start', output_data={'ignored': True})
+              provider.traces.log_event(
+                  'thread-pg', 'u001', 'graph_snapshot',
+                  output_data={'state': {
+                      'turn_index': 1,
+                      'current_user_input': 'diagnostic fixture',
+                      'status': 'GroundedFinalAnswer',
+                      'model_call_trace': [{
+                          'purpose': 'agent_loop', 'status': 'success',
+                          'latency_ms': 4321, 'api_key': 'must-not-leak',
+                      }],
+                  }},
+              )
+              provider.close()
+              diagnostics = browser._postgres_graph_diagnostics(postgres.url, limit=4)
+
+          assert diagnostics and diagnostics[0].get('thread_id') == 'thread-pg', diagnostics
+          assert diagnostics[0]['model_call_trace'][0]['latency_ms'] == 4321, diagnostics
+          assert 'must-not-leak' not in str(diagnostics), diagnostics
+          print({'status': 'PASS', 'contract': 'postgres-trace-diagnostic@1'})
+          PY
+
+      - name: Verify exact eight-file candidate delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          git add -N skill-system/tests/test_wp08_post_attempt8_repair.py
+          cat > /tmp/expected.txt <<'EOF'
+          scripts/verify_product_browser_journey.py
+          services/agent-service/scripts/verify_preprod_conversation_smoke.py
+          services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+          services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py
+          services/agent-service/src/agent_core/persistence/trace_store.py
+          services/agent-service/src/agent_core/runtime/capability_effects.py
+          services/agent-service/src/agent_core/storage/repositories/base.py
+          skill-system/tests/test_wp08_post_attempt8_repair.py
+          EOF
+          sort -o /tmp/expected.txt /tmp/expected.txt
+          git diff --name-only "$CANDIDATE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+          git diff --check
+
+      - name: Publish only validated repair candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            scripts/verify_product_browser_journey.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py \
+            services/agent-service/src/agent_core/persistence/trace_store.py \
+            services/agent-service/src/agent_core/runtime/capability_effects.py \
+            services/agent-service/src/agent_core/storage/repositories/base.py \
+            skill-system/tests/test_wp08_post_attempt8_repair.py
+          git diff --cached --check
+          git commit -m 'Repair effect semantics and trace diagnostic authority'
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${CANDIDATE_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD > ../post-attempt8-repair-head.txt
+
+      - name: Upload ordinary validation evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-post-attempt8-repair-validation-v3
+          path: post-attempt8-repair-head.txt
+          if-no-files-found: error
+          retention-days: 30
