@@ -223,7 +223,12 @@ class ModelGoalGranularityVerifier:
         goals: list[dict[str, Any]],
     ) -> GoalGranularityVerdict:
         from agent_core.config import get_model
-        from agent_core.model_calls import invoke_model, structured_verifier_messages
+        from agent_core.model_calls import (
+            classify_model_failure,
+            invoke_model,
+            is_environmental_model_failure_category,
+            structured_verifier_messages,
+        )
 
         instruction = (
             "Read USER_TEXT independently, before seeing any candidate Goal plan. Inventory every user-observable "
@@ -243,68 +248,73 @@ class ModelGoalGranularityVerifier:
             "clarify only when USER_TEXT itself cannot be safely decomposed without additional customer information.",
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
         ]
-        try:
-            response, _trace = invoke_model(
-                purpose="turn_goal_granularity_inventory_verifier",
-                model=get_model(),
-                payload=structured_verifier_messages(
-                    role="turn_goal_granularity_inventory_verifier",
-                    instruction=instruction,
-                    decision_rules=rules,
-                    payload={"USER_TEXT_UNTRUSTED": user_text},
-                ),
-            )
-        except Exception as exc:
+        format_repair: str | None = None
+        parsed: dict[str, Any] | None = None
+        raw_verdict = ""
+        outcome_spans: tuple[str, ...] = ()
+        for attempt in range(2):
+            try:
+                response, _trace = invoke_model(
+                    purpose="turn_goal_granularity_inventory_verifier",
+                    model=get_model(),
+                    payload=structured_verifier_messages(
+                        role="turn_goal_granularity_inventory_verifier",
+                        instruction=instruction,
+                        decision_rules=rules,
+                        payload={"USER_TEXT_UNTRUSTED": user_text},
+                        format_repair=format_repair,
+                    ),
+                )
+            except Exception as exc:
+                category = classify_model_failure(exc)
+                if is_environmental_model_failure_category(category):
+                    raise
+                return GoalGranularityVerdict(
+                    "indeterminate",
+                    "goal_granularity_inventory_unavailable",
+                    (),
+                    "model_blind_inventory",
+                    True,
+                    {"exception": exc.__class__.__name__, "error_category": category, "candidate_blind": True},
+                )
+
+            parsed = _extract_json(str(getattr(response, "content", response) or ""))
+            repair_reason = "goal_granularity_inventory_non_json"
+            if parsed is not None:
+                raw_verdict = _text(parsed.get("verdict"), limit=40).lower()
+                if raw_verdict == "clarify":
+                    return GoalGranularityVerdict(
+                        "clarify",
+                        _text(parsed.get("reason_code"), limit=120) or "blind_inventory_requires_clarification",
+                        (),
+                        "model_blind_inventory",
+                        True,
+                        {"candidate_blind": True, "format_repair_attempted": attempt > 0},
+                    )
+                if raw_verdict == "exact":
+                    outcome_spans = _literal_outcome_spans(user_text, parsed.get("outcome_spans"))
+                    if outcome_spans:
+                        break
+                    repair_reason = "goal_granularity_inventory_missing_literal_spans"
+                else:
+                    repair_reason = "goal_granularity_inventory_invalid_verdict"
+            if attempt == 0:
+                format_repair = (
+                    "The previous candidate-blind inventory response did not satisfy the machine-readable JSON contract. "
+                    "Return exactly one JSON object using only verdict, outcome_spans and reason_code; verdict must be exact or clarify, "
+                    "and every outcome_span must be a local literal substring of USER_TEXT. Do not inspect or infer capabilities."
+                )
+                continue
             return GoalGranularityVerdict(
                 "indeterminate",
-                "goal_granularity_inventory_unavailable",
+                repair_reason,
                 (),
                 "model_blind_inventory",
                 True,
-                {"exception": exc.__class__.__name__, "candidate_blind": True},
+                {"candidate_blind": True, "format_repair_attempted": True, "raw_verdict": raw_verdict or None},
             )
 
-        parsed = _extract_json(str(getattr(response, "content", response) or ""))
-        if parsed is None:
-            return GoalGranularityVerdict(
-                "indeterminate",
-                "goal_granularity_inventory_non_json",
-                (),
-                "model_blind_inventory",
-                True,
-                {"candidate_blind": True},
-            )
-        raw_verdict = _text(parsed.get("verdict"), limit=40).lower()
-        if raw_verdict == "clarify":
-            return GoalGranularityVerdict(
-                "clarify",
-                _text(parsed.get("reason_code"), limit=120) or "blind_inventory_requires_clarification",
-                (),
-                "model_blind_inventory",
-                True,
-                {"candidate_blind": True},
-            )
-        if raw_verdict != "exact":
-            return GoalGranularityVerdict(
-                "indeterminate",
-                "goal_granularity_inventory_invalid_verdict",
-                (),
-                "model_blind_inventory",
-                True,
-                {"candidate_blind": True, "raw_verdict": raw_verdict},
-            )
-
-        outcome_spans = _literal_outcome_spans(user_text, parsed.get("outcome_spans"))
-        if not outcome_spans:
-            return GoalGranularityVerdict(
-                "indeterminate",
-                "goal_granularity_inventory_missing_literal_spans",
-                (),
-                "model_blind_inventory",
-                True,
-                {"candidate_blind": True},
-            )
-
+        matched, goal_to_outcome = _maximum_outcome_goal_matching(outcome_spans, goals)
         matched, goal_to_outcome = _maximum_outcome_goal_matching(outcome_spans, goals)
         goal_count = len(goals)
         outcome_count = len(outcome_spans)

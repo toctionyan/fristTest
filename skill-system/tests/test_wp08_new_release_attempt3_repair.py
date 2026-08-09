@@ -44,7 +44,7 @@ class Attempt3RepairTests(unittest.TestCase):
         self.assertIn("不能删除系统没有精确能力的分支", helper)
         # Protected certification now executes declaration + independent alignment
         # + independent candidate-blind granularity, with at most one repair attempt.
-        self.assertIn('model_call_scope(max_calls=72', source)
+        self.assertIn('model_call_scope(max_calls=120', source)
         self.assertIn('"GOAL_GRANULARITY_VERIFIER_MODE"', source)
 
     def test_independent_oracle_still_runs_after_production_freeze(self) -> None:
