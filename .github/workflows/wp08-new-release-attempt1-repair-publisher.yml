@@ -167,6 +167,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
           cd candidate
           services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt1-project-compatibility.json
           services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt1-skill-control-plane.json
