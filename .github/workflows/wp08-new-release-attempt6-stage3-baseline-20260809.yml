@@ -16,16 +16,16 @@ jobs:
     env:
       BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
       FORMAL_REF: agent/wp08-new-release-attempt6-root-fixes-20260809
-      PRODUCT_HEAD: c3930afd15372fe19c5a3cdf076a04c19ab32432
+      PRODUCT_HEAD: 04917167409c3c40ff7843f74ec8a5f8e88708bd
       SOURCE_RELEASE_SHA256: 2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047
       PROTECTED_FILE_COUNT: '558'
     steps:
-      - name: Checkout exact formal stage-2 repair
+      - name: Checkout exact formal stage-2-plus-fixture repair
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ env.FORMAL_REF }}
           path: candidate
-          fetch-depth: 5
+          fetch-depth: 7
           persist-credentials: true
 
       - name: Set up governed Python
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$PRODUCT_HEAD"
           test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "3"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "5"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$PRODUCT_HEAD"
           printf '%s\n' \
@@ -49,6 +49,8 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
             skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-product-delta.txt
           git -C candidate diff --name-only "$BASE_SHA" HEAD -- | sort > /tmp/actual-product-delta.txt
@@ -57,37 +59,6 @@ jobs:
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
           (cd candidate/services/agent-service && uv sync --locked --all-groups)
           (cd candidate/services/business-service && uv sync --locked --all-groups)
-
-      - name: Upgrade preserved blind-verifier fixtures to explicit dependency graph contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd candidate
-          "${pythonLocation}/bin/python" - <<'PY'
-          from pathlib import Path
-
-          attempt1 = Path('skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py')
-          text = attempt1.read_text(encoding='utf-8')
-          old = '                "outcome_spans": outcome_spans,\n                "reason_code": "test_inventory",'
-          new = '                "outcome_spans": outcome_spans,\n                "dependency_edges": [],\n                "reason_code": "test_inventory",'
-          if text.count(old) != 1:
-              raise SystemExit(f'attempt1 fixture target count={text.count(old)}')
-          attempt1.write_text(text.replace(old, new), encoding='utf-8')
-
-          attempt4 = Path('skill-system/tests/test_wp08_new_release_attempt4_repair.py')
-          text = attempt4.read_text(encoding='utf-8')
-          old = '                "verdict": "exact", "outcome_spans": ["查订单"], "reason_code": "exact"'
-          new = '                "verdict": "exact", "outcome_spans": ["查订单"], "dependency_edges": [], "reason_code": "exact"'
-          if text.count(old) != 1:
-              raise SystemExit(f'attempt4 fixture target count={text.count(old)}')
-          attempt4.write_text(text.replace(old, new), encoding='utf-8')
-          PY
-          printf '%s\n' \
-            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
-            skill-system/tests/test_wp08_new_release_attempt4_repair.py | sort > /tmp/expected-working-fixtures.txt
-          git diff --name-only | sort > /tmp/actual-working-fixtures.txt
-          diff -u /tmp/expected-working-fixtures.txt /tmp/actual-working-fixtures.txt
-          git diff --check
 
       - name: Run preserved blind-verifier compatibility counterexamples
         shell: bash
@@ -174,12 +145,7 @@ jobs:
           )
           print(json.dumps(report, ensure_ascii=False, sort_keys=True))
           PY
-          printf '%s\n' \
-            skill-system/registry/product-source-baseline.json \
-            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
-            skill-system/tests/test_wp08_new_release_attempt4_repair.py | sort > /tmp/expected-working-after-baseline.txt
-          git diff --name-only | sort > /tmp/actual-working-after-baseline.txt
-          diff -u /tmp/expected-working-after-baseline.txt /tmp/actual-working-after-baseline.txt
+          test "$(git diff --name-only | tr -d '\r')" = "skill-system/registry/product-source-baseline.json"
           git diff --check
 
       - name: Prove project compatibility and full Skill control plane
@@ -213,12 +179,9 @@ jobs:
           test "$(git ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$PRODUCT_HEAD"
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git add \
-            skill-system/registry/product-source-baseline.json \
-            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
-            skill-system/tests/test_wp08_new_release_attempt4_repair.py
+          git add skill-system/registry/product-source-baseline.json
           git diff --cached --check
-          git commit -m 'Bind attempt 6 baseline and explicit blind-verifier fixtures'
+          git commit -m 'Bind attempt 6 root-fix protected baseline'
           git push origin HEAD:refs/heads/$FORMAL_REF
           git rev-parse HEAD | tee ../wp08-attempt6-stage3-formal-head.txt
 
