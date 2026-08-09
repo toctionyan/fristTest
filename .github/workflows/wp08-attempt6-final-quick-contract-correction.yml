@@ -2,6 +2,7 @@ name: wp08-attempt6-final-quick-contract-correction
 
 on:
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -9,13 +10,28 @@ permissions:
 
 jobs:
   validate-and-publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-final-quick-contract-correction-20260809'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
+    env:
+      FORMAL_BRANCH: agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808
+      CANDIDATE_HEAD: 50cab5534a9c409c1d5d16e21e5c38afe5622a72
     steps:
       - name: Checkout carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          fetch-depth: 0
+          ref: wp08-attempt6-final-quick-contract-correction-20260809
+          path: carrier
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact formal candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.CANDIDATE_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
 
       - name: Set up governed Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -23,103 +39,94 @@ jobs:
           python-version: '3.12.13'
           check-latest: false
 
-      - name: Bootstrap locked uv
-        run: python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
-
-      - name: Checkout exact formal candidate and apply two test-contract corrections
+      - name: Verify authority, apply exact correction and install locked environments
         shell: bash
         run: |
           set -euo pipefail
-          FORMAL_BRANCH='agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808'
-          EXPECTED='50cab5534a9c409c1d5d16e21e5c38afe5622a72'
-          ACTUAL="$(git ls-remote origin "refs/heads/${FORMAL_BRANCH}" | awk '{print $1}')"
-          test "$ACTUAL" = "$EXPECTED"
-          git checkout --detach "$EXPECTED"
-          python - <<'PY'
-          from pathlib import Path
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          "${pythonLocation}/bin/python" -B carrier/scripts/wp08_attempt6_final_quick_contract_correction.py candidate
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
 
-          p = Path('services/agent-service/tests/architecture/test_command_and_model_governance.py')
-          text = p.read_text(encoding='utf-8')
-          old = '''    assert graph.updated == [
-              ({"configurable": {}}, {"runtime_outcome": {"outcome_type": "authority_required"}}, "action_gateway")
-          ]'''
-          new = '''    assert graph.updated == [
-              (
-                  {"configurable": {}},
-                  {
-                      "phase": "action_gateway",
-                      "runtime_outcome": {"outcome_type": "authority_required"},
-                  },
-                  "action_gateway",
-              )
-          ]'''
-          assert text.count(old) == 1, 'structured-command assertion anchor mismatch'
-          p.write_text(text.replace(old, new), encoding='utf-8')
-
-          p = Path('services/agent-service/tests/architecture/test_dependency_lock_contract.py')
-          text = p.read_text(encoding='utf-8')
-          anchor = '''def _canonical_requirement(raw: str) -> tuple[str, tuple[str, ...], str]:
-              from packaging.requirements import Requirement
-
-              requirement = Requirement(raw)
-              return (
-                  requirement.name.lower().replace("_", "-"),
-                  tuple(sorted(requirement.extras)),
-                  str(requirement.specifier),
-              )
-          '''
-          replacement = '''def _canonical_specifier(raw: str) -> str:
-              from packaging.specifiers import SpecifierSet
-
-              return str(SpecifierSet(raw))
-
-
-          def _canonical_requirement(raw: str) -> tuple[str, tuple[str, ...], str]:
-              from packaging.requirements import Requirement
-
-              requirement = Requirement(raw)
-              return (
-                  requirement.name.lower().replace("_", "-"),
-                  tuple(sorted(requirement.extras)),
-                  _canonical_specifier(str(requirement.specifier)),
-              )
-          '''
-          assert text.count(anchor) == 1, 'canonical requirement anchor mismatch'
-          text = text.replace(anchor, replacement)
-          old_lock = '                str(entry.get("specifier", "")),\n'
-          new_lock = '                _canonical_specifier(str(entry.get("specifier", ""))),\n'
-          assert text.count(old_lock) == 1, 'locked specifier anchor mismatch'
-          p.write_text(text.replace(old_lock, new_lock), encoding='utf-8')
-          PY
-          test "$(git diff --name-only | sort | paste -sd ',' -)" = 'services/agent-service/tests/architecture/test_command_and_model_governance.py,services/agent-service/tests/architecture/test_dependency_lock_contract.py'
-
-      - name: Install locked Agent environment
-        run: cd services/agent-service && uv sync --locked --all-groups
-
-      - name: Run focused contract corrections
+      - name: Run focused boundary and lock regressions
+        shell: bash
         run: |
-          cd services/agent-service
-          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
-            tests/architecture/test_command_and_model_governance.py::test_structured_command_facade_runs_public_wrapper_then_resumes_graph \
-            tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible
+          set -euo pipefail
+          candidate/services/agent-service/.venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            candidate/services/agent-service/tests/architecture/test_command_and_model_governance.py::test_structured_command_facade_runs_public_wrapper_then_resumes_graph \
+            candidate/services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py::test_structured_boundary_persists_verified_ingress_and_formal_update \
+            candidate/services/agent-service/tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible
 
       - name: Run complete Agent standard suite
-        run: |
-          cd services/agent-service
-          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider -m 'not integration and not preprod'
-
-      - name: Publish only validated two-file correction
         shell: bash
         run: |
           set -euo pipefail
-          FORMAL_BRANCH='agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808'
-          EXPECTED='50cab5534a9c409c1d5d16e21e5c38afe5622a72'
-          ACTUAL="$(git ls-remote origin "refs/heads/${FORMAL_BRANCH}" | awk '{print $1}')"
-          test "$ACTUAL" = "$EXPECTED"
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider -m 'not integration and not preprod'
+
+      - name: Re-run full managed PostgreSQL public recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from __future__ import annotations
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'scripts'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service'))
+          sys.path.insert(0, str(root / 'services' / 'agent-service' / 'src'))
+          from run_managed_quality_integration import ManagedPostgres
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_managed_postgres_recovery import run_managed_postgres_recovery
+
+          with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as product:
+              result = run_managed_postgres_recovery(product)
+          if result.get('status') != 'PASS':
+              raise SystemExit('managed_postgres_recovery_not_passed')
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify exact two-file candidate delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          git diff --check
+          "${pythonLocation}/bin/python" - <<'PY'
+          import subprocess
+          expected = {
+              'services/agent-service/app/services/lifecycle_command_runner.py',
+              'services/agent-service/tests/architecture/test_dependency_lock_contract.py',
+          }
+          rows = subprocess.check_output(['git', 'status', '--porcelain=v1'], text=True).splitlines()
+          actual = {row[3:] for row in rows if len(row) > 3}
+          if actual != expected:
+              raise SystemExit(f'unexpected_changed_paths:{sorted(actual)}')
+          PY
+
+      - name: Publish exact validated correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          REMOTE="$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add services/agent-service/tests/architecture/test_command_and_model_governance.py \
-                  services/agent-service/tests/architecture/test_dependency_lock_contract.py
-          test "$(git diff --cached --name-only | sort | paste -sd ',' -)" = 'services/agent-service/tests/architecture/test_command_and_model_governance.py,services/agent-service/tests/architecture/test_dependency_lock_contract.py'
-          git commit -m 'test: align final quick contracts with attempt6 authorities'
-          git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
+          git add \
+            services/agent-service/app/services/lifecycle_command_runner.py \
+            services/agent-service/tests/architecture/test_dependency_lock_contract.py
+          git diff --cached --check
+          git commit -m 'Fix final Quick checkpoint ingress and lock semantics'
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${CANDIDATE_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
