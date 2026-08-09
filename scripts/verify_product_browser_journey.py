@@ -322,6 +322,14 @@ def _browser_environment_failure(stdout: str, stderr: str) -> dict[str, Any] | N
     return None
 
 
+def _browser_response_timeout_signal(stdout: str, stderr: str) -> bool:
+    combined = f"{stdout}\n{stderr}"
+    return (
+        "page.waitForResponse: Timeout 120000ms exceeded" in combined
+        or "Timeout 120000ms exceeded while waiting for event \"response\"" in combined
+    )
+
+
 def _node_binary() -> Path:
     configured = os.getenv("NODE_BINARY", "").strip()
     candidates = [Path(configured)] if configured else []
@@ -511,6 +519,19 @@ def main() -> int:
                         "provider_failure": provider_failure,
                         "model_preflight": model_preflight,
                     })
+                if not deterministic_model and _browser_response_timeout_signal(result.stdout, result.stderr):
+                    try:
+                        _configured_model_preflight(harness.env)
+                    except ConfiguredModelEnvironmentBlocked as exc:
+                        raise ConfiguredModelEnvironmentBlocked({
+                            "phase": "browser_journey_post_response_timeout_probe",
+                            "browser_response_timeout": True,
+                            "provider_probe": exc.diagnostics,
+                            "model_preflight": model_preflight,
+                        }) from exc
+                    except RuntimeError:
+                        # A non-environment smoke failure must not relabel the browser failure.
+                        pass
                 raise RuntimeError({
                     "journey_stdout": result.stdout[-6000:],
                     "journey_stderr": result.stderr[-6000:],

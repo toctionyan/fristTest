@@ -35,6 +35,7 @@ from wp08_release_state import (  # noqa: E402
     ReleaseStateError,
     STATUS_ATTEMPT_BUDGET_EXHAUSTED,
     STATUS_AWAITING_ENVIRONMENT_CONFIGURATION,
+    STATUS_AWAITING_ENVIRONMENT_RUNTIME,
     STATUS_CERTIFYING,
     STATUS_FAILED_NEEDS_CLASSIFICATION,
     STATUS_MAIN_QUALITY_FAILED,
@@ -51,6 +52,8 @@ from wp08_release_state import (  # noqa: E402
 WP08_WORKFLOW_NAME = "wp08-full-stack-certification"
 _CLASSIFY_RE = re.compile(r"^/wp08\s+classify\s+environment_configuration\s+run=([0-9]+)\s*$")
 _RESUME_RE = re.compile(r"^/wp08\s+resume\s+environment_configuration\s+run=([0-9]+)\s*$")
+_CLASSIFY_RUNTIME_RE = re.compile(r"^/wp08\s+classify\s+environment_runtime\s+run=([0-9]+)\s*$")
+_RESUME_RUNTIME_RE = re.compile(r"^/wp08\s+resume\s+environment_runtime\s+run=([0-9]+)\s*$")
 
 
 class RecoveryError(RuntimeError):
@@ -61,7 +64,15 @@ def _history(state: Mapping[str, Any], **event: Any) -> list[dict[str, Any]]:
     return append_history(state, {"at": utc_now(), **event})
 
 
-def _dispatch(api: GitHubAPI, issue_number: int, state: Mapping[str, Any], *, reason: str) -> dict[str, Any]:
+def _dispatch(
+    api: GitHubAPI,
+    issue_number: int,
+    state: Mapping[str, Any],
+    *,
+    reason: str,
+    resume_run_id: int | None = None,
+    resume_run_attempt: int = 1,
+) -> dict[str, Any]:
     current = validate_state(state)
     if current["attempt"] >= current["max_attempts"]:
         exhausted = {
@@ -71,12 +82,17 @@ def _dispatch(api: GitHubAPI, issue_number: int, state: Mapping[str, Any], *, re
             "history": _history(current, event="attempt_budget_exhausted", reason=reason),
         }
         return persist_release_state(api, issue_number, exhausted)
-    run_id = api.dispatch_wp08(candidate_sha=current["current_candidate_sha"])
+    run_id = api.dispatch_wp08(
+        candidate_sha=current["current_candidate_sha"],
+        resume_run_id=resume_run_id,
+        resume_run_attempt=resume_run_attempt,
+    )
     updated = {
         **current,
         "status": STATUS_CERTIFYING,
         "attempt": current["attempt"] + 1,
         "current_wp08_run_id": run_id,
+        "environment_runtime": None,
         "updated_at": utc_now(),
         "history": _history(
             current,
@@ -85,13 +101,25 @@ def _dispatch(api: GitHubAPI, issue_number: int, state: Mapping[str, Any], *, re
             attempt=current["attempt"] + 1,
             candidate_sha=current["current_candidate_sha"],
             wp08_run_id=run_id,
+            **({"resume_from_wp08_run_id": resume_run_id} if resume_run_id is not None else {}),
         ),
     }
     return persist_release_state(api, issue_number, updated)
 
 
-def _validate_wp08_run(api: GitHubAPI, state: Mapping[str, Any], run_id: int, *, require_completed: bool = True) -> dict[str, Any]:
+def _validate_wp08_run(
+    api: GitHubAPI,
+    state: Mapping[str, Any],
+    run_id: int,
+    *,
+    require_completed: bool = True,
+    expected_candidate_sha: str | None = None,
+) -> dict[str, Any]:
     current = validate_state(state)
+    expected_sha = sha40(
+        expected_candidate_sha or current["current_candidate_sha"],
+        name="expected WP-08 candidate SHA",
+    )
     run = api.get_workflow_run(run_id)
     if str(run.get("name") or "") != WP08_WORKFLOW_NAME:
         raise RecoveryError("referenced run is not wp08-full-stack-certification")
@@ -99,8 +127,8 @@ def _validate_wp08_run(api: GitHubAPI, state: Mapping[str, Any], run_id: int, *,
         raise RecoveryError("referenced WP-08 run is not a workflow_dispatch run")
     if str(run.get("head_branch") or "") != MAIN_BRANCH:
         raise RecoveryError("referenced WP-08 run did not target main")
-    if sha40(run.get("head_sha"), name="WP-08 head_sha") != current["current_candidate_sha"]:
-        raise RecoveryError("referenced WP-08 run does not match current candidate SHA")
+    if sha40(run.get("head_sha"), name="WP-08 head_sha") != expected_sha:
+        raise RecoveryError("referenced WP-08 run does not match expected candidate SHA")
     if require_completed and str(run.get("status") or "") != "completed":
         raise RecoveryError("referenced WP-08 run is not completed")
     return run
@@ -218,6 +246,82 @@ def handle_issue_comment(api: GitHubAPI, event: Mapping[str, Any]) -> None:
     comment = event.get("comment") if isinstance(event.get("comment"), Mapping) else {}
     body = str(comment.get("body") or "").strip()
 
+
+    classify_runtime = _CLASSIFY_RUNTIME_RE.fullmatch(body)
+    if classify_runtime:
+        run_id = positive_int(classify_runtime.group(1), name="classified WP-08 run id")
+        if int(current.get("current_wp08_run_id") or 0) != run_id:
+            raise RecoveryError("classification run ID does not match active WP-08 run")
+        if current["status"] not in {STATUS_CERTIFYING, STATUS_FAILED_NEEDS_CLASSIFICATION}:
+            raise RecoveryError("ReleaseRun is not awaiting WP-08 failure classification")
+        run = _validate_wp08_run(api, current, run_id)
+        if str(run.get("conclusion") or "") != "failure":
+            raise RecoveryError("environment runtime classification requires a failed WP-08 run")
+        updated = {
+            **current,
+            "status": STATUS_AWAITING_ENVIRONMENT_RUNTIME,
+            "last_wp08_run_id": run_id,
+            "last_wp08_conclusion": "failure",
+            "failure_signature": "environment_runtime:configured_model_provider_unavailable",
+            "environment_runtime": {
+                "source_wp08_run_id": run_id,
+                "source_candidate_sha": current["current_candidate_sha"],
+                "resume_checkpoint": True,
+                "reason": "configured_model_provider_unavailable",
+            },
+            "updated_at": utc_now(),
+            "history": _history(
+                current,
+                event="wp08_classified_environment_runtime",
+                wp08_run_id=run_id,
+                actor=actor,
+            ),
+        }
+        persist_release_state(api, issue_number, updated)
+        return
+
+    resume_runtime = _RESUME_RUNTIME_RE.fullmatch(body)
+    if resume_runtime:
+        run_id = positive_int(resume_runtime.group(1), name="resume WP-08 run id")
+        if current["status"] != STATUS_AWAITING_ENVIRONMENT_RUNTIME:
+            raise RecoveryError("ReleaseRun is not awaiting configured model runtime recovery")
+        runtime_gate = current.get("environment_runtime") if isinstance(current.get("environment_runtime"), Mapping) else {}
+        source_run_id = positive_int(runtime_gate.get("source_wp08_run_id"), name="environment runtime source run id")
+        if run_id != source_run_id:
+            raise RecoveryError("resume run ID does not match active environment runtime blocker")
+        source_candidate_sha = sha40(
+            runtime_gate.get("source_candidate_sha"),
+            name="environment runtime source candidate SHA",
+        )
+        run = _validate_wp08_run(
+            api,
+            current,
+            run_id,
+            expected_candidate_sha=source_candidate_sha,
+        )
+        if str(run.get("conclusion") or "") != "failure":
+            raise RecoveryError("environment runtime resume requires the failed blocker run")
+        resume_checkpoint = bool(runtime_gate.get("resume_checkpoint"))
+        if resume_checkpoint:
+            if source_candidate_sha != current["current_candidate_sha"]:
+                raise RecoveryError("checkpoint resume cannot cross candidate source identity")
+            _dispatch(
+                api,
+                issue_number,
+                current,
+                reason="environment_runtime_recovered",
+                resume_run_id=run_id,
+                resume_run_attempt=positive_int(run.get("run_attempt", 1), name="WP-08 run attempt"),
+            )
+        else:
+            _dispatch(
+                api,
+                issue_number,
+                current,
+                reason="environment_runtime_recovered_after_repair",
+            )
+        return
+
     classify = _CLASSIFY_RE.fullmatch(body)
     if classify:
         run_id = positive_int(classify.group(1), name="classified WP-08 run id")
@@ -255,7 +359,14 @@ def handle_issue_comment(api: GitHubAPI, event: Mapping[str, Any]) -> None:
         run = _validate_wp08_run(api, current, run_id)
         if str(run.get("conclusion") or "") != "failure":
             raise RecoveryError("environment resume requires the failed blocker run")
-        _dispatch(api, issue_number, current, reason="environment_configuration_updated")
+        _dispatch(
+            api,
+            issue_number,
+            current,
+            reason="environment_configuration_updated",
+            resume_run_id=run_id,
+            resume_run_attempt=positive_int(run.get("run_attempt", 1), name="WP-08 run attempt"),
+        )
 
 
 def _load_event(path: str | None) -> dict[str, Any]:

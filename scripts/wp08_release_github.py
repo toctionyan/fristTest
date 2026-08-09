@@ -142,18 +142,35 @@ class GitHubAPI:
         rows = payload.get("workflow_runs") if isinstance(payload, dict) else None
         return [dict(row) for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
 
-    def dispatch_wp08(self, *, candidate_sha: str) -> int:
+    def dispatch_wp08(
+        self,
+        *,
+        candidate_sha: str,
+        resume_run_id: int | None = None,
+        resume_run_attempt: int = 1,
+    ) -> int:
         candidate_sha = sha40(candidate_sha, name="candidate_sha")
+        resume_id = (
+            positive_int(resume_run_id, name="resume_run_id")
+            if resume_run_id is not None else None
+        )
+        resume_attempt = positive_int(resume_run_attempt, name="resume_run_attempt")
         before = {
             int(row.get("id"))
             for row in self.list_workflow_runs(WP08_WORKFLOW_FILE, event="workflow_dispatch")
             if str(row.get("head_sha") or "").casefold() == candidate_sha
             and str(row.get("id") or "").isdigit()
         }
+        dispatch_payload: dict[str, Any] = {"ref": MAIN_BRANCH}
+        if resume_id is not None:
+            dispatch_payload["inputs"] = {
+                "resume_run_id": str(resume_id),
+                "resume_run_attempt": str(resume_attempt),
+            }
         status, payload = self._request(
             "POST",
             f"/repos/{self.repository}/actions/workflows/{WP08_WORKFLOW_FILE}/dispatches",
-            payload={"ref": MAIN_BRANCH},
+            payload=dispatch_payload,
             expected=(200, 204),
         )
         if status == 200 and isinstance(payload, dict):
