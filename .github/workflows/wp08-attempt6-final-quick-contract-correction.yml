@@ -51,22 +51,30 @@ jobs:
           (cd candidate/services/agent-service && uv sync --locked --all-groups)
           (cd candidate/services/business-service && uv sync --locked --all-groups)
 
-      - name: Run focused boundary and lock regressions
+      - name: Run focused boundary and lock regressions through native runner
         shell: bash
         run: |
           set -euo pipefail
-          cd candidate/services/agent-service
-          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+          mkdir -p candidate/.quality/attempt6-final-correction/junit
+          candidate/services/agent-service/.venv/bin/python -B \
+            candidate/scripts/run_agent_pytest.py \
+            --workspace-root candidate \
+            --junitxml candidate/.quality/attempt6-final-correction/junit/focused.xml \
             tests/architecture/test_command_and_model_governance.py::test_structured_command_facade_runs_public_wrapper_then_resumes_graph \
             tests/runtime/test_wp08_attempt6_release_repairs.py::test_structured_boundary_persists_verified_ingress_and_formal_update \
             tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible
 
-      - name: Run complete Agent standard suite
+      - name: Run native standard Python suites
         shell: bash
         run: |
           set -euo pipefail
-          cd candidate/services/agent-service
-          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider -m 'not integration and not preprod'
+          mkdir -p candidate/.quality/attempt6-final-correction/junit candidate/.quality/attempt6-final-correction/coverage
+          candidate/services/agent-service/.venv/bin/python -B \
+            candidate/scripts/run_python_test_suites.py \
+            candidate \
+            --mode standard \
+            --junit-dir candidate/.quality/attempt6-final-correction/junit \
+            --coverage-dir candidate/.quality/attempt6-final-correction/coverage
 
       - name: Re-run full managed PostgreSQL public recovery
         shell: bash
