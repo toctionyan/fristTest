@@ -1,0 +1,75 @@
+name: wp08-main-quality-coordinate-runtime-gate-once
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  coordinate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-main-quality-coordinate-runtime-gate-once-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      EXPECTED_MAIN_SHA: 432bf145d5a636613ab2e27760cf3343519a993e
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact authoritative main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Wait for exact-main push Quality and pass its real run to the official coordinator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
+          python -B - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import time
+
+          from scripts.wp08_release_coordinator import handle_quality_run
+          from scripts.wp08_release_github import GitHubAPI, QUALITY_WORKFLOW_FILE
+
+          expected = os.environ["EXPECTED_MAIN_SHA"].casefold()
+          api = GitHubAPI(
+              os.environ["GITHUB_REPOSITORY"],
+              os.environ["GITHUB_TOKEN"],
+              api_url=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+          )
+          for _ in range(60):
+              runs = api.list_workflow_runs(QUALITY_WORKFLOW_FILE, branch="main", event="push")
+              matching = [
+                  row for row in runs
+                  if str(row.get("head_branch") or "") == "main"
+                  and str(row.get("head_sha") or "").casefold() == expected
+              ]
+              if matching:
+                  run = max(matching, key=lambda row: int(row.get("id") or 0))
+                  if str(run.get("status") or "") == "completed":
+                      handle_quality_run(api, run)
+                      print({
+                          "status": "COORDINATED",
+                          "quality_run_id": run.get("id"),
+                          "quality_conclusion": run.get("conclusion"),
+                          "candidate_sha": expected,
+                      })
+                      raise SystemExit(0)
+              time.sleep(15)
+          raise SystemExit("exact-main push Quality did not complete inside bounded coordinator wait")
+          PY
