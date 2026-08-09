@@ -48,14 +48,16 @@ jobs:
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
           (cd candidate/services/agent-service && uv sync --locked --all-groups)
 
-      - name: Apply frozen verifier authority, shared-scope semantics and oracle repairs
+      - name: Apply frozen authority, semantic contracts and execution support dataflow repairs
         shell: bash
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-frozen-granularity-authority-fix.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-plan-support-continuation-fix.py
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-semantic-contract-fix.py
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-execution-dataflow-fix.py
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-root-fix-tests.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt7-plan-support-test-adjust.py
           git -C candidate diff --check
 
       - name: Run syntax and focused Attempt-7 regressions
@@ -68,6 +70,8 @@ jobs:
             candidate/services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
             candidate/services/agent-service/src/agent_core/lifecycle/protocol.py \
             candidate/services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/workflow_runtime.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
             candidate/services/agent-service/scripts/verify_preprod_conversation_smoke.py \
             candidate/skill-system/tests/test_wp08_attempt7_root_fixes.py
           cd candidate
@@ -95,8 +99,10 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
             services/agent-service/src/agent_core/lifecycle/protocol.py \
             services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/workflow_runtime.py \
             services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
             skill-system/tests/test_wp08_attempt7_root_fixes.py | sort > /tmp/expected-stage1.txt
           git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-stage1.txt
@@ -117,11 +123,13 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
             services/agent-service/src/agent_core/lifecycle/protocol.py \
             services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/workflow_runtime.py \
             services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
             skill-system/tests/test_wp08_attempt7_root_fixes.py
           git diff --cached --check
-          git commit -m 'Repair Attempt 7 frozen semantic dependency authority'
+          git commit -m 'Repair Attempt 7 frozen semantic and execution support authorities'
           git push origin HEAD:refs/heads/$FORMAL_BRANCH
           git rev-parse HEAD
