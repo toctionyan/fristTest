@@ -1,0 +1,124 @@
+name: wp08-attempt6-final-protected-baseline-refresh
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-baseline:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt6-final-protected-baseline-refresh-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      FORMAL_BRANCH: agent/wp08-attempt6-provider-checkpoint-semantic-repair-20260808
+      CANDIDATE_HEAD: 4be1a70cdf348dc9fdb8a78f0082a2d144cafbff
+    steps:
+      - name: Checkout exact formal candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.CANDIDATE_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact authority and install locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_HEAD"
+          REMOTE="$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          test "$REMOTE" = "$CANDIDATE_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+
+      - name: Regenerate exact Git-tracked protected-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('candidate').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in baseline['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          old = {str(key): str(value) for key, value in baseline['files'].items()}
+          expected = {
+              'services/agent-service/app/services/lifecycle_command_runner.py',
+              'services/agent-service/tests/architecture/test_dependency_lock_contract.py',
+              'services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py',
+          }
+          changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
+          if changed != expected:
+              raise SystemExit('unexpected_protected_delta:' + json.dumps({'expected': sorted(expected), 'actual': sorted(changed)}, sort_keys=True))
+          if len(old) != 558 or len(current) != 558:
+              raise SystemExit(f'unexpected_baseline_count:old={len(old)}:current={len(current)}')
+          prior_release = baseline.get('source_release_sha256')
+          baseline['generated_from'] = 'git:' + os.environ['CANDIDATE_HEAD']
+          baseline['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['file_count'] = len(current)
+          baseline['files'] = dict(sorted(current.items()))
+          if baseline.get('source_release_sha256') != prior_release:
+              raise SystemExit('source_release_sha256_changed')
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          report = {
+              'status': 'WP08_ATTEMPT6_FINAL_BASELINE_REFRESH_GENERATED',
+              'candidate_head': os.environ['CANDIDATE_HEAD'],
+              'authority': 'git-tracked-protected-source',
+              'file_count': len(current),
+              'changed_protected_paths': sorted(changed),
+              'changed_sha256': {path: current[path] for path in sorted(changed)},
+              'source_release_sha256_preserved': prior_release,
+              'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+          }
+          (root / 'wp08-attempt6-final-baseline-refresh-report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify baseline is the only generated delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C candidate diff --check
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected.txt
+          git -C candidate diff --name-only "$CANDIDATE_HEAD" -- | sort > /tmp/actual.txt
+          diff -u /tmp/expected.txt /tmp/actual.txt
+
+      - name: Validate project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-final-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-final-skill-control-plane.json
+
+      - name: Upload validated baseline artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt6-final-protected-baseline
+          path: |
+            candidate/skill-system/registry/product-source-baseline.json
+            candidate/wp08-attempt6-final-baseline-refresh-report.json
+            candidate/wp08-attempt6-final-project-compatibility.json
+            candidate/wp08-attempt6-final-skill-control-plane.json
+          if-no-files-found: error
+          retention-days: 90
