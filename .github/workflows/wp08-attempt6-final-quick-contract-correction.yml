@@ -55,10 +55,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          candidate/services/agent-service/.venv/bin/python -B -m pytest -q -p no:cacheprovider \
-            candidate/services/agent-service/tests/architecture/test_command_and_model_governance.py::test_structured_command_facade_runs_public_wrapper_then_resumes_graph \
-            candidate/services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py::test_structured_boundary_persists_verified_ingress_and_formal_update \
-            candidate/services/agent-service/tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible
+          cd candidate/services/agent-service
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/architecture/test_command_and_model_governance.py::test_structured_command_facade_runs_public_wrapper_then_resumes_graph \
+            tests/runtime/test_wp08_attempt6_release_repairs.py::test_structured_boundary_persists_verified_ingress_and_formal_update \
+            tests/architecture/test_dependency_lock_contract.py::test_python_lockfiles_are_current_and_release_visible
 
       - name: Run complete Agent standard suite
         shell: bash
