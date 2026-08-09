@@ -35,8 +35,8 @@ jobs:
 
           path = Path('services/agent-service/src/agent_core/lifecycle/goal_granularity.py')
           text = path.read_text(encoding='utf-8')
-          old = '"Re-audit USER_TEXT only. Return each independently acceptable "'
-          new = '"Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable "'
+          old = '"Re-audit USER_TEXT only. Return each independently acceptable business result exactly once and also re-audit "'
+          new = '"Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable business result exactly once and also re-audit "'
           if new in text:
               print('candidate-blind wording already present')
           else:
