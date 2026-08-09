@@ -79,22 +79,18 @@ def _safe_model_failure(state: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _graph_diagnostics(database: Path, *, limit: int = 4) -> list[dict[str, Any]]:
-    if not database.is_file():
-        return []
-    with closing(sqlite3.connect(database)) as connection:
-        rows = connection.execute(
-            "SELECT thread_id, output_json FROM trace_logs "
-            "WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+def _project_graph_diagnostic_rows(rows: list[tuple[Any, Any]]) -> list[dict[str, Any]]:
+    """Project graph snapshots to a bounded, secret-free browser diagnostic."""
+
     diagnostics: list[dict[str, Any]] = []
-    for (thread_id, raw) in reversed(rows):
+    for thread_id, raw in rows:
         try:
-            payload = json.loads(raw or "{}")
-        except json.JSONDecodeError:
+            payload = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError):
             continue
         state = payload.get("state") if isinstance(payload.get("state"), dict) else payload
+        if not isinstance(state, dict):
+            continue
         tool_trace = [row for row in list(state.get("tool_trace") or []) if isinstance(row, dict)]
         declared_args = next((
             dict(row.get("args") or {}) for row in tool_trace
@@ -103,9 +99,9 @@ def _graph_diagnostics(database: Path, *, limit: int = 4) -> list[dict[str, Any]
         ), {})
         workflow = read_plan_projection(state) or {}
         diagnostics.append({
-            "thread_id": thread_id,
+            "thread_id": str(thread_id or ""),
             "turn": state.get("turn_index"),
-            "input": state.get("current_user_input"),
+            "input": str(state.get("current_user_input") or "")[:300],
             "status": state.get("status"),
             "model_failure": _safe_model_failure(state),
             "final_answer": str(state.get("current_final_answer") or "")[:300],
@@ -123,7 +119,6 @@ def _graph_diagnostics(database: Path, *, limit: int = 4) -> list[dict[str, Any]
                         if key in (row.get("args") or {})
                     },
                     "permit_code": ((row.get("result") or {}).get("match_proof") or {}).get("reason_code"),
-                    "argument_normalization": ((row.get("result") or {}).get("match_proof") or {}).get("argument_normalization"),
                 }
                 for row in tool_trace
             ],
@@ -181,6 +176,45 @@ def _graph_diagnostics(database: Path, *, limit: int = 4) -> list[dict[str, Any]
         })
     return diagnostics
 
+
+def _graph_diagnostics(database: Path, *, limit: int = 4) -> list[dict[str, Any]]:
+    if not database.is_file():
+        return []
+    with closing(sqlite3.connect(database)) as connection:
+        rows = connection.execute(
+            "SELECT thread_id, output_json FROM trace_logs "
+            "WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT ?",
+            (max(1, min(int(limit), 500)),),
+        ).fetchall()
+    return _project_graph_diagnostic_rows(rows)
+
+
+def _postgres_graph_diagnostics(database_url: str, *, limit: int = 4) -> list[dict[str, Any]]:
+    """Best-effort safe diagnostics from the owned protected PostgreSQL runtime."""
+
+    normalized = str(database_url or "").strip()
+    for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):
+        if normalized.startswith(prefix):
+            normalized = "postgresql://" + normalized[len(prefix):]
+            break
+    try:
+        import psycopg
+
+        with psycopg.connect(normalized) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT thread_id, output_json FROM trace_logs "
+                    "WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT %s",
+                    (max(1, min(int(limit), 500)),),
+                )
+                rows = cursor.fetchall()
+    except Exception as exc:
+        # Do not expose exception text because database errors may echo credentials.
+        return [{
+            "diagnostic_status": "unavailable",
+            "error_type": exc.__class__.__name__,
+        }]
+    return _project_graph_diagnostic_rows(rows)
 
 def _configured_model_preflight(env: dict[str, str]) -> dict[str, Any]:
     """Fail fast before an expensive browser journey when the provider is down."""
@@ -450,8 +484,8 @@ def main() -> int:
             )
             diagnostic_limit = 500 if args.journey == "strong-context-campaign" else 4
             graph_diagnostics = (
-                []
-                if protected_preprod
+                _postgres_graph_diagnostics(persistence_url, limit=diagnostic_limit)
+                if protected_preprod and persistence_url
                 else _graph_diagnostics(harness.runtime_dir / "agent.db", limit=diagnostic_limit)
             )
             if args.journey == "strong-context-campaign":

@@ -228,14 +228,16 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                             },
                             "requested_effect": {
                                 "type": "object",
-                                "description": "开放业务效果身份；不要求落入已有枚举。",
+                                "description": ("开放业务效果身份；domain、operation、object_type 三字段必须完整。"
+                                                "若当前部署登记的业务效果身份与用户请求精确对应，必须逐字段使用该身份；"
+                                                "没有精确对应时保留开放身份，禁止改写成相近能力或泛化类别。"),
                                 "properties": {
                                     "domain": {"type": "string"},
                                     "operation": {"type": "string"},
                                     "object_type": {"type": "string"},
                                     "raw_description": {"type": "string"},
                                 },
-                                "required": ["operation"],
+                                "required": ["domain", "operation", "object_type"],
                                 "additionalProperties": False,
                             },
                             "goal_type": {
