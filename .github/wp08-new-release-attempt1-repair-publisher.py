@@ -19,10 +19,9 @@ def replace_once(path: Path, old: str, new: str) -> None:
 # 1) Repair the stale independent semantic oracle. The production contract
 # defines Goals as independently completable user business effects; filtering
 # and target selection remain implementation steps rather than standalone Goals.
-# The deterministic candidate must therefore stop scripting list_orders as a
-# fake Goal. Each real business capability binds the user's literal status
-# predicate directly through the typed all_orders target DSL, so Runtime—not a
-# guessed historical artifact—proves the single order target.
+# Each business capability binds the user's literal status predicate directly
+# through the typed all_orders target DSL, so Runtime proves the target without
+# inventing a historical artifact selection.
 catalog_path = ROOT / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
 payload = json.loads(catalog_path.read_text(encoding="utf-8"))
 case = next((row for row in payload.get("cases", []) if row.get("id") == "semantic_cancel_and_refund_branch"), None)
@@ -113,6 +112,10 @@ turn["required_tools"] = [
 ]
 expected = turn.setdefault("expected", {})
 expected["goal_count"] = 2
+# With the fake query Goal and dependency removed, these are two independent
+# user-level effects. Runtime correctly projects the plan as L1 while the
+# transaction draft still waits for authorization.
+expected["workflow_levels"] = ["L1_LIGHTWEIGHT_PLAN"]
 trace = expected.get("trace") if isinstance(expected.get("trace"), dict) else {}
 trace["must_include"] = [
     name for name in list(trace.get("must_include") or []) if str(name) != "list_orders"
@@ -163,7 +166,6 @@ replace_once(
     "            json.dumps({'event': str(event), **safe}, ensure_ascii=False, sort_keys=True),\n"
     "        )\n"
     "    except Exception:\n"
-    "        # Observability is best-effort and must never affect model execution.\n"
     "        return\n\n\n"
     "ENVIRONMENTAL_MODEL_FAILURE_CATEGORIES = frozenset({\n",
 )
@@ -184,8 +186,7 @@ replace_once(
 )
 
 
-# 4) Add focused counterexamples that lock the repair and prove the browser SLA
-# was not weakened to make certification pass.
+# 4) Focused counterexamples lock the repair and prove browser SLA unchanged.
 test_path = ROOT / "skill-system/tests/test_wp08_new_release_attempt1_repair.py"
 test_path.write_text(r'''from __future__ import annotations
 
@@ -221,6 +222,7 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
         self.assertEqual(oracle[1]["goal_type"], "consult")
         self.assertEqual(oracle[1]["oracle_id"], "g2")
         self.assertEqual(turn["expected"]["goal_count"], 2)
+        self.assertEqual(turn["expected"]["workflow_levels"], ["L1_LIGHTWEIGHT_PLAN"])
         self.assertFalse(any(
             row.get("requested_effect", {}).get("operation") == "list"
             for row in oracle
@@ -228,11 +230,7 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
 
     def test_scripted_execution_binds_literal_status_directly_to_business_tools(self) -> None:
         turn = self._case()["execution_contract"]["turn_contracts"][0]
-        calls = [
-            call
-            for step in turn["model_steps"][1:]
-            for call in step.get("tool_calls", [])
-        ]
+        calls = [call for step in turn["model_steps"][1:] for call in step.get("tool_calls", [])]
         by_name = {call["name"]: call for call in calls}
         self.assertNotIn("list_orders", by_name)
         cancel = by_name["prepare_cancel_order"]["args"]
@@ -253,16 +251,10 @@ class NewReleaseAttempt1RepairTests(unittest.TestCase):
 
     def test_inflight_model_log_is_allowlisted_and_secret_free(self) -> None:
         from agent_core.model_calls import gateway
-
         record = {
-            "purpose": "agent_loop",
-            "model": "deepseek-v4-flash",
-            "sequence": 2,
-            "scope": "request",
-            "lane": "planner",
-            "payload": "must-not-leak",
-            "api_key": "must-not-leak",
-            "request_headers": {"Authorization": "must-not-leak"},
+            "purpose": "agent_loop", "model": "deepseek-v4-flash", "sequence": 2,
+            "scope": "request", "lane": "planner", "payload": "must-not-leak",
+            "api_key": "must-not-leak", "request_headers": {"Authorization": "must-not-leak"},
         }
         with patch.object(gateway.LOGGER, "info") as info:
             gateway._emit_model_call_log("started", record)
