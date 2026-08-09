@@ -213,7 +213,7 @@ def main() -> int:
             "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
             "requested_effect 必须完整填写 domain、operation、object_type；若下面登记词汇中存在与用户业务效果精确对应的身份，必须逐字段使用；"
             "若不存在精确对应，保留开放业务效果，禁止用 query/action 等泛化类别或相近能力迁就。"
-            f"当前部署登记的业务效果身份（仅作精确身份词汇，不是自然语言分类表）：{effect_vocabulary_json}。"
+            f"当前部署登记的业务效果身份及模块语义边界（只帮助模型选择结构化 identity；Runtime 仍 exact-match，不是关键词分类器）：{effect_vocabulary_json}。"
             "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
             "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。"
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"

@@ -508,7 +508,7 @@ def _loop_runtime_prompt(
 
 【当前部署登记的业务效果身份】
 {capability_effect_index(capability_registry) if capability_registry is not None else {"status": "registry_unavailable"}}
-说明：这只是精确身份词汇，不是自然语言分类表。语义声明可使用完全匹配的身份；不匹配时保留开放 requested_effect，禁止迁就现有能力。
+说明：这是模块注册的精确业务效果身份及其语义边界，只帮助模型选择结构化 identity；Runtime 仍只按结构化 identity 精确匹配，不使用自然语言说明、示例、关键词或相似度授予能力。没有精确对应时保留开放 requested_effect。
 
 【当前模块注册的能力规则】
 {capability_rules}

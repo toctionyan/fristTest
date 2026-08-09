@@ -479,6 +479,12 @@ class _SqlAlchemyTraceRepository(_Repo):
         with self.p.conn() as conn:
             return [_row(row) or {} for row in conn.execute(self.sa.select(table).order_by(table.c.id.desc()).limit(limit)).fetchall()]
 
+    def list_recent_by_event_type(self, event_type: str, limit: int = 100) -> list[dict]:
+        table = self.t["trace_logs"]
+        stmt = self.sa.select(table).where(table.c.event_type == str(event_type)).order_by(table.c.id.desc()).limit(max(1, int(limit)))
+        with self.p.conn() as conn:
+            return [_row(row) or {} for row in conn.execute(stmt).fetchall()]
+
     def list_by_thread(self, thread_id: str, limit: int = 200) -> list[dict]:
         table = self.t["trace_logs"]
         with self.p.conn() as conn:

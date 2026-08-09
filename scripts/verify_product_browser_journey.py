@@ -32,6 +32,8 @@ if str(AGENT_SRC) not in sys.path:
     sys.path.insert(0, str(AGENT_SRC))
 
 from agent_core.kernel.plan_projection_contract import read_plan_projection  # noqa: E402
+from agent_core.persistence.database_settings import DatabaseSettings  # noqa: E402
+from agent_core.persistence.sqlalchemy_provider import build_sqlalchemy_store_provider  # noqa: E402
 
 _ENVIRONMENTAL_MODEL_FAILURE_CATEGORIES = frozenset({
     "http_401", "http_402", "http_403", "http_429", "timeout", "connection",
@@ -190,30 +192,26 @@ def _graph_diagnostics(database: Path, *, limit: int = 4) -> list[dict[str, Any]
 
 
 def _postgres_graph_diagnostics(database_url: str, *, limit: int = 4) -> list[dict[str, Any]]:
-    """Best-effort safe diagnostics from the owned protected PostgreSQL runtime."""
+    """Read protected traces through the same repository authority as Runtime."""
 
-    normalized = str(database_url or "").strip()
-    for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://"):
-        if normalized.startswith(prefix):
-            normalized = "postgresql://" + normalized[len(prefix):]
-            break
+    provider = None
     try:
-        import psycopg
-
-        with psycopg.connect(normalized) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT thread_id, output_json FROM trace_logs "
-                    "WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT %s",
-                    (max(1, min(int(limit), 500)),),
-                )
-                rows = cursor.fetchall()
+        provider = build_sqlalchemy_store_provider(DatabaseSettings(
+            backend="postgres",
+            database_url=str(database_url or "").strip(),
+            sqlite_path=AGENT_ROOT / "runtime/sqlite/app.db",
+            create_schema=False,
+        ))
+        records = provider.traces.list_recent_by_event_type(
+            "graph_snapshot", max(1, min(int(limit), 500))
+        )
+        rows = [(row.get("thread_id"), row.get("output_json")) for row in records]
     except Exception as exc:
         # Do not expose exception text because database errors may echo credentials.
-        return [{
-            "diagnostic_status": "unavailable",
-            "error_type": exc.__class__.__name__,
-        }]
+        return [{"diagnostic_status": "unavailable", "error_type": exc.__class__.__name__}]
+    finally:
+        if provider is not None:
+            provider.close()
     return _project_graph_diagnostic_rows(rows)
 
 def _configured_model_preflight(env: dict[str, str]) -> dict[str, Any]:
