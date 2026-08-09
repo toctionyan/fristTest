@@ -64,7 +64,7 @@ jobs:
           services/agent-service/.venv/bin/python -m pytest -q \
             skill-system/tests/test_wp08_new_release_attempt1_repair.py
           cd services/agent-service
-          .venv/bin/python -m pytest -q \
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -m pytest -q \
             tests/context/test_semantic_goal_coverage_suite_execution.py \
             tests/runtime/test_global_goal_capability_coverage.py
 
