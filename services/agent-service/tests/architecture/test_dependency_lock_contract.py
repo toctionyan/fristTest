@@ -18,6 +18,12 @@ def _release_artifact_module(root: Path):
     return module
 
 
+def _canonical_specifier(raw: str) -> str:
+    from packaging.specifiers import SpecifierSet
+
+    return str(SpecifierSet(raw))
+
+
 def _canonical_requirement(raw: str) -> tuple[str, tuple[str, ...], str]:
     from packaging.requirements import Requirement
 
@@ -25,7 +31,7 @@ def _canonical_requirement(raw: str) -> tuple[str, tuple[str, ...], str]:
     return (
         requirement.name.lower().replace("_", "-"),
         tuple(sorted(requirement.extras)),
-        str(requirement.specifier),
+        _canonical_specifier(str(requirement.specifier)),
     )
 
 
@@ -43,7 +49,7 @@ def _locked_project_requirements(project: dict, project_name: str) -> tuple[set[
             (
                 str(entry["name"]).lower().replace("_", "-"),
                 tuple(sorted(entry.get("extras", []))),
-                str(entry.get("specifier", "")),
+                _canonical_specifier(str(entry.get("specifier", ""))),
             )
             for entry in entries
         }

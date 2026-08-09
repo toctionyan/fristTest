@@ -46,8 +46,13 @@ def test_structured_boundary_persists_verified_ingress_and_formal_update() -> No
     base = {
         "current_thread_id": "thread-1",
         "current_user_id": "u001",
+        "current_role": "customer",
         "current_tenant_id": "default",
+        "current_subject": "u001",
+        "turn_index": 1,
+        "ledger_schema_version": 2,
         "artifact_ledger": [{"handle": "artifact:1", "kind": "artifact"}],
+        "phase": "action_gateway",
         "status": "ActionProposalReady",
     }
     update = {
@@ -67,7 +72,12 @@ def test_structured_boundary_persists_verified_ingress_and_formal_update() -> No
     assert calls[0][2] == "action_gateway"
     assert persisted["current_thread_id"] == "thread-1"
     assert persisted["current_user_id"] == "u001"
+    assert persisted["current_role"] == "customer"
     assert persisted["current_tenant_id"] == "default"
+    assert persisted["current_subject"] == "u001"
+    assert persisted["turn_index"] == 1
+    assert persisted["ledger_schema_version"] == 2
+    assert "phase" not in persisted
     assert [row["handle"] for row in persisted["artifact_ledger"]] == ["artifact:1", "offer:1"]
     assert persisted["status"] == "ActionInputRequired"
     assert result["focused_draft_id"] == "offer:1"

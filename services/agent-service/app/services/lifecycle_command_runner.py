@@ -72,12 +72,9 @@ class LifecycleCommandRunner:
         fully classified patch because the public wrapper already appended the
         formal ExecutionDisposition.
         """
-        merged = {**base_state, **dict(update or {})}
-        # Structured API commands enter between normal graph nodes. Persist the
-        # verified ingress state together with the formal node update so scope
-        # identity, target artifacts and transaction controls survive the
-        # checkpoint before outgoing edges are scheduled. The node update wins
-        # on overlap and remains the transition authority.
+        ingress_keys = ("current_thread_id", "current_user_id", "current_role", "current_tenant_id", "current_subject", "turn_index", "ledger_schema_version")
+        verified_ingress = {key: base_state[key] for key in ingress_keys if key in base_state}
+        merged = {**verified_ingress, **dict(update or {})}
         graph.update_state(config, merged, as_node=node_name)
         invoke = getattr(graph, "invoke", None)
         if callable(invoke):
