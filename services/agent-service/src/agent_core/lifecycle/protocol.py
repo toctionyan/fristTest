@@ -206,7 +206,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
             "修改已有 Goal 或 Focus 时必须复制 ContextBundle 中当前 revision，并提供当前用户原话的连续 evidence_span；"
             "多 Goal 时，每个 Goal 的 evidence_span 必须是只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复复制给多个 Goal；每个证据片段必须能唯一归属到对应 Goal。"
             "显式引用已经向客户可见的历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"
-            "同一当前轮内只有真实结果依赖才填写 depends_on：后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才依赖；并列、再/然后/另外、共享对象或共享主题本身不构成依赖。不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"
+            "同一当前轮内只有真实结果依赖才填写 depends_on：后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才依赖；并列、再/然后/另外、共享对象或共享主题本身不构成依赖。同一原话前文已明确对象或范围、后文只省略重复对象时继承该已明示范围，不依赖前一个 Goal 的执行结果。不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"
             "能力缺失不能改变依赖图；unsupported/open Goal 若语义上可独立判断是否得到满足，就必须保持独立，后续由 Capability MatchProof 证明缺失。"
             "requested_effect 变化不能 PATCH，必须新建 Goal 并显式 supersede 旧 Goal。此阶段看不到业务工具名。"
         ),
@@ -257,6 +257,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                                 "description": (
                                     "只表达当前轮 Goal 的真实结果依赖：只有后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才填写。"
                                     "并列、再/然后/另外等话语顺序、共享同一业务对象或同一主题本身都不是依赖；这些情况必须保持独立。"
+                                    "同一原话前文已明确业务对象或范围而后文只省略重复对象时，应继承该明示范围；这不是对前一个 Goal 执行结果的依赖。"
                                     "若后一个 Goal 用它/这个/其中某项等指向本轮前一个 Goal 尚未产生的结果，或其条件显式依赖前一个结果，则应填写依赖。"
                                     "系统不支持某个效果也不能因此制造依赖：能力缺失由后续 MatchProof 独立证明。"
                                 ),

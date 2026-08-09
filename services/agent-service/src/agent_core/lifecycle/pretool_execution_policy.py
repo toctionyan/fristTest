@@ -326,8 +326,43 @@ def build_pretool_execution_policy(
         max_progress = max((int(row.get("progress") or 0) for row in evaluated), default=0)
         active_paths = [row for row in evaluated if int(row.get("progress") or 0) == max_progress]
         frontier = sorted({tool for row in active_paths for tool in list(row.get("frontier") or [])})
-        allowed_tools.update(frontier)
         all_active_complete = bool(active_paths) and all(bool(row.get("path_complete")) for row in active_paths)
+
+        # Action-draft completion may require an authoritative target even when
+        # the Contract-v2 target binding can theoretically come from an external
+        # resolver.  Exact registered read-support tools are therefore exposed
+        # as an optional bounded frontier before the draft.  They do not satisfy
+        # the Goal, do not grant target authority, and disappear for this Goal
+        # after their PlanRun step succeeds.
+        active_completion_tools = {
+            str(row.get("completion_tool") or "")
+            for row in active_paths
+            if str(row.get("completion_tool") or "")
+        }
+        action_completion_pending = bool(
+            not all_active_complete
+            and any(
+                (contract := capability_registry.contract_for_tool(name)) is not None
+                and str(contract.execution_kind or "") == "action_draft"
+                for name in active_completion_tools
+            )
+        )
+        support_frontier: list[str] = []
+        if action_completion_pending:
+            for name in list(decision.get("support_tools") or []):
+                tool_name = str(name or "")
+                support_contract = capability_registry.contract_for_tool(tool_name)
+                if (
+                    tool_name
+                    and tool_name not in completed_tools
+                    and support_contract is not None
+                    and str(support_contract.execution_kind or "")
+                    in {"observation", "grounding_read", "knowledge_read", "clarification_read"}
+                ):
+                    support_frontier.append(tool_name)
+        support_frontier = sorted(set(support_frontier))
+        frontier = sorted(set(frontier) | set(support_frontier))
+        allowed_tools.update(frontier)
         goal_policies.append({
             "goal_id": goal_id,
             "status": "PATH_COMPLETE_AWAITING_TERMINAL" if all_active_complete else "FRONTIER_READY",
@@ -337,10 +372,16 @@ def build_pretool_execution_policy(
             "reused_goal_output_ref_ids": reusable_output_ids,
             "goal_output_evidence_errors": output_evidence_errors,
             "allowed_tools": frontier,
+            "support_frontier_tools": support_frontier,
+            "support_frontier_is_completion": False,
             "active_path_ids": [str(row.get("path_id") or "") for row in active_paths],
             "candidate_path_count": len(closed_paths),
             "max_path_progress": max_progress,
-            "reason": "highest_progress_contract_paths_only",
+            "reason": (
+                "highest_progress_contract_paths_plus_exact_action_support"
+                if support_frontier
+                else "highest_progress_contract_paths_only"
+            ),
         })
 
     global_coverage, coverage_evidence_errors = _validated_global_coverage(

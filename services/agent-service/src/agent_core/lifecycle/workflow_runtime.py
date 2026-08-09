@@ -268,6 +268,50 @@ def _effect_to_step(
         if isinstance(row, dict) and str(row.get("goal_id") or "")
     }
 
+    # A safe read can be an exact registered support effect for another still
+    # pending Goal without semantically depending on that Goal or completing it.
+    # This metadata only permits a bounded continuation; the later completion
+    # call must still pass its own target, capability and transaction gates.
+    support_continuation_by_goal: dict[str, dict[str, Any]] = {}
+    support_safe_execution_kinds = {
+        "observation",
+        "grounding_read",
+        "knowledge_read",
+        "clarification_read",
+    }
+    if execution_kind in support_safe_execution_kinds:
+        for continuation_goal_id, continuation_goal in declared_by_id.items():
+            identity = canonical_effect_identity(continuation_goal.get("requested_effect"))
+            surface_goal = surface_by_goal.get(continuation_goal_id, {})
+            completion_tools = sorted({
+                str(value)
+                for value in list(surface_goal.get("completion_tools") or [])
+                if str(value)
+            })
+            support_tools = {
+                str(value)
+                for value in list(surface_goal.get("support_tools") or [])
+                if str(value)
+            }
+            eligible = bool(
+                identity
+                and identity in support_effect_identities
+                and str(surface_goal.get("status") or "") == "exact_supported"
+                and tool_name in support_tools
+                and completion_tools
+            )
+            if eligible:
+                support_continuation_by_goal[continuation_goal_id] = {
+                    "requested_effect_identity": identity,
+                    "support_tool": tool_name,
+                    "completion_tools": completion_tools,
+                    "source": "exact_registered_support_effect",
+                    "safe_read_only": True,
+                    "completes_goal": False,
+                    "target_authority_granted": False,
+                    "continuation_required": True,
+                }
+
     per_goal: dict[str, dict[str, Any]] = {}
     for goal_id in goal_ids:
         mapped_goal = declared_by_id[goal_id]
@@ -327,6 +371,8 @@ def _effect_to_step(
         "goal_completion_eligible_by_goal": completion_by_goal,
         "goal_effect_role": next(iter(set(roles.values()))) if roles and len(set(roles.values())) == 1 else "mixed" if roles else "none",
         "goal_completion_eligible": bool(completion_by_goal) and all(completion_by_goal.values()),
+        "support_continuation_goal_ids": sorted(support_continuation_by_goal),
+        "support_continuation_by_goal": support_continuation_by_goal,
         "composite_goal_binding": len(goal_ids) > 1,
     })
     if len(goal_ids) == 1:
@@ -648,6 +694,13 @@ def _plan_structure_payload(plan: dict[str, Any]) -> dict[str, Any]:
                     if isinstance((row.get("verification") or {}).get("goal_effect_roles"), dict)
                     else {}
                 ),
+                "support_continuation_goal_ids": [
+                    str(value)
+                    for value in list(
+                        (row.get("verification") or {}).get("support_continuation_goal_ids") or []
+                    )
+                    if str(value)
+                ],
             }
             for row in list(plan.get("steps") or [])
             if isinstance(row, dict)
@@ -823,6 +876,22 @@ def validate_grounded_execution_plan(
                         "role": role or None,
                     }
                 )
+        continuation_goal_ids = [
+            str(value)
+            for value in list(verification.get("support_continuation_goal_ids") or [])
+            if str(value)
+        ]
+        unknown_continuations = [
+            goal_id for goal_id in continuation_goal_ids if goal_id not in known_goal_ids
+        ]
+        if unknown_continuations:
+            errors.append(
+                {
+                    "code": "PLAN_UNKNOWN_SUPPORT_CONTINUATION_GOAL",
+                    "effect_id": effect_id,
+                    "goal_ids": unknown_continuations,
+                }
+            )
 
     cycle = _dependency_cycle(
         {
@@ -834,21 +903,64 @@ def validate_grounded_execution_plan(
     if cycle:
         errors.append({"code": "PLAN_DEPENDENCY_CYCLE", "cycle": cycle})
 
-    uncovered_required_goals = [
+    def _step_role_for_goal(step: dict[str, Any], goal_id: str) -> str:
+        verification = step.get("verification") if isinstance(step.get("verification"), dict) else {}
+        roles = verification.get("goal_effect_roles") if isinstance(verification.get("goal_effect_roles"), dict) else {}
+        return str(roles.get(goal_id) or verification.get("goal_effect_role") or "")
+
+    def _has_current_completion(goal_id: str) -> bool:
+        allowed_completion_roles = {"completion", "unsupported_report"} | (
+            {"legacy_completion"} if not semantic else set()
+        )
+        return any(
+            goal_id in {str(value) for value in list(step.get("goal_ids") or []) if str(value)}
+            and _step_role_for_goal(step, goal_id) in allowed_completion_roles
+            for step in steps
+        )
+
+    def _has_exact_support_continuation(goal_id: str) -> bool:
+        return any(
+            goal_id in {
+                str(value)
+                for value in list(
+                    ((step.get("verification") or {}).get("support_continuation_goal_ids") or [])
+                    if isinstance(step.get("verification"), dict)
+                    else []
+                )
+                if str(value)
+            }
+            for step in steps
+        )
+
+    pending_required_goal_ids = [
         str(row.get("goal_id") or "")
         for row in goals
         if bool(row.get("required", True))
         and str(row.get("coverage_status") or "") == GoalCoverageStatus.PENDING.value
-        and not any(
-            str(row.get("goal_id") or "") in {str(value) for value in list(step.get("goal_ids") or []) if str(value)}
-            and str(
-                ((step.get("verification") or {}).get("goal_effect_roles") or {}).get(str(row.get("goal_id") or ""))
-                if isinstance((step.get("verification") or {}).get("goal_effect_roles"), dict)
-                else (step.get("verification") or {}).get("goal_effect_role") or ""
-            ) in ({"completion", "unsupported_report"} | ({"legacy_completion"} if not semantic else set()))
-            for step in steps
-        )
+        and str(row.get("goal_id") or "")
     ]
+    support_continuation_goal_ids = [
+        goal_id
+        for goal_id in pending_required_goal_ids
+        if not _has_current_completion(goal_id)
+        and _has_exact_support_continuation(goal_id)
+    ]
+    uncovered_required_goals = [
+        goal_id
+        for goal_id in pending_required_goal_ids
+        if not _has_current_completion(goal_id)
+        and goal_id not in set(support_continuation_goal_ids)
+    ]
+    if support_continuation_goal_ids:
+        warnings.append(
+            {
+                "code": "PLAN_REQUIRED_GOAL_DEFERRED_BY_EXACT_SUPPORT",
+                "goal_ids": support_continuation_goal_ids,
+                "goal_remains_incomplete": True,
+                "completion_required_on_continuation": True,
+                "target_authority_granted": False,
+            }
+        )
     if uncovered_required_goals:
         errors.append(
             {
