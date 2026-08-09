@@ -58,6 +58,48 @@ jobs:
           (cd candidate/services/agent-service && uv sync --locked --all-groups)
           (cd candidate/services/business-service && uv sync --locked --all-groups)
 
+      - name: Upgrade preserved blind-verifier fixtures to explicit dependency graph contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          attempt1 = Path('skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py')
+          text = attempt1.read_text(encoding='utf-8')
+          old = '                "outcome_spans": outcome_spans,\n                "reason_code": "test_inventory",'
+          new = '                "outcome_spans": outcome_spans,\n                "dependency_edges": [],\n                "reason_code": "test_inventory",'
+          if text.count(old) != 1:
+              raise SystemExit(f'attempt1 fixture target count={text.count(old)}')
+          attempt1.write_text(text.replace(old, new), encoding='utf-8')
+
+          attempt4 = Path('skill-system/tests/test_wp08_new_release_attempt4_repair.py')
+          text = attempt4.read_text(encoding='utf-8')
+          old = '                "verdict": "exact", "outcome_spans": ["查订单"], "reason_code": "exact"'
+          new = '                "verdict": "exact", "outcome_spans": ["查订单"], "dependency_edges": [], "reason_code": "exact"'
+          if text.count(old) != 1:
+              raise SystemExit(f'attempt4 fixture target count={text.count(old)}')
+          attempt4.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          printf '%s\n' \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py | sort > /tmp/expected-working-fixtures.txt
+          git diff --name-only | sort > /tmp/actual-working-fixtures.txt
+          diff -u /tmp/expected-working-fixtures.txt /tmp/actual-working-fixtures.txt
+          git diff --check
+
+      - name: Run preserved blind-verifier compatibility counterexamples
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py
+
       - name: Regenerate exact protected product baseline
         shell: bash
         run: |
@@ -132,7 +174,12 @@ jobs:
           )
           print(json.dumps(report, ensure_ascii=False, sort_keys=True))
           PY
-          test "$(git diff --name-only | tr -d '\r')" = "skill-system/registry/product-source-baseline.json"
+          printf '%s\n' \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py | sort > /tmp/expected-working-after-baseline.txt
+          git diff --name-only | sort > /tmp/actual-working-after-baseline.txt
+          diff -u /tmp/expected-working-after-baseline.txt /tmp/actual-working-after-baseline.txt
           git diff --check
 
       - name: Prove project compatibility and full Skill control plane
@@ -155,6 +202,8 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/runtime/capability_gate.py \
             skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
             skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-final-delta.txt
           git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final-delta.txt
@@ -164,9 +213,12 @@ jobs:
           test "$(git ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$PRODUCT_HEAD"
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git add skill-system/registry/product-source-baseline.json
+          git add \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py
           git diff --cached --check
-          git commit -m 'Bind attempt 6 root-fix protected baseline'
+          git commit -m 'Bind attempt 6 baseline and explicit blind-verifier fixtures'
           git push origin HEAD:refs/heads/$FORMAL_REF
           git rev-parse HEAD | tee ../wp08-attempt6-stage3-formal-head.txt
 
