@@ -3,7 +3,7 @@ name: wp08-attempt7-dependency-oracle-audit
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: read
@@ -34,14 +34,18 @@ jobs:
           path = Path('services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json')
           payload = json.loads(path.read_text(encoding='utf-8'))
           rows = []
-          for case in payload.get('cases') or []:
+          for case_index, case in enumerate(payload.get('cases') or []):
               contract = case.get('execution_contract') or {}
               for turn_index, turn in enumerate(contract.get('turn_contracts') or []):
                   oracle = turn.get('goal_oracle') or []
                   if not any(goal.get('depends_on') for goal in oracle):
                       continue
                   rows.append({
+                      'case_index': case_index,
                       'case_id': case.get('id'),
+                      'category': case.get('category'),
+                      'preproduction_risk_prototype': contract.get('preproduction_risk_prototype') is True,
+                      'preproduction_allowed_tools': contract.get('preproduction_allowed_tools') or [],
                       'turn_index': turn_index,
                       'user_text': turn.get('user_text'),
                       'oracle': [
