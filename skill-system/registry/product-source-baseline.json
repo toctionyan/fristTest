@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "git:b947451ca4869775c9fc7633a781860234dda9b8",
+  "generated_from": "git:9f7cdcca101b630f5c30ddda138773b09b578edb",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-09T17:42:10Z",
+  "generated_at": "2026-08-09T18:26:59Z",
   "protected_roots": [
     "services",
     "web",
@@ -115,7 +115,7 @@
     "services/agent-service/scripts/validate_presentation_contracts.py": "417fd0350ea83d091ca8dfada390afe1c507607d934d36ca93c955ff2044ab52",
     "services/agent-service/scripts/verify_external_business_service.py": "a5db8e7c6fdb5e4e30b4a788afe96003835ae2ed79ce12bc00bf36f7ee1edef9",
     "services/agent-service/scripts/verify_model_smoke.py": "5caf6bdbaf33c7608cb0a51ba41101a595928aa0bdef909db607396b891ea947",
-    "services/agent-service/scripts/verify_preprod_conversation_smoke.py": "4d9ec11d5465d33050dd0927b1d3edd20c7892d1e0bee17b7480e6a6ea0a8f57",
+    "services/agent-service/scripts/verify_preprod_conversation_smoke.py": "bb6583ef2e2028281759e5dd994c7079a73e9c63eb4385a58f655fc65ae13839",
     "services/agent-service/scripts/verify_preprod_full_lifecycle.py": "e3b347581f307165c193abc3b8377c1c99e92e70e802518253510e64a726c101",
     "services/agent-service/scripts/verify_real_model_certification_bundle.py": "9440ef16bb04b9fe8e66977f6bd5edbf2ebfb5fd26f81899b220278df9f4e9dc",
     "services/agent-service/src/agent_core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -167,7 +167,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "1f067d56d09a1b1175cc3576cf46ee6fb15a9e06e7fd2a8b023dbff58ac0f0ba",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "620d299cf6285168226e455231809cdb826dfc43a19dc4e5ffa5f86777f1ecfc",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "9d98502ff0822de95205b8c69cd78286d37f9a07c5a7a42e89f8c9bf1d1f788f",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "8a6ac4f7fc9bb0c8d861b86721ee893bac636be6a8cafa7f94f2c092eb09882a",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "a487449ed21fb06f56121403cde0d8c1708de2b7b6ae98b10d1ede755336100e",
