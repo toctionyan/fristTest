@@ -253,7 +253,7 @@ class ModelGoalAlignmentVerifier:
             "scope modifiers such as only/related/其中/只看 belong inside the same query goal and are not a separate requested outcome when the description preserves the narrowed target",
             "a short why/explain/summary follow-up is not ambiguous when the most recent public answer supplies one clear referent; the declared description may name that referent even though its evidence_span remains the literal current user text",
             "when the user only asks to explain or summarize a prior public answer without requesting a fresh business lookup, requested_effect should describe that explanation outcome and expected_result_cardinality should be none",
-            "clarify only when the user text itself is genuinely ambiguous and cannot be safely decomposed",
+            "clarify only when ambiguity changes which user-observable business outcome(s) are requested, their count, or their semantic dependency; target-member selection, filter/status vocabulary, result membership, slot/form values, current business facts, and execution-time cardinality are downstream Runtime concerns and must not trigger pre-freeze semantic clarification when the declaration preserves the user's literal predicate",
             "goal alignment judges the customer's requested outcome, not whether chat is an authorized execution channel",
             "when ACTIVE_STRUCTURED_INTERACTION is present and USER_TEXT supplies a field value, confirmation, cancellation, or another write instruction for that pending card, an action goal is exact when it preserves that requested input/control outcome; do not mark it incomplete merely because Runtime will redirect the customer to the structured card",
             "an active structured interaction does not absorb a read-only query or a separately requested outcome; those must remain separate declared goals",
@@ -265,7 +265,7 @@ class ModelGoalAlignmentVerifier:
             "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
             "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
         }
-        format_repair: str | None = None
+        verifier_repair: str | None = None
         last_indeterminate = GoalAlignmentVerdict(
             "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
         )
@@ -279,7 +279,7 @@ class ModelGoalAlignmentVerifier:
                         instruction=instruction,
                         decision_rules=decision_rules,
                         payload=prompt,
-                        format_repair=format_repair,
+                        format_repair=verifier_repair,
                     ),
                 )
             except Exception as exc:
@@ -304,28 +304,33 @@ class ModelGoalAlignmentVerifier:
                     "goal_alignment_non_json",
                     "model",
                     True,
-                    {"format_repair_attempted": attempt > 0},
+                    {"verifier_repair_attempted": attempt > 0},
                 )
             else:
-                verdict = _as_alignment_verdict(
-                    parsed,
-                    user_text=user_text,
-                    source="model",
-                    independent=True,
-                )
-            if verdict.verdict != "indeterminate":
+                verdict = _as_alignment_verdict(parsed, user_text=user_text, source="model", independent=True)
+            if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
+            if verdict.verdict == "clarify":
+                if attempt == 0:
+                    verifier_repair = (
+                        "Re-audit only the semantic outcome boundary. Clarification is admissible only if USER_TEXT "
+                        "cannot determine which independently acceptable business outcome(s) are requested, their count, "
+                        "or their semantic dependency. Do not ask to clarify a target member, prior-result membership, "
+                        "filter/status vocabulary, threshold, slot/form value, execution cardinality, or current business fact; "
+                        "those are downstream Runtime concerns. If the declared goal preserves the literal predicate and the "
+                        "business outcome identity is clear, return exact. Return the same strict JSON fields only."
+                    )
+                    continue
+                return GoalAlignmentVerdict(
+                    verdict.verdict, verdict.evidence_spans, verdict.missing_spans, verdict.reason_code,
+                    verdict.source, verdict.independent, {**verdict.details, "verifier_repair_attempted": True},
+                )
             last_indeterminate = GoalAlignmentVerdict(
-                verdict.verdict,
-                verdict.evidence_spans,
-                verdict.missing_spans,
-                verdict.reason_code,
-                verdict.source,
-                verdict.independent,
-                {**verdict.details, "format_repair_attempted": attempt > 0},
+                verdict.verdict, verdict.evidence_spans, verdict.missing_spans, verdict.reason_code,
+                verdict.source, verdict.independent, {**verdict.details, "verifier_repair_attempted": attempt > 0},
             )
             if attempt == 0:
-                format_repair = (
+                verifier_repair = (
                     "The previous verifier response did not satisfy the machine-readable JSON contract. "
                     "Return exactly one JSON object using only verdict, evidence_spans, missing_spans and reason_code; "
                     "all spans must be literal substrings of USER_TEXT. Do not change or expand the semantic task."
@@ -508,6 +513,36 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
             "evidence_span_rule": "literal_contiguous_substring",
             "requested_effect_rule": "preserve the user's open business effect; do not coerce it into a nearby registered capability",
         },
+    }
+
+
+
+def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
+    if str(getattr(granularity, "verdict", "") or "") != "under_split":
+        return {}
+    spans: list[str] = []
+    for finding in tuple(getattr(granularity, "findings", ()) or ()):
+        if not isinstance(finding, dict):
+            continue
+        if str(finding.get("reason") or "") != "blind_inventory_outcome_not_covered":
+            continue
+        span = _clean_text(finding.get("evidence_span"), limit=240)
+        if span and span not in spans:
+            spans.append(span)
+    if not spans:
+        return {}
+    return {
+        "independent_verifier_feedback": {
+            "authority": "candidate_blind_goal_inventory",
+            "required_action": "redeclaration_preserving_existing_goals_and_adding_uncovered_outcomes",
+            "uncovered_outcome_spans": spans,
+            "constraints": [
+                "literal_user_text_spans_only",
+                "do_not_infer_or_copy_tool_or_capability_identity",
+                "preserve_unsupported_or_open_business_effects",
+                "do_not_delete_already_preserved_independent_outcomes",
+            ],
+        }
     }
 
 
@@ -765,6 +800,7 @@ def validate_goal_declaration(
             "data": {
                 "alignment_proof": alignment.as_dict(),
                 "granularity_proof": granularity.as_dict(),
+                **_granularity_repair_feedback(granularity),
                 **_goal_declaration_repair_context(user_text),
             },
         }, None)

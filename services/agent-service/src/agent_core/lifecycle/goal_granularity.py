@@ -209,19 +209,12 @@ def _maximum_outcome_goal_matching(
 class ModelGoalGranularityVerifier:
     """Candidate-blind inventory plus deterministic evidence-span comparison.
 
-    The model sees only the current user text. It cannot anchor on, repair or
-    imitate DECLARED_GOALS. Runtime compares the returned literal outcome spans
-    to already validated literal Goal evidence spans. The existing independent
-    goal-alignment verifier remains responsible for effect identity and semantic
-    dependency correctness.
+    The model sees only current USER_TEXT. A first structural disagreement gets
+    one second candidate-blind self-audit; the audit is never told candidate
+    Goals, candidate count, matching result, tools or capabilities.
     """
 
-    def verify(
-        self,
-        *,
-        user_text: str,
-        goals: list[dict[str, Any]],
-    ) -> GoalGranularityVerdict:
+    def verify(self, *, user_text: str, goals: list[dict[str, Any]]) -> GoalGranularityVerdict:
         from agent_core.config import get_model
         from agent_core.model_calls import (
             classify_model_failure,
@@ -229,7 +222,6 @@ class ModelGoalGranularityVerifier:
             is_environmental_model_failure_category,
             structured_verifier_messages,
         )
-
         instruction = (
             "Read USER_TEXT independently, before seeing any candidate Goal plan. Inventory every user-observable "
             "business outcome that the customer could independently judge complete or incomplete. Do not infer or "
@@ -240,18 +232,19 @@ class ModelGoalGranularityVerifier:
         rules = [
             "A separately requested unsupported/open business effect is still an outcome and must remain in the inventory.",
             "A supported outcome and an unsupported outcome in the same turn remain two outcomes when the customer can judge them separately.",
-            "Filters, target selectors, ordering, cardinality, exclusions, reasons, dates, addresses and other form values stay inside the outcome they constrain; do not inventory them as separate outcomes.",
+            "Filters, target selectors, ordering, cardinality, exclusions, reasons, dates, addresses, status predicates and other form values stay inside the outcome they constrain; do not inventory them as separate outcomes and do not ask to clarify their execution-time interpretation.",
             "Implementation/support steps, policy loading, permission checks, database work, Draft creation, authorization and rendering are never outcomes unless the customer explicitly requests them as a business result.",
             "Eligibility is a separate outcome only when the customer explicitly asks to receive that conclusion independently; otherwise it can be a condition/support step for an action.",
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
-            "When two independently acceptable requested results are present, return two non-overlapping local spans rather than one whole-sentence span.",
-            "clarify only when USER_TEXT itself cannot be safely decomposed without additional customer information.",
+            "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a phrase and a nested/expanded version of that same outcome as separate outcomes.",
+            "clarify only when ambiguity changes the number or identity of independently requested business outcomes; target membership, filters, status vocabulary, thresholds, current facts and slot values are not granularity ambiguity.",
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
         ]
-        format_repair: str | None = None
-        parsed: dict[str, Any] | None = None
-        raw_verdict = ""
-        outcome_spans: tuple[str, ...] = ()
+        verifier_repair: str | None = None
+        last_indeterminate = GoalGranularityVerdict(
+            "indeterminate", "goal_granularity_inventory_unverified", (),
+            "model_blind_inventory", True, {"candidate_blind": True},
+        )
         for attempt in range(2):
             try:
                 response, _trace = invoke_model(
@@ -262,7 +255,7 @@ class ModelGoalGranularityVerifier:
                         instruction=instruction,
                         decision_rules=rules,
                         payload={"USER_TEXT_UNTRUSTED": user_text},
-                        format_repair=format_repair,
+                        format_repair=verifier_repair,
                     ),
                 )
             except Exception as exc:
@@ -270,113 +263,124 @@ class ModelGoalGranularityVerifier:
                 if is_environmental_model_failure_category(category):
                     raise
                 return GoalGranularityVerdict(
-                    "indeterminate",
-                    "goal_granularity_inventory_unavailable",
-                    (),
-                    "model_blind_inventory",
-                    True,
+                    "indeterminate", "goal_granularity_inventory_unavailable", (),
+                    "model_blind_inventory", True,
                     {"exception": exc.__class__.__name__, "error_category": category, "candidate_blind": True},
                 )
-
             parsed = _extract_json(str(getattr(response, "content", response) or ""))
-            repair_reason = "goal_granularity_inventory_non_json"
-            if parsed is not None:
-                raw_verdict = _text(parsed.get("verdict"), limit=40).lower()
-                if raw_verdict == "clarify":
-                    return GoalGranularityVerdict(
-                        "clarify",
-                        _text(parsed.get("reason_code"), limit=120) or "blind_inventory_requires_clarification",
-                        (),
-                        "model_blind_inventory",
-                        True,
-                        {"candidate_blind": True, "format_repair_attempted": attempt > 0},
+            if parsed is None:
+                last_indeterminate = GoalGranularityVerdict(
+                    "indeterminate", "goal_granularity_inventory_non_json", (),
+                    "model_blind_inventory", True,
+                    {"candidate_blind": True, "verifier_repair_attempted": attempt > 0},
+                )
+                if attempt == 0:
+                    verifier_repair = (
+                        "The previous candidate-blind inventory response did not satisfy the machine-readable JSON contract. "
+                        "Return exactly one JSON object using only verdict, outcome_spans and reason_code; verdict must be exact or clarify, "
+                        "and every outcome_span must be a local literal substring of USER_TEXT. Do not inspect or infer capabilities."
                     )
-                if raw_verdict == "exact":
-                    outcome_spans = _literal_outcome_spans(user_text, parsed.get("outcome_spans"))
-                    if outcome_spans:
-                        break
-                    repair_reason = "goal_granularity_inventory_missing_literal_spans"
-                else:
-                    repair_reason = "goal_granularity_inventory_invalid_verdict"
+                    continue
+                return last_indeterminate
+            raw_verdict = _text(parsed.get("verdict"), limit=40).lower()
+            if raw_verdict == "clarify":
+                if attempt == 0:
+                    verifier_repair = (
+                        "Re-audit only candidate-blind outcome decomposition. Clarify is admissible only if ambiguity changes "
+                        "the number or identity of independently requested business outcomes. Do not clarify target membership, "
+                        "filter/status vocabulary, thresholds, current facts, cardinality or slot/form values. If outcome boundaries "
+                        "are identifiable, return exact with each independently acceptable result exactly once as non-overlapping "
+                        "literal spans. You still must not see or infer any candidate Goal plan or capability."
+                    )
+                    continue
+                return GoalGranularityVerdict(
+                    "clarify", _text(parsed.get("reason_code"), limit=120) or "blind_inventory_requires_clarification",
+                    (), "model_blind_inventory", True,
+                    {"candidate_blind": True, "verifier_repair_attempted": True},
+                )
+            if raw_verdict != "exact":
+                last_indeterminate = GoalGranularityVerdict(
+                    "indeterminate", "goal_granularity_inventory_invalid_verdict", (),
+                    "model_blind_inventory", True,
+                    {"candidate_blind": True, "verifier_repair_attempted": attempt > 0, "raw_verdict": raw_verdict or None},
+                )
+                if attempt == 0:
+                    verifier_repair = (
+                        "Return the candidate-blind business-outcome inventory in the strict JSON contract: verdict exact|clarify, "
+                        "literal outcome_spans and reason_code. Do not inspect candidate Goals or capabilities."
+                    )
+                    continue
+                return last_indeterminate
+            outcome_spans = _literal_outcome_spans(user_text, parsed.get("outcome_spans"))
+            if not outcome_spans:
+                last_indeterminate = GoalGranularityVerdict(
+                    "indeterminate", "goal_granularity_inventory_missing_literal_spans", (),
+                    "model_blind_inventory", True,
+                    {"candidate_blind": True, "verifier_repair_attempted": attempt > 0},
+                )
+                if attempt == 0:
+                    verifier_repair = (
+                        "Return exact only with at least one local literal outcome_span from USER_TEXT. Inventory each independently "
+                        "acceptable business result exactly once and do not inspect candidate Goals or capabilities."
+                    )
+                    continue
+                return last_indeterminate
+            matched, goal_to_outcome = _maximum_outcome_goal_matching(outcome_spans, goals)
+            goal_count = len(goals)
+            outcome_count = len(outcome_spans)
+            details = {
+                "candidate_blind": True,
+                "inventory_outcome_count": outcome_count,
+                "declared_goal_count": goal_count,
+                "matched_outcome_count": matched,
+                "outcome_spans": list(outcome_spans),
+                "blind_self_audit_attempted": attempt > 0,
+            }
+            if matched == outcome_count == goal_count:
+                return GoalGranularityVerdict(
+                    "exact", _text(parsed.get("reason_code"), limit=120) or "blind_inventory_exact", (),
+                    "model_blind_inventory", True, details,
+                )
             if attempt == 0:
-                format_repair = (
-                    "The previous candidate-blind inventory response did not satisfy the machine-readable JSON contract. "
-                    "Return exactly one JSON object using only verdict, outcome_spans and reason_code; verdict must be exact or clarify, "
-                    "and every outcome_span must be a local literal substring of USER_TEXT. Do not inspect or infer capabilities."
+                verifier_repair = (
+                    "Re-audit the candidate-blind inventory from USER_TEXT only. Return each independently acceptable "
+                    "business result exactly once; do not duplicate a result as nested/expanded overlapping spans. Filters, "
+                    "status predicates, target selectors, ordering, exclusions, cardinality and form values stay inside the "
+                    "business outcome they constrain. Unsupported/open requested business results must still remain separate. "
+                    "Do not inspect, infer or ask about any candidate Goal plan, candidate count, tool or capability."
                 )
                 continue
-            return GoalGranularityVerdict(
-                "indeterminate",
-                repair_reason,
-                (),
-                "model_blind_inventory",
-                True,
-                {"candidate_blind": True, "format_repair_attempted": True, "raw_verdict": raw_verdict or None},
-            )
+            matched_outcomes = set(goal_to_outcome.values())
+            matched_goals = set(goal_to_outcome)
+            findings: list[dict[str, Any]] = []
+            for outcome_index, span in enumerate(outcome_spans):
+                if outcome_index not in matched_outcomes:
+                    findings.append({
+                        "goal_id": None,
+                        "reason": "blind_inventory_outcome_not_covered",
+                        "recommended_role": "goal",
+                        "evidence_span": span,
+                    })
+            for goal_index, goal in enumerate(goals):
+                if goal_index not in matched_goals:
+                    findings.append({
+                        "goal_id": str(goal.get("goal_id") or "") or None,
+                        "reason": "declared_goal_not_uniquely_mapped_to_blind_outcome",
+                        "recommended_role": "support_step",
+                        "evidence_span": str(goal.get("evidence_span") or "") if str(goal.get("evidence_span") or "") in user_text else None,
+                    })
+            if goal_count < outcome_count:
+                verdict = "under_split"
+                reason_code = "blind_inventory_has_more_outcomes_than_declared_goals"
+            elif goal_count > outcome_count:
+                verdict = "over_split"
+                reason_code = "declared_goals_exceed_blind_inventory"
+            else:
+                verdict = "mixed"
+                reason_code = "blind_inventory_not_one_to_one_with_declared_goals"
+            return GoalGranularityVerdict(verdict, reason_code, tuple(findings), "model_blind_inventory", True, details)
+        return last_indeterminate
 
-        matched, goal_to_outcome = _maximum_outcome_goal_matching(outcome_spans, goals)
-        matched, goal_to_outcome = _maximum_outcome_goal_matching(outcome_spans, goals)
-        goal_count = len(goals)
-        outcome_count = len(outcome_spans)
-        exact = matched == outcome_count == goal_count
-        details = {
-            "candidate_blind": True,
-            "inventory_outcome_count": outcome_count,
-            "declared_goal_count": goal_count,
-            "matched_outcome_count": matched,
-            "outcome_spans": list(outcome_spans),
-        }
-        if exact:
-            return GoalGranularityVerdict(
-                "exact",
-                _text(parsed.get("reason_code"), limit=120) or "blind_inventory_exact",
-                (),
-                "model_blind_inventory",
-                True,
-                details,
-            )
-
-        matched_outcomes = set(goal_to_outcome.values())
-        matched_goals = set(goal_to_outcome)
-        findings: list[dict[str, Any]] = []
-        for outcome_index, span in enumerate(outcome_spans):
-            if outcome_index not in matched_outcomes:
-                findings.append({
-                    "goal_id": None,
-                    "reason": "blind_inventory_outcome_not_covered",
-                    "recommended_role": "goal",
-                    "evidence_span": span,
-                })
-        for goal_index, goal in enumerate(goals):
-            if goal_index not in matched_goals:
-                findings.append({
-                    "goal_id": str(goal.get("goal_id") or "") or None,
-                    "reason": "declared_goal_not_uniquely_mapped_to_blind_outcome",
-                    "recommended_role": "support_step",
-                    "evidence_span": (
-                        str(goal.get("evidence_span") or "")
-                        if str(goal.get("evidence_span") or "") in user_text
-                        else None
-                    ),
-                })
-
-        if goal_count < outcome_count:
-            verdict = "under_split"
-            reason_code = "blind_inventory_has_more_outcomes_than_declared_goals"
-        elif goal_count > outcome_count:
-            verdict = "over_split"
-            reason_code = "declared_goals_exceed_blind_inventory"
-        else:
-            verdict = "mixed"
-            reason_code = "blind_inventory_not_one_to_one_with_declared_goals"
-        return GoalGranularityVerdict(
-            verdict,
-            reason_code,
-            tuple(findings),
-            "model_blind_inventory",
-            True,
-            details,
-        )
 
 
 def _goal_granularity_mode() -> str:
