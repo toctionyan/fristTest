@@ -70,8 +70,8 @@ def get_model_settings() -> dict[str, object]:
         "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         "base_url": os.getenv("OPENAI_API_BASE") or None,
         "temperature": _bounded_float_env("MODEL_TEMPERATURE", 0.0, minimum=0.0, maximum=2.0),
-        "timeout_seconds": _bounded_float_env("MODEL_TIMEOUT_SECONDS", 60.0, minimum=1.0, maximum=600.0),
-        "max_retries": _bounded_int_env("MODEL_MAX_RETRIES", 2, minimum=0, maximum=10),
+        "timeout_seconds": _bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0),
+        "max_retries": _bounded_int_env("MODEL_MAX_RETRIES", 1, minimum=0, maximum=10),
     }
 
 
@@ -245,6 +245,12 @@ def validate_production_security() -> None:
     if profile is RuntimeProfile.LOCAL:
         return
     errors: list[str] = []
+    model_settings = get_model_settings()
+    provider_retry_envelope = float(model_settings["timeout_seconds"]) * (int(model_settings["max_retries"]) + 1)
+    if provider_retry_envelope > 60.0:
+        errors.append(
+            "MODEL_TIMEOUT_SECONDS * (MODEL_MAX_RETRIES + 1) must be <= 60 seconds in preprod/production"
+        )
     if not _truthy(os.getenv("AGENT_REQUIRE_AUTH", "false")):
         errors.append("AGENT_REQUIRE_AUTH must be true")
     provider = os.getenv("AGENT_AUTH_PROVIDER", "remote_userinfo").strip().lower()

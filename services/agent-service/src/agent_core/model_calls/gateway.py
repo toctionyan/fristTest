@@ -31,7 +31,9 @@ def _emit_model_call_log(event: str, record: dict[str, Any]) -> None:
     """Emit only allow-listed execution metadata; never prompt, payload or credentials."""
     try:
         safe = {key: record.get(key) for key in _MODEL_CALL_LOG_KEYS if record.get(key) is not None}
-        LOGGER.info(
+        service_logger = logging.getLogger('uvicorn.error')
+        sink = service_logger if service_logger.handlers else LOGGER
+        sink.info(
             'model_call_event %s',
             json.dumps({'event': str(event), **safe}, ensure_ascii=False, sort_keys=True),
         )
