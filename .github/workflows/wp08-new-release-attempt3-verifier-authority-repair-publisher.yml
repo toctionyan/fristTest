@@ -77,6 +77,7 @@ jobs:
           cd candidate
           services/agent-service/.venv/bin/python -m pytest -q \
             skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py \
+            skill-system/tests/test_wp08_new_release_attempt3_repair.py \
             skill-system/tests/test_wp08_new_release_attempt1_blind_granularity.py \
             skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_repair.py \
@@ -117,7 +118,8 @@ jobs:
             services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
             services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
-            skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py | sort > /tmp/expected-product.txt
+            skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py \
+            skill-system/tests/test_wp08_new_release_attempt3_repair.py | sort > /tmp/expected-product.txt
           git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-product.txt
           diff -u /tmp/expected-product.txt /tmp/actual-product.txt
           git diff --check "$BASE_SHA" --
@@ -133,7 +135,8 @@ jobs:
             services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
             services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
-            skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py
+            skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py \
+            skill-system/tests/test_wp08_new_release_attempt3_repair.py
           git diff --cached --check
           git commit -m 'Enforce protected verifier authority in real-model certification'
           git rev-parse HEAD | tee ../wp08-attempt3-product-head.txt
@@ -169,7 +172,8 @@ jobs:
             services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
             skill-system/registry/product-source-baseline.json \
-            skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py | sort > /tmp/expected-final.txt
+            skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py \
+            skill-system/tests/test_wp08_new_release_attempt3_repair.py | sort > /tmp/expected-final.txt
           git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final.txt
           diff -u /tmp/expected-final.txt /tmp/actual-final.txt
           git diff --check "$BASE_SHA" --
