@@ -1,0 +1,52 @@
+name: wp08-new-release-authorize-once
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  actions: write
+  issues: read
+
+jobs:
+  authorize-next-release:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-new-release-authorize-once-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Verify exact authoritative main and terminal prior ReleaseRun
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN: d55ce8147c96155021fcab084ece854f0d1520ce
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL_MAIN=$(gh api repos/${GITHUB_REPOSITORY}/git/ref/heads/main --jq '.object.sha')
+          test "$ACTUAL_MAIN" = "$EXPECTED_MAIN"
+          test "$(gh api repos/${GITHUB_REPOSITORY}/issues/219 --jq '.state')" = "closed"
+          BODY=$(gh api repos/${GITHUB_REPOSITORY}/issues/219 --jq '.body')
+          printf '%s' "$BODY" | grep -q '"status": "ATTEMPT_BUDGET_EXHAUSTED"'
+          printf '%s' "$BODY" | grep -q '"attempt": 8'
+          printf '%s' "$BODY" | grep -q '"max_attempts": 8'
+          printf '%s' "$BODY" | grep -q '"production_closed": false'
+
+      - name: Dispatch official ReleaseRun authorization on protected main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            repos/${GITHUB_REPOSITORY}/actions/workflows/wp08-release-coordinator.yml/dispatches \
+            -f ref=main
+
+      - name: Record carrier boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Dispatched only the repository-owned wp08-release-coordinator workflow on exact protected main.'
+          echo 'This carrier must remain unmerged and does not create or edit the ReleaseRun ledger itself.'
