@@ -208,11 +208,22 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
     diagnostic: dict[str, Any] = {"code": str(payload.get("code") or "")}
     alignment = data.get("alignment_proof") if isinstance(data.get("alignment_proof"), dict) else None
     if alignment is not None:
+        alignment_details = alignment.get("details") if isinstance(alignment.get("details"), dict) else {}
         diagnostic["alignment"] = {
             "verdict": str(alignment.get("verdict") or ""),
             "reason_code": str(alignment.get("reason_code") or ""),
             "source": str(alignment.get("source") or ""),
             "independent": bool(alignment.get("independent")),
+            "evidence_spans": [
+                str(value) for value in list(alignment.get("evidence_spans") or []) if str(value)
+            ][:8],
+            "missing_spans": [
+                str(value) for value in list(alignment.get("missing_spans") or []) if str(value)
+            ][:8],
+            "original_verdict": str(alignment_details.get("original_verdict") or ""),
+            "grounding_failure": str(alignment_details.get("grounding_failure") or ""),
+            "verifier_repair_attempted": bool(alignment_details.get("verifier_repair_attempted")),
+            "verifier_repair_kind": str(alignment_details.get("verifier_repair_kind") or ""),
         }
     granularity = data.get("granularity_proof") if isinstance(data.get("granularity_proof"), dict) else None
     if granularity is not None:
@@ -425,8 +436,9 @@ def main() -> int:
         ))
         # Each accepted declaration is checked by both independent model validators
         # (alignment + candidate-blind granularity). A rejected declaration may be repaired
-        # once through the exact same protected path. Each independent verifier may use one
-        # format-only repair, so the worst-case envelope is 12 * 2 * (1 declaration + 2 alignment + 2 granularity) = 120.
+        # once through the exact same protected path. Each independent verifier remains capped
+        # at two calls; alignment may spend its existing second call on format/grounding re-audit,
+        # so the worst-case envelope stays 12 * 2 * (1 declaration + 2 alignment + 2 granularity) = 120.
         with model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
                 turn = case["execution_contract"]["turn_contracts"][0]
