@@ -39,6 +39,27 @@ def _members(entry: dict[str, Any]) -> list[str]:
     return [handle] if handle else []
 
 
+def visible_result_scope_key(ref: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
+    """Return the stable semantic target scope of one visible-result alias.
+
+    Result handles are provenance identities, not necessarily distinct business
+    scopes.  A singleton artifact and a one-member collection can both be
+    released in the same turn while denoting the exact same ordered member
+    population.  Runtime ambiguity checks must compare this scope, not raw
+    handle count.  Ordered membership is retained so two differently ordered
+    visible collections remain distinguishable for ordinal discourse.
+    """
+    members = tuple(
+        str(value)
+        for value in list(ref.get("canonical_order") or ref.get("member_handles") or [])
+        if str(value)
+    )
+    if members:
+        return ("members", members)
+    result_ref = str(ref.get("result_ref") or "").strip()
+    return ("result", (result_ref,)) if result_ref else ("empty", ())
+
+
 def _origin(entry: dict[str, Any]) -> dict[str, Any] | None:
     value = entry.get("presentation_origin")
     return dict(value) if isinstance(value, dict) else None

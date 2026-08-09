@@ -31,6 +31,7 @@ class BlindGranularityRepairTests(unittest.TestCase):
             return _Response(json.dumps({
                 "verdict": "exact",
                 "outcome_spans": outcome_spans,
+                "dependency_edges": [],
                 "reason_code": "test_inventory",
             }, ensure_ascii=False)), {"status": "ok"}
 

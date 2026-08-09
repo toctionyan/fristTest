@@ -13,6 +13,8 @@ from hashlib import sha256
 import json
 from typing import Any, Iterable
 
+from agent_core.context.visible_result_refs import visible_result_scope_key
+
 REFERENCE_EXPRESSION_VERSION = "reference-expression@1"
 REFERENT_RESOLUTION_PROOF_VERSION = "referent-resolution-proof@1"
 
@@ -362,6 +364,11 @@ def resolve_reference_expression(
             row for row in type_filtered if _cardinality_matches(row, expected)
         ]
 
+    equivalent_groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
+    for row in cardinality_filtered:
+        equivalent_groups.setdefault(visible_result_scope_key(row), []).append(row)
+    distinct_candidate_groups = list(equivalent_groups.values())
+
     status = "NOT_FOUND"
     resolved_result_ref: str | None = None
     resolved_members: list[str] = []
@@ -370,8 +377,17 @@ def resolve_reference_expression(
         status = "TYPE_CONFLICT"
     elif type_filtered and not cardinality_filtered:
         status = "CARDINALITY_CONFLICT"
-    elif len(cardinality_filtered) == 1:
-        selected = cardinality_filtered[0]
+    elif len(distinct_candidate_groups) == 1:
+        equivalent = distinct_candidate_groups[0]
+        preferred_shape = (
+            "one" if expected == "single"
+            else "collection" if expected == "collection"
+            else ""
+        )
+        selected = next(
+            (row for row in equivalent if str(row.get("shape") or "") == preferred_shape),
+            equivalent[0],
+        )
         members = [
             str(value)
             for value in list(
@@ -399,7 +415,7 @@ def resolve_reference_expression(
             status = "UNIQUE"
             resolved_result_ref = str(selected.get("result_ref") or "")
             resolved_members = members
-    elif len(cardinality_filtered) > 1:
+    elif len(distinct_candidate_groups) > 1:
         status = "AMBIGUOUS"
 
     payload: dict[str, Any] = {
@@ -411,7 +427,9 @@ def resolve_reference_expression(
         "resolved_member_handles": resolved_members,
         "resolved_position": resolved_position,
         "auto_substitution_used": False,
-        "selection_policy": "typed_relation_then_runtime_validation_no_fallback",
+        "equivalent_candidate_scope_count": len(distinct_candidate_groups),
+        "equivalent_aliases_collapsed": sum(max(0, len(group) - 1) for group in distinct_candidate_groups),
+        "selection_policy": "typed_relation_then_semantic_scope_equivalence_then_runtime_validation_no_fallback",
     }
     payload["proof_digest"] = _digest(payload)
     return payload

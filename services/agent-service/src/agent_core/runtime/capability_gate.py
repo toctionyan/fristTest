@@ -33,7 +33,11 @@ from agent_core.runtime.capability_effects import (
 )
 from agent_core.kernel.semantic_contract import semantic_goals
 from agent_core.kernel.semantic_contract import prove_goal_target_compatibility
-from agent_core.context.visible_result_refs import validate_runtime_result_ref, visible_result_refs_from_ledger
+from agent_core.context.visible_result_refs import (
+    validate_runtime_result_ref,
+    visible_result_refs_from_ledger,
+    visible_result_scope_key,
+)
 
 
 CAPABILITY_REGISTRY_VERSION = "customer-agent-capability-gate@3.8"
@@ -668,15 +672,22 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
         state=state,
         limit=12,
     )
+    latest_refs = [
+        ref for ref in visible_refs
+        if bool(ref.get("is_latest_visible_turn")) and str(ref.get("result_ref") or "")
+    ]
     latest_handles = {
         str(ref.get("result_ref") or "")
-        for ref in visible_refs
-        if bool(ref.get("is_latest_visible_turn")) and str(ref.get("result_ref") or "")
+        for ref in latest_refs
+    }
+    latest_scopes = {
+        visible_result_scope_key(ref)
+        for ref in latest_refs
+        if visible_result_scope_key(ref) != ("empty", ())
     }
     latest_member_handles = {
         str(member)
-        for ref in visible_refs
-        if bool(ref.get("is_latest_visible_turn"))
+        for ref in latest_refs
         for member in list(ref.get("member_handles") or [])
         if str(member)
     }
@@ -750,7 +761,7 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
 
     selected_latest_handles = selected_visible_handles.intersection(latest_handles)
     if (
-        len(latest_handles) > 1
+        len(latest_scopes) > 1
         and (mode in {"collection", "artifact"} or (mode == "pipeline" and str(target.get("source_kind") or "") == "collection"))
         and len(selected_latest_handles) == 1
         and binding_kind != "explicit_return"
@@ -840,7 +851,9 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
             "source_span": binding_span or None,
             "group_size": binding_group_size or None,
             "latest_visible_result_count": len(latest_handles),
-            "latest_visible_scope_ambiguous": len(latest_handles) > 1,
+            "latest_visible_scope_count": len(latest_scopes),
+            "latest_visible_equivalent_alias_count": max(0, len(latest_handles) - len(latest_scopes)),
+            "latest_visible_scope_ambiguous": len(latest_scopes) > 1,
             "group_source_span": group_source_span if explicit_group_binding else None,
             "explicit_group_binding_complete": explicit_group_binding,
         },

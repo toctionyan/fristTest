@@ -31,8 +31,8 @@ class Attempt5RepairTests(unittest.TestCase):
         user_text = "查一下鼠标物流，再告诉我快递员手机号"
         goals = [{"goal_id": "g1", "evidence_span": "查一下鼠标物流"}, {"goal_id": "g2", "evidence_span": "快递员手机号"}]
         responses = [
-            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "告诉我快递员手机号", "快递员手机号"], "reason_code": "first_inventory"}, ensure_ascii=False)), {}),
-            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "reason_code": "self_audited_inventory"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "告诉我快递员手机号", "快递员手机号"], "dependency_edges": [], "reason_code": "first_inventory"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "dependency_edges": [], "reason_code": "self_audited_inventory"}, ensure_ascii=False)), {}),
         ]
         with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=responses) as invoke:
             verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
@@ -48,7 +48,7 @@ class Attempt5RepairTests(unittest.TestCase):
         from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
         user_text = "查一下鼠标物流，再告诉我快递员手机号"
         goals = [{"goal_id": "g1", "evidence_span": "查一下鼠标物流"}]
-        response = SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "reason_code": "two_independent_outcomes"}, ensure_ascii=False))
+        response = SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["查一下鼠标物流", "快递员手机号"], "dependency_edges": [], "reason_code": "two_independent_outcomes"}, ensure_ascii=False))
         with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=[(response, {}), (response, {})]) as invoke:
             verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
         self.assertEqual(verdict.verdict, "under_split")
@@ -60,8 +60,8 @@ class Attempt5RepairTests(unittest.TestCase):
     def test_granularity_clarify_gets_one_decomposition_scope_self_audit(self) -> None:
         from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
         responses = [
-            (SimpleNamespace(content=json.dumps({"verdict": "clarify", "outcome_spans": [], "reason_code": "status_filter_scope"}, ensure_ascii=False)), {}),
-            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["哪些还在路上"], "reason_code": "one_query_outcome"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "clarify", "outcome_spans": [], "dependency_edges": [], "reason_code": "status_filter_scope"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "outcome_spans": ["哪些还在路上"], "dependency_edges": [], "reason_code": "one_query_outcome"}, ensure_ascii=False)), {}),
         ]
         with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=responses) as invoke:
             verdict = ModelGoalGranularityVerifier().verify(user_text="哪些还在路上？", goals=[{"goal_id": "g1", "evidence_span": "哪些还在路上"}])
