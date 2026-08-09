@@ -3,8 +3,6 @@ name: wp08-attempt6-final-quick-contract-correction
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - '.github/workflows/wp08-attempt6-final-quick-contract-correction.yml'
 
 permissions:
   contents: write
