@@ -216,6 +216,18 @@ def execute_agent_loop_calls_node(
                     args=args,
                     capability_registry=capability_registry,
                 )
+                result_data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else {}
+                granularity_proof = result_data.get("granularity_proof") if isinstance(result_data.get("granularity_proof"), dict) else {}
+                granularity_details = granularity_proof.get("details") if isinstance(granularity_proof.get("details"), dict) else {}
+                inventory_authority = granularity_details.get("inventory_authority")
+                if isinstance(inventory_authority, dict):
+                    # Freeze the final candidate-blind authority that produced
+                    # this ToolMessage. _build_loop_plan preserves prior plan
+                    # metadata across the bounded declaration-repair loop.
+                    plan = {
+                        **dict(plan),
+                        "goal_granularity_inventory_authority": deepcopy(inventory_authority),
+                    }
                 if declared is not None:
                     declaration_projection = deepcopy(declared)
                     candidate_contract = declaration_projection.pop("_frozen_semantic_contract", None)

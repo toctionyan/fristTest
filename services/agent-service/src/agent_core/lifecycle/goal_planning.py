@@ -247,6 +247,7 @@ class ModelGoalAlignmentVerifier:
             "depends_on is semantic result dependency, not sentence order: require it only when the later goal's target, input, condition, or independently acceptable completion must use the earlier current-turn goal's result",
             "a later goal that refers to the not-yet-produced earlier result with it/this/that/其中/这个/该结果, or is explicitly conditional on that result, must declare depends_on that earlier goal",
             "and/then/next/also/再/然后/另外 or merely sharing the same business object/topic does not by itself create depends_on; independently acceptable sibling outcomes must keep depends_on empty",
+            "when a later outcome omits its target but an earlier phrase in the same current user turn already names the reusable business object or scope, inherit that stated scope as ellipsis; that shared scope is not a dependency on the earlier Goal result by itself",
             "unsupported or open effects obey the same semantic dependency rule: capability absence never creates a dependency and must not make an otherwise independent unsupported request depend on a supported sibling",
             "a declaration is not exact when it adds a dependency that the user did not express, because that would incorrectly block an independently reportable goal behind another goal",
             "depends_on links only goals declared in this same current turn; never require a dependency on a goal from an earlier turn",

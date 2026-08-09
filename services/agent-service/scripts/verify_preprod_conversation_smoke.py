@@ -184,11 +184,19 @@ def _match_oracle(
 
 
 def _production_goal_declaration_evaluation(
-    *, user_text: str, goals: list[dict[str, Any]]
+    *,
+    user_text: str,
+    goals: list[dict[str, Any]],
+    inventory_authority: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Evaluate a declaration through the exact production Runtime contract."""
+    """Evaluate through production Runtime, preserving turn-scoped blind authority."""
+    state: dict[str, Any] = {"current_user_input": user_text}
+    if isinstance(inventory_authority, dict):
+        state["current_turn_plan"] = {
+            "goal_granularity_inventory_authority": dict(inventory_authority),
+        }
     return validate_goal_declaration(
-        state={"current_user_input": user_text},
+        state=state,
         args={"goals": goals},
         capability_registry=get_runtime_registry().capabilities,
     )
@@ -216,6 +224,16 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
             "declared_goal_count": details.get("declared_goal_count"),
             "matched_outcome_count": details.get("matched_outcome_count"),
             "outcome_spans": [str(value) for value in list(details.get("outcome_spans") or []) if str(value)][:8],
+            "dependency_edges": [
+                {
+                    "dependent_span": str(row.get("dependent_span") or ""),
+                    "requires_result_of_span": str(row.get("requires_result_of_span") or ""),
+                }
+                for row in list(details.get("dependency_edges") or [])
+                if isinstance(row, dict)
+            ][:8],
+            "dependency_graph_match": details.get("dependency_graph_match"),
+            "inventory_authority_reused": bool(details.get("inventory_authority_reused")),
             "blind_self_audit_attempted": bool(details.get("blind_self_audit_attempted")),
         }
     feedback = data.get("independent_verifier_feedback") if isinstance(data.get("independent_verifier_feedback"), dict) else None
@@ -223,6 +241,14 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
         diagnostic["independent_verifier_feedback"] = {
             "authority": str(feedback.get("authority") or ""),
             "uncovered_outcome_spans": [str(value) for value in list(feedback.get("uncovered_outcome_spans") or []) if str(value)][:8],
+            "dependency_edges": [
+                {
+                    "dependent_span": str(row.get("dependent_span") or ""),
+                    "requires_result_of_span": str(row.get("requires_result_of_span") or ""),
+                }
+                for row in list(feedback.get("dependency_edges") or [])
+                if isinstance(row, dict)
+            ][:8],
         }
     return diagnostic
 
@@ -235,11 +261,16 @@ class _ProductionGoalDeclarationRejected(RuntimeError):
 
 
 def _validate_with_production_goal_contract(
-    *, case_id: str, user_text: str, goals: list[dict[str, Any]]
+    *,
+    case_id: str,
+    user_text: str,
+    goals: list[dict[str, Any]],
+    inventory_authority: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result, declared = _production_goal_declaration_evaluation(
         user_text=user_text,
         goals=goals,
+        inventory_authority=inventory_authority,
     )
     if not result.get("ok") or declared is None:
         raise _ProductionGoalDeclarationRejected(case_id=case_id, result=result)
@@ -265,6 +296,7 @@ def _declare_with_bounded_production_repair(
     """
     messages: list[Any] = [system, HumanMessage(content=user_text)]
     last_result: dict[str, Any] | None = None
+    inventory_authority: dict[str, Any] | None = None
     for attempt in range(1, 3):
         response, trace = invoke_model(
             purpose=f"preprod_semantic_goal:{case_id}:attempt{attempt}",
@@ -284,6 +316,7 @@ def _declare_with_bounded_production_repair(
                 case_id=case_id,
                 user_text=user_text,
                 goals=goals,
+                inventory_authority=inventory_authority,
             )
             return goals, declared, {"trace": trace, "attestation": attestation}, attempt
         except RuntimeError as exc:
@@ -291,6 +324,12 @@ def _declare_with_bounded_production_repair(
                 raise
             result = exc.result
             last_result = result
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            granularity = data.get("granularity_proof") if isinstance(data.get("granularity_proof"), dict) else {}
+            details = granularity.get("details") if isinstance(granularity.get("details"), dict) else {}
+            candidate_authority = details.get("inventory_authority")
+            if isinstance(candidate_authority, dict):
+                inventory_authority = dict(candidate_authority)
         if attempt >= 2:
             break
         tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
