@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 90
     env:
       BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
-      FORMAL_BRANCH: agent/wp08-new-release-attempt6-root-fixes-20260809
+      FORMAL_BRANCH: agent/wp08-new-release-attempt6-root-fixes-v2-20260809
     steps:
       - name: Checkout carrier helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
