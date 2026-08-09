@@ -194,6 +194,39 @@ def _production_goal_declaration_evaluation(
     )
 
 
+def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[str, Any]:
+    payload = result if isinstance(result, dict) else {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    diagnostic: dict[str, Any] = {"code": str(payload.get("code") or "")}
+    alignment = data.get("alignment_proof") if isinstance(data.get("alignment_proof"), dict) else None
+    if alignment is not None:
+        diagnostic["alignment"] = {
+            "verdict": str(alignment.get("verdict") or ""),
+            "reason_code": str(alignment.get("reason_code") or ""),
+            "source": str(alignment.get("source") or ""),
+            "independent": bool(alignment.get("independent")),
+        }
+    granularity = data.get("granularity_proof") if isinstance(data.get("granularity_proof"), dict) else None
+    if granularity is not None:
+        details = granularity.get("details") if isinstance(granularity.get("details"), dict) else {}
+        diagnostic["granularity"] = {
+            "verdict": str(granularity.get("verdict") or ""),
+            "reason_code": str(granularity.get("reason_code") or ""),
+            "inventory_outcome_count": details.get("inventory_outcome_count"),
+            "declared_goal_count": details.get("declared_goal_count"),
+            "matched_outcome_count": details.get("matched_outcome_count"),
+            "outcome_spans": [str(value) for value in list(details.get("outcome_spans") or []) if str(value)][:8],
+            "blind_self_audit_attempted": bool(details.get("blind_self_audit_attempted")),
+        }
+    feedback = data.get("independent_verifier_feedback") if isinstance(data.get("independent_verifier_feedback"), dict) else None
+    if feedback is not None:
+        diagnostic["independent_verifier_feedback"] = {
+            "authority": str(feedback.get("authority") or ""),
+            "uncovered_outcome_spans": [str(value) for value in list(feedback.get("uncovered_outcome_spans") or []) if str(value)][:8],
+        }
+    return diagnostic
+
+
 class _ProductionGoalDeclarationRejected(RuntimeError):
     def __init__(self, *, case_id: str, result: dict[str, Any]):
         self.result = result
@@ -224,11 +257,11 @@ def _declare_with_bounded_production_repair(
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], int]:
     """Return the first declaration that production validators can freeze.
 
-    The repair message contains no oracle count, expected effect identity or
-    expected span. It mirrors the production rule: a rejected declaration is
+    The repair message contains no oracle-derived count, expected effect identity,
+    span or dependency. It mirrors the production rule: a rejected declaration is
     not frozen and the model must re-read the same user turn, preserving every
-    independently completable effect, including open effects with no exact
-    registered capability.
+    independently completable effect. Candidate-blind verifier feedback may expose
+    its own grounded uncovered literal spans, but never an oracle/tool/capability answer.
     """
     messages: list[Any] = [system, HumanMessage(content=user_text)]
     last_result: dict[str, Any] | None = None
@@ -263,9 +296,9 @@ def _declare_with_bounded_production_repair(
         tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
         # Production execute_agent_loop_calls_node returns this exact Runtime
         # result as the ToolMessage. Keep certification behavior identical:
-        # the model may see the deterministic rejection code, validation
-        # errors, current_user_input and repair_contract, but no oracle count,
-        # expected effect identity, expected span or expected dependency.
+        # the model may see the deterministic rejection code, validation errors,
+        # current_user_input, repair_contract and candidate-blind verifier feedback,
+        # but no oracle-derived count/effect/span/dependency or capability answer.
         messages = [
             system,
             HumanMessage(content=user_text),
@@ -277,9 +310,11 @@ def _declare_with_bounded_production_repair(
             ),
         ]
     errors = ((last_result or {}).get("data") or {}).get("errors") or [(last_result or {}).get("code")]
+    diagnostic = _sanitized_goal_rejection_diagnostic(last_result)
     raise RuntimeError(
         f"{case_id}: bounded production declaration repair exhausted: "
-        f"{case_id}: production goal declaration rejected model output: {errors}"
+        f"{case_id}: production goal declaration rejected model output: {errors}; "
+        f"verifier_diagnostic={json.dumps(diagnostic, ensure_ascii=False, sort_keys=True)}"
     )
 
 def _identity_failure_reason(exc: RealModelCertificationError) -> str:
