@@ -1,0 +1,163 @@
+name: wp08-post-attempt8-repair-publisher-v5
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  bind-baseline-and-publish-v5:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-post-attempt8-repair-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      BASE_SHA: 734e767b0510da51d040acf5ddd8e6bbbe794afb
+      PRODUCT_HEAD: 73e3ee0d796ae8c21a17cfa713517aca4c33eef0
+      FORMAL_BRANCH: agent/wp08-post-attempt8-semantic-trace-repair-20260809
+    steps:
+      - name: Checkout exact formal product candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.PRODUCT_HEAD }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact authority and install both locked Python environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$PRODUCT_HEAD"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$PRODUCT_HEAD"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
+
+      - name: Regenerate protected source baseline from exact product commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('candidate').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in baseline['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          old = {str(key): str(value) for key, value in baseline['files'].items()}
+          expected = {
+              'services/agent-service/scripts/verify_preprod_conversation_smoke.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py',
+              'services/agent-service/src/agent_core/persistence/trace_store.py',
+              'services/agent-service/src/agent_core/runtime/capability_effects.py',
+              'services/agent-service/src/agent_core/storage/repositories/base.py',
+          }
+          changed = {path for path in set(current) | set(old) if current.get(path) != old.get(path)}
+          if changed != expected:
+              raise SystemExit('unexpected_protected_delta:' + json.dumps({
+                  'expected': sorted(expected), 'actual': sorted(changed)
+              }, sort_keys=True))
+          if len(old) != len(current):
+              raise SystemExit(f'unexpected_protected_file_count:old={len(old)}:current={len(current)}')
+          prior_release = baseline.get('source_release_sha256')
+          product_head = os.environ['PRODUCT_HEAD']
+          baseline['generated_from'] = 'git:' + product_head
+          baseline['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['file_count'] = len(current)
+          baseline['files'] = dict(sorted(current.items()))
+          if baseline.get('source_release_sha256') != prior_release:
+              raise SystemExit('source_release_sha256_changed')
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          report = {
+              'status': 'WP08_POST_ATTEMPT8_BASELINE_GENERATED',
+              'base_sha': os.environ['BASE_SHA'],
+              'product_head': product_head,
+              'protected_file_count': len(current),
+              'changed_protected_paths': sorted(changed),
+              'changed_sha256': {path: current[path] for path in sorted(changed)},
+              'source_release_sha256_preserved': prior_release,
+              'baseline_sha256': hashlib.sha256(baseline_path.read_bytes()).hexdigest(),
+          }
+          (root / 'wp08-post-attempt8-baseline-report.json').write_text(
+              json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-post-attempt8-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-post-attempt8-skill-control-plane.json
+
+      - name: Prove exact nine-file final delta and publish baseline-bound candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          cat > /tmp/expected-final.txt <<'EOF'
+          scripts/verify_product_browser_journey.py
+          services/agent-service/scripts/verify_preprod_conversation_smoke.py
+          services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+          services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py
+          services/agent-service/src/agent_core/persistence/trace_store.py
+          services/agent-service/src/agent_core/runtime/capability_effects.py
+          services/agent-service/src/agent_core/storage/repositories/base.py
+          skill-system/registry/product-source-baseline.json
+          skill-system/tests/test_wp08_post_attempt8_repair.py
+          EOF
+          sort -o /tmp/expected-final.txt /tmp/expected-final.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final.txt
+          diff -u /tmp/expected-final.txt /tmp/actual-final.txt
+          git diff --check "$BASE_SHA" --
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$PRODUCT_HEAD"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Bind post-attempt8 repair protected source baseline'
+          test "$(git rev-parse HEAD^)" = "$PRODUCT_HEAD"
+          git push --force-with-lease=refs/heads/${FORMAL_BRANCH}:${PRODUCT_HEAD} origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD | tee wp08-post-attempt8-baseline-bound-head.txt
+
+      - name: Upload governed baseline evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-post-attempt8-baseline-validation-v5
+          path: |
+            candidate/wp08-post-attempt8-baseline-report.json
+            candidate/wp08-post-attempt8-project-compatibility.json
+            candidate/wp08-post-attempt8-skill-control-plane.json
+            candidate/wp08-post-attempt8-baseline-bound-head.txt
+          if-no-files-found: warn
+          retention-days: 90
