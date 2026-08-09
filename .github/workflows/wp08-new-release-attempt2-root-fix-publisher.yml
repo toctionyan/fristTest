@@ -41,11 +41,15 @@ jobs:
           test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           test -z "$(git ls-remote origin refs/heads/$FORMAL_BRANCH)"
           cp .github/wp08-new-release-attempt2-root-fixes.py "${RUNNER_TEMP}/apply.py"
+          cp .github/wp08-new-release-attempt2-test-fixture-fix.py "${RUNNER_TEMP}/fix-test-fixture.py"
           git checkout --detach "$BASE_SHA"
           mkdir -p .github
           cp "${RUNNER_TEMP}/apply.py" .github/apply.py
           python .github/apply.py
           rm .github/apply.py
+          cp "${RUNNER_TEMP}/fix-test-fixture.py" .github/fix-test-fixture.py
+          python .github/fix-test-fixture.py
+          rm .github/fix-test-fixture.py
           git add -N skill-system/tests/test_wp08_new_release_attempt2_root_fixes.py
           printf '%s\n' \
             services/agent-service/src/agent_core/context/reference_resolution.py \
