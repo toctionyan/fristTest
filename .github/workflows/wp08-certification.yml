@@ -2,16 +2,6 @@ name: wp08-full-stack-certification
 
 "on":
   workflow_dispatch:
-    inputs:
-      resume_run_id:
-        description: "Completed WP-08 run ID to resume from; must match the same candidate SHA"
-        required: false
-        type: string
-      resume_run_attempt:
-        description: "GitHub run attempt for the checkpoint artifact"
-        required: false
-        default: "1"
-        type: string
 
 permissions:
   contents: read
@@ -27,9 +17,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment: production-certification
-    env:
-      WP08_RESUME_RUN_ID_RESOLVED: ${{ inputs.resume_run_id || vars.WP08_RESUME_RUN_ID }}
-      WP08_RESUME_RUN_ATTEMPT_RESOLVED: ${{ inputs.resume_run_attempt || vars.WP08_RESUME_RUN_ATTEMPT || '1' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -230,18 +217,18 @@ jobs:
                   handle.write(f"{key}={value}\n")
           PY
       - name: Download previous WP-08 checkpoint
-        if: ${{ env.WP08_RESUME_RUN_ID_RESOLVED != '' }}
+        if: ${{ vars.WP08_RESUME_RUN_ID != '' }}
         id: download-resume
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: wp08-full-stack-certification-${{ env.WP08_RESUME_RUN_ID_RESOLVED }}-${{ env.WP08_RESUME_RUN_ATTEMPT_RESOLVED }}
+          name: wp08-full-stack-certification-${{ vars.WP08_RESUME_RUN_ID }}-${{ vars.WP08_RESUME_RUN_ATTEMPT || '1' }}
           path: ${{ runner.temp }}/wp08-resume
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ env.WP08_RESUME_RUN_ID_RESOLVED }}
+          run-id: ${{ vars.WP08_RESUME_RUN_ID }}
       - name: Validate and restore previous WP-08 checkpoint
-        if: ${{ env.WP08_RESUME_RUN_ID_RESOLVED != '' }}
+        if: ${{ vars.WP08_RESUME_RUN_ID != '' }}
         env:
           RESUME_ARTIFACT_ROOT: ${{ runner.temp }}/wp08-resume
           RESUME_EVIDENCE_DIR: ${{ runner.temp }}/wp08-certification-evidence
@@ -253,8 +240,8 @@ jobs:
           --artifact-root "$RESUME_ARTIFACT_ROOT"
           --target-evidence-dir "$RESUME_EVIDENCE_DIR"
           --target-state-file "$RESUME_STATE_FILE"
-          --expected-run-id "$WP08_RESUME_RUN_ID_RESOLVED"
-          --expected-run-attempt "$WP08_RESUME_RUN_ATTEMPT_RESOLVED"
+          --expected-run-id "${{ vars.WP08_RESUME_RUN_ID }}"
+          --expected-run-attempt "${{ vars.WP08_RESUME_RUN_ATTEMPT || '1' }}"
           --expected-repository "$GITHUB_REPOSITORY"
           --expected-commit-sha "$GITHUB_SHA"
           --output "$RESUME_PROVENANCE"
@@ -265,7 +252,7 @@ jobs:
           QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
           WP08_EVIDENCE_DIR: ${{ runner.temp }}/wp08-certification-evidence
           WP08_STATE_FILE: ${{ runner.temp }}/wp08-certification-state/wp08-state.json
-          WP08_RESUME_REQUESTED: ${{ env.WP08_RESUME_RUN_ID_RESOLVED != '' && '1' || '0' }}
+          WP08_RESUME_REQUESTED: ${{ vars.WP08_RESUME_RUN_ID != '' && '1' || '0' }}
         run: |
           RESUME_ARGS=()
           if [[ "$WP08_RESUME_REQUESTED" == "1" ]]; then
