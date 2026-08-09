@@ -108,6 +108,7 @@ jobs:
           git diff --cached --check
           git commit -m 'Gate provider runtime recovery before next WP-08 attempt'
           git rev-parse HEAD | tee ../wp08-attempt6-product-head.txt
+          cp .github/workflows/wp08-certification.yml ../wp08-certification-validated.yml
 
       - name: Validate project compatibility and full Skill control plane
         shell: bash
@@ -117,7 +118,7 @@ jobs:
           services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-project-compatibility.json
           services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-skill-control-plane.json
 
-      - name: Prove exact final delta and publish formal repair branch
+      - name: Prove exact seven-file validation delta then stage six-file formal branch
         shell: bash
         run: |
           set -euo pipefail
@@ -129,26 +130,40 @@ jobs:
             scripts/wp08_release_github.py \
             scripts/wp08_release_recovery.py \
             scripts/wp08_release_state.py \
-            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py | sort > /tmp/expected-final.txt
-          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final.txt
-          diff -u /tmp/expected-final.txt /tmp/actual-final.txt
+            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py | sort > /tmp/expected-validated.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-validated.txt
+          diff -u /tmp/expected-validated.txt /tmp/actual-validated.txt
           git diff --check "$BASE_SHA" --
           test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           test -z "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          git checkout "$BASE_SHA" -- .github/workflows/wp08-certification.yml
+          git add .github/workflows/wp08-certification.yml
+          git diff --cached --check
+          git commit -m 'Stage non-workflow portion of attempt6 repair for connector publish'
+          printf '%s\n' \
+            scripts/verify_product_browser_journey.py \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_github.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_state.py \
+            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py | sort > /tmp/expected-staging.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-staging.txt
+          diff -u /tmp/expected-staging.txt /tmp/actual-staging.txt
+          git diff --check "$BASE_SHA" --
           git push origin HEAD:refs/heads/$FORMAL_BRANCH
-          git rev-parse HEAD | tee ../wp08-attempt6-final-head.txt
+          git rev-parse HEAD | tee ../wp08-attempt6-staging-head.txt
 
-      - name: Upload governed validation evidence and exact source export
+      - name: Upload governed validation evidence and exact workflow export
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: wp08-new-release-attempt6-repair-validation
           path: |
             wp08-attempt6-product-head.txt
-            wp08-attempt6-final-head.txt
+            wp08-attempt6-staging-head.txt
+            wp08-certification-validated.yml
             candidate/wp08-attempt6-project-compatibility.json
             candidate/wp08-attempt6-skill-control-plane.json
-            candidate/.github/workflows/wp08-certification.yml
             candidate/scripts/verify_product_browser_journey.py
             candidate/scripts/wp08_release_coordinator.py
             candidate/scripts/wp08_release_github.py
