@@ -16,7 +16,6 @@ jobs:
     env:
       BASE_SHA: d55ce8147c96155021fcab084ece854f0d1520ce
       FORMAL_BRANCH: agent/wp08-new-release-attempt1-semantic-observability-repair-20260809
-      PYTHONPATH: ${{ github.workspace }}/candidate/services/agent-service:${{ github.workspace }}/candidate/services/agent-service/src
     steps:
       - name: Checkout carrier helpers
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -63,9 +62,11 @@ jobs:
           set -euo pipefail
           cd candidate
           services/agent-service/.venv/bin/python -m pytest -q \
-            skill-system/tests/test_wp08_new_release_attempt1_repair.py \
-            services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
-            services/agent-service/tests/runtime/test_global_goal_capability_coverage.py
+            skill-system/tests/test_wp08_new_release_attempt1_repair.py
+          cd services/agent-service
+          .venv/bin/python -m pytest -q \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_global_goal_capability_coverage.py
 
       - name: Run native standard Python suites
         shell: bash
