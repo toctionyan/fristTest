@@ -89,8 +89,9 @@ def test_deepseek_v4_profile_uses_provider_adapter_without_tool_choice(monkeypat
     monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
     profile = agent_config.get_model_profile()
     assert profile["provider"] == "deepseek"
+    assert profile["thinking_mode"] == "disabled"
     assert profile["tool_choice_supported"] is False
-    assert profile["reasoning_content_required_for_tool_calls"] is True
+    assert profile["reasoning_content_required_for_tool_calls"] is False
 
 
 def test_get_model_uses_chatdeepseek_for_official_deepseek_v4(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,11 +99,19 @@ def test_get_model_uses_chatdeepseek_for_official_deepseek_v4(monkeypatch: pytes
     monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
     monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
+    # Do not inherit timeout/retry overrides from unrelated standard-suite tests.
+    # This provider-construction test proves the exact governed control-plane envelope.
+    monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "25")
+    monkeypatch.setenv("MODEL_MAX_RETRIES", "1")
     agent_config.get_model.cache_clear()
     try:
         model = agent_config.get_model()
         assert model.__class__.__module__.startswith("langchain_deepseek")
         assert str(getattr(model, "model_name", "")) == "deepseek-v4-flash"
+        assert getattr(model, "extra_body", None) == {"thinking": {"type": "disabled"}}
+        settings = agent_config.get_model_settings()
+        assert settings["timeout_seconds"] == 25.0
+        assert settings["max_retries"] == 1
     finally:
         agent_config.get_model.cache_clear()
 

@@ -116,6 +116,12 @@ def _provider_response(model: str = "gpt-4o-mini-2024-07-18"):
 
 
 def _patch_successful_semantic_runtime(monkeypatch, script, tmp_path: Path, *, invoke):
+    # A successful semantic-certification fixture must exercise the same protected
+    # independent-verifier authority now required by the live bundle. This keeps
+    # the provider-attestation test focused without reintroducing candidate-only mode.
+    monkeypatch.setenv("APP_PROFILE", "preprod")
+    monkeypatch.setenv("GOAL_ALIGNMENT_VERIFIER_MODE", "model")
+    monkeypatch.setenv("GOAL_GRANULARITY_VERIFIER_MODE", "model")
     catalog = tmp_path / "catalog.json"
     catalog.write_text(json.dumps(_catalog(), ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(script, "CATALOG", catalog)

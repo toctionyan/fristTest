@@ -38,6 +38,12 @@ _STARTED_ENV = "REAL_MODEL_CERTIFICATION_SESSION_STARTED_AT"
 _COMPONENT_ENV = "REAL_MODEL_CERTIFICATION_COMPONENT"
 _SESSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{15,127}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_PROTECTED_VERIFIER_MODES = {
+    "CAPABILITY_SEMANTIC_VERIFIER_MODE": "model",
+    "GOAL_ALIGNMENT_VERIFIER_MODE": "model",
+    "GOAL_GRANULARITY_VERIFIER_MODE": "model",
+    "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model",
+}
 
 
 class RealModelBundleError(RuntimeError):
@@ -492,6 +498,11 @@ def run_certification_bundle(
     for component in _REQUIRED_COMPONENTS:
         component_env = dict(source)
         component_env.update({
+            # Real-model certification must exercise the same independent-verifier
+            # authority as protected Runtime.  Without an explicit protected profile,
+            # resolve_verifier_mode(auto) degrades to candidate-only local evidence.
+            "APP_PROFILE": "preprod",
+            **_PROTECTED_VERIFIER_MODES,
             _SESSION_ENV: session_id,
             _WORKSPACE_ENV: fingerprint,
             _STARTED_ENV: _iso(started_at),

@@ -232,6 +232,7 @@ class ProductRuntimeHarness:
                 "CONVERSATION_LOCK_TTL_SECONDS": "300",
                 "CAPABILITY_SEMANTIC_VERIFIER_MODE": "model",
                 "GOAL_ALIGNMENT_VERIFIER_MODE": "model",
+                "GOAL_GRANULARITY_VERIFIER_MODE": "model",
                 "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE": "model",
             })
             for retired in (
@@ -295,6 +296,7 @@ class ProductRuntimeHarness:
             for name in (
                 "CAPABILITY_SEMANTIC_VERIFIER_MODE",
                 "GOAL_ALIGNMENT_VERIFIER_MODE",
+                "GOAL_GRANULARITY_VERIFIER_MODE",
                 "ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE",
             )
         }

@@ -42,7 +42,10 @@ class Attempt3RepairTests(unittest.TestCase):
         self.assertNotIn("goal_oracle", helper)
         self.assertNotIn("_match_oracle", helper)
         self.assertIn("不能删除系统没有精确能力的分支", helper)
-        self.assertIn('model_call_scope(max_calls=48', source)
+        # Protected certification now executes declaration + independent alignment
+        # + independent candidate-blind granularity, with at most one repair attempt.
+        self.assertIn('model_call_scope(max_calls=72', source)
+        self.assertIn('"GOAL_GRANULARITY_VERIFIER_MODE"', source)
 
     def test_independent_oracle_still_runs_after_production_freeze(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
