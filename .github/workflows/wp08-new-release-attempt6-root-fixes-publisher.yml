@@ -1,0 +1,101 @@
+name: wp08-new-release-attempt6-root-fixes-publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-stage1:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-new-release-attempt6-root-fixes-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BASE_SHA: ff973cb1b6d6089953ab842683351ed1ab5772a8
+      FORMAL_BRANCH: agent/wp08-new-release-attempt6-root-fixes-20260809
+    steps:
+      - name: Checkout carrier helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: carrier
+          fetch-depth: 1
+
+      - name: Checkout exact failed candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact stage-1 authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+
+      - name: Apply the two attempt-6 root fixes and focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt6-dependency-root-fix.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt6-visible-scope-root-fix.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-attempt6-root-fix-tests.py
+          git -C candidate diff --check
+
+      - name: Stage-1 syntax and exact-delta gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m py_compile \
+            candidate/services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            candidate/services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            candidate/services/agent-service/src/agent_core/context/visible_result_refs.py \
+            candidate/services/agent-service/src/agent_core/context/reference_resolution.py \
+            candidate/services/agent-service/src/agent_core/runtime/capability_gate.py \
+            candidate/skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py
+          cd candidate
+          git add -N skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py
+          printf '%s\n' \
+            services/agent-service/src/agent_core/context/reference_resolution.py \
+            services/agent-service/src/agent_core/context/visible_result_refs.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-stage1.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-stage1.txt
+          diff -u /tmp/expected-stage1.txt /tmp/actual-stage1.txt
+          git diff --check "$BASE_SHA" --
+
+      - name: Publish formal stage-1 repair branch without consuming Attempt 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/context/reference_resolution.py \
+            services/agent-service/src/agent_core/context/visible_result_refs.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py
+          git diff --cached --check
+          git commit -m 'Repair attempt 6 dependency and visible-scope root causes'
+          git push origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD
