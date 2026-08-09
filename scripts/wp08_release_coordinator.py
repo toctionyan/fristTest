@@ -37,6 +37,7 @@ from wp08_release_state import (  # noqa: E402
     RETRYABLE_WORKFLOW_CONCLUSIONS,
     ReleaseStateError,
     STATUS_ATTEMPT_BUDGET_EXHAUSTED,
+    STATUS_AWAITING_ENVIRONMENT_RUNTIME,
     STATUS_CERTIFYING,
     STATUS_FAILED_NEEDS_CLASSIFICATION,
     STATUS_MAIN_QUALITY_FAILED,
@@ -45,6 +46,7 @@ from wp08_release_state import (  # noqa: E402
     STATUS_WP08_PASS,
     append_history,
     new_state,
+    parse_repair_environment_gate,
     parse_repair_markers,
     positive_int,
     release_id,
@@ -90,6 +92,7 @@ def _dispatch(
         "status": STATUS_CERTIFYING,
         "attempt": current["attempt"] + 1,
         "current_wp08_run_id": run_id,
+        "environment_runtime": None,
         "updated_at": utc_now(),
         "history": _history(
             current,
@@ -115,6 +118,46 @@ def _quality_pass_exists(api: GitHubAPI, candidate_sha: str) -> bool:
     return False
 
 
+
+def _after_quality_success(
+    api: GitHubAPI,
+    issue_number: int,
+    state: Mapping[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    current = validate_state(state)
+    repair = current.get("repair_pr") if isinstance(current.get("repair_pr"), Mapping) else {}
+    if str(repair.get("post_quality_gate") or "") == "environment_runtime":
+        source_run_id = positive_int(repair.get("parent_wp08_run_id"), name="repair parent run")
+        source_candidate_sha = sha40(
+            repair.get("parent_candidate_sha"),
+            name="repair parent candidate SHA",
+        )
+        gated = {
+            **current,
+            "status": STATUS_AWAITING_ENVIRONMENT_RUNTIME,
+            "failure_signature": "environment_runtime:awaiting_provider_recovery_after_repair",
+            "environment_runtime": {
+                "source_wp08_run_id": source_run_id,
+                "source_candidate_sha": source_candidate_sha,
+                "resume_checkpoint": False,
+                "reason": "configured_model_provider_unavailable",
+            },
+            "updated_at": utc_now(),
+            "history": _history(
+                current,
+                event="repair_quality_passed_awaiting_environment_runtime",
+                reason=reason,
+                source_wp08_run_id=source_run_id,
+                source_candidate_sha=source_candidate_sha,
+                candidate_sha=current["current_candidate_sha"],
+            ),
+        }
+        return persist_release_state(api, issue_number, gated)
+    return _dispatch(api, issue_number, current, reason=reason)
+
+
 def _maybe_dispatch_after_quality(
     api: GitHubAPI,
     issue_number: int,
@@ -124,7 +167,7 @@ def _maybe_dispatch_after_quality(
 ) -> dict[str, Any]:
     current = validate_state(state)
     if _quality_pass_exists(api, current["current_candidate_sha"]):
-        return _dispatch(api, issue_number, current, reason=reason)
+        return _after_quality_success(api, issue_number, current, reason=reason)
     return persist_release_state(api, issue_number, current)
 
 
@@ -278,6 +321,7 @@ def handle_pull_request(api: GitHubAPI, event: Mapping[str, Any]) -> None:
     if markers is None:
         return
     release_run_id, parent_run_id = markers
+    post_quality_gate = parse_repair_environment_gate(str(pr.get("body") or ""))
     found = find_release_issue(api, release_run_id=release_run_id)
     if found is None:
         raise CoordinatorError(f"repair PR references unknown active release run {release_run_id}")
@@ -298,6 +342,8 @@ def handle_pull_request(api: GitHubAPI, event: Mapping[str, Any]) -> None:
             "number": positive_int(pr.get("number"), name="pull request number"),
             "url": str(pr.get("html_url") or ""),
             "parent_wp08_run_id": parent_run_id,
+            "parent_candidate_sha": current["current_candidate_sha"],
+            "post_quality_gate": post_quality_gate,
             "merge_commit_sha": merge_sha,
         },
         "updated_at": utc_now(),
@@ -337,7 +383,7 @@ def handle_quality_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
 
     conclusion = str(workflow_run.get("conclusion") or "")
     if conclusion == "success":
-        _dispatch(api, issue_number, current, reason="main_quality_passed")
+        _after_quality_success(api, issue_number, current, reason="main_quality_passed")
         return
 
     failed = {

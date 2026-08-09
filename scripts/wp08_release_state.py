@@ -19,6 +19,7 @@ STATUS_WAITING_MAIN_QUALITY = "WAITING_FOR_MAIN_QUALITY"
 STATUS_WAITING_REPAIR_CI = "WAITING_FOR_REPAIR_CI"
 STATUS_FAILED_NEEDS_CLASSIFICATION = "FAILED_NEEDS_CLASSIFICATION"
 STATUS_AWAITING_ENVIRONMENT_CONFIGURATION = "AWAITING_ENVIRONMENT_CONFIGURATION"
+STATUS_AWAITING_ENVIRONMENT_RUNTIME = "AWAITING_ENVIRONMENT_RUNTIME"
 STATUS_MAIN_QUALITY_FAILED = "MAIN_QUALITY_FAILED"
 STATUS_ATTEMPT_BUDGET_EXHAUSTED = "ATTEMPT_BUDGET_EXHAUSTED"
 STATUS_WP08_PASS = "WP08_PASS"
@@ -31,6 +32,7 @@ ACTIVE_STATUSES = {
     STATUS_WAITING_REPAIR_CI,
     STATUS_FAILED_NEEDS_CLASSIFICATION,
     STATUS_AWAITING_ENVIRONMENT_CONFIGURATION,
+    STATUS_AWAITING_ENVIRONMENT_RUNTIME,
     STATUS_MAIN_QUALITY_FAILED,
     STATUS_ATTEMPT_BUDGET_EXHAUSTED,
     STATUS_WP08_PASS,
@@ -45,6 +47,9 @@ _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _RELEASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{2,127}$")
 _REPAIR_RELEASE_RE = re.compile(r"(?mi)^\s*WP08-Release-Run-ID:\s*([A-Za-z0-9_.:-]+)\s*$")
 _REPAIR_PARENT_RE = re.compile(r"(?mi)^\s*WP08-Parent-Run-ID:\s*([0-9]+)\s*$")
+_REPAIR_ENVIRONMENT_GATE_RE = re.compile(
+    r"(?mi)^\s*WP08-Post-Repair-Environment-Gate:\s*(environment_runtime)\s*$"
+)
 
 
 class ReleaseStateError(RuntimeError):
@@ -150,6 +155,11 @@ def parse_repair_markers(body: str) -> tuple[str, int] | None:
     return release_id(release.group(1)), positive_int(parent.group(1), name="WP08-Parent-Run-ID")
 
 
+def parse_repair_environment_gate(body: str) -> str | None:
+    match = _REPAIR_ENVIRONMENT_GATE_RE.search(str(body or ""))
+    return str(match.group(1)).strip().casefold() if match else None
+
+
 def new_state(
     *,
     release_run_id: str,
@@ -192,6 +202,7 @@ __all__ = [
     "STATUS_ATTEMPT_BUDGET_EXHAUSTED",
     "STATUS_AUTHORIZED",
     "STATUS_AWAITING_ENVIRONMENT_CONFIGURATION",
+    "STATUS_AWAITING_ENVIRONMENT_RUNTIME",
     "STATUS_CERTIFYING",
     "STATUS_FAILED_NEEDS_CLASSIFICATION",
     "STATUS_MAIN_QUALITY_FAILED",
@@ -201,6 +212,7 @@ __all__ = [
     "append_history",
     "new_state",
     "parse_issue_state",
+    "parse_repair_environment_gate",
     "parse_repair_markers",
     "positive_int",
     "release_id",
