@@ -182,19 +182,33 @@ def _match_oracle(
             )
 
 
-def _validate_with_production_goal_contract(
-    *, case_id: str, user_text: str, goals: list[dict[str, Any]]
-) -> dict[str, Any]:
-    result, declared = validate_goal_declaration(
+def _production_goal_declaration_evaluation(
+    *, user_text: str, goals: list[dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Evaluate a declaration through the exact production Runtime contract."""
+    return validate_goal_declaration(
         state={"current_user_input": user_text},
         args={"goals": goals},
         capability_registry=get_runtime_registry().capabilities,
     )
-    if not result.get("ok") or declared is None:
+
+
+class _ProductionGoalDeclarationRejected(RuntimeError):
+    def __init__(self, *, case_id: str, result: dict[str, Any]):
+        self.result = result
         errors = (result.get("data") or {}).get("errors") or [result.get("code")]
-        raise RuntimeError(
-            f"{case_id}: production goal declaration rejected model output: {errors}"
-        )
+        super().__init__(f"{case_id}: production goal declaration rejected model output: {errors}")
+
+
+def _validate_with_production_goal_contract(
+    *, case_id: str, user_text: str, goals: list[dict[str, Any]]
+) -> dict[str, Any]:
+    result, declared = _production_goal_declaration_evaluation(
+        user_text=user_text,
+        goals=goals,
+    )
+    if not result.get("ok") or declared is None:
+        raise _ProductionGoalDeclarationRejected(case_id=case_id, result=result)
     return declared
 
 
@@ -216,7 +230,7 @@ def _declare_with_bounded_production_repair(
     registered capability.
     """
     messages: list[Any] = [system, HumanMessage(content=user_text)]
-    last_error: Exception | None = None
+    last_result: dict[str, Any] | None = None
     for attempt in range(1, 3):
         response, trace = invoke_model(
             purpose=f"preprod_semantic_goal:{case_id}:attempt{attempt}",
@@ -230,6 +244,7 @@ def _declare_with_bounded_production_repair(
         call = candidates[0]
         args = call.get("args") if isinstance(call.get("args"), dict) else {}
         goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
+        # Repair invariant: 不能删除系统没有精确能力的分支；the exact Runtime result below supplies the deterministic reason.
         try:
             declared = _validate_with_production_goal_contract(
                 case_id=case_id,
@@ -238,30 +253,33 @@ def _declare_with_bounded_production_repair(
             )
             return goals, declared, {"trace": trace, "attestation": attestation}, attempt
         except RuntimeError as exc:
-            last_error = exc
-            if attempt >= 2:
-                break
-            tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
-            messages = [
-                system,
-                HumanMessage(content=user_text),
-                response,
-                ToolMessage(
-                    tool_call_id=tool_call_id,
-                    content=json.dumps(
-                        {
-                            "ok": False,
-                            "code": "GOAL_DECLARATION_RETRY_REQUIRED",
-                            "message": (
-                                "Runtime 未冻结当前候选。重新逐段检查同一用户原话中的每一个可独立完成业务效果；"
-                                "不能删除系统没有精确能力的分支，也不能把它改写为相近能力。"
-                            ),
-                        },
-                        ensure_ascii=False,
-                    ),
-                ),
-            ]
-    raise RuntimeError(f"{case_id}: bounded production declaration repair exhausted: {last_error}")
+            if not isinstance(exc, _ProductionGoalDeclarationRejected):
+                raise
+            result = exc.result
+            last_result = result
+        if attempt >= 2:
+            break
+        tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
+        # Production execute_agent_loop_calls_node returns this exact Runtime
+        # result as the ToolMessage. Keep certification behavior identical:
+        # the model may see the deterministic rejection code, validation
+        # errors, current_user_input and repair_contract, but no oracle count,
+        # expected effect identity, expected span or expected dependency.
+        messages = [
+            system,
+            HumanMessage(content=user_text),
+            response,
+            ToolMessage(
+                tool_call_id=tool_call_id,
+                name="declare_turn_goals",
+                content=json.dumps(result, ensure_ascii=False, default=str),
+            ),
+        ]
+    errors = ((last_result or {}).get("data") or {}).get("errors") or [(last_result or {}).get("code")]
+    raise RuntimeError(
+        f"{case_id}: bounded production declaration repair exhausted: "
+        f"{case_id}: production goal declaration rejected model output: {errors}"
+    )
 
 def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     if exc.environment_blocked:
