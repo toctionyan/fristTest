@@ -66,6 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt3-verifier-authority-repair-publisher.py
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt3-verifier-authority-test-contract-correction.py
           git -C candidate diff --check
 
       - name: Run focused authority and counterexample regressions
@@ -83,6 +84,8 @@ jobs:
           cd services/agent-service
           PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -m pytest -q \
             tests/runtime/test_wp08_attempt6_release_repairs.py \
+            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             tests/context/test_semantic_goal_coverage_suite_execution.py \
             tests/runtime/test_global_goal_capability_coverage.py \
             --junitxml="${RUNNER_TEMP}/attempt3-junit/semantic-execution.xml"
@@ -111,6 +114,8 @@ jobs:
             services/agent-service/scripts/verify_preprod_full_lifecycle.py \
             services/agent-service/src/agent_core/config.py \
             services/agent-service/src/agent_core/model_calls/real_model_certification_bundle.py \
+            services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
             skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py | sort > /tmp/expected-product.txt
           git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-product.txt
@@ -125,6 +130,8 @@ jobs:
             services/agent-service/scripts/verify_preprod_full_lifecycle.py \
             services/agent-service/src/agent_core/config.py \
             services/agent-service/src/agent_core/model_calls/real_model_certification_bundle.py \
+            services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
             skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py
           git diff --cached --check
@@ -158,6 +165,8 @@ jobs:
             services/agent-service/scripts/verify_preprod_full_lifecycle.py \
             services/agent-service/src/agent_core/config.py \
             services/agent-service/src/agent_core/model_calls/real_model_certification_bundle.py \
+            services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            services/agent-service/tests/runtime/test_b17d_protected_browser_runtime_authority.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
             skill-system/registry/product-source-baseline.json \
             skill-system/tests/test_wp08_new_release_attempt3_protected_verifier_authority.py | sort > /tmp/expected-final.txt
