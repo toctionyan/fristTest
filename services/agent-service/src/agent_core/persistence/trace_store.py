@@ -74,6 +74,12 @@ class TraceLogger(SQLiteBase):
     def list_recent(self, limit: int = 100) -> list[dict]:
         return self.query_all("SELECT * FROM trace_logs ORDER BY id DESC LIMIT ?", (limit,))
 
+    def list_recent_by_event_type(self, event_type: str, limit: int = 100) -> list[dict]:
+        return self.query_all(
+            "SELECT * FROM trace_logs WHERE event_type=? ORDER BY id DESC LIMIT ?",
+            (str(event_type), max(1, int(limit))),
+        )
+
     def list_by_thread(self, thread_id: str, limit: int = 200) -> list[dict]:
         return self.query_all(
             "SELECT * FROM trace_logs WHERE thread_id=? ORDER BY id ASC LIMIT ?",

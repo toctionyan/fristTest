@@ -20,7 +20,7 @@ from typing import Any, Iterable
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.semantic_contract import semantic_goals
 
-CAPABILITY_EFFECT_INDEX_VERSION = "capability-effect-index@1"
+CAPABILITY_EFFECT_INDEX_VERSION = "capability-effect-index@2"
 
 
 def _clean(value: Any) -> str:
@@ -72,22 +72,40 @@ def support_effects_for_contract(contract: Any) -> tuple[str, ...]:
     return _contract_effects(getattr(contract, "support_effects", ()) or ())
 
 
+def _effect_semantic_guidance(contract: Any) -> dict[str, Any]:
+    """Project bounded module-owned semantics without granting execution authority."""
+    planning = getattr(contract, "planning_contract", None)
+    target = getattr(planning, "target", None)
+    bounded = lambda values: [str(value)[:96] for value in tuple(values or ())[:8] if str(value)]
+    return {
+        "planner_rule": str(getattr(contract, "planner_rule", "") or "")[:320],
+        "target_cardinality": str(getattr(target, "cardinality", "") or "") or None,
+        "target_resource_types": bounded(getattr(target, "resource_types", ()) if target is not None else ()),
+        "discovery_examples": bounded(getattr(contract, "discovery_examples", ())),
+        "exclusion_examples": bounded(getattr(contract, "exclusion_examples", ())),
+    }
+
+
+def _effect_index_row() -> dict[str, Any]:
+    return {"completion_tools": [], "support_tools": [], "semantic_guidance": []}
+
+
 def capability_effect_index(registry: CapabilityRegistry) -> dict[str, Any]:
     """Publish compact business-effect vocabulary, not tool implementation details."""
 
-    grouped: dict[str, dict[str, list[str]]] = {}
+    grouped: dict[str, dict[str, Any]] = {}
     for tool_name in sorted(registry.tool_names()):
         contract = registry.contract_for_tool(tool_name)
         if contract is None or contract.execution_kind in {"unsupported", "clarification_read"}:
             continue
         for identity in completion_effects_for_contract(contract):
-            grouped.setdefault(identity, {"completion_tools": [], "support_tools": []})[
-                "completion_tools"
-            ].append(tool_name)
+            row = grouped.setdefault(identity, _effect_index_row())
+            row["completion_tools"].append(tool_name)
+            guidance = _effect_semantic_guidance(contract)
+            if guidance not in row["semantic_guidance"]:
+                row["semantic_guidance"].append(guidance)
         for identity in support_effects_for_contract(contract):
-            grouped.setdefault(identity, {"completion_tools": [], "support_tools": []})[
-                "support_tools"
-            ].append(tool_name)
+            grouped.setdefault(identity, _effect_index_row())["support_tools"].append(tool_name)
     return {
         "version": CAPABILITY_EFFECT_INDEX_VERSION,
         "matching": "structured_identity_exact_only",
@@ -97,6 +115,7 @@ def capability_effect_index(registry: CapabilityRegistry) -> dict[str, Any]:
                 "requested_effect_identity": identity,
                 "completion_tool_count": len(set(row["completion_tools"])),
                 "support_tool_count": len(set(row["support_tools"])),
+                "semantic_guidance": list(row.get("semantic_guidance") or []),
             }
             for identity, row in sorted(grouped.items())
         ],
