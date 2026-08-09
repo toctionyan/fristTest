@@ -12,10 +12,31 @@ valid long workflow cannot consume the safety verifier's reserved capacity.
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+import json
+import logging
 import os
 import re
 from time import perf_counter
 from typing import Any, Iterator
+
+
+LOGGER = logging.getLogger(__name__)
+_MODEL_CALL_LOG_KEYS = (
+    'purpose', 'model', 'sequence', 'scope', 'lane', 'status', 'latency_ms',
+    'error_type', 'finish_reason', 'prompt_tokens', 'completion_tokens', 'total_tokens',
+)
+
+
+def _emit_model_call_log(event: str, record: dict[str, Any]) -> None:
+    """Emit only allow-listed execution metadata; never prompt, payload or credentials."""
+    try:
+        safe = {key: record.get(key) for key in _MODEL_CALL_LOG_KEYS if record.get(key) is not None}
+        LOGGER.info(
+            'model_call_event %s',
+            json.dumps({'event': str(event), **safe}, ensure_ascii=False, sort_keys=True),
+        )
+    except Exception:
+        return
 
 
 ENVIRONMENTAL_MODEL_FAILURE_CATEGORIES = frozenset({
@@ -332,6 +353,7 @@ def invoke_model(
         "scope": ledger.scope,
         "lane": lane,
     }
+    _emit_model_call_log("started", record)
     try:
         response = model.invoke(payload)
         record.update({
@@ -340,6 +362,7 @@ def invoke_model(
             **_provider_response_metadata(response),
             **_model_usage(response),
         })
+        _emit_model_call_log("finished", record)
         return response, dict(record)
     except Exception as exc:
         record.update({
@@ -347,6 +370,7 @@ def invoke_model(
             "latency_ms": round((perf_counter() - started) * 1000, 2),
             "error_type": exc.__class__.__name__,
         })
+        _emit_model_call_log("finished", record)
         raise
     finally:
         ledger.records.append(dict(record))
