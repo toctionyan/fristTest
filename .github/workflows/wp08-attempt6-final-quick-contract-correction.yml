@@ -70,9 +70,7 @@ jobs:
           set -euo pipefail
           mkdir -p candidate/.quality/attempt6-final-correction/junit candidate/.quality/attempt6-final-correction/coverage
           candidate/services/agent-service/.venv/bin/python -B \
-            candidate/scripts/run_python_test_suites.py \
-            candidate \
-            --mode standard \
+            candidate/scripts/run_python_test_suites.py candidate --mode standard \
             --junit-dir candidate/.quality/attempt6-final-correction/junit \
             --coverage-dir candidate/.quality/attempt6-final-correction/coverage
 
@@ -83,10 +81,8 @@ jobs:
           cd candidate
           services/agent-service/.venv/bin/python -B - <<'PY'
           from __future__ import annotations
-          import json
-          import sys
+          import json, sys
           from pathlib import Path
-
           root = Path.cwd()
           sys.path.insert(0, str(root / 'scripts'))
           sys.path.insert(0, str(root / 'services' / 'agent-service'))
@@ -94,7 +90,6 @@ jobs:
           from run_managed_quality_integration import ManagedPostgres
           from verify_full_lifecycle_canary import ProductRuntimeHarness
           from verify_managed_postgres_recovery import run_managed_postgres_recovery
-
           with ManagedPostgres() as postgres, ProductRuntimeHarness(persistence_url=postgres.url) as product:
               result = run_managed_postgres_recovery(product)
           if result.get('status') != 'PASS':
@@ -102,7 +97,7 @@ jobs:
           print(json.dumps(result, ensure_ascii=False, indent=2))
           PY
 
-      - name: Verify exact two-file candidate delta
+      - name: Verify exact three-file candidate delta
         shell: bash
         run: |
           set -euo pipefail
@@ -116,6 +111,7 @@ jobs:
           expected = {
               'services/agent-service/app/services/lifecycle_command_runner.py',
               'services/agent-service/tests/architecture/test_dependency_lock_contract.py',
+              'services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py',
           }
           rows = subprocess.check_output(['git', 'status', '--porcelain=v1'], text=True).splitlines()
           actual = {row[3:] for row in rows if len(row) > 3}
@@ -134,7 +130,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add \
             services/agent-service/app/services/lifecycle_command_runner.py \
-            services/agent-service/tests/architecture/test_dependency_lock_contract.py
+            services/agent-service/tests/architecture/test_dependency_lock_contract.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py
           git diff --cached --check
           git commit -m 'Fix final Quick checkpoint ingress and lock semantics'
           test "$(git rev-parse HEAD^)" = "$CANDIDATE_HEAD"
