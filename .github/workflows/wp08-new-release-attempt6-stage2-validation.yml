@@ -22,7 +22,7 @@ jobs:
         with:
           ref: ${{ env.FORMAL_REF }}
           path: candidate
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
 
       - name: Set up governed Python
@@ -35,7 +35,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C candidate rev-parse HEAD^)" = "$BASE_SHA"
+          test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "2"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           printf '%s\n' \
             services/agent-service/src/agent_core/context/reference_resolution.py \
@@ -43,6 +44,7 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
             skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py | sort > /tmp/expected-stage2.txt
           git -C candidate diff --name-only "$BASE_SHA" HEAD -- | sort > /tmp/actual-stage2.txt
           diff -u /tmp/expected-stage2.txt /tmp/actual-stage2.txt
