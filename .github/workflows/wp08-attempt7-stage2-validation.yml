@@ -103,7 +103,9 @@ jobs:
           test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_FORMAL_HEAD"
           test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$EXPECTED_FORMAL_HEAD"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
-          test -z "$(git -C candidate status --porcelain)"
+          echo '--- git status after validation ---'
+          git -C candidate status --porcelain=v1 -uall
+          test -z "$(git -C candidate status --porcelain=v1 -uall)"
 
       - name: Upload Stage-2 validation evidence
         if: always()
