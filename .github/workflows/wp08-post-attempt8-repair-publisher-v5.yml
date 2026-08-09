@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ env.PRODUCT_HEAD }}
           path: candidate
-          fetch-depth: 1
+          fetch-depth: 2
           persist-credentials: true
 
       - name: Set up governed Python
@@ -37,6 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$PRODUCT_HEAD"
+          test "$(git -C candidate rev-parse HEAD^)" = "$BASE_SHA"
           test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
           test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$PRODUCT_HEAD"
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
