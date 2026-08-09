@@ -1,0 +1,148 @@
+name: wp08-deepseek-v4-control-nonthinking-publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-deepseek-v4-control-nonthinking-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      BASE_SHA: 32000dab32ad75951a799de3930214356f498466
+      FORMAL_BRANCH: agent/deepseek-v4-control-nonthinking-20260809
+    steps:
+      - name: Checkout carrier helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: carrier
+          fetch-depth: 1
+
+      - name: Checkout exact current main candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact authority and install locked environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$BASE_SHA"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
+
+      - name: Apply bounded DeepSeek V4 control-plane latency repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-deepseek-v4-control-nonthinking-publisher.py
+          git -C candidate diff --check
+
+      - name: Run focused provider and budget regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/deepseek-junit" "${RUNNER_TEMP}/deepseek-coverage"
+          cd candidate/services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -m pytest -q \
+            tests/runtime/test_wp08_attempt6_release_repairs.py \
+            --junitxml="${RUNNER_TEMP}/deepseek-junit/provider-control-nonthinking.xml"
+          grep -F '{ timeout: 120_000 }' frontend/e2e/strong_context_journey.mjs
+
+      - name: Run native standard Python suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B scripts/run_python_test_suites.py \
+            --mode standard \
+            --junit-dir "${RUNNER_TEMP}/deepseek-junit" \
+            --coverage-dir "${RUNNER_TEMP}/deepseek-coverage"
+
+      - name: Commit exact product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          printf '%s\n' \
+            services/agent-service/src/agent_core/config.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py | sort > /tmp/expected-product.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-product.txt
+          diff -u /tmp/expected-product.txt /tmp/actual-product.txt
+          git diff --check "$BASE_SHA" --
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/config.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py
+          git diff --cached --check
+          git commit -m 'Disable DeepSeek V4 thinking for latency-bounded control calls'
+          git rev-parse HEAD | tee ../wp08-deepseek-v4-product-head.txt
+
+      - name: Regenerate protected baseline from exact product commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PRODUCT_HEAD="$(git -C candidate rev-parse HEAD)"
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-deepseek-v4-control-nonthinking-baseline.py
+
+      - name: Validate project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-deepseek-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-deepseek-skill-control-plane.json
+
+      - name: Prove exact final delta and publish formal side branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          printf '%s\n' \
+            services/agent-service/src/agent_core/config.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
+            skill-system/registry/product-source-baseline.json | sort > /tmp/expected-final.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final.txt
+          diff -u /tmp/expected-final.txt /tmp/actual-final.txt
+          git diff --check "$BASE_SHA" --
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')" = "$BASE_SHA"
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Bind DeepSeek V4 control-plane protected baseline'
+          git push origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD | tee ../wp08-deepseek-v4-final-head.txt
+
+      - name: Upload governed validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-deepseek-v4-control-nonthinking-validation
+          path: |
+            wp08-deepseek-v4-product-head.txt
+            wp08-deepseek-v4-final-head.txt
+            candidate/wp08-deepseek-v4-control-nonthinking-baseline-report.json
+            candidate/wp08-deepseek-project-compatibility.json
+            candidate/wp08-deepseek-skill-control-plane.json
+            ${{ runner.temp }}/deepseek-junit
+          if-no-files-found: warn
+          retention-days: 90
