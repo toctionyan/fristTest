@@ -1,0 +1,57 @@
+name: wp08-release-reconcile-attempt2-wait-once
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  reconcile:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-release-reconcile-attempt2-wait-once-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact authoritative main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: main
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Wait for exact-main Quality and reconcile through official controller
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "0355133f25aa661b282a3c69054448663829b029"
+          for _ in $(seq 1 36); do
+            python -B scripts/wp08_release_recovery.py --mode reconcile
+            STATUS=$(gh issue view 267 --repo "$GITHUB_REPOSITORY" --json body --jq '.body' | python -c 'import json,sys,re; s=sys.stdin.read(); m=re.search(r"```json\s*(\{.*?\})\s*```", s, re.S); print(json.loads(m.group(1))["status"] if m else "UNKNOWN")')
+            echo "ReleaseRun status: $STATUS"
+            case "$STATUS" in
+              CERTIFYING|MAIN_QUALITY_FAILED|ATTEMPT_BUDGET_EXHAUSTED|WP08_PASS|FAILED_NEEDS_CLASSIFICATION|AWAITING_ENVIRONMENT_CONFIGURATION)
+                exit 0
+                ;;
+              WAITING_FOR_REPAIR_CI|WAITING_FOR_MAIN_QUALITY)
+                sleep 15
+                ;;
+              *)
+                echo "Unexpected ReleaseRun state: $STATUS" >&2
+                exit 2
+                ;;
+            esac
+          done
+          echo "Timed out waiting for exact-main Quality reconciliation" >&2
+          exit 1
