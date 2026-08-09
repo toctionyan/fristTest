@@ -1,0 +1,153 @@
+name: wp08-new-release-attempt6-environment-runtime-repair-publisher
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-new-release-attempt6-environment-runtime-repair-publisher-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      BASE_SHA: 07c5fc7a47eb9e9618c619d3c7eca09ad93c5296
+      FORMAL_BRANCH: agent/wp08-new-release-attempt6-environment-runtime-repair-20260809
+    steps:
+      - name: Checkout carrier helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: carrier
+          fetch-depth: 1
+
+      - name: Checkout exact failed candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact authority and install both locked Python environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git -C candidate ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
+
+      - name: Apply bounded environment-runtime repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B carrier/.github/wp08-new-release-attempt6-environment-runtime-repair-publisher.py
+          git -C candidate diff --check
+
+      - name: Run focused environment-runtime and release-control regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/attempt6-junit" "${RUNNER_TEMP}/attempt6-coverage"
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py \
+            skill-system/tests/test_wp08_new_release_attempt3_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
+            --junitxml="${RUNNER_TEMP}/attempt6-junit/attempt6-repair.xml"
+
+      - name: Run native standard Python suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B scripts/run_python_test_suites.py \
+            --mode standard \
+            --junit-dir "${RUNNER_TEMP}/attempt6-junit" \
+            --coverage-dir "${RUNNER_TEMP}/attempt6-coverage"
+
+      - name: Prove exact seven-file product/control-plane candidate and commit it
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          git add -N skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py
+          printf '%s\n' \
+            .github/workflows/wp08-certification.yml \
+            scripts/verify_product_browser_journey.py \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_github.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_state.py \
+            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py | sort > /tmp/expected-product.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-product.txt
+          diff -u /tmp/expected-product.txt /tmp/actual-product.txt
+          git diff --check "$BASE_SHA" --
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            .github/workflows/wp08-certification.yml \
+            scripts/verify_product_browser_journey.py \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_github.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_state.py \
+            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py
+          git diff --cached --check
+          git commit -m 'Gate provider runtime recovery before next WP-08 attempt'
+          git rev-parse HEAD | tee ../wp08-attempt6-product-head.txt
+
+      - name: Validate project compatibility and full Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py | tee wp08-attempt6-project-compatibility.json
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane | tee wp08-attempt6-skill-control-plane.json
+
+      - name: Prove exact final delta and publish formal repair branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          printf '%s\n' \
+            .github/workflows/wp08-certification.yml \
+            scripts/verify_product_browser_journey.py \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_github.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_state.py \
+            skill-system/tests/test_wp08_new_release_attempt6_environment_runtime.py | sort > /tmp/expected-final.txt
+          git diff --name-only "$BASE_SHA" -- | sort > /tmp/actual-final.txt
+          diff -u /tmp/expected-final.txt /tmp/actual-final.txt
+          git diff --check "$BASE_SHA" --
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git ls-remote origin refs/heads/$FORMAL_BRANCH | awk '{print $1}')"
+          git push origin HEAD:refs/heads/$FORMAL_BRANCH
+          git rev-parse HEAD | tee ../wp08-attempt6-final-head.txt
+
+      - name: Upload governed validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-new-release-attempt6-environment-runtime-repair-validation
+          path: |
+            wp08-attempt6-product-head.txt
+            wp08-attempt6-final-head.txt
+            candidate/wp08-attempt6-project-compatibility.json
+            candidate/wp08-attempt6-skill-control-plane.json
+            ${{ runner.temp }}/attempt6-junit
+          if-no-files-found: warn
+          retention-days: 90
