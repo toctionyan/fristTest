@@ -22,7 +22,7 @@ for path in (ROOT, ROOT / "src"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage  # noqa: E402
 
 from agent_core.config import get_model, get_model_profile  # noqa: E402
 from agent_core.lifecycle.protocol import planning_schemas  # noqa: E402
@@ -198,6 +198,71 @@ def _validate_with_production_goal_contract(
     return declared
 
 
+
+def _declare_with_bounded_production_repair(
+    *,
+    case_id: str,
+    user_text: str,
+    bound: Any,
+    system: SystemMessage,
+    identity: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], int]:
+    """Return the first declaration that production validators can freeze.
+
+    The repair message contains no oracle count, expected effect identity or
+    expected span. It mirrors the production rule: a rejected declaration is
+    not frozen and the model must re-read the same user turn, preserving every
+    independently completable effect, including open effects with no exact
+    registered capability.
+    """
+    messages: list[Any] = [system, HumanMessage(content=user_text)]
+    last_error: Exception | None = None
+    for attempt in range(1, 3):
+        response, trace = invoke_model(
+            purpose=f"preprod_semantic_goal:{case_id}:attempt{attempt}",
+            model=bound,
+            payload=messages,
+        )
+        attestation = attest_real_model_metadata(response=response, identity=identity)
+        candidates = tool_calls(response)
+        if len(candidates) != 1 or str(candidates[0].get("name") or "") != "declare_turn_goals":
+            raise RuntimeError(f"{case_id}: model did not emit exactly one declare_turn_goals call")
+        call = candidates[0]
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
+        try:
+            declared = _validate_with_production_goal_contract(
+                case_id=case_id,
+                user_text=user_text,
+                goals=goals,
+            )
+            return goals, declared, {"trace": trace, "attestation": attestation}, attempt
+        except RuntimeError as exc:
+            last_error = exc
+            if attempt >= 2:
+                break
+            tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
+            messages = [
+                system,
+                HumanMessage(content=user_text),
+                response,
+                ToolMessage(
+                    tool_call_id=tool_call_id,
+                    content=json.dumps(
+                        {
+                            "ok": False,
+                            "code": "GOAL_DECLARATION_RETRY_REQUIRED",
+                            "message": (
+                                "Runtime 未冻结当前候选。重新逐段检查同一用户原话中的每一个可独立完成业务效果；"
+                                "不能删除系统没有精确能力的分支，也不能把它改写为相近能力。"
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                ),
+            ]
+    raise RuntimeError(f"{case_id}: bounded production declaration repair exhausted: {last_error}")
+
 def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     if exc.environment_blocked:
         return "real_model_environment_unavailable"
@@ -247,25 +312,18 @@ def main() -> int:
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
-        # Protected mode uses the production independent goal-alignment model,
-        # so each prototype may consume one declaration call and one verifier call.
-        with model_call_scope(max_calls=24, scope="preprod_semantic_goal_prototypes") as calls:
+        # Each prototype may consume one declaration plus an independent validator,
+        # and at most one bounded declaration repair with the same validator path.
+        with model_call_scope(max_calls=48, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
                 turn = case["execution_contract"]["turn_contracts"][0]
-                response, trace = invoke_model(
-                    purpose=f"preprod_semantic_goal:{case['id']}",
-                    model=bound,
-                    payload=[system, HumanMessage(content=str(turn["user_text"]))],
-                )
-                attestation = attest_real_model_metadata(
-                    response=response,
+                goals, declared, declaration_evidence, declaration_attempts = _declare_with_bounded_production_repair(
+                    case_id=str(case["id"]),
+                    user_text=str(turn["user_text"]),
+                    bound=bound,
+                    system=system,
                     identity=identity,
                 )
-                candidates = tool_calls(response)
-                if len(candidates) != 1 or str(candidates[0].get("name") or "") != "declare_turn_goals":
-                    raise RuntimeError(f"{case['id']}: model did not emit exactly one declare_turn_goals call")
-                args = candidates[0].get("args") if isinstance(candidates[0].get("args"), dict) else {}
-                goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
                 oracle = [row for row in list(turn.get("goal_oracle") or []) if isinstance(row, dict)]
                 _match_oracle(
                     case_id=case["id"],
@@ -273,14 +331,12 @@ def main() -> int:
                     goals=goals,
                     registered_effect_identities=registered_effect_identities,
                 )
-                declared = _validate_with_production_goal_contract(
-                    case_id=str(case["id"]),
-                    user_text=str(turn["user_text"]),
-                    goals=goals,
-                )
+                trace = declaration_evidence["trace"]
+                attestation = declaration_evidence["attestation"]
                 evidence.append({
                     "case_id": case["id"],
                     "goal_count": len(goals),
+                    "declaration_attempts": declaration_attempts,
                     "goal_types": [str(row.get("goal_type") or "") for row in goals],
                     "oracle_required_tools": sorted({
                         str(value)
