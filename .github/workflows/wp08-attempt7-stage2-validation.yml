@@ -1,0 +1,117 @@
+name: wp08-attempt7-stage2-validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-stage2:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-stage2-validation-20260809'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASE_SHA: 11e119c134906f1395db615762fd45c1e7385c92
+      FORMAL_REF: agent/wp08-attempt7-root-fixes-20260809
+      EXPECTED_FORMAL_HEAD: c56407552a206da33a1bb63249e5a12ff1cc3d1b
+    steps:
+      - name: Checkout exact formal Attempt-7 repair
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.FORMAL_REF }}
+          path: candidate
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Verify exact Stage-2 source boundary and install locked environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_FORMAL_HEAD"
+          test "$(git -C candidate merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git -C candidate rev-list --count "$BASE_SHA"..HEAD)" = "1"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          printf '%s\n' \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/workflow_runtime.py \
+            services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py | sort > /tmp/expected-stage2.txt
+          git -C candidate diff --name-only "$BASE_SHA" HEAD -- | sort > /tmp/actual-stage2.txt
+          diff -u /tmp/expected-stage2.txt /tmp/actual-stage2.txt
+          git -C candidate diff --check "$BASE_SHA" HEAD --
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd candidate/services/agent-service && uv sync --locked --all-groups)
+          (cd candidate/services/business-service && uv sync --locked --all-groups)
+
+      - name: Run focused Attempt-7 and preserved semantic regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/attempt7-stage2-junit"
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_attempt7_root_fixes.py \
+            skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py \
+            skill-system/tests/test_wp08_post_attempt8_dependency_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt5_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
+            --junitxml="${RUNNER_TEMP}/attempt7-stage2-junit/skill-focused.xml"
+          cd services/agent-service
+          PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -m pytest -q \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            tests/runtime/test_global_goal_capability_coverage.py \
+            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
+            tests/runtime/test_b17d_protected_browser_runtime_authority.py \
+            tests/runtime/test_wp08_attempt6_release_repairs.py \
+            --junitxml="${RUNNER_TEMP}/attempt7-stage2-junit/runtime-focused.xml"
+          grep -F 'model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")' scripts/verify_preprod_conversation_smoke.py
+          grep -F '{ timeout: 120_000 }' frontend/e2e/strong_context_journey.mjs
+          grep -F '_bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0' src/agent_core/config.py
+          grep -F '_bounded_int_env("MODEL_MAX_RETRIES", 1' src/agent_core/config.py
+
+      - name: Run native standard Python suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/attempt7-stage2-standard-junit" "${RUNNER_TEMP}/attempt7-stage2-coverage"
+          cd candidate
+          services/agent-service/.venv/bin/python -B scripts/run_python_test_suites.py \
+            --mode standard \
+            --junit-dir "${RUNNER_TEMP}/attempt7-stage2-standard-junit" \
+            --coverage-dir "${RUNNER_TEMP}/attempt7-stage2-coverage"
+
+      - name: Recheck formal and main refs remain immutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_FORMAL_HEAD"
+          test "$(git -C candidate ls-remote origin refs/heads/$FORMAL_REF | awk '{print $1}')" = "$EXPECTED_FORMAL_HEAD"
+          test "$(git -C candidate ls-remote origin refs/heads/main | awk '{print $1}')" = "$BASE_SHA"
+          test -z "$(git -C candidate status --porcelain)"
+
+      - name: Upload Stage-2 validation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt7-stage2-validation
+          path: |
+            ${{ runner.temp }}/attempt7-stage2-junit
+            ${{ runner.temp }}/attempt7-stage2-standard-junit
+          if-no-files-found: warn
+          retention-days: 90
