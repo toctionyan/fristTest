@@ -1,0 +1,126 @@
+name: wp08-attempt4-semantic-diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt4-semantic-diagnostic-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-certification
+    env:
+      TARGET_USER_TEXT: 查一下键盘订单，再看看它能不能退款
+      CONFIG_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
+      CONFIG_MODEL_ID: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
+      CONFIG_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+      CONFIG_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+    steps:
+      - name: Checkout exact Attempt 4 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 83251fe9e5e20fe66f9f80c569583a9e189214c8
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Resolve production model identity without emitting secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          import json, os
+          from pathlib import Path
+          profile=json.loads(Path('deployment/ci/wp08-production-profile.json').read_text(encoding='utf-8'))
+          provider=(os.environ.get('CONFIG_MODEL_PROVIDER') or profile.get('model_provider') or '').strip()
+          model=(os.environ.get('CONFIG_MODEL_ID') or profile.get('model_id') or '').strip()
+          base=(os.environ.get('CONFIG_MODEL_API_BASE') or profile.get('model_api_base') or '').strip().rstrip('/')
+          if provider.casefold() not in {'deepseek','openai'} or not model or not base or not os.environ.get('CONFIG_MODEL_API_KEY'):
+              raise SystemExit('production model identity/credential unavailable')
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as f:
+              f.write(f'REAL_MODEL_CERTIFICATION_PROVIDER={provider}\n')
+              f.write(f'OPENAI_MODEL={model}\n')
+              f.write(f'OPENAI_API_BASE={base}\n')
+              f.write('GOAL_ALIGNMENT_VERIFIER_MODE=model\n')
+              f.write('GOAL_GRANULARITY_VERIFIER_MODE=model\n')
+          print(json.dumps({'provider':provider,'model':model,'base':base,'credential_present':True}, ensure_ascii=False))
+          PY
+          echo "OPENAI_API_KEY=$CONFIG_MODEL_API_KEY" >> "$GITHUB_ENV"
+      - name: Run production semantic prototype with sanitized target diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          .venv/bin/python -B - <<'PY'
+          from __future__ import annotations
+          import importlib.util, json, os, sys
+          from pathlib import Path
+
+          path=Path('scripts/verify_preprod_conversation_smoke.py').resolve()
+          spec=importlib.util.spec_from_file_location('wp08_semantic_diag', path)
+          mod=importlib.util.module_from_spec(spec)
+          assert spec and spec.loader
+          sys.modules[spec.name]=mod
+          spec.loader.exec_module(mod)
+          target=os.environ['TARGET_USER_TEXT']
+          original_eval=mod._production_goal_declaration_evaluation
+          original_match=mod._match_oracle
+
+          def wrapped_eval(*, user_text, goals, inventory_authority=None):
+              result, declared=original_eval(user_text=user_text, goals=goals, inventory_authority=inventory_authority)
+              if user_text == target:
+                  data=result.get('data') if isinstance(result,dict) and isinstance(result.get('data'),dict) else {}
+                  gran=data.get('granularity_proof') if isinstance(data.get('granularity_proof'),dict) else {}
+                  details=gran.get('details') if isinstance(gran.get('details'),dict) else {}
+                  authority=details.get('inventory_authority') if isinstance(details.get('inventory_authority'),dict) else inventory_authority
+                  print('TARGET_PRODUCTION_EVAL='+json.dumps({
+                      'ok': bool(result.get('ok')) if isinstance(result,dict) else False,
+                      'code': str(result.get('code') or '') if isinstance(result,dict) else '',
+                      'candidate_goals': [
+                          {'goal_id':str(g.get('goal_id') or ''),'evidence_span':str(g.get('evidence_span') or ''),'depends_on':[str(x) for x in list(g.get('depends_on') or [])]}
+                          for g in goals if isinstance(g,dict)
+                      ],
+                      'granularity': {
+                          'verdict': str(gran.get('verdict') or ''),
+                          'reason_code': str(gran.get('reason_code') or ''),
+                          'outcome_spans': list(details.get('outcome_spans') or []),
+                          'dependency_edges': list(details.get('dependency_edges') or []),
+                          'dependency_edge_basis': list(details.get('dependency_edge_basis') or []),
+                          'dependency_graph_match': details.get('dependency_graph_match'),
+                          'inventory_authority_reused': details.get('inventory_authority_reused'),
+                      },
+                      'authority': {
+                          'dependency_edges': list((authority or {}).get('dependency_edges') or []) if isinstance(authority,dict) else [],
+                          'dependency_edge_basis': list((authority or {}).get('dependency_edge_basis') or []) if isinstance(authority,dict) else [],
+                          'dependency_basis_audited': (authority or {}).get('dependency_basis_audited') if isinstance(authority,dict) else None,
+                          'reason_code': str((authority or {}).get('reason_code') or '') if isinstance(authority,dict) else '',
+                      },
+                  }, ensure_ascii=False, sort_keys=True), flush=True)
+              return result, declared
+
+          def wrapped_match(**kwargs):
+              if str(kwargs.get('case_id') or '') == 'semantic_query_then_refund_consult':
+                  print('TARGET_ACCEPTED_GOALS='+json.dumps([
+                      {'goal_id':str(g.get('goal_id') or ''),'evidence_span':str(g.get('evidence_span') or ''),'depends_on':[str(x) for x in list(g.get('depends_on') or [])]}
+                      for g in list(kwargs.get('goals') or []) if isinstance(g,dict)
+                  ], ensure_ascii=False, sort_keys=True), flush=True)
+              return original_match(**kwargs)
+
+          mod._production_goal_declaration_evaluation=wrapped_eval
+          mod._match_oracle=wrapped_match
+          raise SystemExit(mod.main())
+          PY
