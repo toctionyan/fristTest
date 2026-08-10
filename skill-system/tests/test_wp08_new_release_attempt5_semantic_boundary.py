@@ -73,7 +73,7 @@ class Attempt5RepairTests(unittest.TestCase):
         from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
         responses = [
             (SimpleNamespace(content=json.dumps({"verdict": "clarify", "evidence_spans": ["哪些还在路上"], "missing_spans": [], "reason_code": "status_filter_scope"}, ensure_ascii=False)), {}),
-            (SimpleNamespace(content=json.dumps({"verdict": "exact", "evidence_spans": ["哪些还在路上"], "missing_spans": [], "reason_code": "query_outcome_preserved"}, ensure_ascii=False)), {}),
+            (SimpleNamespace(content=json.dumps({"verdict": "exact", "evidence_spans": ["哪些还在路上"], "missing_spans": [], "dependency_edges": [], "reason_code": "query_outcome_preserved"}, ensure_ascii=False)), {}),
         ]
         with patch("agent_core.config.get_model", return_value=object()), patch("agent_core.model_calls.invoke_model", side_effect=responses) as invoke:
             verdict = ModelGoalAlignmentVerifier().verify(
