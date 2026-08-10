@@ -91,6 +91,11 @@ from quality_control.state import (
     _blocked_prerequisite_result, _load_baseline, _load_loop_state, _repair_plan, _state_path,
     _verify_loop_round, _workspace_immutability_result, _write_loop_state,
 )
+from quality_control.checkpoint import (
+    active_checkpoint_path, clear_active_checkpoint, completed_step_record,
+    has_active_checkpoint_for_evidence, load_compatible_active_checkpoint, new_run_token,
+    validate_completed_steps, write_active_checkpoint,
+)
 
 
 def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
@@ -296,12 +301,62 @@ def _run_loop_unlocked(
         target_path=target_path,
     )
     ignored_snapshot_roots = tuple(
-        path for path in (evidence_dir, baseline_evidence) if path is not None
+        path for path in (evidence_dir, baseline_evidence, state_dir) if path is not None
     )
     run_start_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
     baseline_snapshot = run_start_snapshot if baseline and target["context"] == "local-change" else None
     steps = _downstream_steps(all_steps, rerun_from) if rerun_from else all_steps
+    selected_gate_ids = [str(step["id"]) for step in steps]
+    target_identity = _target_identity(target)
+    checkpoint = load_compatible_active_checkpoint(
+        state_dir,
+        target_id=str(target["id"]),
+        target_identity=target_identity,
+        policy_fingerprint=policy_fingerprint,
+        workspace_start_fingerprint=str(run_start_snapshot["fingerprint"]),
+        mode=mode,
+        selected_gate_ids=selected_gate_ids,
+        evidence_dir=evidence_dir,
+    )
+    evidence_has_content = evidence_dir.exists() and any(evidence_dir.iterdir())
+    if evidence_has_content and checkpoint is None:
+        raise QualityRunConflictError(
+            f"non-empty evidence directory has no compatible interrupted-run checkpoint: {evidence_dir}"
+        )
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    if checkpoint is None:
+        run_token = new_run_token()
+        completed_results: list[dict[str, Any]] = []
+        completed_step_records: list[dict[str, Any]] = []
+        write_active_checkpoint(
+            state_dir,
+            target_id=str(target["id"]),
+            target_identity=target_identity,
+            policy_fingerprint=policy_fingerprint,
+            workspace_start_fingerprint=str(run_start_snapshot["fingerprint"]),
+            mode=mode,
+            selected_gate_ids=selected_gate_ids,
+            evidence_dir=evidence_dir,
+            run_token=run_token,
+            current_gate_id=None,
+            completed_steps=completed_step_records,
+            updated_at=_now(),
+        )
+    else:
+        run_token = str(checkpoint["run_token"])
+        completed_results = validate_completed_steps(
+            evidence_dir,
+            checkpoint=checkpoint,
+            selected_gate_ids=selected_gate_ids,
+        )
+        completed_step_records = [
+            dict(item) for item in list(checkpoint.get("completed_steps") or [])
+        ]
+        print(
+            f"[quality-loop] resuming run {run_token[:8]} after {len(completed_results)} completed gate(s)",
+            file=sys.stderr,
+            flush=True,
+        )
     shutil.copyfile(target_path, evidence_dir / "target.md")
     shutil.copyfile(policy_path, evidence_dir / "quality-loop-policy.json")
     claim_manifest_evidence_file = "claim-manifest.json"
@@ -321,9 +376,34 @@ def _run_loop_unlocked(
     # rows and copied JUnit/coverage files are never accepted as prerequisites.
     reusable: dict[str, dict[str, Any]] = {}
 
-    results: list[dict[str, Any]] = []
-    result_by_id: dict[str, dict[str, Any]] = {}
+    results: list[dict[str, Any]] = [dict(result) for result in completed_results]
+    result_by_id: dict[str, dict[str, Any]] = {
+        str(result["id"]): result for result in results
+    }
+    completed_ids = set(result_by_id)
     for step in steps:
+        step_id = str(step["id"])
+        if step_id in completed_ids:
+            print(
+                f"[quality-loop] resume verified {step_id}; skipping same-run re-execution",
+                file=sys.stderr,
+                flush=True,
+            )
+            continue
+        write_active_checkpoint(
+            state_dir,
+            target_id=str(target["id"]),
+            target_identity=target_identity,
+            policy_fingerprint=policy_fingerprint,
+            workspace_start_fingerprint=str(run_start_snapshot["fingerprint"]),
+            mode=mode,
+            selected_gate_ids=selected_gate_ids,
+            evidence_dir=evidence_dir,
+            run_token=run_token,
+            current_gate_id=step_id,
+            completed_steps=completed_step_records,
+            updated_at=_now(),
+        )
         dependencies = [str(dep) for dep in step.get("depends_on") or []]
         absent_prerequisites = [dep for dep in dependencies if dep not in result_by_id and dep not in reusable]
         failed_dependencies = [
@@ -362,6 +442,21 @@ def _run_loop_unlocked(
         results.append(result)
         result_by_id[str(result["id"])] = result
         _write_step_evidence(evidence_dir, result)
+        completed_step_records.append(completed_step_record(evidence_dir, result))
+        write_active_checkpoint(
+            state_dir,
+            target_id=str(target["id"]),
+            target_identity=target_identity,
+            policy_fingerprint=policy_fingerprint,
+            workspace_start_fingerprint=str(run_start_snapshot["fingerprint"]),
+            mode=mode,
+            selected_gate_ids=selected_gate_ids,
+            evidence_dir=evidence_dir,
+            run_token=run_token,
+            current_gate_id=None,
+            completed_steps=completed_step_records,
+            updated_at=_now(),
+        )
 
     run_end_snapshot = _workspace_snapshot(workspace, ignored_roots=ignored_snapshot_roots)
     if run_end_snapshot["fingerprint"] != run_start_snapshot["fingerprint"]:
@@ -638,6 +733,12 @@ def _run_loop_unlocked(
         json.dumps(repair, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     _write_evidence_attestation(workspace, evidence_dir)
+    if not clear_active_checkpoint(
+        state_dir, target_id=str(target["id"]), run_token=run_token
+    ):
+        raise QualityRunConflictError(
+            "quality-loop checkpoint ownership changed before final completion"
+        )
     return summary
 
 
@@ -721,9 +822,15 @@ def run_loop(
         target_path=target_path,
     ):
         if evidence_dir.exists() and any(evidence_dir.iterdir()):
-            raise QualityRunConflictError(
-                f"evidence directory must be new and empty: {evidence_dir}"
-            )
+            resume_target = _parse_target(target_path, workspace=workspace)
+            if not has_active_checkpoint_for_evidence(
+                state_dir,
+                target_id=str(resume_target["id"]),
+                evidence_dir=evidence_dir,
+            ):
+                raise QualityRunConflictError(
+                    f"evidence directory must be new and empty, or belong to a compatible interrupted run: {evidence_dir}"
+                )
         return _run_loop_unlocked(
             workspace,
             policy_path,
@@ -921,6 +1028,23 @@ def main() -> int:
     prior_evidence = Path(args.prior_evidence).expanduser().resolve() if args.prior_evidence else None
     state_raw = args.state_dir or os.getenv("QUALITY_LOOP_STATE_DIR")
     state_dir = Path(state_raw).expanduser().resolve() if state_raw else workspace / ".quality" / "loop-state"
+    if not evidence_raw and target_path is not None:
+        try:
+            resume_target = _parse_target(target_path, workspace=workspace)
+            checkpoint_path = active_checkpoint_path(
+                state_dir, target_id=str(resume_target["id"])
+            )
+            if checkpoint_path.is_file():
+                checkpoint_preview = _load_json(checkpoint_path)
+                checkpoint_evidence = str(checkpoint_preview.get("evidence_dir") or "").strip()
+                if (
+                    str(checkpoint_preview.get("status") or "") == "running"
+                    and str(checkpoint_preview.get("run_token") or "")
+                    and checkpoint_evidence
+                ):
+                    evidence_dir = Path(checkpoint_evidence).expanduser().resolve()
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
     try:
         if target_path is None:
             raise ValueError("--target is required for every quality validation run")

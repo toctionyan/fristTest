@@ -34,7 +34,7 @@ class QualityLoopModularityTest(unittest.TestCase):
     def test_focused_modules_have_single_responsibility_names(self) -> None:
         expected = {
             "common.py", "constants.py", "contracts.py", "environment.py", "dimensions.py",
-            "claims.py", "convergence.py", "state.py",
+            "claims.py", "convergence.py", "state.py", "checkpoint.py",
         }
         self.assertEqual({path.name for path in MODULE_ROOT.glob("*.py")} - {"__init__.py"}, expected)
 
