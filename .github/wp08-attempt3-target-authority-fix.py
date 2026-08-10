@@ -14,6 +14,12 @@ def replace_once(text: str, old: str, new: str, *, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_first(text: str, old: str, new: str, *, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"{label}: anchor not found")
+    return text.replace(old, new, 1)
+
+
 text = PATH.read_text(encoding="utf-8")
 
 text = replace_once(
@@ -32,9 +38,9 @@ def _project_candidate_arguments(
     """Hide opaque handle identity once Runtime has already proved historical binding.
 
     The second model remains responsible for semantic effect/condition exactness,
-    but it must not become a second target resolver.  Handle membership, recency
+    but it must not become a second target resolver. Handle membership, recency
     and frozen historical-reference identity are owned by CapabilityGate's
-    deterministic proofs.  We preserve target operators and user-bound values,
+    deterministic proofs. We preserve target operators and user-bound values,
     replacing only opaque handles with an explicit Runtime-owned marker.
     """
     projected = dict(args or {})
@@ -61,10 +67,10 @@ def _apply_deterministic_target_authority(
 ) -> SemanticVerdict:
     """Prevent a second model from overruling a completed Runtime target proof.
 
-    This is intentionally narrow.  A non-exact verdict is converted only when
+    This is intentionally narrow. A non-exact verdict is converted only when
     the verifier itself says the *only* mismatch dimension is ``target`` and
     CapabilityGate has already frozen an authoritative historical-reference
-    binding.  Effect/condition/other mismatches remain fail-closed.
+    binding. Effect/condition/other mismatches remain fail-closed.
     """
     proof = deterministic_target_proof if isinstance(deterministic_target_proof, dict) else {}
     if proof.get("historical_reference_binding_authoritative") is not True:
@@ -112,7 +118,9 @@ def _apply_deterministic_target_authority(
 '''
 text = replace_once(text, insert_anchor, helper + insert_anchor, label="insert-target-authority-helpers")
 
-text = replace_once(
+# The first concrete SemanticVerdict signature after the protocol is the model
+# verifier; CandidateOnly is patched later with its more specific body anchor.
+text = replace_first(
     text,
     """        verified_context: list[dict[str, Any]],\n        step_context: dict[str, Any] | None = None,\n    ) -> SemanticVerdict:\n""",
     """        verified_context: list[dict[str, Any]],\n        step_context: dict[str, Any] | None = None,\n        deterministic_target_proof: dict[str, Any] | None = None,\n    ) -> SemanticVerdict:\n""",
