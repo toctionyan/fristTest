@@ -134,12 +134,17 @@ def _workflow_repair_tools(
     state: dict[str, Any],
     capability_registry: CapabilityRegistry,
     surface: dict[str, Any],
+    *,
+    pretool_execution_policy: dict[str, Any] | None = None,
 ) -> tuple[set[str], set[str], set[str]]:
-    """Return pending Goal ids plus legal completion/absence reporters.
+    """Return pending Goal ids plus the legal repair business frontier.
 
-    Newly frozen turns use exact business-effect identities. Historical
-    checkpoints without requested_effect retain their old goal-type completion
-    filter as a compatibility-only path.
+    The exact completion surface remains useful for legacy/migration paths, but
+    a WorkflowIncompleteRetry must not discard a support/continuation Tool that
+    the current Pre-tool Execution Policy has already proven to be the legal
+    frontier for a pending Goal. This function can only narrow the schemas
+    already compiled from that policy; it never creates a permit or widens the
+    provider surface beyond the current policy.
     """
 
     execution_plan = read_plan_projection(state) or {}
@@ -160,6 +165,19 @@ def _workflow_repair_tools(
         for name in list(row.get("completion_tools") or [])
         if str(name)
     }
+    policy = pretool_execution_policy if isinstance(pretool_execution_policy, dict) else {}
+    policy_frontier_tools = {
+        str(name)
+        for row in list(policy.get("goal_policies") or [])
+        if isinstance(row, dict) and str(row.get("goal_id") or "") in pending_goal_ids
+        for name in list(row.get("allowed_tools") or [])
+        if str(name)
+    }
+    # agent_loop_schemas was already compiled from the same policy's global
+    # allowed_capability_tools. This union only prevents the later repair
+    # filter from deleting a still-legal support/continuation step; it cannot
+    # widen the provider surface or create an ExecutionPermit.
+    completion_tools.update(policy_frontier_tools)
     pending_goals_by_id = {
         str(goal.get("goal_id") or ""): goal
         for goal in pending_rows
@@ -929,7 +947,10 @@ def agent_loop_node(
             ]
         elif workflow_completion_repair:
             _pending_goal_ids, completion_tools, unsupported_tools = _workflow_repair_tools(
-                state, capability_registry, capability_surface or {}
+                state,
+                capability_registry,
+                capability_surface or {},
+                pretool_execution_policy=pretool_execution_policy,
             )
             # A rejected terminal answer proves the workflow is not complete.
             # Expose only exact completion capabilities, the exact unsupported

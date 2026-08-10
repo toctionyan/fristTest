@@ -400,7 +400,25 @@ class ModelGoalAlignmentVerifier:
                         role="turn_goal_alignment_verifier",
                         instruction=instruction,
                         decision_rules=decision_rules,
-                        payload=prompt,
+                        payload=(
+                            {
+                                **prompt,
+                                # Hide only the candidate dependency graph on the
+                                # bounded second audit; Goal IDs/evidence/effects
+                                # remain visible so the independent graph is grounded.
+                                "DECLARED_GOALS": [
+                                    {
+                                        key: deepcopy(value)
+                                        for key, value in goal.items()
+                                        if key != "depends_on"
+                                    }
+                                    for goal in goals
+                                ],
+                                "DEPENDENCY_REAUDIT_MODE": "candidate_dependency_graph_hidden",
+                            }
+                            if verifier_repair_kind == "dependency_independent_reaudit"
+                            else prompt
+                        ),
                         format_repair=verifier_repair,
                     ),
                 )
@@ -464,15 +482,35 @@ class ModelGoalAlignmentVerifier:
                             dependency_details,
                         )
                 elif raw_verdict == "exact" and dependency_error == "goal_alignment_dependency_graph_mismatch":
-                    verdict = GoalAlignmentVerdict(
-                        "indeterminate",
-                        _literal_spans(user_text, parsed.get("evidence_spans")),
-                        (),
-                        "goal_alignment_dependency_exact_contradiction",
-                        "model",
-                        True,
-                        dependency_details,
-                    )
+                    evidence = _literal_spans(user_text, parsed.get("evidence_spans"))
+                    if verifier_repair_kind == "dependency_independent_reaudit" and evidence:
+                        # The re-auditor intentionally cannot see the candidate
+                        # graph.  Runtime owns the deterministic comparison: a
+                        # different independently grounded graph means the
+                        # declaration dependency relation is incomplete/wrong.
+                        verdict = GoalAlignmentVerdict(
+                            "incomplete",
+                            evidence,
+                            (),
+                            "goal_alignment_dependency_graph_mismatch",
+                            "model",
+                            True,
+                            dependency_details,
+                        )
+                    else:
+                        verdict = GoalAlignmentVerdict(
+                            "indeterminate",
+                            evidence,
+                            (),
+                            (
+                                "goal_alignment_dependency_mismatch_without_literal_evidence"
+                                if verifier_repair_kind == "dependency_independent_reaudit"
+                                else "goal_alignment_dependency_exact_contradiction"
+                            ),
+                            "model",
+                            True,
+                            dependency_details,
+                        )
                 elif dependency_error:
                     verdict = GoalAlignmentVerdict(
                         "indeterminate",
@@ -514,6 +552,23 @@ class ModelGoalAlignmentVerifier:
                         "verifier_repair_kind": verifier_repair_kind,
                     },
                 )
+            if attempt == 0 and verdict.verdict == "exact" and len(goals) > 1:
+                # Dependency authority moved from Goal Granularity into Goal
+                # Alignment. Preserve the old candidate-blind self-audit at
+                # the new authority boundary so planner + verifier cannot
+                # freeze the same execution-order mistake as semantic depends_on.
+                verifier_repair_kind = "dependency_independent_reaudit"
+                verifier_repair = (
+                    "Run a second independent audit of only the semantic result-dependency graph. "
+                    "DECLARED_GOALS intentionally omits every candidate depends_on field in this re-audit; "
+                    "do not interpret that omission as an empty declared graph and do not reconstruct the candidate graph. "
+                    "Infer complete dependency_edges only from USER_TEXT, Goal IDs/evidence/requested effects, and trusted recent public context. "
+                    "Keep an edge only when the customer-visible meaning of the dependent outcome itself requires another current-turn Goal result. "
+                    "Sentence order, then/然后, shared topic/scope, and lookup needed only to turn an already stated descriptor into an ID/artifact are execution-support dataflow, not semantic dependency. "
+                    "Explicit reference to a not-yet-produced current-turn result or an explicit result condition/value input is a true dependency. "
+                    "Return the same strict JSON fields with literal evidence_spans and a complete independently judged dependency_edges graph."
+                )
+                continue
             if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
             if verdict.verdict == "clarify":
