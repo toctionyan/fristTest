@@ -1,0 +1,440 @@
+name: wp08-attempt2-focused-repair-v2
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-focused-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: wp08-release-31388975089-attempt2-repair
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Apply focused source repairs
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          from pathlib import Path
+
+          goal_path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
+          text = goal_path.read_text(encoding='utf-8')
+
+          loop_anchor = (
+              '        for attempt in range(2):\n'
+              '            blind_dependency_audit = verifier_repair_kind == "candidate_blind_dependency_reaudit"\n'
+          )
+          if text.count(loop_anchor) != 1:
+              raise SystemExit('goal_planning loop anchor mismatch')
+          text = text.replace(
+              loop_anchor,
+              '        initial_exact_alignment: GoalAlignmentVerdict | None = None\n' + loop_anchor,
+              1,
+          )
+
+          start_marker = (
+              '                else:\n'
+              '                    verdict = _as_alignment_verdict(\n'
+              '                        parsed,\n'
+              '                        user_text=user_text,\n'
+          )
+          end_marker = '            if attempt > 0 and verifier_repair_kind:\n'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('goal_planning verdict block boundaries missing')
+          old_block = text[start:end]
+          required = (
+              'source="model"',
+              'independent=True',
+              'if dependency_details:',
+              '{**verdict.details, **dependency_details}',
+          )
+          if not all(fragment in old_block for fragment in required):
+              raise SystemExit('goal_planning verdict block shape drifted')
+
+          new_block = ''.join([
+              '                else:\n',
+              '                    if (\n',
+              '                        blind_dependency_audit\n',
+              '                        and raw_verdict == "exact"\n',
+              '                        and initial_exact_alignment is not None\n',
+              '                    ):\n',
+              '                        # This second verifier call is dependency-only authority.\n',
+              '                        # Outcome grounding was already proven by the first exact\n',
+              '                        # call, so preserve that literal evidence while accepting\n',
+              '                        # only the independently validated pairwise dependency proof.\n',
+              '                        verdict = GoalAlignmentVerdict(\n',
+              '                            "exact",\n',
+              '                            initial_exact_alignment.evidence_spans,\n',
+              '                            (),\n',
+              '                            "goal_alignment_candidate_blind_dependency_reaudit_exact",\n',
+              '                            "model",\n',
+              '                            True,\n',
+              '                            {\n',
+              '                                **initial_exact_alignment.details,\n',
+              '                                "initial_alignment_reason_code": initial_exact_alignment.reason_code,\n',
+              '                                "candidate_blind_dependency_reaudit": True,\n',
+              '                            },\n',
+              '                        )\n',
+              '                    else:\n',
+              '                        verdict = _as_alignment_verdict(\n',
+              '                            parsed,\n',
+              '                            user_text=user_text,\n',
+              '                            source="model",\n',
+              '                            independent=True,\n',
+              '                        )\n',
+              '                    if dependency_details:\n',
+              '                        verdict = GoalAlignmentVerdict(\n',
+              '                            verdict.verdict,\n',
+              '                            verdict.evidence_spans,\n',
+              '                            verdict.missing_spans,\n',
+              '                            verdict.reason_code,\n',
+              '                            verdict.source,\n',
+              '                            verdict.independent,\n',
+              '                            {**verdict.details, **dependency_details},\n',
+              '                        )\n',
+          ])
+          text = text[:start] + new_block + text[end:]
+
+          exact_anchor = (
+              '            if attempt == 0 and verdict.exact and len(goals) > 1:\n'
+              '                # The first verifier saw Planner\'s candidate graph and may have\n'
+          )
+          if text.count(exact_anchor) != 1:
+              raise SystemExit('goal_planning exact capture anchor mismatch')
+          text = text.replace(
+              exact_anchor,
+              '            if attempt == 0 and verdict.exact and len(goals) > 1:\n'
+              '                initial_exact_alignment = verdict\n'
+              '                # The first verifier saw Planner\'s candidate graph and may have\n',
+              1,
+          )
+          goal_path.write_text(text, encoding='utf-8')
+
+          gate_path = Path('services/agent-service/src/agent_core/runtime/capability_gate.py')
+          text = gate_path.read_text(encoding='utf-8')
+          start_marker = '        elif reference_cardinality == "single" and member_handles:\n'
+          end_marker = '\n        if not matched:\n'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('capability_gate reference block boundaries missing')
+          old_block = text[start:end]
+          if (
+              'resolved_single_reference_requires_member_handle' not in old_block
+              or 'resolved_collection_reference_target_mismatch' not in old_block
+          ):
+              raise SystemExit('capability_gate reference block shape drifted')
+
+          new_block = ''.join([
+              '        elif reference_cardinality == "single" and member_handles:\n',
+              '            matched = bool(actual_handles & member_handles)\n',
+              '            reason = "resolved_single_reference_member_bound" if matched else "resolved_single_reference_requires_member_handle"\n',
+              '        elif (\n',
+              '            reference_cardinality == "collection"\n',
+              '            and goal_result_cardinality == "single"\n',
+              '            and len(member_handles) == 1\n',
+              '        ):\n',
+              '            # Runtime already proved this collection has exactly one\n',
+              '            # member. A singular final Goal may consume either the exact\n',
+              '            # collection ResultRef or that exact sole proven member.\n',
+              '            # A plural collection still cannot be narrowed here.\n',
+              '            sole_member = next(iter(member_handles))\n',
+              '            if result_ref and result_ref in actual_handles:\n',
+              '                matched = True\n',
+              '                reason = "resolved_collection_reference_bound"\n',
+              '            else:\n',
+              '                matched = sole_member in actual_handles\n',
+              '                reason = (\n',
+              '                    "resolved_singleton_collection_member_bound"\n',
+              '                    if matched\n',
+              '                    else "resolved_singleton_collection_target_mismatch"\n',
+              '                )\n',
+              '        else:\n',
+              '            matched = bool(result_ref and result_ref in actual_handles)\n',
+              '            reason = "resolved_collection_reference_bound" if matched else "resolved_collection_reference_target_mismatch"\n',
+          ])
+          text = text[:start] + new_block + text[end:]
+          gate_path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Add current-architecture counterexamples
+        run: |
+          cat > skill-system/tests/test_wp08_attempt2_followup_repair.py <<'PYTEST'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+          import sys
+          from types import SimpleNamespace
+          from unittest.mock import patch
+
+          ROOT = Path(__file__).resolve().parents[2]
+          AGENT = ROOT / "services" / "agent-service"
+          SRC = AGENT / "src"
+          for path in (AGENT, SRC):
+              if str(path) not in sys.path:
+                  sys.path.insert(0, str(path))
+
+
+          def test_blind_dependency_reaudit_reuses_first_grounded_exact_evidence() -> None:
+              from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
+
+              user_text = "查一下耳机物流，再查一下键盘物流"
+              goals = [
+                  {"goal_id": "g1", "evidence_span": "查一下耳机物流", "depends_on": []},
+                  {"goal_id": "g2", "evidence_span": "查一下键盘物流", "depends_on": []},
+              ]
+              first = SimpleNamespace(content=json.dumps({
+                  "verdict": "exact",
+                  "evidence_spans": ["查一下耳机物流", "查一下键盘物流"],
+                  "missing_spans": [],
+                  "dependency_edges": [],
+                  "reason_code": "all_outcomes_grounded",
+              }, ensure_ascii=False))
+              blind = SimpleNamespace(content=json.dumps({
+                  "verdict": "exact",
+                  "dependency_decisions": [{
+                      "goal_a_id": "g1",
+                      "goal_b_id": "g2",
+                      "relation": "independent",
+                  }],
+                  "reason_code": "pairwise_independent",
+              }, ensure_ascii=False))
+              with patch("agent_core.config.get_model", return_value=object()), patch(
+                  "agent_core.model_calls.invoke_model", side_effect=[(first, {}), (blind, {})]
+              ) as invoke:
+                  verdict = ModelGoalAlignmentVerifier().verify(
+                      user_text=user_text,
+                      goals=goals,
+                      known_tools=set(),
+                  )
+              assert invoke.call_count == 2
+              assert verdict.exact
+              assert verdict.evidence_spans == ("查一下耳机物流", "查一下键盘物流")
+              assert verdict.reason_code == "goal_alignment_candidate_blind_dependency_reaudit_exact"
+              assert verdict.details["dependency_proof_complete"] is True
+              assert verdict.details["dependency_graph_match"] is True
+              assert verdict.details["dependency_pair_decisions"] == [{
+                  "goal_a_id": "g1",
+                  "goal_b_id": "g2",
+                  "relation": "independent",
+              }]
+              assert verdict.details["candidate_blind_dependency_reaudit"] is True
+              assert verdict.details["initial_alignment_reason_code"] == "all_outcomes_grounded"
+
+
+          def _contract(
+              *,
+              reference_cardinality: str,
+              goal_result_cardinality: str = "single",
+              member_handles: tuple[str, ...] = ("artifact:order:10001",),
+          ) -> dict:
+              from agent_core.kernel.semantic_contract import (
+                  FROZEN_SEMANTIC_CONTRACT_VERSION,
+                  compute_semantic_digest,
+              )
+              from agent_core.context.reference_resolution import (
+                  normalize_reference_expression,
+                  resolve_reference_expression,
+              )
+
+              expression = normalize_reference_expression(
+                  {
+                      "reference_type": "temporal_visible_result",
+                      "temporal_relation": "latest",
+                      "evidence_span": "其中",
+                      "object_type": "order",
+                      "expected_cardinality": reference_cardinality,
+                  },
+                  user_text="其中最贵的是哪个？",
+                  expected_object_type="order",
+                  expected_cardinality=reference_cardinality,
+              )
+              proof = resolve_reference_expression(
+                  expression,
+                  visible_result_refs=[{
+                      "result_ref": "h_result:filtered-scope",
+                      "source_turn": 3,
+                      "shape": "collection",
+                      "member_handles": list(member_handles),
+                      "canonical_order": list(member_handles),
+                      "resource_types": ["order"],
+                      "member_resource_types": ["order"],
+                      "discourse_recency_rank": 1,
+                  }],
+              )
+              assert proof["resolution_status"] == "UNIQUE"
+              goal = {
+                  "goal_id": "g1",
+                  "description": "从其中找出最贵的订单",
+                  "evidence_span": "其中最贵的是哪个",
+                  "requested_effect": {
+                      "domain": "order",
+                      "operation": "get_details",
+                      "object_type": "order",
+                      "raw_description": "从其中找出最贵的订单",
+                  },
+                  "expected_result_cardinality": goal_result_cardinality,
+                  "required": True,
+                  "depends_on": [],
+                  "reference_expression": expression,
+                  "referent_resolution_proof": proof,
+                  "resolved_reference": {
+                      "result_ref": proof["resolved_result_ref"],
+                      "member_handles": list(proof["resolved_member_handles"]),
+                      "proof_digest": proof["proof_digest"],
+                  },
+              }
+              contract = {
+                  "version": FROZEN_SEMANTIC_CONTRACT_VERSION,
+                  "authority": "sole_formal_turn_semantics",
+                  "immutable": True,
+                  "turn": 4,
+                  "user_text": "其中最贵的是哪个？",
+                  "summary": "从上轮集合中选一个结果",
+                  "goals": [goal],
+                  "goal_changes": [],
+                  "blocker_resolutions": [],
+                  "focus_change": None,
+                  "alignment_proof": {"verdict": "exact"},
+                  "granularity_proof": {"verdict": "exact"},
+                  "semantic_rewrite_allowed_after_freeze": False,
+              }
+              contract["semantic_digest"] = compute_semantic_digest(contract)
+              contract["semantic_contract_id"] = f"semantic:4:{contract['semantic_digest'][:20]}"
+              return contract
+
+
+          def test_singleton_collection_accepts_only_its_proven_member_for_single_result_goal() -> None:
+              from agent_core.runtime.capability_gate import _semantic_reference_binding_proof
+
+              state = {"frozen_semantic_contract": _contract(reference_cardinality="collection")}
+              member = _semantic_reference_binding_proof(
+                  state,
+                  {"target": {"mode": "artifact", "left_handle": "artifact:order:10001"}},
+                  goal_ids={"g1"},
+              )
+              assert member["complete"] is True
+              assert member["checks"][0]["reason_code"] == "resolved_singleton_collection_member_bound"
+              assert member["checks"][0]["canonical_scope"] == "member:artifact:order:10001"
+
+              parent = _semantic_reference_binding_proof(
+                  state,
+                  {"target": {"mode": "collection", "left_handle": "h_result:filtered-scope"}},
+                  goal_ids={"g1"},
+              )
+              assert parent["complete"] is True
+              assert parent["checks"][0]["reason_code"] == "resolved_collection_reference_bound"
+
+              wrong = _semantic_reference_binding_proof(
+                  state,
+                  {"target": {"mode": "artifact", "left_handle": "artifact:order:10002"}},
+                  goal_ids={"g1"},
+              )
+              assert wrong["complete"] is False
+              assert wrong["checks"][0]["reason_code"] == "resolved_singleton_collection_target_mismatch"
+
+
+          def test_plural_collection_still_rejects_model_selected_member() -> None:
+              from agent_core.runtime.capability_gate import _semantic_reference_binding_proof
+
+              state = {"frozen_semantic_contract": _contract(
+                  reference_cardinality="collection",
+                  member_handles=("artifact:order:10001", "artifact:order:10002"),
+              )}
+              one_member = _semantic_reference_binding_proof(
+                  state,
+                  {"target": {"mode": "artifact", "left_handle": "artifact:order:10001"}},
+                  goal_ids={"g1"},
+              )
+              assert one_member["complete"] is False
+              assert one_member["checks"][0]["reason_code"] == "resolved_collection_reference_target_mismatch"
+
+              exact_collection = _semantic_reference_binding_proof(
+                  state,
+                  {"target": {"mode": "collection", "left_handle": "h_result:filtered-scope"}},
+                  goal_ids={"g1"},
+              )
+              assert exact_collection["complete"] is True
+              assert exact_collection["checks"][0]["reason_code"] == "resolved_collection_reference_bound"
+          PYTEST
+
+      - name: Run focused current-architecture regressions
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_attempt2_followup_repair.py \
+            skill-system/tests/test_wp08_attempt1_product_repair.py \
+            skill-system/tests/test_c2_strong_context_scope_repair.py \
+            skill-system/tests/test_semantic_dependency_repair_feedback.py
+          git diff --check
+
+      - name: Commit product repair, bind baseline, run full Skill control plane, and publish formal branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_attempt2_followup_repair.py
+          git commit -m "Repair WP-08 Attempt 2 alignment and singleton reference binding"
+          PRODUCT_SHA=$(git rev-parse HEAD)
+
+          PRODUCT_SHA="$PRODUCT_SHA" python -B - <<'PY'
+          from datetime import datetime, timezone
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          baseline_path = Path('skill-system/registry/product-source-baseline.json')
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          files = payload.get('files')
+          if not isinstance(files, dict) or not files:
+              raise SystemExit('invalid protected source baseline')
+          missing = []
+          for relative in sorted(files):
+              path = Path(relative)
+              if not path.is_file():
+                  missing.append(relative)
+                  continue
+              files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+          if missing:
+              raise SystemExit('baseline path(s) missing: ' + ', '.join(missing[:10]))
+          payload['file_count'] = len(files)
+          payload['generated_at'] = datetime.now(timezone.utc).isoformat()
+          payload['generated_from'] = 'git:' + os.environ['PRODUCT_SHA']
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+          git diff --check
+          git add skill-system/registry/product-source-baseline.json
+          git commit -m "Bind WP-08 Attempt 2 repair to protected source baseline"
+          git push origin HEAD:refs/heads/wp08-release-31388975089-attempt2-repair
