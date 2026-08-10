@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -59,6 +61,36 @@ class Attempt3Stage2ValidationProbe(unittest.TestCase):
             "not integration",
             "services/business-service/tests",
         )
+
+    def test_03_report_exact_protected_baseline_delta(self) -> None:
+        baseline_path = ROOT / "skill-system/registry/product-source-baseline.json"
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        recorded = dict(baseline.get("files") or {})
+        completed = subprocess.run(
+            ["git", "ls-files", "-z", "--", "services", "web", "contracts"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+        )
+        tracked = sorted(
+            value.decode("utf-8")
+            for value in completed.stdout.split(b"\0")
+            if value
+        )
+        current = {
+            relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+            for relative in tracked
+        }
+        delta = {
+            relative: {"recorded": recorded.get(relative), "current": current.get(relative)}
+            for relative in sorted(set(recorded) | set(current))
+            if recorded.get(relative) != current.get(relative)
+        }
+        print("\n[WP08 Attempt3 Stage3 baseline delta] " + json.dumps(delta, sort_keys=True))
+        self.assertEqual(set(delta), {
+            "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+            "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py",
+        })
 
 
 if __name__ == "__main__":
