@@ -152,13 +152,13 @@ def test_malformed_alignment_basis_fails_closed_after_blind_reaudit() -> None:
         "reason_code": "bad_blind_basis",
     })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[bad, blind_bad]
+        "agent_core.model_calls.invoke_model", side_effect=[bad, blind_bad, blind_bad]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.verdict == "indeterminate"
     assert verdict.reason_code == "goal_alignment_dependency_basis_not_in_dependent_goal:0"
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_format_repair"
 
 
 def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() -> None:
