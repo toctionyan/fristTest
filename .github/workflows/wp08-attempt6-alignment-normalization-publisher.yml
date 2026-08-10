@@ -14,11 +14,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Checkout exact Attempt 6 formal branch
+      - name: Checkout carrier and preserve patch script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: agent/wp08-attempt6-alignment-normalization-20260810
           fetch-depth: 1
+      - name: Switch to exact formal branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/wp08-attempt6-alignment-normalization-fix.py /tmp/wp08-attempt6-fix.py
+          git fetch --no-tags --depth=1 origin refs/heads/agent/wp08-attempt6-alignment-normalization-20260810
+          git checkout --force --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "8ac213a242f2ab018f37abd1c1ddf3159a20aee1"
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.12.13'
@@ -30,226 +37,15 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Install locked Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Apply Attempt 6 normalization repair and tests
-        shell: bash
+      - name: Apply repair
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8ac213a242f2ab018f37abd1c1ddf3159a20aee1"
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
-          text = path.read_text(encoding='utf-8')
-          anchor = '''def _as_alignment_verdict(\n    value: GoalAlignmentVerdict | dict[str, Any],\n'''
-          helper = '''def _machine_grounded_alignment_dependency_mismatch(details: dict[str, Any]) -> bool:\n    \"\"\"Return True only for a complete internal dependency proof that disproves the declaration.\n\n    A semantic declaration can be incomplete because its dependency relation is wrong\n    even when no user-text outcome span is omitted.  This helper validates only the\n    already-machine-checked proof metadata; it never interprets language, tools or\n    business vocabulary.\n    \"\"\"\n    if (\n        details.get(\"dependency_authority\") != \"independent_goal_alignment\"\n        or details.get(\"dependency_proof_complete\") is not True\n        or details.get(\"dependency_graph_match\") is not False\n    ):\n        return False\n    declared = details.get(\"declared_dependency_edges\")\n    proven = details.get(\"dependency_edges\")\n    if not isinstance(declared, list) or not isinstance(proven, list):\n        return False\n\n    def edge_pairs(rows: list[Any]) -> set[tuple[str, str]] | None:\n        result: set[tuple[str, str]] = set()\n        for row in rows:\n            if not isinstance(row, dict):\n                return None\n            dependent = str(row.get(\"dependent_goal_id\") or \"\").strip()\n            prerequisite = str(row.get(\"requires_result_of_goal_id\") or \"\").strip()\n            if not dependent or not prerequisite or dependent == prerequisite:\n                return None\n            pair = (dependent, prerequisite)\n            if pair in result:\n                return None\n            result.add(pair)\n        return result\n\n    declared_pairs = edge_pairs(declared)\n    proven_pairs = edge_pairs(proven)\n    return (\n        declared_pairs is not None\n        and proven_pairs is not None\n        and declared_pairs != proven_pairs\n    )\n\n\n'''
-          if text.count(anchor) != 1:
-              raise SystemExit(f'expected one _as_alignment_verdict anchor, found {text.count(anchor)}')
-          if '_machine_grounded_alignment_dependency_mismatch' in text:
-              raise SystemExit('Attempt 6 helper already present unexpectedly')
-          text = text.replace(anchor, helper + anchor, 1)
-
-          old = '''    if verdict == "incomplete" and not missing:\n        return GoalAlignmentVerdict(\n            "indeterminate",\n            evidence,\n            (),\n            "goal_alignment_missing_span_not_grounded",\n            result_source,\n            result_independent,\n            {\n                **details,\n                "original_verdict": verdict,\n                "grounding_failure": "missing_spans",\n            },\n        )\n'''
-          new = '''    dependency_mismatch_incomplete = (\n        isinstance(value, GoalAlignmentVerdict)\n        and result_source == "model"\n        and result_independent is True\n        and verdict == "incomplete"\n        and not missing\n        and bool(evidence)\n        and reason_code == "goal_alignment_dependency_graph_mismatch"\n        and _machine_grounded_alignment_dependency_mismatch(details)\n    )\n    if verdict == "incomplete" and not missing and not dependency_mismatch_incomplete:\n        return GoalAlignmentVerdict(\n            "indeterminate",\n            evidence,\n            (),\n            "goal_alignment_missing_span_not_grounded",\n            result_source,\n            result_independent,\n            {\n                **details,\n                "original_verdict": verdict,\n                "grounding_failure": "missing_spans",\n            },\n        )\n    if dependency_mismatch_incomplete:\n        details = {**details, "incomplete_grounding": "dependency_graph_mismatch"}\n'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one incomplete grounding block, found {text.count(old)}')
-          text = text.replace(old, new, 1)
-          path.write_text(text, encoding='utf-8')
-
-          test_path = Path('services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py')
-          if test_path.exists():
-              raise SystemExit('Attempt 6 regression file already exists unexpectedly')
-          test_path.write_text(r'''from __future__ import annotations
-
-import json
-from types import SimpleNamespace
-from unittest.mock import patch
-
-from agent_core.lifecycle.goal_planning import (
-    GoalAlignmentVerdict,
-    ModelGoalAlignmentVerifier,
-    _as_alignment_verdict,
-    validate_goal_declaration,
-    verify_goal_alignment,
-)
-
-
-def _response(payload: dict) -> tuple[SimpleNamespace, dict]:
-    return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)), {}
-
-
-def _goal(goal_id: str, span: str, depends_on: list[str]) -> dict:
-    return {
-        "goal_id": goal_id,
-        "description": span,
-        "evidence_span": span,
-        "requested_effect": {
-            "domain": "commerce",
-            "operation": "inspect",
-            "object_type": "order",
-        },
-        "expected_result_cardinality": "collection",
-        "required": True,
-        "depends_on": depends_on,
-    }
-
-
-def _mismatch_details() -> dict:
-    return {
-        "dependency_authority": "independent_goal_alignment",
-        "dependency_proof_complete": True,
-        "dependency_graph_match": False,
-        "declared_dependency_edges": [
-            {"dependent_goal_id": "g2", "requires_result_of_goal_id": "g1"}
-        ],
-        "dependency_edges": [],
-    }
-
-
-def test_internal_dependency_mismatch_incomplete_survives_outer_normalization() -> None:
-    text = "查一下我的订单，再查下物流到哪了"
-    raw = GoalAlignmentVerdict(
-        "incomplete",
-        ("查一下我的订单", "再查下物流到哪了"),
-        (),
-        "goal_alignment_dependency_graph_mismatch",
-        "model",
-        True,
-        _mismatch_details(),
-    )
-    verdict = _as_alignment_verdict(raw, user_text=text, source="model", independent=True)
-    assert verdict.verdict == "incomplete"
-    assert verdict.missing_spans == ()
-    assert verdict.details["dependency_graph_match"] is False
-    assert verdict.details["incomplete_grounding"] == "dependency_graph_mismatch"
-
-
-def test_generic_incomplete_without_literal_missing_span_still_fails_closed() -> None:
-    text = "查一下我的订单，再查下物流到哪了"
-    raw = GoalAlignmentVerdict(
-        "incomplete",
-        ("查一下我的订单", "再查下物流到哪了"),
-        (),
-        "some_coverage_claim",
-        "model",
-        True,
-        {},
-    )
-    verdict = _as_alignment_verdict(raw, user_text=text, source="model", independent=True)
-    assert verdict.verdict == "indeterminate"
-    assert verdict.reason_code == "goal_alignment_missing_span_not_grounded"
-
-
-def test_untrusted_dict_cannot_forge_dependency_mismatch_incomplete_exception() -> None:
-    text = "查一下我的订单，再查下物流到哪了"
-    verdict = _as_alignment_verdict(
-        {
-            "verdict": "incomplete",
-            "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],
-            "missing_spans": [],
-            "reason_code": "goal_alignment_dependency_graph_mismatch",
-            "source": "model",
-            "independent": True,
-            "details": _mismatch_details(),
-        },
-        user_text=text,
-        source="injected",
-        independent=True,
-    )
-    assert verdict.verdict == "indeterminate"
-    assert verdict.reason_code == "goal_alignment_missing_span_not_grounded"
-
-
-def test_literal_missing_outcome_remains_valid_coverage_incomplete() -> None:
-    text = "查订单并查物流"
-    raw = GoalAlignmentVerdict(
-        "incomplete",
-        ("查订单",),
-        ("查物流",),
-        "missing_logistics",
-        "model",
-        True,
-        {},
-    )
-    verdict = _as_alignment_verdict(raw, user_text=text, source="model", independent=True)
-    assert verdict.verdict == "incomplete"
-    assert verdict.missing_spans == ("查物流",)
-
-
-def test_attempt6_two_call_dependency_reaudit_returns_repairable_incomplete_not_unverified() -> None:
-    text = "查一下我的订单，再查下物流到哪了"
-    goals = [_goal("g1", "查一下我的订单", []), _goal("g2", "再查下物流到哪了", ["g1"])]
-    calls = [
-        _response({
-            "verdict": "exact",
-            "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],
-            "missing_spans": [],
-            "dependency_edges": [],
-            "reason_code": "coverage_exact_but_false_dependency_declared",
-        }),
-        _response({
-            "verdict": "incomplete",
-            "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],
-            "missing_spans": [],
-            "dependency_edges": [],
-            "reason_code": "declared_dependency_not_expressed",
-        }),
-    ]
-    with patch("agent_core.lifecycle.goal_planning._goal_alignment_mode", return_value="model"), patch(
-        "agent_core.config.get_model", return_value=object()
-    ), patch("agent_core.model_calls.invoke_model", side_effect=calls) as invoke:
-        verdict = verify_goal_alignment(
-            state={"current_user_input": text},
-            goals=goals,
-            known_tools=set(),
-        )
-    assert invoke.call_count == 2
-    assert verdict.verdict == "incomplete"
-    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
-    assert verdict.details["dependency_graph_match"] is False
-    assert verdict.details["verifier_repair_kind"] == "dependency_proof_reaudit"
-    assert verdict.details["incomplete_grounding"] == "dependency_graph_mismatch"
-
-
-def test_attempt6_validation_surfaces_dependency_mismatch_as_redeclaration_signal() -> None:
-    text = "查一下我的订单，再查下物流到哪了"
-    goals = [_goal("g1", "查一下我的订单", []), _goal("g2", "再查下物流到哪了", ["g1"])]
-    calls = [
-        _response({
-            "verdict": "exact",
-            "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],
-            "missing_spans": [],
-            "dependency_edges": [],
-            "reason_code": "coverage_exact_but_false_dependency_declared",
-        }),
-        _response({
-            "verdict": "incomplete",
-            "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],
-            "missing_spans": [],
-            "dependency_edges": [],
-            "reason_code": "declared_dependency_not_expressed",
-        }),
-    ]
-    with patch("agent_core.lifecycle.goal_planning._goal_alignment_mode", return_value="model"), patch(
-        "agent_core.config.get_model", return_value=object()
-    ), patch("agent_core.model_calls.invoke_model", side_effect=calls):
-        result, declared = validate_goal_declaration(
-            state={"current_user_input": text, "turn_index": 1},
-            args={"goals": goals, "summary": "two independent outcomes"},
-            capability_registry=None,  # semantic validation deliberately does not consult capability state
-        )
-    assert declared is None
-    assert result["code"] == "GOAL_DECLARATION_INCOMPLETE"
-    proof = result["data"]["alignment_proof"]
-    assert proof["verdict"] == "incomplete"
-    assert proof["reason_code"] == "goal_alignment_dependency_graph_mismatch"
-    assert proof["details"]["dependency_graph_match"] is False
-''', encoding='utf-8')
-          PY
+          python -B /tmp/wp08-attempt6-fix.py
           python -m py_compile \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py
           git diff --check
-      - name: Run focused Attempt 6 and protected semantic regressions
+      - name: Run focused semantic regressions
         shell: bash
         run: |
           set -euo pipefail
@@ -265,9 +61,7 @@ def test_attempt6_validation_surfaces_dependency_mismatch_as_redeclaration_signa
             services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
             services/agent-service/tests/runtime/test_semantic_reference_binding.py
           PYTHONPATH=services/agent-service/src services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
-      - name: Run full Skill control plane
-        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
-      - name: Commit focused-green repair
+      - name: Commit product repair
         shell: bash
         run: |
           set -euo pipefail
@@ -277,7 +71,7 @@ def test_attempt6_validation_surfaces_dependency_mismatch_as_redeclaration_signa
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py
           git commit -m 'fix: preserve grounded dependency-mismatch incomplete verdicts'
-      - name: Regenerate protected baseline and publish formal branch
+      - name: Regenerate protected baseline
         shell: bash
         run: |
           set -euo pipefail
@@ -296,6 +90,13 @@ def test_attempt6_validation_surfaces_dependency_mismatch_as_redeclaration_signa
           path.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
           git diff --check
+      - name: Run full Skill control plane on exact repaired tree
+        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+      - name: Commit baseline and publish formal branch
+        shell: bash
+        run: |
+          set -euo pipefail
           git add skill-system/registry/product-source-baseline.json
           git commit -m 'chore: bind Attempt 6 repair to exact protected baseline'
-          git push origin HEAD:agent/wp08-attempt6-alignment-normalization-20260810
+          git diff --check HEAD~2..HEAD
+          git push origin HEAD:refs/heads/agent/wp08-attempt6-alignment-normalization-20260810
