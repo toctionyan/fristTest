@@ -565,6 +565,7 @@ class ModelGoalAlignmentVerifier:
         last_indeterminate = GoalAlignmentVerdict(
             "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
         )
+        initial_exact_alignment: GoalAlignmentVerdict | None = None
         for attempt in range(2):
             blind_dependency_audit = verifier_repair_kind == "candidate_blind_dependency_reaudit"
             effective_instruction = (
@@ -701,12 +702,35 @@ class ModelGoalAlignmentVerifier:
                         dependency_details,
                     )
                 else:
-                    verdict = _as_alignment_verdict(
-                        parsed,
-                        user_text=user_text,
-                        source="model",
-                        independent=True,
-                    )
+                    if (
+                        blind_dependency_audit
+                        and raw_verdict == "exact"
+                        and initial_exact_alignment is not None
+                    ):
+                        # This second verifier call is dependency-only authority.
+                        # Outcome grounding was already proven by the first exact
+                        # call, so preserve that literal evidence while accepting
+                        # only the independently validated pairwise dependency proof.
+                        verdict = GoalAlignmentVerdict(
+                            "exact",
+                            initial_exact_alignment.evidence_spans,
+                            (),
+                            "goal_alignment_candidate_blind_dependency_reaudit_exact",
+                            "model",
+                            True,
+                            {
+                                **initial_exact_alignment.details,
+                                "initial_alignment_reason_code": initial_exact_alignment.reason_code,
+                                "candidate_blind_dependency_reaudit": True,
+                            },
+                        )
+                    else:
+                        verdict = _as_alignment_verdict(
+                            parsed,
+                            user_text=user_text,
+                            source="model",
+                            independent=True,
+                        )
                     if dependency_details:
                         verdict = GoalAlignmentVerdict(
                             verdict.verdict,
@@ -732,6 +756,7 @@ class ModelGoalAlignmentVerifier:
                     },
                 )
             if attempt == 0 and verdict.exact and len(goals) > 1:
+                initial_exact_alignment = verdict
                 # The first verifier saw Planner's candidate graph and may have
                 # anchored on the same execution-dataflow mistake. Spend the
                 # existing second-call budget on an independent dependency audit

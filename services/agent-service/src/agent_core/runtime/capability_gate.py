@@ -1047,6 +1047,26 @@ def _semantic_reference_binding_proof(
         elif reference_cardinality == "single" and member_handles:
             matched = bool(actual_handles & member_handles)
             reason = "resolved_single_reference_member_bound" if matched else "resolved_single_reference_requires_member_handle"
+        elif (
+            reference_cardinality == "collection"
+            and goal_result_cardinality == "single"
+            and len(member_handles) == 1
+        ):
+            # Runtime already proved this collection has exactly one
+            # member. A singular final Goal may consume either the exact
+            # collection ResultRef or that exact sole proven member.
+            # A plural collection still cannot be narrowed here.
+            sole_member = next(iter(member_handles))
+            if result_ref and result_ref in actual_handles:
+                matched = True
+                reason = "resolved_collection_reference_bound"
+            else:
+                matched = sole_member in actual_handles
+                reason = (
+                    "resolved_singleton_collection_member_bound"
+                    if matched
+                    else "resolved_singleton_collection_target_mismatch"
+                )
         else:
             matched = bool(result_ref and result_ref in actual_handles)
             reason = "resolved_collection_reference_bound" if matched else "resolved_collection_reference_target_mismatch"
