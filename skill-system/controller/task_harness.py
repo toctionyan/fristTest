@@ -45,7 +45,7 @@ class TaskHarnessResult:
     metrics: Mapping[str, int]
 
 
-def _failure_kind(exc: BaseException) -> str:
+def _failure_kind(exc: Exception) -> str:
     if isinstance(exc, RemoteEmptyResult):
         return "empty_result"
     if isinstance(exc, TimeoutError):
@@ -69,12 +69,12 @@ class AntiStallTaskHarness:
 
     Each unique resource is an atomic acquisition step with a two-call ceiling:
     one primary call and, only after failure, one explicitly declared fallback.
-    Independent acquisition steps may run in a bounded parallel batch.  Cache
-    hits require no remote call.  Required acquisition failure stops the task;
+    Independent acquisition steps may run in a bounded parallel batch. Cache
+    hits require no remote call. Required acquisition failure stops the task;
     optional failures are retained as evidence but do not erase successful work.
 
     The harness is intentionally independent from Quality Loop gate, claim,
-    repair-round and convergence semantics.  It only acquires immutable inputs.
+    repair-round and convergence semantics. It only acquires immutable inputs.
     """
 
     def __init__(
@@ -122,7 +122,7 @@ class AntiStallTaskHarness:
         primary_calls += 1
         try:
             content = _payload(self._reader(request.source)(request.ref, request.path))
-        except BaseException as exc:
+        except Exception as exc:
             fallback = self.fallback_by_source.get(request.source)
             machine.remote_failed(_failure_kind(exc), fallback_tool=fallback)
             if machine.state == "FALLBACK":
@@ -134,7 +134,7 @@ class AntiStallTaskHarness:
                     content = _payload(
                         self._reader(fallback_source)(fallback_ref, request.path)
                     )
-                except BaseException as fallback_exc:
+                except Exception as fallback_exc:
                     machine.remote_failed(_failure_kind(fallback_exc))
                 else:
                     machine.remote_succeeded()
