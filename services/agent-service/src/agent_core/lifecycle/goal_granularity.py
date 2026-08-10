@@ -494,10 +494,13 @@ def _evaluate_blind_inventory(
 class ModelGoalGranularityVerifier:
     """Candidate-blind inventory plus deterministic candidate comparison.
 
-    The model sees only current USER_TEXT. A first structural disagreement gets
-    one second candidate-blind self-audit; the audit is never told candidate
-    Goals, candidate count, matching result, tools or capabilities. The final
-    blind inventory authority can then be frozen across declaration repair.
+    The model sees only current USER_TEXT. A first structural disagreement, or
+    any first-pass assertion of a current-turn result dependency, gets one
+    second candidate-blind self-audit; the audit is never told candidate Goals,
+    candidate count, matching result, tools or capabilities. This prevents an
+    accidental execution-support edge from becoming frozen merely because the
+    candidate made the same mistake. The final blind inventory authority can
+    then be frozen across declaration repair.
     """
 
     def verify(self, *, user_text: str, goals: list[dict[str, Any]]) -> GoalGranularityVerdict:
@@ -525,6 +528,7 @@ class ModelGoalGranularityVerifier:
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
             "dependency_edges express true current-turn result dependency only: add an edge only when one outcome cannot determine its target, input, condition, or independently acceptable completion without the result of another current-turn outcome.",
             "When a later outcome omits its target but an earlier phrase in the same USER_TEXT already names the reusable business object or scope, inherit that stated scope as ellipsis; that is not a dependency on the earlier Goal result by itself.",
+            "Keep semantic result dependency separate from execution-support dataflow: if the later outcome can identify its intended business target from a literal object/descriptor/scope already stated in the same USER_TEXT, a lookup that an implementation may later need to turn that descriptor into an ID or artifact handle is only a support step and must not create dependency_edges. Add an edge only when the customer-visible meaning of the later outcome itself needs the earlier outcome result.",
             "Sentence order, shared topic/object/scope, conjunctions, and unsupported/open capability status never create a dependency edge by themselves.",
             "A later outcome that refers to the not-yet-produced earlier result (for example it/this/that/其中/这个/该结果) or is explicitly conditional on that result requires an edge.",
             "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a target phrase and the business action over that same target as separate outcomes.",
@@ -650,6 +654,17 @@ class ModelGoalGranularityVerifier:
                 authority=authority,
                 authority_reused=False,
             )
+            if attempt == 0 and dependency_edges:
+                verifier_repair = (
+                    "Run a second candidate-blind audit of USER_TEXT because the first inventory asserted one or more result dependencies. "
+                    "Distinguish semantic result dependency from execution-support dataflow: if a later outcome can identify its intended business target "
+                    "from a literal object/descriptor/scope already stated in this same USER_TEXT, any later lookup needed to obtain an ID, artifact handle, "
+                    "or transaction input is an implementation support step and dependency_edges must remain empty for that relationship. Keep an edge only "
+                    "when the customer-visible meaning of the later outcome itself requires the earlier current-turn outcome result. Sentence order, then/然后, "
+                    "shared topic/scope and likely implementation order are not evidence of a semantic dependency. Return the full strict candidate-blind JSON "
+                    "again and do not inspect candidate Goals, tools or capabilities."
+                )
+                continue
             if verdict.exact or attempt > 0:
                 return verdict
             verifier_repair = (
@@ -657,6 +672,7 @@ class ModelGoalGranularityVerifier:
                 "the true result-dependency graph among those outcomes. Do not duplicate a target phrase and its enclosing business action as two outcomes. "
                 "Filters, status predicates, target selectors, ordering, exclusions, cardinality and form values stay inside the outcome they constrain. "
                 "A later omitted target may inherit an explicitly stated same-turn business object/scope without depending on an earlier Goal result. "
+                "A lookup or support step needed only to convert that already-stated target into an ID/artifact/transaction input is execution dataflow, not semantic dependency. "
                 "Sentence order, shared topic/object/scope and unsupported/open status do not create dependency; an edge exists only when one outcome needs "
                 "another current-turn result for its target, input, condition or independently acceptable completion. Do not inspect, infer or ask about any "
                 "candidate Goal plan, candidate count, tool or capability."

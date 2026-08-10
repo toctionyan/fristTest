@@ -913,7 +913,9 @@ def _semantic_reference_binding_proof(
             if str(value).strip()
         }
         resolution_status = str((proof or {}).get("resolution_status") or "")
-        expected_cardinality = str(goal.get("expected_result_cardinality") or "unknown")
+        goal_result_cardinality = str(goal.get("expected_result_cardinality") or "unknown")
+        reference_expression = goal.get("reference_expression") if isinstance(goal.get("reference_expression"), dict) else {}
+        reference_cardinality = str(reference_expression.get("expected_cardinality") or "unknown")
         if len(member_handles) == 1:
             canonical_scope = f"member:{next(iter(member_handles))}"
         else:
@@ -927,12 +929,9 @@ def _semantic_reference_binding_proof(
         elif mode in {"entity_match", "all_orders", ""}:
             matched = False
             reason = "resolved_reference_must_use_verified_handle_target"
-        elif expected_cardinality == "single" and member_handles:
-            if mode == "artifact":
-                matched = str(target.get("left_handle") or "") in member_handles
-            else:
-                matched = bool(actual_handles & ({result_ref} | member_handles))
-            reason = "resolved_single_reference_bound" if matched else "resolved_single_reference_target_mismatch"
+        elif reference_cardinality == "single" and member_handles:
+            matched = bool(actual_handles & member_handles)
+            reason = "resolved_single_reference_member_bound" if matched else "resolved_single_reference_requires_member_handle"
         else:
             matched = bool(result_ref and result_ref in actual_handles)
             reason = "resolved_collection_reference_bound" if matched else "resolved_collection_reference_target_mismatch"
@@ -945,7 +944,8 @@ def _semantic_reference_binding_proof(
             "resolution_status": resolution_status or None,
             "resolved_result_ref": result_ref or None,
             "resolved_member_handles": sorted(member_handles),
-            "expected_cardinality": expected_cardinality,
+            "expected_cardinality": reference_cardinality,
+            "goal_result_cardinality": goal_result_cardinality,
             "target_mode": mode or None,
             "actual_target_handles": sorted(actual_handles),
             "canonical_scope": canonical_scope or None,
