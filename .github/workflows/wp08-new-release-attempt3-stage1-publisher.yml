@@ -1,0 +1,163 @@
+name: wp08-new-release-attempt3-stage1-publisher
+
+on:
+  pull_request:
+    paths:
+      - '.github/wp08-attempt3-target-authority-fix.py'
+      - '.github/wp08-attempt3-dependency-grounding-fix.py'
+      - '.github/wp08-attempt3-root-fix-tests.py'
+      - '.github/workflows/wp08-new-release-attempt3-stage1-publisher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stage1:
+    runs-on: ubuntu-24.04
+    env:
+      EXPECTED_MAIN_SHA: 8a8b614903f20f5a030e9d80a0adfacb74785882
+      FORMAL_BRANCH: agent/wp08-new-release-attempt3-root-fixes-20260810
+    steps:
+      - name: Checkout carrier with exact history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove carrier is helper-only over exact main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
+          printf 'carrier delta:\n%s\n' "${changed[*]}"
+          test "${#changed[@]}" -eq 4
+          for path in "${changed[@]}"; do
+            case "$path" in
+              .github/wp08-attempt3-target-authority-fix.py|.github/wp08-attempt3-dependency-grounding-fix.py|.github/wp08-attempt3-root-fix-tests.py|.github/workflows/wp08-new-release-attempt3-stage1-publisher.yml) ;;
+              *) echo "unexpected carrier path: $path" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Apply Attempt 3 root repairs in workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/wp08-attempt3-target-authority-fix.py
+          python .github/wp08-attempt3-dependency-grounding-fix.py
+          python .github/wp08-attempt3-root-fix-tests.py
+          git diff --check
+          python -m py_compile \
+            services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py
+
+      - name: Run new and preserved focused Skill regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_wp08_new_release_attempt2_root_fixes.py \
+            skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
+
+      - name: Run focused Agent dependency target and strong-context regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(grep -RIlE \
+            'goal_granularity|validate_goal_declaration|semantic_capability_verifier|issue_execution_permit|SEMANTIC_REFERENCE_BINDING|same_turn_literal|strong_context' \
+            services/agent-service/tests \
+            --include='test_*.py' | sort -u)
+          if [[ "${#tests[@]}" -eq 0 ]]; then
+            echo 'focused Agent test discovery returned no files' >&2
+            exit 1
+          fi
+          printf 'focused Agent files (%s):\n' "${#tests[@]}"
+          printf '%s\n' "${tests[@]}"
+          services/agent-service/.venv/bin/python -m pytest -q "${tests[@]}"
+
+      - name: Prove exact Stage 1 product delta and preserve envelopes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
+          grep -F 'model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes")' services/agent-service/scripts/verify_preprod_conversation_smoke.py
+          grep -F '_bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0' services/agent-service/src/agent_core/config.py
+          grep -F '_bounded_int_env("MODEL_MAX_RETRIES", 1' services/agent-service/src/agent_core/config.py
+          grep -F '{ timeout: 120_000 }' services/agent-service/frontend/e2e/strong_context_journey.mjs
+          mapfile -t product < <(git diff --name-only "$EXPECTED_MAIN_SHA" -- \
+            services/agent-service/src \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py | sort)
+          printf 'Stage 1 product delta:\n%s\n' "${product[*]}"
+          expected=(
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py
+            services/agent-service/src/agent_core/lifecycle/protocol.py
+            services/agent-service/src/agent_core/lifecycle/semantic_contract.py
+            services/agent-service/src/agent_core/runtime/capability_gate.py
+            services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py
+            skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
+          )
+          diff -u <(printf '%s\n' "${expected[@]}" | sort) <(printf '%s\n' "${product[@]}" | sort)
+
+      - name: Publish formal repair branch only after Stage 1 passes
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          patch=/tmp/wp08-attempt3-stage1-product.patch
+          git diff --binary "$EXPECTED_MAIN_SHA" -- \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py \
+            skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py > "$patch"
+          test -s "$patch"
+          git switch --detach "$EXPECTED_MAIN_SHA"
+          git switch -C "$FORMAL_BRANCH"
+          git apply --index "$patch"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'repair Attempt 3 dependency grounding and deterministic target authority'
+          formal_sha=$(git rev-parse HEAD)
+          git push --force-with-lease="refs/heads/$FORMAL_BRANCH:" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/$FORMAL_BRANCH"
+          echo "FORMAL_SHA=$formal_sha" >> "$GITHUB_ENV"
+          echo "published formal Stage 1 SHA $formal_sha"
+
+      - name: Prove no release attempt was dispatched
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
+          echo "Stage 1 publishes only $FORMAL_BRANCH; repository release controller remains untouched."
