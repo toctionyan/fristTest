@@ -51,6 +51,20 @@ skillctl.py contract-close --result ...
 
 当前环境、Codex 和 Claude Code 都调用根目录 `skillctl.py`。宿主适配器不得复制或改变合同、Profile、Judge 与 Evidence 语义。
 
+## 远程输入 Anti-Stall（WORKFLOW_DEFAULT）
+
+复杂代码任务如果需要 GitHub、远程文档或其他 Connector 输入，必须优先减少远程调用链深度，而不是依赖失败后无限重试。这个默认值只约束**输入获取与任务执行节奏**，不得改变 Quality Loop Gate、Claim、repair-round、convergence、业务权威或写入授权语义。
+
+1. **先冻结 Working Set，再执行**：执行前声明本 Atomic Step 所需的 `source + immutable ref + path/resource + required/optional`。未知资源允许先做有限 discovery；一旦 Working Set 冻结，不得在执行中无限“边想边搜、边搜边扩”。
+2. **本地/快照优先**：同一 `source + immutable ref + path` 已有内容校验通过的 Snapshot 时，后续读取必须优先使用缓存，缓存命中消耗 0 次远程调用；ref 改变、内容校验失败或身份不完整必须视为 miss。
+3. **Atomic Step 远程预算固定为 `max_remote_calls = 2`**：一次 primary，加上 primary 明确失败后至多一次不同路径的 fallback。timeout、503、明确 empty-result 或连接失败后，本 Step 的 primary circuit 立即打开；禁止同 Tool 原地重试。
+4. **并发读取有硬上限 `max_parallel <= 4`**：只有互相独立、且位于兼容 source/ref 边界的读取可以同批；有依赖关系的资源必须等待前置完成，不能为了提速破坏依赖顺序。
+5. **Fallback 用尽即停止当前 Atomic Step**：fallback 再失败时记录失败、checkpoint/report 并停止该 Step；不得继续临时寻找第三、第四条远程路径。required 输入失败时整个任务 fail closed；optional 输入可保留失败证据后继续不依赖它的工作。
+6. **长任务按 Atomic Step 持久化进度**：每个可验证小阶段结束后保存 checkpoint；同一次中断恢复只能复用精确匹配的 target/policy/source snapshot/mode/selected closure/evidence，并重新验证已完成证据。历史 PASS 不能冒充同一次运行的 Resume frontier。
+7. **实现参考而非第二主链**：`skill-system/controller/task_harness.py`、`working_set.py`、`snapshot_cache.py`、`bounded_batch.py`、`anti_stall.py` 和 `fallback_state.py` 是这个 Workflow Default 的可执行参考。宿主能注入 remote reader 时可直接复用；宿主不能把平台 Connector 交给仓库代码控制时，也必须遵守等价的 Working Set / Budget / Circuit / bounded fallback 节奏，不能声称仓库代码已经拦截平台级 Connector。
+
+这个默认协议的目标是把“远程同步”与“本地分析”分开：尽量一次取得稳定 Working Set，后续 grep/AST/依赖分析/patch/test 在本地完成。若宿主能力不足以实现 batch/cache，应缩小 Atomic Step 并明确 checkpoint，而不是退化为开放式远程调用循环。
+
 
 ## 架构 Baseline 规则
 
