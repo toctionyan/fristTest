@@ -1,0 +1,142 @@
+name: wp08-attempt5-stage3-integration-proof
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  stage3:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt5-stage3-integration-proof-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      pgvector:
+        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
+        env:
+          POSTGRES_DB: agent_test
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent-test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      EXACT_REPAIR_HEAD: 7d2971ec4aa77a6b632722700e81ff963426e00d
+    steps:
+      - name: Checkout exact formal repair head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ env.EXACT_REPAIR_HEAD }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact formal head
+        run: test "$(git rev-parse HEAD)" = "$EXACT_REPAIR_HEAD"
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked environments
+        run: |
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Validate Skill control plane
+        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+      - name: Validate protected product-source compatibility
+        run: services/agent-service/.venv/bin/python -B skill-system/controller/project_compatibility.py
+      - name: Validate locked runtime toolchain
+        env:
+          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-attempt5-stage3.json
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
+          --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
+      - name: Create integration quality target
+        env:
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/wp08-attempt5-stage3.md
+        run: >-
+          "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py
+          --output "$QUALITY_TARGET"
+          --ref "$EXACT_REPAIR_HEAD"
+          --workflow quality-integration
+          --claims-source governance/claims/v20.6.2-project-integration-certification.json
+      - name: Start deterministic model and both services
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
+          OPENAI_API_KEY: deterministic-ci-key
+          OPENAI_API_BASE: http://127.0.0.1:18081/v1
+          OPENAI_MODEL: deterministic-ci-model
+          BUSINESS_SERVICE_TOKEN: dev-service-token
+          BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'false'
+          BUSINESS_SEED_DEMO_DATA: 'true'
+          BUSINESS_SERVICE_RELOAD: 'false'
+          AGENT_SERVICE_RELOAD: 'false'
+          WEB_CONSOLE_DEV_LOGIN: 'true'
+          AGENT_REQUIRE_AUTH: 'true'
+          AGENT_AUTH_PROVIDER: dev_token
+          RAG_BACKEND: local_sparse
+          AGENT_DB_BACKEND: sqlite
+          CHECKPOINT_BACKEND: sqlite
+          SQLITE_DB_PATH: ${{ runner.temp }}/agent.db
+          CHECKPOINT_DB_PATH: ${{ runner.temp }}/checkpoints.db
+          BUSINESS_DB_PATH: ${{ runner.temp }}/business.db
+        run: |
+          services/agent-service/.venv/bin/python -m uvicorn tests.integration.model_stub:app --app-dir services/agent-service --host 127.0.0.1 --port 18081 > "${RUNNER_TEMP}/model-stub.log" 2>&1 &
+          services/business-service/.venv/bin/python services/business-service/scripts/run_business_api.py > "${RUNNER_TEMP}/business.log" 2>&1 &
+          services/agent-service/.venv/bin/python services/agent-service/scripts/run_api.py > "${RUNNER_TEMP}/agent.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9000/health >/dev/null && curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "${RUNNER_TEMP}/business.log" || true
+          cat "${RUNNER_TEMP}/agent.log" || true
+          exit 1
+      - name: Run integration quality gates
+        env:
+          APP_PROFILE: local
+          PYTHONDONTWRITEBYTECODE: '1'
+          OPENAI_API_KEY: deterministic-ci-key
+          OPENAI_API_BASE: http://127.0.0.1:18081/v1
+          OPENAI_MODEL: deterministic-ci-model
+          BUSINESS_SERVICE_BASE_URL: http://127.0.0.1:9000
+          BUSINESS_SERVICE_TOKEN: dev-service-token
+          AGENT_TEST_URL: http://127.0.0.1:8000
+          BUSINESS_TEST_URL: http://127.0.0.1:9000
+          PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
+          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/attempt5-stage3
+          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/wp08-attempt5-stage3.md
+        run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode integration --target "$QUALITY_TARGET"
+      - name: Upload Stage-3 evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: wp08-attempt5-stage3-evidence
+          path: |
+            ${{ runner.temp }}/quality-evidence/attempt5-stage3
+            ${{ runner.temp }}/quality-toolchain-attempt5-stage3.json
+            ${{ runner.temp }}/model-stub.log
+            ${{ runner.temp }}/business.log
+            ${{ runner.temp }}/agent.log
+            ${{ github.workspace }}/.quality/targets/wp08-attempt5-stage3.md
+            ${{ github.workspace }}/.quality/targets/wp08-attempt5-stage3.claims.json
+          if-no-files-found: warn
