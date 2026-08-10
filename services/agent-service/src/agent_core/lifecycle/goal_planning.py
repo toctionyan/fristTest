@@ -184,6 +184,13 @@ def _as_alignment_verdict(
     verdict = raw_verdict if raw_verdict in _ALLOWED_ALIGNMENT_VERDICTS else "indeterminate"
     evidence = _literal_spans(user_text, raw_evidence)
     missing = _literal_spans(user_text, raw_missing)
+    grounded_dependency_mismatch = (
+        verdict == "incomplete"
+        and reason_code == "goal_alignment_dependency_graph_mismatch"
+        and details.get("dependency_authority") == "independent_goal_alignment"
+        and details.get("dependency_proof_complete") is True
+        and details.get("dependency_graph_match") is False
+    )
     if verdict == "exact" and not evidence:
         return GoalAlignmentVerdict(
             "indeterminate",
@@ -198,7 +205,7 @@ def _as_alignment_verdict(
                 "grounding_failure": "evidence_spans",
             },
         )
-    if verdict == "incomplete" and not missing:
+    if verdict == "incomplete" and not missing and not grounded_dependency_mismatch:
         return GoalAlignmentVerdict(
             "indeterminate",
             evidence,
