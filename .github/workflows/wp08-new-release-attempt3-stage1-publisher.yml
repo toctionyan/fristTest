@@ -1,6 +1,14 @@
 name: wp08-new-release-attempt3-stage1-publisher
 
 on:
+  push:
+    branches:
+      - wp08-new-release-attempt3-stage1-carrier-20260810
+    paths:
+      - '.github/wp08-attempt3-target-authority-fix.py'
+      - '.github/wp08-attempt3-dependency-grounding-fix.py'
+      - '.github/wp08-attempt3-root-fix-tests.py'
+      - '.github/workflows/wp08-new-release-attempt3-stage1-publisher.yml'
   pull_request:
     paths:
       - '.github/wp08-attempt3-target-authority-fix.py'
