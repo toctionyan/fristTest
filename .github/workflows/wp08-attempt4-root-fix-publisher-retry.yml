@@ -36,12 +36,13 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          import textwrap
           workflow = Path('.github/workflows/wp08-attempt4-root-fix-publisher.yml').read_text(encoding='utf-8')
           marker = "          python - <<'PY'\n"
           start = workflow.index(marker) + len(marker)
           end = workflow.index("\n          PY\n", start)
-          patch = textwrap.dedent(workflow[start:end]) + "\n"
+          raw = workflow[start:end]
+          lines = raw.splitlines()
+          patch = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
           Path('/tmp/wp08_attempt4_apply.py').write_text(patch, encoding='utf-8')
           print(f'extracted_patch_bytes={len(patch.encode("utf-8"))}')
           PY
