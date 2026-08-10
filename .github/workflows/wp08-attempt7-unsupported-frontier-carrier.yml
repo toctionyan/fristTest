@@ -26,30 +26,17 @@ jobs:
 
           runtime = Path('services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py')
           text = runtime.read_text()
-          old = '''    policy_frontier_tools = {
-              str(name)
-              for row in list(policy.get("goal_policies") or [])
-              if isinstance(row, dict) and str(row.get("goal_id") or "") in pending_goal_ids
-              for name in list(row.get("allowed_tools") or [])
-              if str(name) and str(name) not in TERMINAL_TOOL_NAMES
-          }
+          needle = '        if str(name) and str(name) not in TERMINAL_TOOL_NAMES\n'
+          replacement = '''        if str(name)
+                  and str(name) not in TERMINAL_TOOL_NAMES
+                  and (
+                      (contract := capability_registry.contract_for_tool(str(name))) is not None
+                      and contract.execution_kind != "unsupported"
+                  )
           '''
-          new = '''    policy_frontier_tools = {
-              str(name)
-              for row in list(policy.get("goal_policies") or [])
-              if isinstance(row, dict) and str(row.get("goal_id") or "") in pending_goal_ids
-              for name in list(row.get("allowed_tools") or [])
-              if str(name)
-              and str(name) not in TERMINAL_TOOL_NAMES
-              and (
-                  (contract := capability_registry.contract_for_tool(str(name))) is not None
-                  and contract.execution_kind != "unsupported"
-              )
-          }
-          '''
-          if old not in text:
-              raise SystemExit('runtime frontier anchor not found')
-          runtime.write_text(text.replace(old, new, 1))
+          if text.count(needle) != 1:
+              raise SystemExit(f'runtime frontier condition count={text.count(needle)}')
+          runtime.write_text(text.replace(needle, replacement, 1))
 
           test = Path('services/agent-service/tests/runtime/test_wp08_attempt7_final_repair.py')
           text = test.read_text()
