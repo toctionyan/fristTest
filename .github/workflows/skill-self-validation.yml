@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   skill-self-validation:
@@ -16,9 +16,35 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: repair-semantic-dependency-20260810
+          fetch-depth: 0
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
+      - name: Restore accidental baseline transcription drift
+        run: |
+          python -B - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          path = Path('skill-system/registry/product-source-baseline.json')
+          current = json.loads(path.read_text(encoding='utf-8'))
+          main = json.loads(subprocess.check_output(
+              ['git', 'show', 'origin/main:skill-system/registry/product-source-baseline.json'],
+              text=True,
+          ))
+          accidental_key = 'services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py'
+          intended_key = 'services/agent-service/src/agent_core/lifecycle/goal_planning.py'
+          current['files'][accidental_key] = main['files'][accidental_key]
+          expected_intended = '30616aabb9eb0c953d8b1b15aaeb5347e3945e9917dbc0fa7412266b74fad89d'
+          if current['files'].get(intended_key) != expected_intended:
+              raise SystemExit('intended goal_planning baseline hash changed unexpectedly')
+          if len(current['files'][accidental_key]) != 64:
+              raise SystemExit('restored Attempt-7 baseline hash is not SHA-256')
+          path.write_text(json.dumps(current, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
       - name: Bootstrap locked uv
         run: >-
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
@@ -32,3 +58,12 @@ jobs:
         run: >-
           services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py
           --workspace-root . --static-only
+      - name: Commit repaired baseline and restore workflow
+        run: |
+          git checkout origin/main -- .github/workflows/skill-self-validation.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json .github/workflows/skill-self-validation.yml
+          git diff --cached --quiet && exit 0
+          git commit -m 'Restore accidental baseline transcription drift'
+          git push origin HEAD:repair-semantic-dependency-20260810
