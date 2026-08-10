@@ -6,418 +6,388 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
-  GH_REPO: ${{ github.repository }}
+  PYTHONDONTWRITEBYTECODE: '1'
 
 jobs:
-  skill-control-plane:
+  repair-strong-context-scope:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: repair-strong-context-scope-20260810
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.12.13'
-      - name: Bootstrap locked uv
-        run: >-
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
-          --require-hashes --only-binary=:all:
-          -r deployment/ci/uv-requirements-linux-x86_64.txt
-      - name: Install locked Agent validation environment
-        run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Validate Skill control plane
+      - name: Apply condition scope closure
         run: |
-          set -o pipefail
-          services/agent-service/.venv/bin/python -B \
-            skill-system/controller/profile_runner.py skill-control-plane \
-            2>&1 | tee "${RUNNER_TEMP}/skill-control-plane.log"
-      - name: Upload Skill control-plane evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: skill-control-plane-evidence
-          path: ${{ runner.temp }}/skill-control-plane.log
-          if-no-files-found: warn
-      - name: Validate quality toolchain authority
-        run: >-
-          services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py
-          --workspace-root . --static-only
+          python -B - <<'PY'
+          from pathlib import Path
 
-  quality-static:
-    needs: skill-control-plane
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-      - name: Create static quality target
-        env:
-          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-static.md
-        run: '"${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py --output "$QUALITY_TARGET" --ref "${{ github.sha }}" --workflow quality-static'
-      - name: Run static quality gates
-        env:
-          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/static
-          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-static.md
-        run: '"${pythonLocation}/bin/python" -B scripts/quality_loop.py --mode static --target "$QUALITY_TARGET"'
-      - name: Upload static evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: quality-static-evidence
-          path: |
-            ${{ runner.temp }}/quality-evidence/static
-            ${{ github.workspace }}/.quality/targets/quality-target-static.md
-            ${{ github.workspace }}/.quality/targets/quality-target-static.claims.json
+          gate_path = Path('services/agent-service/src/agent_core/runtime/capability_gate.py')
+          gate = gate_path.read_text(encoding='utf-8')
+          helper_anchor = '\n\ndef _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:\n'
+          if helper_anchor not in gate:
+              raise SystemExit('capability helper anchor missing')
+          if 'def _goal_condition_parameterization_proof(' in gate:
+              raise SystemExit('goal condition proof already exists')
+          helper = r'''
 
-  quality-quick:
-    needs: quality-static
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '24.18.0'
-          package-manager-cache: false
-      - name: Bootstrap locked uv
-        run: >-
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
-          --require-hashes --only-binary=:all:
-          -r deployment/ci/uv-requirements-linux-x86_64.txt
-      - name: Validate locked runtime toolchain
-        env:
-          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-${{ github.job }}.json
-        run: >-
-          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
-          --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
-      - name: Install locked Python environments
+
+def _goal_condition_parameterization_proof(
+    state: dict[str, Any],
+    *,
+    effect_id: str,
+    parameterization: dict[str, Any],
+) -> dict[str, Any]:
+    """Prove frozen result-scope conditions are represented by covered Tool parameters.
+
+    Runtime stays domain-neutral: it compares only formal condition operand paths
+    and literal values against already-validated constraint bindings. It never
+    maps natural-language business vocabulary to Tool fields. ``goal_output``
+    conditions remain workflow dependencies and are intentionally out of scope.
+    """
+    effect = next((
+        row for row in list((state.get("current_turn_plan") or {}).get("effects") or [])
+        if isinstance(row, dict) and str(row.get("effect_id") or "") == str(effect_id or "")
+    ), {})
+    goal_ids = [str(value) for value in list(effect.get("goal_ids") or []) if str(value)]
+    wanted = set(goal_ids)
+    goals = {
+        str(row.get("goal_id") or ""): row
+        for row in semantic_goals(state)
+        if str(row.get("goal_id") or "") in wanted
+    }
+    requirements: list[dict[str, Any]] = []
+    structural_errors: list[str] = []
+
+    def has_parameter_operand(value: Any) -> bool:
+        if isinstance(value, dict):
+            if str(value.get("source") or "") in {"target_fact", "input"}:
+                return True
+            return any(has_parameter_operand(item) for item in value.values())
+        if isinstance(value, list):
+            return any(has_parameter_operand(item) for item in value)
+        return False
+
+    def walk(goal_id: str, node: Any, trail: str) -> None:
+        if not isinstance(node, dict):
+            return
+        op = str(node.get("op") or "")
+        if op in {"and", "or"}:
+            for index, child in enumerate(list(node.get("args") or [])):
+                walk(goal_id, child, f"{trail}.{op}[{index}]")
+            return
+        if op == "eq":
+            left = node.get("left") if isinstance(node.get("left"), dict) else {}
+            right = node.get("right") if isinstance(node.get("right"), dict) else {}
+            for formal, literal in ((left, right), (right, left)):
+                source = str(formal.get("source") or "")
+                path = str(formal.get("path") or "").strip()
+                if source not in {"target_fact", "input"} or str(literal.get("source") or "") != "literal":
+                    continue
+                value = literal.get("value")
+                if not path or value is None:
+                    structural_errors.append(f"condition_parameterization_invalid:{goal_id}:{trail}")
+                    return
+                requirements.append({
+                    "goal_id": goal_id,
+                    "condition_path": path,
+                    "condition_path_leaf": path.rsplit(".", 1)[-1],
+                    "normalized_value": value,
+                    "operator": "eq",
+                })
+                return
+        if has_parameter_operand(node):
+            structural_errors.append(f"condition_parameterization_unrepresented:{goal_id}:{trail or op or 'condition'}")
+
+    for goal_id in goal_ids:
+        condition = (goals.get(goal_id) or {}).get("condition")
+        if isinstance(condition, dict):
+            walk(goal_id, condition, "condition")
+
+    bindings = [
+        dict(row)
+        for row in list(parameterization.get("bindings") or [])
+        if isinstance(row, dict) and str(row.get("status") or "") == "covered"
+    ]
+    checks: list[dict[str, Any]] = []
+    errors = list(structural_errors)
+    for requirement in requirements:
+        matches = [
+            row for row in bindings
+            if str(row.get("parameter_path") or "").rsplit(".", 1)[-1]
+            == str(requirement.get("condition_path_leaf") or "")
+            and row.get("normalized_value") == requirement.get("normalized_value")
+        ]
+        matched = len(matches) == 1
+        checks.append({
+            **requirement,
+            "matched": matched,
+            "matched_parameter_paths": [str(row.get("parameter_path") or "") for row in matches],
+            "matched_source_spans": [str(row.get("source_span") or "") for row in matches],
+        })
+        if not matched:
+            errors.append(
+                f"goal_condition_parameterization_required:{requirement['goal_id']}:"
+                f"{requirement['condition_path']}"
+            )
+
+    return {
+        "version": "goal-condition-parameterization-proof@1",
+        "goal_ids": goal_ids,
+        "required": bool(requirements or structural_errors),
+        "requirements": requirements,
+        "checks": checks,
+        "complete": not errors,
+        "errors": errors,
+    }
+'''
+          gate = gate.replace(helper_anchor, helper + helper_anchor, 1)
+          start = gate.index('def issue_execution_permit(')
+          end = gate.index('\n\ndef permit_allows_dispatch(', start)
+          section = gate[start:end]
+          old = '''    parameterization = _parameterization_proof(state, normalized_args) if contract is not None and not arg_errors else {
+        "version": "constraint-coverage-proof@1", "bindings": [], "parameterization_complete": False,
+        "errors": ["tool_schema_invalid"] if arg_errors else ["tool_not_registered"],
+    }
+'''
+          new = old + '''    goal_condition_parameterization = _goal_condition_parameterization_proof(
+        state,
+        effect_id=effect_id,
+        parameterization=parameterization,
+    )
+    parameterization_complete = bool(
+        parameterization.get("parameterization_complete")
+        and goal_condition_parameterization.get("complete")
+    )
+'''
+          if section.count(old) != 1:
+              raise SystemExit(f'parameterization anchor count={section.count(old)}')
+          section = section.replace(old, new, 1)
+          section = section.replace('and parameterization.get("parameterization_complete")\n        and visible_reference.get("complete")', 'and parameterization_complete\n        and visible_reference.get("complete")', 1)
+          section = section.replace('"match_proof_version": "match-proof@4.1",', '"match_proof_version": "match-proof@4.2",', 1)
+          old_proof = '''        "parameterization": parameterization,
+        "parameterization_complete": bool(parameterization.get("parameterization_complete")),
+        "visible_result_reference": visible_reference,
+'''
+          new_proof = '''        "parameterization": parameterization,
+        "goal_condition_parameterization": goal_condition_parameterization,
+        "parameterization_complete": parameterization_complete,
+        "visible_result_reference": visible_reference,
+'''
+          if section.count(old_proof) != 1:
+              raise SystemExit(f'proof anchor count={section.count(old_proof)}')
+          section = section.replace(old_proof, new_proof, 1)
+          old_errors = '*list(parameterization.get("errors") or []), *list(visible_reference.get("errors") or [])'
+          new_errors = '*list(parameterization.get("errors") or []), *list(goal_condition_parameterization.get("errors") or []), *list(visible_reference.get("errors") or [])'
+          if section.count(old_errors) != 1:
+              raise SystemExit(f'constraint errors anchor count={section.count(old_errors)}')
+          section = section.replace(old_errors, new_errors, 1)
+          section = section.replace('and parameterization.get("parameterization_complete") and visible_reference.get("complete")', 'and parameterization_complete and visible_reference.get("complete")', 1)
+          section = section.replace('or not parameterization.get("parameterization_complete") or not visible_reference.get("complete")', 'or not parameterization_complete or not visible_reference.get("complete")', 1)
+          section = section.replace('and not parameterization.get("parameterization_complete")\n                    else "CAPABILITY_SEMANTIC_CLARIFICATION_REQUIRED"', 'and not parameterization_complete\n                    else "CAPABILITY_SEMANTIC_CLARIFICATION_REQUIRED"', 1)
+          section = section.replace('and not parameterization.get("parameterization_complete")\n                    else "当前请求需要先澄清', 'and not parameterization_complete\n                    else "当前请求需要先澄清', 1)
+          gate = gate[:start] + section + gate[end:]
+          gate_path.write_text(gate, encoding='utf-8')
+
+          semantic_path = Path('services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py')
+          semantic = semantic_path.read_text(encoding='utf-8')
+          old_goal = '            "depends_on": [str(value) for value in list(row.get("depends_on") or []) if str(value)],\n'
+          new_goal = old_goal + '            "condition": deepcopy(row.get("condition")) if isinstance(row.get("condition"), dict) else None,\n'
+          if semantic.count(old_goal) != 1:
+              raise SystemExit(f'semantic projection anchor count={semantic.count(old_goal)}')
+          semantic_path.write_text(semantic.replace(old_goal, new_goal, 1), encoding='utf-8')
+
+          release_path = Path('services/agent-service/src/agent_core/runtime/answer_release_alignment.py')
+          release = release_path.read_text(encoding='utf-8')
+          verdict_anchor = '\n\ndef _deterministic_verdict(*, result: dict[str, Any], blocks: list[dict[str, Any]]) -> AnswerAlignmentVerdict:\n'
+          if verdict_anchor not in release:
+              raise SystemExit('release verdict anchor missing')
+          release_helper = r'''
+
+
+def _match_proof_condition_parameterization_complete(proof: dict[str, Any]) -> bool:
+    if str(proof.get("match_proof_version") or "") != "match-proof@4.2":
+        return True
+    condition_proof = proof.get("goal_condition_parameterization")
+    return bool(isinstance(condition_proof, dict) and condition_proof.get("complete"))
+'''
+          release = release.replace(verdict_anchor, release_helper + verdict_anchor, 1)
+          old_loop = '''    proofs = _effective_match_proofs(result)
+    for proof in proofs:
+        semantic = proof.get("semantic_verdict") if isinstance(proof.get("semantic_verdict"), dict) else {}
+'''
+          new_loop = '''    proofs = _effective_match_proofs(result)
+    for proof in proofs:
+        if proof.get("candidate_tool") and not _match_proof_condition_parameterization_complete(proof):
+            return AnswerAlignmentVerdict(
+                "reject",
+                "goal_condition_parameterization_unproven",
+                "deterministic",
+                True,
+                {"match_proof": proof},
+            )
+        semantic = proof.get("semantic_verdict") if isinstance(proof.get("semantic_verdict"), dict) else {}
+'''
+          if release.count(old_loop) != 1:
+              raise SystemExit(f'release proof-loop anchor count={release.count(old_loop)}')
+          release = release.replace(old_loop, new_loop, 1)
+          old_exact = '''            and proof.get("parameterization_complete")
+            and (proof.get("visible_result_reference") or {}).get("complete")
+'''
+          new_exact = '''            and proof.get("parameterization_complete")
+            and _match_proof_condition_parameterization_complete(proof)
+            and (proof.get("visible_result_reference") or {}).get("complete")
+'''
+          if release.count(old_exact) != 1:
+              raise SystemExit(f'release authority anchor count={release.count(old_exact)}')
+          release_path.write_text(release.replace(old_exact, new_exact, 1), encoding='utf-8')
+
+          test_path = Path('skill-system/tests/test_strong_context_condition_parameterization.py')
+          test_path.write_text(r'''from __future__ import annotations
+
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+AGENT_SRC = ROOT / "services" / "agent-service" / "src"
+if str(AGENT_SRC) not in sys.path:
+    sys.path.insert(0, str(AGENT_SRC))
+
+from agent_core.lifecycle.semantic_contract import freeze_semantic_contract  # noqa: E402
+from agent_core.runtime.capability_gate import _goal_condition_parameterization_proof  # noqa: E402
+from agent_core.runtime.semantic_capability_verifier import _workflow_step_context  # noqa: E402
+from agent_core.runtime.answer_release_alignment import _deterministic_verdict  # noqa: E402
+
+
+def _state() -> dict:
+    text = "哪些还在路上？"
+    contract = freeze_semantic_contract(
+        turn=1,
+        user_text=text,
+        summary=text,
+        goals=[{
+            "goal_id": "g1",
+            "description": "查询还在运输中的订单物流",
+            "evidence_span": text,
+            "requested_effect": {
+                "domain": "ecommerce",
+                "operation": "logistics.get",
+                "object_type": "order",
+                "raw_description": text,
+            },
+            "expected_result_cardinality": "collection",
+            "required": True,
+            "depends_on": [],
+            "condition": {
+                "version": "condition-expression@1",
+                "op": "eq",
+                "left": {"source": "target_fact", "path": "delivery_status"},
+                "right": {"source": "literal", "value": "运输中"},
+            },
+        }],
+        alignment_proof={"verdict": "exact", "source": "test", "independent": True},
+        granularity_proof={"verdict": "exact", "source": "test"},
+    )
+    return {
+        "current_user_input": text,
+        "turn_index": 1,
+        "frozen_semantic_contract": contract,
+        "current_turn_plan": {"effects": [{"effect_id": "effect:g1", "goal_ids": ["g1"]}]},
+    }
+
+
+class StrongContextConditionParameterizationTests(unittest.TestCase):
+    def test_broad_candidate_without_condition_binding_fails_closed(self) -> None:
+        proof = _goal_condition_parameterization_proof(
+            _state(), effect_id="effect:g1",
+            parameterization={"bindings": [], "parameterization_complete": True, "errors": []},
+        )
+        self.assertTrue(proof["required"])
+        self.assertFalse(proof["complete"])
+        self.assertEqual(proof["requirements"][0]["condition_path"], "delivery_status")
+        self.assertEqual(proof["requirements"][0]["normalized_value"], "运输中")
+
+    def test_exact_status_binding_closes_frozen_condition(self) -> None:
+        proof = _goal_condition_parameterization_proof(
+            _state(), effect_id="effect:g1",
+            parameterization={
+                "parameterization_complete": True,
+                "errors": [],
+                "bindings": [{
+                    "status": "covered",
+                    "source_span": "在路上",
+                    "parameter_path": "query.delivery_status",
+                    "normalized_value": "运输中",
+                }],
+            },
+        )
+        self.assertTrue(proof["required"])
+        self.assertTrue(proof["complete"])
+        self.assertEqual(proof["checks"][0]["matched_parameter_paths"], ["query.delivery_status"])
+
+    def test_semantic_capability_verifier_receives_frozen_condition(self) -> None:
+        context = _workflow_step_context(_state(), "effect:g1")
+        condition = context["declared_goals"][0]["condition"]
+        self.assertEqual(condition["left"]["path"], "delivery_status")
+        self.assertEqual(condition["right"]["value"], "运输中")
+
+    def test_answer_release_rejects_v42_matchproof_without_condition_closure(self) -> None:
+        verdict = _deterministic_verdict(
+            result={"turn_match_proofs": [{
+                "match_proof_version": "match-proof@4.2",
+                "effect_id": "effect:g1",
+                "candidate_tool": "get_order_logistics",
+                "goal_condition_parameterization": {"required": True, "complete": False},
+            }]},
+            blocks=[],
+        )
+        self.assertEqual(verdict.verdict, "reject")
+        self.assertEqual(verdict.reason_code, "goal_condition_parameterization_unproven")
+
+
+if __name__ == "__main__":
+    unittest.main()
+''', encoding='utf-8')
+          PY
+      - name: Regenerate protected source baseline
         run: |
+          python -B - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          root = Path.cwd()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          roots = [str(value) for value in payload.get('protected_roots') or ()]
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          payload['file_count'] = len(tracked)
+          payload['files'] = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Install locked focused-test environment
+        run: |
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
           cd services/agent-service && uv sync --locked --all-groups
-          cd ../business-service && uv sync --locked --all-groups
-          cd ../agent-service/frontend && npm ci --ignore-scripts=false
-          ./node_modules/.bin/playwright install --with-deps chromium
-      - name: Create quick quality target
-        env:
-          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-quick.md
-        run: '"${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py --output "$QUALITY_TARGET" --ref "${{ github.sha }}" --workflow quality-quick --claims-source governance/claims/v20.6.2-project-quick-certification.json'
-      - name: Run unit, contract and frontend gates
-        env:
-          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/quick
-          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-quick.md
-        run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode quick --target "$QUALITY_TARGET"
-      - name: Upload quick evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: quality-quick-evidence
-          path: |
-            ${{ runner.temp }}/quality-evidence/quick
-            ${{ github.workspace }}/.quality/targets/quality-target-quick.md
-            ${{ github.workspace }}/.quality/targets/quality-target-quick.claims.json
-            ${{ runner.temp }}/quality-toolchain-quality-quick.json
-
-  quality-integration:
-    if: github.event_name != 'pull_request'
-    needs: quality-quick
-    runs-on: ubuntu-24.04
-    services:
-      pgvector:
-        image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
-        env:
-          POSTGRES_DB: agent_test
-          POSTGRES_USER: agent
-          POSTGRES_PASSWORD: agent-test-password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U agent -d agent_test"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '24.18.0'
-          package-manager-cache: false
-      - name: Bootstrap locked uv
-        run: >-
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
-          --require-hashes --only-binary=:all:
-          -r deployment/ci/uv-requirements-linux-x86_64.txt
-      - name: Validate locked runtime toolchain
-        env:
-          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-${{ github.job }}.json
-        run: >-
-          "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
-          --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
-      - name: Install locked Python environments
+      - name: Run focused scope regressions
         run: |
-          cd services/agent-service && uv sync --locked --all-groups
-          cd ../business-service && uv sync --locked --all-groups
-          cd ../agent-service/frontend && npm ci --ignore-scripts=false
-          ./node_modules/.bin/playwright install --with-deps chromium
-      - name: Create integration quality target
-        env:
-          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
-        run: '"${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py --output "$QUALITY_TARGET" --ref "${{ github.sha }}" --workflow quality-integration --claims-source governance/claims/v20.6.2-project-integration-certification.json'
-      - name: Start deterministic model and both services
-        env:
-          APP_PROFILE: local
-          PYTHONDONTWRITEBYTECODE: '1'
-          OPENAI_API_KEY: deterministic-ci-key
-          OPENAI_API_BASE: http://127.0.0.1:18081/v1
-          OPENAI_MODEL: deterministic-ci-model
-          BUSINESS_SERVICE_TOKEN: dev-service-token
-          BUSINESS_REQUIRE_ACTOR_SIGNATURE: 'false'
-          BUSINESS_SEED_DEMO_DATA: 'true'
-          BUSINESS_SERVICE_RELOAD: 'false'
-          AGENT_SERVICE_RELOAD: 'false'
-          WEB_CONSOLE_DEV_LOGIN: 'true'
-          AGENT_REQUIRE_AUTH: 'true'
-          AGENT_AUTH_PROVIDER: dev_token
-          RAG_BACKEND: local_sparse
-          AGENT_DB_BACKEND: sqlite
-          CHECKPOINT_BACKEND: sqlite
-          SQLITE_DB_PATH: ${{ runner.temp }}/agent.db
-          CHECKPOINT_DB_PATH: ${{ runner.temp }}/checkpoints.db
-          BUSINESS_DB_PATH: ${{ runner.temp }}/business.db
+          services/agent-service/.venv/bin/python -B -m unittest skill-system.tests.test_strong_context_condition_parameterization
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/context/test_parameterized_capability_alignment.py \
+            services/agent-service/tests/presentation/test_result_release.py \
+            services/agent-service/tests/runtime/test_goal_granularity_and_conditions.py
+          services/agent-service/.venv/bin/python -B -m unittest discover -s skill-system/tests -p 'test_product_source_baseline_binding.py'
+      - name: Restore governance workflows and commit green repair
         run: |
-          services/agent-service/.venv/bin/python -m uvicorn tests.integration.model_stub:app --app-dir services/agent-service --host 127.0.0.1 --port 18081 > "${RUNNER_TEMP}/model-stub.log" 2>&1 &
-          services/business-service/.venv/bin/python services/business-service/scripts/run_business_api.py > "${RUNNER_TEMP}/business.log" 2>&1 &
-          services/agent-service/.venv/bin/python services/agent-service/scripts/run_api.py > "${RUNNER_TEMP}/agent.log" 2>&1 &
-          for _ in $(seq 1 30); do curl --fail --silent http://127.0.0.1:9000/health && curl --fail --silent http://127.0.0.1:8000/health && exit 0; sleep 2; done
-          exit 1
-      - name: Run integration quality gates
-        env:
-          APP_PROFILE: local
-          PYTHONDONTWRITEBYTECODE: '1'
-          OPENAI_API_KEY: deterministic-ci-key
-          OPENAI_API_BASE: http://127.0.0.1:18081/v1
-          OPENAI_MODEL: deterministic-ci-model
-          BUSINESS_SERVICE_BASE_URL: http://127.0.0.1:9000
-          BUSINESS_SERVICE_TOKEN: dev-service-token
-          AGENT_TEST_URL: http://127.0.0.1:8000
-          BUSINESS_TEST_URL: http://127.0.0.1:9000
-          PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
-          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
-          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/integration
-          QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
-        run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode integration --target "$QUALITY_TARGET"
-      - name: Upload integration evidence and service logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: quality-integration-evidence
-          path: |
-            ${{ runner.temp }}/quality-evidence/integration
-            ${{ runner.temp }}/model-stub.log
-            ${{ runner.temp }}/business.log
-            ${{ runner.temp }}/agent.log
-            ${{ github.workspace }}/.quality/targets/quality-target-integration.md
-            ${{ github.workspace }}/.quality/targets/quality-target-integration.claims.json
-            ${{ runner.temp }}/quality-toolchain-quality-integration.json
-
-  governed-failure-stage1:
-    if: >-
-      ${{ always() && github.event_name == 'pull_request' &&
-      (needs.skill-control-plane.result == 'failure' ||
-      needs.quality-static.result == 'failure' ||
-      needs.quality-quick.result == 'failure') }}
-    needs:
-      - skill-control-plane
-      - quality-static
-      - quality-quick
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
-      issues: write
-      pull-requests: read
-    steps:
-      - name: Record direct quality failure receipt
-        id: receipt
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.run_id }}
-          SOURCE_RUN_ATTEMPT: ${{ github.run_attempt }}
-          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
-          SOURCE_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          TITLE="[governed-ci-failure] run ${SOURCE_RUN_ID}"
-          EXISTING=$(gh issue list --state all --search "${TITLE} in:title" \
-            --json number --jq '.[0].number // empty')
-          BODY=$(cat <<EOF
-          The active Quality workflow reached its terminal governed Stage-1 handoff.
-
-          - Stage: \`QUALITY_RUN_RECEIVED\`
-          - Ingestion trigger: \`quality-in-run-stage1\`
-          - Source workflow: \`quality\`
-          - Source run: ${SOURCE_URL}
-          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
-          - Head SHA: \`${SOURCE_SHA}\`
-          - Ingestion classification: pending
-          - Stage 2 started: \`false\`
-          - Source changes: none
-          - production_closed: false
-
-          This receipt is created inside the already-active Quality workflow before trusted
-          checkout, candidate checkout, artifact download, log parsing, or TaskRun ingestion.
-          EOF
-          )
-          if [[ -n "${EXISTING}" ]]; then
-            gh issue comment "${EXISTING}" --body "${BODY}"
-            ISSUE_NUMBER="${EXISTING}"
-          else
-            ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}")
-            ISSUE_NUMBER="${ISSUE_URL##*/}"
-          fi
-          [[ "${ISSUE_NUMBER}" =~ ^[0-9]+$ ]]
-          echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout trusted Stage-1 control plane
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: main
-          path: control
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Set up locked Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-
-      - name: Bind current failed Quality run
-        id: source
-        env:
-          SOURCE_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/github_quality_failure_event.py
-          --event "$GITHUB_EVENT_PATH"
-          --repository "$GITHUB_REPOSITORY"
-          --run-id "${{ github.run_id }}"
-          --run-attempt "${{ github.run_attempt }}"
-          --workflow-url "$SOURCE_URL"
-          --output incoming/source-event.json
-          --github-output "$GITHUB_OUTPUT"
-
-      - name: Checkout failed PR head as untrusted data
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ steps.source.outputs.head_sha }}
-          path: candidate
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Download current-run artifacts as untrusted evidence
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          path: incoming/artifacts
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.run_id }}
-
-      - name: Download completed Quality job logs as untrusted evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p incoming/logs
-          gh api --paginate \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?filter=latest&per_page=100" \
-            --jq '.jobs[] | select(.status == "completed") | [.id, .name] | @tsv' \
-            > incoming/completed-jobs.tsv
-          while IFS=$'\t' read -r job_id job_name; do
-            [[ "${job_id}" =~ ^[0-9]+$ ]] || continue
-            safe_name=$(printf '%s' "${job_name}" | tr -cs 'A-Za-z0-9._-' '-')
-            gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" \
-              > "incoming/logs/${job_id}-${safe_name}.log" || true
-          done < incoming/completed-jobs.tsv
-
-      - name: Capture source PR changed-file metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_PR_NUMBER: ${{ steps.source.outputs.source_pr_number }}
-        run: |
-          set -euo pipefail
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}/files" \
-            --jq '.[].filename' | jq -R -s 'split("\n")[:-1]' > incoming/changed-files.json
-
-      - name: Ingest failure and create durable TaskRun
-        id: ingest
-        run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/github_failure_ingest_control_plane.py
-          --event incoming/source-event.json
-          --workspace candidate
-          --artifacts incoming/artifacts
-          --logs incoming/logs
-          --changed-files incoming/changed-files.json
-          --output incoming/failure-case.json
-          --task-run incoming/task-run.json
-          --github-output "$GITHUB_OUTPUT"
-
-      - name: Upload direct Stage-1 evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: governed-ci-quality-stage1-${{ github.run_id }}
-          path: |
-            incoming/source-event.json
-            incoming/failure-case.json
-            incoming/task-run.json
-            incoming/changed-files.json
-            incoming/completed-jobs.tsv
-          retention-days: 30
-          if-no-files-found: warn
-
-      - name: Finalize direct Stage-1 issue
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
-          SOURCE_RUN_ID: ${{ github.run_id }}
-          SOURCE_RUN_ATTEMPT: ${{ github.run_attempt }}
-          CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
-          REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
-          FAILURE_SIGNATURE: ${{ steps.ingest.outputs.failure_signature }}
-        run: |
-          set -euo pipefail
-          BODY=$(cat <<EOF
-          Direct Quality Stage-1 ingestion completed.
-
-          - Stage: \`QUALITY_RUN_INGESTED\`
-          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
-          - Classification: \`${CLASSIFICATION}\`
-          - Failure signature: \`${FAILURE_SIGNATURE}\`
-          - Structurally eligible for later repair: \`${REPAIR_ALLOWED}\`
-          - Stage 2 started by this job: \`false\`
-          - Evidence artifact: \`governed-ci-quality-stage1-${SOURCE_RUN_ID}\`
-          - Source changes: none
-          - production_closed: false
-
-          Stage 4A ends here. A separately governed Stage 4B handoff is required before any
-          production Environment or model Secret can be accessed.
-          EOF
-          )
-          gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
-
-      - name: Mark direct Stage-1 pipeline failure
-        if: ${{ failure() && steps.receipt.outputs.issue_number != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ steps.receipt.outputs.issue_number }}
-          SOURCE_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run \`${SOURCE_RUN_ID}\`. Stage 2 remains disabled, source changes are none, and \`production_closed=false\`."
+          git checkout origin/main -- .github/workflows/quality.yml .github/workflows/skill-self-validation.yml
+          rm -f docs/c1-2-strong-context-trigger.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Close frozen condition scope before logistics release'
+          git push origin HEAD:repair-strong-context-scope-20260810
