@@ -396,7 +396,7 @@ class ModelGoalGranularityVerifier:
             "Implementation/support steps, policy loading, permission checks, database work, Draft creation, authorization and rendering are never outcomes unless the customer explicitly requests them as a business result.",
             "Eligibility is a separate outcome only when the customer explicitly asks to receive that conclusion independently; otherwise it can be a condition/support step for an action.",
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
-            "Do not inspect or re-judge DECLARED_GOALS.depends_on, execution order, IDs, tools, capability availability or transaction mechanics.",
+            "Do not inspect or re-judge any candidate Goal dependency declaration, execution order, IDs, tools, capability availability or transaction mechanics.",
             "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a target phrase and the business action over that same target as separate outcomes.",
             "clarify only when ambiguity changes the number or identity of independently requested business outcomes; target membership, filters, status vocabulary, thresholds, current facts and slot values are not granularity ambiguity.",
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
@@ -453,7 +453,7 @@ class ModelGoalGranularityVerifier:
                 if attempt == 0:
                     verifier_repair = (
                         "Re-audit only candidate-blind outcome decomposition. Clarify is admissible only if ambiguity changes the number or identity "
-                        "of independently requested business outcomes. If boundaries are identifiable, return exact with each result once. "
+                        "of independently requested business outcomes. target membership, filters/status vocabulary, thresholds, slot/form values, current facts and execution-time cardinality are downstream Runtime concerns, not outcome-granularity ambiguity. If boundaries are identifiable, return exact with each result once. "
                         "Return only verdict, outcome_spans and reason_code; do not judge dependency edges."
                     )
                     continue

@@ -145,7 +145,7 @@ class Attempt4RepairTests(unittest.TestCase):
         responses = [
             (SimpleNamespace(content="not-json"), {}),
             (SimpleNamespace(content=json.dumps({
-                "verdict": "exact", "evidence_spans": ["查订单"], "missing_spans": [], "reason_code": "exact"
+                "verdict": "exact", "evidence_spans": ["查订单"], "missing_spans": [], "dependency_edges": [], "reason_code": "exact"
             }, ensure_ascii=False)), {}),
         ]
         with patch("agent_core.config.get_model", return_value=object()), patch(
