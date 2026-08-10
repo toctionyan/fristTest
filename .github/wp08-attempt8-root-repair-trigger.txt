@@ -1,1 +1,0 @@
-Trigger the one-shot push applier after its workflow definition exists on this branch.
