@@ -365,9 +365,16 @@ def resolve_reference_expression(
         ]
 
     equivalent_groups: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
-    for row in cardinality_filtered:
-        equivalent_groups.setdefault(visible_result_scope_key(row), []).append(row)
-    distinct_candidate_groups = list(equivalent_groups.values())
+    if reference_type == "explicit_visible_member" and cardinality_filtered:
+        # The model has proposed one exact, already-visible member handle.  Its
+        # containing ResultRefs are visibility/provenance aliases, not distinct
+        # business targets.  Collapse only this explicit-member relation; all
+        # temporal/result/ordinal relations keep normal parent-scope ambiguity.
+        distinct_candidate_groups = [list(cardinality_filtered)]
+    else:
+        for row in cardinality_filtered:
+            equivalent_groups.setdefault(visible_result_scope_key(row), []).append(row)
+        distinct_candidate_groups = list(equivalent_groups.values())
 
     status = "NOT_FOUND"
     resolved_result_ref: str | None = None
@@ -429,7 +436,11 @@ def resolve_reference_expression(
         "auto_substitution_used": False,
         "equivalent_candidate_scope_count": len(distinct_candidate_groups),
         "equivalent_aliases_collapsed": sum(max(0, len(group) - 1) for group in distinct_candidate_groups),
-        "selection_policy": "typed_relation_then_semantic_scope_equivalence_then_runtime_validation_no_fallback",
+        "selection_policy": (
+            "explicit_member_identity_then_visible_parent_provenance_no_fallback"
+            if reference_type == "explicit_visible_member"
+            else "typed_relation_then_semantic_scope_equivalence_then_runtime_validation_no_fallback"
+        ),
     }
     payload["proof_digest"] = _digest(payload)
     return payload
@@ -466,6 +477,13 @@ def reference_resolution_prompt_contract() -> dict[str, Any]:
                 "collection when the user is pointing at a visible set that will be filtered, sorted "
                 "or compared. A UNIQUE single proof exposes the verified member handle; Runtime does "
                 "not choose a member from a multi-member collection."
+            ),
+            (
+                "When an explicit historical label resolves to one exact visible member_handle, propose "
+                "explicit_visible_member. If that same member is present under several visible parent "
+                "ResultRefs, those parents are provenance aliases rather than member ambiguity; do not "
+                "invent source_result_ref merely to break the alias tie. Distinct member handles remain "
+                "ambiguous and require clarification."
             ),
         ],
     }

@@ -605,10 +605,10 @@ def _run_dependency_basis_audit(
     )
     rules = [
         "A dependency exists only when the customer-visible meaning of the later outcome needs the earlier current-turn result for its target, condition, input or independently acceptable completion.",
-        "If a business object, descriptor or scope is already stated literally anywhere in the same USER_TEXT and the later outcome merely omits repeating it, that is same-turn ellipsis, not a dependency on the earlier result.",
+        "If a business object, descriptor or scope is already stated literally anywhere in the same USER_TEXT and the later outcome merely omits repeating it, that zero-anaphora omission is same-turn ellipsis, not a dependency on the earlier result. This ellipsis rule applies only when the later outcome contains no explicit expression that denotes the earlier current-turn result.",
         "A lookup needed only to turn an already-stated descriptor into an ID, artifact handle, transaction target or implementation input is execution-support dataflow and must not be retained as a dependency.",
         "Sentence order, then/然后/再/另外, shared topic/scope, likely execution order and capability availability are never dependency evidence.",
-        "A later outcome that literally refers to the not-yet-produced earlier result with it/this/that/其中/这个/该结果, or a condition/value that explicitly consumes that result, may retain an edge when basis_span identifies that reference inside the dependent outcome.",
+        "When a later outcome explicitly refers to the not-yet-produced earlier current-turn result (for example with an anaphoric it/this/that/其中/这个/该结果) or explicitly consumes that result in a condition/value, retain the dependency when basis_span identifies that reference inside the dependent outcome. This explicit result-reference rule takes precedence over ordinary same-turn zero-anaphora ellipsis.",
         "Do not infer tools, capabilities, database operations, IDs or transaction mechanics.",
         "clarify only if the user text itself cannot determine whether one user-observable outcome depends on another result; target membership or execution details are not enough.",
     ]
@@ -728,9 +728,9 @@ class ModelGoalGranularityVerifier:
             "Eligibility is a separate outcome only when the customer explicitly asks to receive that conclusion independently; otherwise it can be a condition/support step for an action.",
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
             "dependency_edges express true current-turn result dependency only; sentence order, shared topic/object/scope and execution-support dataflow do not create an edge.",
-            "When a later outcome omits its target but an earlier phrase in the same USER_TEXT already names the reusable business object or scope, inherit that stated scope as ellipsis; that is not a dependency on the earlier Goal result by itself.",
+            "When a later outcome genuinely omits its repeated target and an earlier phrase in the same USER_TEXT already names the reusable business object or scope, inherit that stated scope as zero-anaphora ellipsis; that is not a dependency on the earlier Goal result by itself. Do not apply this rule when the later outcome contains an explicit anaphoric expression denoting the earlier current-turn result.",
             "A lookup needed only to convert an already-stated target into an ID/artifact/transaction input is implementation support, not semantic dependency.",
-            "A later outcome that refers to the not-yet-produced earlier result or is explicitly conditional on that result may require an edge; the independent dependency audit certifies the basis.",
+            "A later outcome with an explicit anaphoric reference to the not-yet-produced earlier current-turn result, or one explicitly conditional on that result, requires a result dependency when the independent dependency audit certifies a literal basis inside that later outcome; this explicit reference takes precedence over the ordinary zero-anaphora ellipsis rule.",
             "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a target phrase and the business action over that same target as separate outcomes.",
             "clarify only when ambiguity changes the number or identity of independently requested business outcomes; target membership, filters, status vocabulary, thresholds, current facts and slot values are not granularity ambiguity.",
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
