@@ -28,6 +28,11 @@ _ALLOWED_ROLES = {
     "transaction_step",
     "presentation_step",
 }
+_ALLOWED_DEPENDENCY_BASIS_KINDS = {
+    "result_reference",
+    "result_condition",
+    "result_value_input",
+}
 
 
 def _text(value: Any, *, limit: int = 500) -> str:
@@ -248,6 +253,63 @@ def _literal_dependency_edges(
     return tuple(edges), None
 
 
+def _audited_dependency_edges(
+    user_text: str,
+    outcome_spans: tuple[str, ...],
+    values: Any,
+) -> tuple[tuple[tuple[int, int], ...], tuple[dict[str, Any], ...], str | None]:
+    """Validate the dedicated candidate-blind dependency-basis audit.
+
+    Outcome decomposition is already frozen for this audit.  Every retained
+    dependency must identify a literal subspan inside the dependent outcome and
+    classify why that subspan requires the earlier *result*.  The program does
+    not interpret that language; it only validates the bounded evidence shape.
+    """
+    if not isinstance(values, list):
+        return (), (), "blind_dependency_basis_edges_required"
+    edges: list[tuple[int, int]] = []
+    basis_rows: list[dict[str, Any]] = []
+    for edge_index, raw in enumerate(values):
+        if not isinstance(raw, dict):
+            return (), (), f"blind_dependency_basis_edge_invalid:{edge_index}"
+        dependent_span = _text(raw.get("dependent_span"), limit=240)
+        prerequisite_span = _text(raw.get("requires_result_of_span"), limit=240)
+        basis_kind = _text(raw.get("basis_kind"), limit=80).lower()
+        basis_span = _text(raw.get("basis_span"), limit=240)
+        if basis_kind not in _ALLOWED_DEPENDENCY_BASIS_KINDS:
+            return (), (), f"blind_dependency_basis_kind_invalid:{edge_index}"
+        dependent_matches = [
+            index for index, span in enumerate(outcome_spans)
+            if _spans_correspond(dependent_span, span)
+        ]
+        prerequisite_matches = [
+            index for index, span in enumerate(outcome_spans)
+            if _spans_correspond(prerequisite_span, span)
+        ]
+        if len(dependent_matches) != 1 or len(prerequisite_matches) != 1:
+            return (), (), f"blind_dependency_basis_edge_not_uniquely_bound:{edge_index}"
+        dependent_index = dependent_matches[0]
+        prerequisite_index = prerequisite_matches[0]
+        if dependent_index == prerequisite_index:
+            return (), (), f"blind_dependency_basis_self_edge:{edge_index}"
+        canonical_dependent = outcome_spans[dependent_index]
+        if not basis_span or basis_span not in user_text or basis_span not in canonical_dependent:
+            return (), (), f"blind_dependency_basis_span_not_in_dependent_outcome:{edge_index}"
+        edge = (dependent_index, prerequisite_index)
+        if edge in edges:
+            return (), (), f"blind_dependency_basis_duplicate_edge:{edge_index}"
+        edges.append(edge)
+        basis_rows.append(
+            {
+                "dependent_span": canonical_dependent,
+                "requires_result_of_span": outcome_spans[prerequisite_index],
+                "basis_kind": basis_kind,
+                "basis_span": basis_span,
+            }
+        )
+    return tuple(edges), tuple(basis_rows), None
+
+
 def _blind_dependency_graph_matches(
     *,
     outcome_count: int,
@@ -303,13 +365,15 @@ def _build_inventory_authority(
     dependency_edges: tuple[tuple[int, int], ...],
     reason_code: str,
     blind_self_audit_attempted: bool,
+    dependency_edge_basis: tuple[dict[str, Any], ...] = (),
+    dependency_basis_audited: bool = False,
 ) -> dict[str, Any]:
     """Freeze only candidate-blind evidence, never candidate Goal structure.
 
     A declaration repair may change candidate Goals, but it must not cause the
     independent semantic authority already returned to that model to move on
-    the next validation attempt.  This object therefore contains only the blind
-    USER_TEXT inventory and its true-result dependency graph.
+    the next validation attempt.  Outcome inventory and the dedicated blind
+    dependency-basis audit are therefore frozen together.
     """
     payload: dict[str, Any] = {
         "version": GOAL_GRANULARITY_INVENTORY_AUTHORITY_VERSION,
@@ -322,6 +386,8 @@ def _build_inventory_authority(
             }
             for dependent, prerequisite in dependency_edges
         ],
+        "dependency_edge_basis": [dict(row) for row in dependency_edge_basis],
+        "dependency_basis_audited": bool(dependency_basis_audited),
         "reason_code": _text(reason_code, limit=120) or "blind_inventory_exact",
         "source": "model_blind_inventory",
         "independent": True,
@@ -369,6 +435,23 @@ def _validate_inventory_authority(
     )
     if dependency_error:
         return None, (), (), f"goal_granularity_inventory_authority_{dependency_error}"
+    if len(outcome_spans) > 1:
+        if authority.get("dependency_basis_audited") is not True:
+            return None, (), (), "goal_granularity_inventory_authority_dependency_basis_not_audited"
+        audited_edges, basis_rows, basis_error = _audited_dependency_edges(
+            user_text,
+            outcome_spans,
+            authority.get("dependency_edge_basis"),
+        )
+        if basis_error:
+            return None, (), (), f"goal_granularity_inventory_authority_{basis_error}"
+        if audited_edges != dependency_edges:
+            return None, (), (), "goal_granularity_inventory_authority_dependency_basis_graph_mismatch"
+        if tuple(dict(row) for row in basis_rows) != tuple(
+            dict(row) for row in list(authority.get("dependency_edge_basis") or [])
+            if isinstance(row, dict)
+        ):
+            return None, (), (), "goal_granularity_inventory_authority_dependency_basis_not_canonical"
     return dict(authority), outcome_spans, dependency_edges, None
 
 
@@ -413,6 +496,8 @@ def _evaluate_blind_inventory(
         "matched_outcome_count": matched,
         "outcome_spans": list(outcome_spans),
         "dependency_edges": dependency_edge_details,
+        "dependency_edge_basis": [dict(row) for row in list(authority.get("dependency_edge_basis") or []) if isinstance(row, dict)],
+        "dependency_basis_audited": bool(authority.get("dependency_basis_audited")),
         "dependency_graph_match": dependency_graph_match,
         "blind_self_audit_attempted": bool(authority.get("blind_self_audit_attempted")),
         "inventory_authority_reused": bool(authority_reused),
@@ -491,16 +576,131 @@ def _evaluate_blind_inventory(
     )
 
 
-class ModelGoalGranularityVerifier:
-    """Candidate-blind inventory plus deterministic candidate comparison.
+def _run_dependency_basis_audit(
+    *,
+    user_text: str,
+    outcome_spans: tuple[str, ...],
+    proposed_edges: tuple[tuple[int, int], ...],
+) -> tuple[tuple[tuple[int, int], ...], tuple[dict[str, Any], ...], str, GoalGranularityVerdict | None]:
+    """Use the second blind call only to certify result-dependency basis.
 
-    The model sees only current USER_TEXT. A first structural disagreement, or
-    any first-pass assertion of a current-turn result dependency, gets one
-    second candidate-blind self-audit; the audit is never told candidate Goals,
-    candidate count, matching result, tools or capabilities. This prevents an
-    accidental execution-support edge from becoming frozen merely because the
-    candidate made the same mistake. The final blind inventory authority can
-    then be frozen across declaration repair.
+    This call cannot change the first call's outcome inventory and never sees
+    candidate Goals, tools or capabilities.  It therefore removes the moving
+    authority that previously let an execution-support edge oscillate across
+    declaration repair while staying inside the existing two-call envelope.
+    """
+    from agent_core.config import get_model
+    from agent_core.model_calls import (
+        classify_model_failure,
+        invoke_model,
+        is_environmental_model_failure_category,
+        structured_verifier_messages,
+    )
+
+    instruction = (
+        "Audit only the true current-turn result-dependency graph over FIXED_OUTCOME_SPANS. "
+        "Do not change, merge, split or add outcome spans. PROPOSED_DEPENDENCY_EDGES are a non-authoritative first-pass suggestion. "
+        "Return JSON only with verdict (exact|clarify), dependency_edges and reason_code. Each retained dependency edge must contain dependent_span, requires_result_of_span, basis_kind and basis_span. "
+        "basis_kind must be result_reference, result_condition or result_value_input. basis_span must be a literal substring inside the dependent outcome that specifically expresses use of the earlier current-turn result. Return dependency_edges=[] when no outcome truly needs another outcome's result."
+    )
+    rules = [
+        "A dependency exists only when the customer-visible meaning of the later outcome needs the earlier current-turn result for its target, condition, input or independently acceptable completion.",
+        "If a business object, descriptor or scope is already stated literally anywhere in the same USER_TEXT and the later outcome merely omits repeating it, that is same-turn ellipsis, not a dependency on the earlier result.",
+        "A lookup needed only to turn an already-stated descriptor into an ID, artifact handle, transaction target or implementation input is execution-support dataflow and must not be retained as a dependency.",
+        "Sentence order, then/然后/再/另外, shared topic/scope, likely execution order and capability availability are never dependency evidence.",
+        "A later outcome that literally refers to the not-yet-produced earlier result with it/this/that/其中/这个/该结果, or a condition/value that explicitly consumes that result, may retain an edge when basis_span identifies that reference inside the dependent outcome.",
+        "Do not infer tools, capabilities, database operations, IDs or transaction mechanics.",
+        "clarify only if the user text itself cannot determine whether one user-observable outcome depends on another result; target membership or execution details are not enough.",
+    ]
+    proposed = [
+        {
+            "dependent_span": outcome_spans[dependent],
+            "requires_result_of_span": outcome_spans[prerequisite],
+        }
+        for dependent, prerequisite in proposed_edges
+    ]
+    try:
+        response, _trace = invoke_model(
+            purpose="turn_goal_dependency_basis_verifier",
+            model=get_model(),
+            payload=structured_verifier_messages(
+                role="turn_goal_dependency_basis_verifier",
+                instruction=instruction,
+                decision_rules=rules,
+                payload={
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "FIXED_OUTCOME_SPANS": list(outcome_spans),
+                    "PROPOSED_DEPENDENCY_EDGES": proposed,
+                },
+            ),
+        )
+    except Exception as exc:
+        category = classify_model_failure(exc)
+        if is_environmental_model_failure_category(category):
+            raise
+        return (), (), "goal_dependency_basis_audit_unavailable", GoalGranularityVerdict(
+            "indeterminate",
+            "goal_dependency_basis_audit_unavailable",
+            (),
+            "model_blind_dependency_audit",
+            True,
+            {"candidate_blind": True, "exception": exc.__class__.__name__, "error_category": category},
+        )
+    parsed = _extract_json(str(getattr(response, "content", response) or ""))
+    if parsed is None:
+        return (), (), "goal_dependency_basis_audit_non_json", GoalGranularityVerdict(
+            "indeterminate",
+            "goal_dependency_basis_audit_non_json",
+            (),
+            "model_blind_dependency_audit",
+            True,
+            {"candidate_blind": True},
+        )
+    verdict = _text(parsed.get("verdict"), limit=40).lower()
+    if verdict == "clarify":
+        return (), (), _text(parsed.get("reason_code"), limit=120) or "goal_dependency_basis_requires_clarification", GoalGranularityVerdict(
+            "clarify",
+            _text(parsed.get("reason_code"), limit=120) or "goal_dependency_basis_requires_clarification",
+            (),
+            "model_blind_dependency_audit",
+            True,
+            {"candidate_blind": True, "fixed_outcome_spans": list(outcome_spans)},
+        )
+    if verdict != "exact":
+        return (), (), "goal_dependency_basis_audit_invalid_verdict", GoalGranularityVerdict(
+            "indeterminate",
+            "goal_dependency_basis_audit_invalid_verdict",
+            (),
+            "model_blind_dependency_audit",
+            True,
+            {"candidate_blind": True, "raw_verdict": verdict or None},
+        )
+    edges, basis_rows, error = _audited_dependency_edges(
+        user_text,
+        outcome_spans,
+        parsed.get("dependency_edges"),
+    )
+    if error:
+        return (), (), error, GoalGranularityVerdict(
+            "indeterminate",
+            error,
+            (),
+            "model_blind_dependency_audit",
+            True,
+            {"candidate_blind": True, "fixed_outcome_spans": list(outcome_spans)},
+        )
+    return edges, basis_rows, _text(parsed.get("reason_code"), limit=120) or "blind_dependency_basis_exact", None
+
+
+class ModelGoalGranularityVerifier:
+    """Candidate-blind outcome inventory plus a separate dependency-basis audit.
+
+    The first model call sees only current USER_TEXT and inventories independent
+    user-observable outcomes.  When a multi-outcome inventory structurally
+    matches the declaration, the second and final blind call is dedicated only
+    to the true result-dependency graph over those fixed spans.  It never sees
+    candidate Goals, tools or capabilities and cannot move the outcome inventory.
+    The resulting authority is then frozen across bounded declaration repair.
     """
 
     def verify(self, *, user_text: str, goals: list[dict[str, Any]]) -> GoalGranularityVerdict:
@@ -516,8 +716,7 @@ class ModelGoalGranularityVerifier:
             "business outcome that the customer could independently judge complete or incomplete. Do not infer or "
             "inspect available tools/capabilities and do not decide whether the system supports an outcome. Return "
             "JSON only with verdict (exact|clarify), outcome_spans, dependency_edges, reason_code. Every outcome_span must be a local "
-            "literal contiguous substring of USER_TEXT. dependency_edges must be an array of objects with dependent_span and "
-            "requires_result_of_span, both copied from outcome_spans; return [] when the outcomes are independent."
+            "literal contiguous substring of USER_TEXT. dependency_edges are only a first-pass suggestion; the Runtime will use a separate blind audit for any multi-outcome dependency authority."
         )
         rules = [
             "A separately requested unsupported/open business effect is still an outcome and must remain in the inventory.",
@@ -526,11 +725,10 @@ class ModelGoalGranularityVerifier:
             "Implementation/support steps, policy loading, permission checks, database work, Draft creation, authorization and rendering are never outcomes unless the customer explicitly requests them as a business result.",
             "Eligibility is a separate outcome only when the customer explicitly asks to receive that conclusion independently; otherwise it can be a condition/support step for an action.",
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
-            "dependency_edges express true current-turn result dependency only: add an edge only when one outcome cannot determine its target, input, condition, or independently acceptable completion without the result of another current-turn outcome.",
+            "dependency_edges express true current-turn result dependency only; sentence order, shared topic/object/scope and execution-support dataflow do not create an edge.",
             "When a later outcome omits its target but an earlier phrase in the same USER_TEXT already names the reusable business object or scope, inherit that stated scope as ellipsis; that is not a dependency on the earlier Goal result by itself.",
-            "Keep semantic result dependency separate from execution-support dataflow: if the later outcome can identify its intended business target from a literal object/descriptor/scope already stated in the same USER_TEXT, a lookup that an implementation may later need to turn that descriptor into an ID or artifact handle is only a support step and must not create dependency_edges. Add an edge only when the customer-visible meaning of the later outcome itself needs the earlier outcome result.",
-            "Sentence order, shared topic/object/scope, conjunctions, and unsupported/open capability status never create a dependency edge by themselves.",
-            "A later outcome that refers to the not-yet-produced earlier result (for example it/this/that/其中/这个/该结果) or is explicitly conditional on that result requires an edge.",
+            "A lookup needed only to convert an already-stated target into an ID/artifact/transaction input is implementation support, not semantic dependency.",
+            "A later outcome that refers to the not-yet-produced earlier result or is explicitly conditional on that result may require an edge; the dedicated second audit will certify the basis.",
             "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a target phrase and the business action over that same target as separate outcomes.",
             "clarify only when ambiguity changes the number or identity of independently requested business outcomes; target membership, filters, status vocabulary, thresholds, current facts and slot values are not granularity ambiguity.",
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
@@ -573,8 +771,7 @@ class ModelGoalGranularityVerifier:
                     verifier_repair = (
                         "The previous candidate-blind inventory response did not satisfy the machine-readable JSON contract. "
                         "Return exactly one JSON object using only verdict, outcome_spans, dependency_edges and reason_code; verdict must be exact or clarify. "
-                        "Every outcome_span must be a local literal substring of USER_TEXT; dependency_edges must use only those spans and must be [] when independent. "
-                        "Do not inspect or infer capabilities or candidate Goals."
+                        "Every outcome_span must be a local literal substring of USER_TEXT. Do not inspect or infer capabilities or candidate Goals."
                     )
                     continue
                 return last_indeterminate
@@ -585,8 +782,7 @@ class ModelGoalGranularityVerifier:
                         "Re-audit only candidate-blind outcome decomposition. Clarify is admissible only if ambiguity changes "
                         "the number or identity of independently requested business outcomes. Do not clarify target membership, "
                         "filter/status vocabulary, thresholds, current facts, cardinality or slot/form values. If outcome boundaries "
-                        "are identifiable, return exact with each independently acceptable result exactly once as non-overlapping "
-                        "literal spans and the true dependency_edges. You still must not see or infer any candidate Goal plan or capability."
+                        "are identifiable, return exact with each independently acceptable result exactly once as non-overlapping literal spans."
                     )
                     continue
                 return GoalGranularityVerdict(
@@ -602,9 +798,7 @@ class ModelGoalGranularityVerifier:
                 )
                 if attempt == 0:
                     verifier_repair = (
-                        "Return the candidate-blind business-outcome inventory in the strict JSON contract: verdict exact|clarify, "
-                        "literal outcome_spans, dependency_edges and reason_code. dependency_edges must encode only true result dependencies and use [] for independent outcomes. "
-                        "Do not inspect candidate Goals or capabilities."
+                        "Return the candidate-blind business-outcome inventory in the strict JSON contract: verdict exact|clarify, literal outcome_spans, dependency_edges and reason_code. Do not inspect candidate Goals or capabilities."
                     )
                     continue
                 return last_indeterminate
@@ -617,13 +811,11 @@ class ModelGoalGranularityVerifier:
                 )
                 if attempt == 0:
                     verifier_repair = (
-                        "Return exact only with at least one local literal outcome_span from USER_TEXT. Inventory each independently "
-                        "acceptable business result exactly once, return dependency_edges using only those spans (or [] when independent), "
-                        "and do not inspect candidate Goals or capabilities."
+                        "Return exact only with at least one local literal outcome_span from USER_TEXT. Inventory each independently acceptable business result exactly once and do not inspect candidate Goals or capabilities."
                     )
                     continue
                 return last_indeterminate
-            dependency_edges, dependency_error = _literal_dependency_edges(
+            first_edges, dependency_error = _literal_dependency_edges(
                 user_text, outcome_spans, parsed.get("dependency_edges")
             )
             if dependency_error:
@@ -633,49 +825,76 @@ class ModelGoalGranularityVerifier:
                 )
                 if attempt == 0:
                     verifier_repair = (
-                        "Return dependency_edges as an array of {dependent_span, requires_result_of_span}; both fields must refer "
-                        "to exactly one literal outcome_span. Use [] when no outcome truly requires another current-turn result. "
-                        "Do not inspect candidate Goals, candidate count, tools or capabilities."
+                        "Return dependency_edges as an array of {dependent_span, requires_result_of_span}; both fields must refer to exactly one literal outcome_span. Use [] when independent. Do not inspect candidate Goals, tools or capabilities."
                     )
                     continue
                 return last_indeterminate
+
+            matched, _goal_to_outcome = _maximum_outcome_goal_matching(outcome_spans, goals)
+            structural_outcome_match = matched == len(outcome_spans) == len(goals)
+            if attempt == 0 and structural_outcome_match and len(outcome_spans) > 1:
+                audited_edges, basis_rows, audit_reason, audit_failure = _run_dependency_basis_audit(
+                    user_text=user_text,
+                    outcome_spans=outcome_spans,
+                    proposed_edges=first_edges,
+                )
+                if audit_failure is not None:
+                    return audit_failure
+                authority = _build_inventory_authority(
+                    user_text=user_text,
+                    outcome_spans=outcome_spans,
+                    dependency_edges=audited_edges,
+                    reason_code=audit_reason,
+                    blind_self_audit_attempted=True,
+                    dependency_edge_basis=basis_rows,
+                    dependency_basis_audited=True,
+                )
+                return _evaluate_blind_inventory(
+                    user_text=user_text,
+                    goals=goals,
+                    outcome_spans=outcome_spans,
+                    dependency_edges=audited_edges,
+                    authority=authority,
+                    authority_reused=False,
+                )
+
+            if structural_outcome_match and len(outcome_spans) > 1 and attempt > 0:
+                return GoalGranularityVerdict(
+                    "indeterminate",
+                    "goal_dependency_basis_audit_budget_unavailable_after_inventory_repair",
+                    (),
+                    "model_blind_inventory",
+                    True,
+                    {
+                        "candidate_blind": True,
+                        "verifier_repair_attempted": True,
+                        "outcome_spans": list(outcome_spans),
+                    },
+                )
+
             authority = _build_inventory_authority(
                 user_text=user_text,
                 outcome_spans=outcome_spans,
-                dependency_edges=dependency_edges,
+                dependency_edges=(),
                 reason_code=_text(parsed.get("reason_code"), limit=120) or "blind_inventory_exact",
                 blind_self_audit_attempted=attempt > 0,
+                dependency_edge_basis=(),
+                dependency_basis_audited=len(outcome_spans) <= 1,
             )
             verdict = _evaluate_blind_inventory(
                 user_text=user_text,
                 goals=goals,
                 outcome_spans=outcome_spans,
-                dependency_edges=dependency_edges,
+                dependency_edges=(),
                 authority=authority,
                 authority_reused=False,
             )
-            if attempt == 0 and dependency_edges:
-                verifier_repair = (
-                    "Run a second candidate-blind audit of USER_TEXT because the first inventory asserted one or more result dependencies. "
-                    "Distinguish semantic result dependency from execution-support dataflow: if a later outcome can identify its intended business target "
-                    "from a literal object/descriptor/scope already stated in this same USER_TEXT, any later lookup needed to obtain an ID, artifact handle, "
-                    "or transaction input is an implementation support step and dependency_edges must remain empty for that relationship. Keep an edge only "
-                    "when the customer-visible meaning of the later outcome itself requires the earlier current-turn outcome result. Sentence order, then/然后, "
-                    "shared topic/scope and likely implementation order are not evidence of a semantic dependency. Return the full strict candidate-blind JSON "
-                    "again and do not inspect candidate Goals, tools or capabilities."
-                )
-                continue
             if verdict.exact or attempt > 0:
                 return verdict
             verifier_repair = (
-                "Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable business result exactly once and re-audit "
-                "the true result-dependency graph among those outcomes. Do not duplicate a target phrase and its enclosing business action as two outcomes. "
-                "Filters, status predicates, target selectors, ordering, exclusions, cardinality and form values stay inside the outcome they constrain. "
-                "A later omitted target may inherit an explicitly stated same-turn business object/scope without depending on an earlier Goal result. "
-                "A lookup or support step needed only to convert that already-stated target into an ID/artifact/transaction input is execution dataflow, not semantic dependency. "
-                "Sentence order, shared topic/object/scope and unsupported/open status do not create dependency; an edge exists only when one outcome needs "
-                "another current-turn result for its target, input, condition or independently acceptable completion. Do not inspect, infer or ask about any "
-                "candidate Goal plan, candidate count, tool or capability."
+                "Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable business result exactly once. "
+                "Do not duplicate a target phrase and its enclosing business action as two outcomes. Filters, status predicates, target selectors, ordering, exclusions, cardinality and form values stay inside the outcome they constrain. "
+                "A later omitted target may inherit an explicitly stated same-turn business object/scope without depending on an earlier result. Do not inspect, infer or ask about any candidate Goal plan, candidate count, tool or capability."
             )
         return last_indeterminate
 
