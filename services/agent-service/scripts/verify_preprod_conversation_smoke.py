@@ -431,7 +431,7 @@ def main() -> int:
             "能力词汇中没有精确身份的分支也必须保留成独立 Goal；requested_effect 要写用户实际请求的开放业务效果，不能写 unsupported_request、能力缺失或系统不支持来替代用户语义。"
             "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
             "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。"
-            "同一当前轮中后续目标依赖前一目标时只用 depends_on；reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
+            "同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
         # Each accepted declaration is checked by both independent model validators
