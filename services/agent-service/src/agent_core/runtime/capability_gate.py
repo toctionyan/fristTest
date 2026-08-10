@@ -628,6 +628,121 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
     }
 
 
+
+def _frozen_condition_operands(expression: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read operands from an already-normalized frozen Goal condition.
+
+    Lifecycle owns condition parsing, normalization and semantic validity.
+    Runtime must not import Lifecycle merely to inspect that immutable contract,
+    because doing so recreates the resolved context/lifecycle/runtime cycle.
+    This helper therefore performs no normalization, aliasing or inference: it
+    only projects operand objects that are already present in the frozen tree.
+    """
+    if not isinstance(expression, dict):
+        return []
+    op = str(expression.get("op") or "")
+    if op in {"and", "or", "not"}:
+        return [
+            operand
+            for child in list(expression.get("args") or [])
+            if isinstance(child, dict)
+            for operand in _frozen_condition_operands(child)
+        ]
+    return [
+        dict(expression[key])
+        for key in ("left", "right", "lower", "upper")
+        if isinstance(expression.get(key), dict)
+    ]
+
+
+def _formal_goal_condition_coverage_proof(
+    state: dict[str, Any],
+    *,
+    goal_ids: set[str],
+    parameterization: dict[str, Any],
+) -> dict[str, Any]:
+    """Prove that frozen Goal conditions affecting result scope are bound.
+
+    Candidate ``constraint_bindings`` prove only what the model chose to
+    declare.  They cannot prove that a decisive condition from the already
+    frozen semantic contract was not omitted.  This proof therefore projects
+    only ``target_fact`` / ``input`` operands from the bound Goals and requires
+    one unambiguous covered formal-argument leaf for each.  ``goal_output``
+    operands remain workflow dependencies and are intentionally not converted
+    into Tool parameters here.
+    """
+    formal_by_id = {
+        str(goal.get("goal_id") or ""): goal
+        for goal in semantic_goals(state)
+        if str(goal.get("goal_id") or "")
+    }
+    requirements: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for goal_id in sorted(goal_ids):
+        goal = formal_by_id.get(goal_id) or {}
+        condition = goal.get("condition") if isinstance(goal.get("condition"), dict) else None
+        if condition is None:
+            continue
+        for operand in _frozen_condition_operands(condition):
+            source = str(operand.get("source") or "")
+            path = str(operand.get("path") or "").strip()
+            if source not in {"target_fact", "input"} or not path:
+                continue
+            key = (goal_id, source, path)
+            if key in seen:
+                continue
+            seen.add(key)
+            requirements.append({
+                "goal_id": goal_id,
+                "operand_source": source,
+                "condition_path": path,
+                "parameter_leaf": path.rsplit(".", 1)[-1],
+            })
+
+    covered_bindings = [
+        dict(row)
+        for row in list(parameterization.get("bindings") or [])
+        if isinstance(row, dict) and str(row.get("status") or "") == "covered"
+    ]
+    checks: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for requirement in requirements:
+        leaf = str(requirement["parameter_leaf"])
+        matches = [
+            row
+            for row in covered_bindings
+            if str(row.get("parameter_path") or "").rsplit(".", 1)[-1] == leaf
+        ]
+        if len(matches) == 1:
+            checks.append({
+                **requirement,
+                "status": "covered",
+                "matched_parameter_path": str(matches[0].get("parameter_path") or ""),
+            })
+            continue
+        code = (
+            f"formal_goal_condition_unbound:{requirement['goal_id']}:{requirement['condition_path']}"
+            if not matches
+            else f"formal_goal_condition_ambiguous:{requirement['goal_id']}:{requirement['condition_path']}"
+        )
+        errors.append(code)
+        checks.append({
+            **requirement,
+            "status": "uncovered",
+            "matched_parameter_paths": [str(row.get("parameter_path") or "") for row in matches],
+        })
+
+    return {
+        "version": "formal-goal-condition-coverage@1",
+        "required": bool(requirements),
+        "goal_ids": sorted(goal_ids),
+        "requirements": requirements,
+        "checks": checks,
+        "complete": not errors,
+        "errors": errors,
+    }
+
+
 def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
     """Validate only explicit references carried by the formal target schema.
 
@@ -1280,6 +1395,9 @@ def issue_execution_permit(
         if isinstance(row, dict) and str(row.get("effect_id") or "") == str(effect_id or "")
     ), {})
     goal_ids = {str(value) for value in list(effect.get("goal_ids") or []) if str(value)}
+    formal_condition_coverage = _formal_goal_condition_coverage_proof(
+        state, goal_ids=goal_ids, parameterization=parameterization
+    )
     semantic_reference_binding = _semantic_reference_binding_proof(
         state, normalized_args, goal_ids=goal_ids
     )
@@ -1291,6 +1409,7 @@ def issue_execution_permit(
         if contract is not None
         and not arg_errors
         and parameterization.get("parameterization_complete")
+        and formal_condition_coverage.get("complete")
         and visible_reference.get("complete")
         and semantic_reference_binding.get("complete")
         and member_scope.get("complete")
@@ -1363,16 +1482,17 @@ def issue_execution_permit(
         "semantic_verdict": semantic.as_dict() if semantic is not None else {"verdict": "not_required", "reason_code": "unsupported_capability_report"},
         "parameterization": parameterization,
         "parameterization_complete": bool(parameterization.get("parameterization_complete")),
+        "formal_goal_condition_coverage": formal_condition_coverage,
         "visible_result_reference": visible_reference,
         "semantic_reference_binding": semantic_reference_binding,
         "explicit_member_scope": member_scope,
         "derived_collection_scope": derived_scope,
-        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(visible_reference.get("errors") or []), *list(semantic_reference_binding.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
-        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
+        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(formal_condition_coverage.get("errors") or []), *list(visible_reference.get("errors") or []), *list(semantic_reference_binding.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
+        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and formal_condition_coverage.get("complete") and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
         "rejected_candidates": [],
         "scope": _scope(state),
     }
-    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not visible_reference.get("complete") or not semantic_reference_binding.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
+    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete") or not visible_reference.get("complete") or not semantic_reference_binding.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
         return PermitDecision(
             permitted=False,
             match_proof=proof,
@@ -1396,7 +1516,7 @@ def issue_execution_permit(
                     else "VISIBLE_RESULT_REF_INVALID"
                     if contract is not None and not arg_errors and not visible_reference.get("complete")
                     else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"
-                    if contract is not None and not arg_errors and not parameterization.get("parameterization_complete")
+                    if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))
                     else "CAPABILITY_SEMANTIC_CLARIFICATION_REQUIRED"
                     if semantic is not None and semantic.verdict == "clarify"
                     else "CAPABILITY_UNAVAILABLE"
@@ -1421,7 +1541,7 @@ def issue_execution_permit(
                     else "当前引用的结果不存在、未向用户展示、已失效或与所需对象形态不符；系统不会改选其他结果。"
                     if contract is not None and not arg_errors and not visible_reference.get("complete")
                     else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"
-                    if contract is not None and not arg_errors and not parameterization.get("parameterization_complete")
+                    if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))
                     else "当前请求需要先澄清，系统不会自行改用相近能力。"
                     if semantic is not None and semantic.verdict == "clarify"
                     else "当前系统没有与该请求精确匹配的能力，未改用相近工具。"
