@@ -1,0 +1,114 @@
+name: wp08-attempt8-final-reconcile-failure-once
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  reconcile:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt8-final-reconcile-failure-once-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_MAIN_SHA: f60e8092caf72487e52966f53be598935dcaeead
+      EXPECTED_WP08_RUN_ID: '31365884424'
+      RELEASE_ISSUE_NUMBER: '335'
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact authoritative main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.EXPECTED_MAIN_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Reconcile completed final Attempt 8 failure through official recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_MAIN_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$EXPECTED_MAIN_SHA"
+          python -B scripts/wp08_release_recovery.py --mode reconcile
+
+      - name: Verify final durable failure without Attempt 9
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from urllib import request
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GITHUB_TOKEN']
+          issue_number = int(os.environ['RELEASE_ISSUE_NUMBER'])
+          expected_sha = os.environ['EXPECTED_MAIN_SHA']
+          expected_run = int(os.environ['EXPECTED_WP08_RUN_ID'])
+          req = request.Request(
+              f'https://api.github.com/repos/{repo}/issues/{issue_number}',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f'Bearer {token}',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with request.urlopen(req, timeout=30) as response:
+              issue = json.load(response)
+          body = str(issue.get('body') or '')
+          block = body.split('<!-- WP08_RELEASE_RUN_STATE_BEGIN -->', 1)[1].split('<!-- WP08_RELEASE_RUN_STATE_END -->', 1)[0]
+          state = json.loads(block.split('```json', 1)[1].split('```', 1)[0])
+          history = list(state.get('history') or [])
+          failure_events = {
+              'wp08_reconciled_completed_failure',
+              'wp08_requires_classification',
+          }
+          checks = {
+              'status': str(state.get('status') or '') == 'FAILED_NEEDS_CLASSIFICATION',
+              'attempt': int(state.get('attempt') or 0) == 8,
+              'max_attempts': int(state.get('max_attempts') or 0) == 8,
+              'candidate': str(state.get('current_candidate_sha') or '') == expected_sha,
+              'current_run': int(state.get('current_wp08_run_id') or 0) == expected_run,
+              'last_run': int(state.get('last_wp08_run_id') or 0) == expected_run,
+              'last_conclusion': str(state.get('last_wp08_conclusion') or '') == 'failure',
+              'production_open': state.get('production_closed') is False,
+              'no_attempt9_dispatch': not any(
+                  isinstance(row, dict)
+                  and row.get('event') == 'wp08_dispatched'
+                  and int(row.get('attempt') or 0) >= 9
+                  for row in history
+              ),
+              'failure_recorded': any(
+                  isinstance(row, dict)
+                  and row.get('event') in failure_events
+                  and int(row.get('wp08_run_id') or 0) == expected_run
+                  and str(row.get('conclusion') or '') == 'failure'
+                  for row in history
+              ),
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              raise SystemExit('postcondition failed: ' + ','.join(failed) + '; state=' + json.dumps(state, sort_keys=True))
+          print(json.dumps({
+              'status': 'PASS',
+              'release_state': state.get('status'),
+              'attempt': state.get('attempt'),
+              'max_attempts': state.get('max_attempts'),
+              'candidate_sha': state.get('current_candidate_sha'),
+              'wp08_run_id': state.get('current_wp08_run_id'),
+              'last_wp08_conclusion': state.get('last_wp08_conclusion'),
+              'production_closed': state.get('production_closed'),
+              'attempt9_dispatched': False,
+          }, sort_keys=True))
+          PY
