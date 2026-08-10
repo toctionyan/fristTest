@@ -24,6 +24,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: '470'
+          EXPECTED_HEAD_SHA: 'ff2b93e6aae4def4c1e94137c9a40feb05f5b608'
+          EXPECTED_BASE_SHA: 'c50ab97b178f1216755f0d4dda5007cc8209c5d8'
           EXPECTED_MERGE_SHA: '4fecee91b5a06ec7433eff795c08b923ff58d6fc'
           EXPECTED_RELEASE: 'wp08-release-31388975089'
           EXPECTED_PARENT_RUN: '31397818507'
@@ -35,18 +37,32 @@ jobs:
             -H "X-GitHub-Api-Version: 2026-03-10" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
             > "${RUNNER_TEMP}/pr.json"
+          curl --fail-with-body --silent --show-error -L \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${EXPECTED_MERGE_SHA}" \
+            > "${RUNNER_TEMP}/merge.json"
           python -B - <<'PY'
           import json, os
           from pathlib import Path
-          pr = json.loads((Path(os.environ['RUNNER_TEMP']) / 'pr.json').read_text())
+          root = Path(os.environ['RUNNER_TEMP'])
+          pr = json.loads((root / 'pr.json').read_text())
+          merge = json.loads((root / 'merge.json').read_text())
           assert pr['number'] == int(os.environ['PR_NUMBER'])
           assert pr['merged'] is True
           assert pr['base']['ref'] == 'main'
-          assert pr['merge_commit_sha'] == os.environ['EXPECTED_MERGE_SHA']
+          assert pr['base']['sha'] == os.environ['EXPECTED_BASE_SHA']
+          assert pr['head']['sha'] == os.environ['EXPECTED_HEAD_SHA']
+          assert merge['sha'] == os.environ['EXPECTED_MERGE_SHA']
+          parent_shas = {row['sha'] for row in merge.get('parents', [])}
+          assert os.environ['EXPECTED_BASE_SHA'] in parent_shas
+          assert os.environ['EXPECTED_HEAD_SHA'] in parent_shas
           body = str(pr.get('body') or '')
           assert f"WP08-Release-Run-ID: {os.environ['EXPECTED_RELEASE']}" in body
           assert f"WP08-Parent-Run-ID: {os.environ['EXPECTED_PARENT_RUN']}" in body
-          (Path(os.environ['RUNNER_TEMP']) / 'event.json').write_text(
+          pr['merge_commit_sha'] = os.environ['EXPECTED_MERGE_SHA']
+          (root / 'event.json').write_text(
               json.dumps({'pull_request': pr}), encoding='utf-8'
           )
           PY
