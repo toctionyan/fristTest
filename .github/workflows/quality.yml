@@ -1,19 +1,20 @@
 name: quality
 
 on:
-  push:
-    branches:
-      - wp08-attempt7-final-authority-and-retry-repair-20260810
+  pull_request:
+    types: [reopened]
 
 permissions:
   contents: write
 
 jobs:
   one-shot-clarification-retry-repair:
+    if: github.event.pull_request.number == 399 && github.event.pull_request.head.ref == 'wp08-attempt7-final-authority-and-retry-repair-20260810'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: wp08-attempt7-final-authority-and-retry-repair-20260810
           fetch-depth: 1
       - name: Apply exact repair, regenerate baseline, and restore workflow tree
         shell: bash
@@ -104,4 +105,4 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix: keep clarification-only workflow retries exact'
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:wp08-attempt7-final-authority-and-retry-repair-20260810
