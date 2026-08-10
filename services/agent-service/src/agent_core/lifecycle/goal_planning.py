@@ -566,8 +566,8 @@ class ModelGoalAlignmentVerifier:
             "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
         )
         initial_exact_alignment: GoalAlignmentVerdict | None = None
-        for attempt in range(2):
-            blind_dependency_audit = verifier_repair_kind == "candidate_blind_dependency_reaudit"
+        for attempt in range(3):
+            blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             effective_instruction = (
                 blind_dependency_instruction
                 + " For this candidate-blind audit, dependency absence must also be proven. "
@@ -788,6 +788,33 @@ class ModelGoalAlignmentVerifier:
                 # edge itself.
                 verifier_repair_kind = "candidate_blind_dependency_reaudit"
                 verifier_repair = None
+                prompt = {
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                }
+                continue
+            if (
+                blind_dependency_audit
+                and verdict.verdict == "indeterminate"
+                and verdict.reason_code.startswith("goal_alignment_dependency_")
+                and attempt < 2
+            ):
+                # The independent semantic authority remains the model, but a
+                # malformed pairwise proof is not semantic evidence. Give the
+                # same candidate-blind audit one bounded format/grounding retry;
+                # never reveal or adopt Planner's candidate dependency graph.
+                verifier_repair_kind = "candidate_blind_dependency_format_repair"
+                verifier_repair = (
+                    "The previous candidate-blind pairwise dependency proof was rejected by the structural grounding contract: "
+                    f"{verdict.reason_code}. Re-audit every unordered Goal pair from USER_TEXT only. Assert a dependency only "
+                    "when you can copy one literal basis_span from inside the dependent Goal evidence_span and classify it as "
+                    "result_reference, result_condition or result_value_input. Shared scope, sentence order, lookup needs and "
+                    "business execution prerequisites are not result dependencies. If no grounded positive dependency exists "
+                    "for a pair, return relation=independent. Do not fabricate a basis. Return the complete dependency_decisions "
+                    "array and the strict JSON fields only."
+                )
                 prompt = {
                     "USER_TEXT_UNTRUSTED": user_text,
                     "DECLARED_GOALS": _dependency_blind_goal_projection(goals),

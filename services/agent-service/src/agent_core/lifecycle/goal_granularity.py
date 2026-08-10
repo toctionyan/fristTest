@@ -207,7 +207,7 @@ def _maximum_outcome_goal_matching(
     return matched, goal_to_outcome
 
 
-GOAL_GRANULARITY_INVENTORY_AUTHORITY_VERSION = "goal-granularity-inventory-authority@2"
+GOAL_GRANULARITY_INVENTORY_AUTHORITY_VERSION = "goal-granularity-inventory-authority@3"
 
 
 def _canonical_digest(value: Any) -> str:
@@ -227,6 +227,7 @@ def _build_inventory_authority(
     outcome_spans: tuple[str, ...],
     reason_code: str,
     blind_self_audit_attempted: bool,
+    active_structured_interaction: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Freeze candidate-blind outcome decomposition, never dependencies."""
     payload: dict[str, Any] = {
@@ -240,6 +241,7 @@ def _build_inventory_authority(
         "independent": True,
         "candidate_blind": True,
         "blind_self_audit_attempted": bool(blind_self_audit_attempted),
+        "active_structured_interaction_digest": _canonical_digest(dict(active_structured_interaction or {})),
     }
     payload["integrity_digest"] = _canonical_digest(payload)
     return payload
@@ -249,6 +251,7 @@ def _validate_inventory_authority(
     *,
     user_text: str,
     authority: Any,
+    active_structured_interaction: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], str | None]:
     if not isinstance(authority, dict):
         return None, (), "goal_granularity_inventory_authority_required"
@@ -264,6 +267,9 @@ def _validate_inventory_authority(
     expected_user_digest = sha256(str(user_text or "").encode("utf-8")).hexdigest()
     if str(authority.get("user_text_sha256") or "") != expected_user_digest:
         return None, (), "goal_granularity_inventory_authority_user_text_mismatch"
+    expected_interaction_digest = _canonical_digest(dict(active_structured_interaction or {}))
+    if str(authority.get("active_structured_interaction_digest") or "") != expected_interaction_digest:
+        return None, (), "goal_granularity_inventory_authority_interaction_mismatch"
     if authority.get("candidate_blind") is not True or authority.get("independent") is not True:
         return None, (), "goal_granularity_inventory_authority_not_independent"
     if str(authority.get("source") or "") != "model_blind_inventory":
@@ -373,7 +379,13 @@ class ModelGoalGranularityVerifier:
     re-judgment.
     """
 
-    def verify(self, *, user_text: str, goals: list[dict[str, Any]]) -> GoalGranularityVerdict:
+    def verify(
+        self,
+        *,
+        user_text: str,
+        goals: list[dict[str, Any]],
+        active_structured_interaction: dict[str, Any] | None = None,
+    ) -> GoalGranularityVerdict:
         from agent_core.config import get_model
         from agent_core.model_calls import (
             classify_model_failure,
@@ -396,6 +408,8 @@ class ModelGoalGranularityVerifier:
             "Implementation/support steps, policy loading, permission checks, database work, Draft creation, authorization and rendering are never outcomes unless the customer explicitly requests them as a business result.",
             "Eligibility is a separate outcome only when the customer explicitly asks to receive that conclusion independently; otherwise it can be a condition/support step for an action.",
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
+            "A meta-level refusal, deferral or suppression of a prior optional action (for example asking not to proceed, submit or handle it for now) is interaction control, not a separately judgeable business outcome, when there is no matching ACTIVE_STRUCTURED_INTERACTION and the user does not request a business effect on an identified existing object.",
+            "A direct business-effect request to cancel/delete/stop an identified existing business object remains an outcome. When ACTIVE_STRUCTURED_INTERACTION identifies a pending user-visible interaction and USER_TEXT explicitly cancels or stops that pending interaction, preserve that control outcome; do not absorb a separate read-only query into it.",
             "Do not inspect or re-judge any candidate Goal dependency declaration, execution order, IDs, tools, capability availability or transaction mechanics.",
             "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a target phrase and the business action over that same target as separate outcomes.",
             "clarify only when ambiguity changes the number or identity of independently requested business outcomes; target membership, filters, status vocabulary, thresholds, current facts and slot values are not granularity ambiguity.",
@@ -416,7 +430,10 @@ class ModelGoalGranularityVerifier:
                         role="turn_goal_granularity_inventory_verifier",
                         instruction=instruction,
                         decision_rules=rules,
-                        payload={"USER_TEXT_UNTRUSTED": user_text},
+                        payload={
+                            "USER_TEXT_UNTRUSTED": user_text,
+                            "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                        },
                         format_repair=verifier_repair,
                     ),
                 )
@@ -494,6 +511,7 @@ class ModelGoalGranularityVerifier:
                 outcome_spans=outcome_spans,
                 reason_code=_text(parsed.get("reason_code"), limit=120) or "blind_inventory_exact",
                 blind_self_audit_attempted=attempt > 0,
+                active_structured_interaction=active_structured_interaction,
             )
             verdict = _evaluate_blind_inventory(
                 user_text=user_text,
@@ -539,12 +557,40 @@ class CandidateOnlyGoalGranularityVerifier:
         )
 
 
+def _active_structured_interaction_context(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Project only public pending-interaction identity for outcome inventory."""
+    from agent_core.transaction.interaction import interaction_response_contract
+
+    contract = interaction_response_contract(state)
+    interaction = (
+        contract.get("interaction")
+        if isinstance(contract, dict) and isinstance(contract.get("interaction"), dict)
+        else None
+    )
+    if interaction is None:
+        return None
+    return {
+        "interaction_id": str(interaction.get("interaction_id") or ""),
+        "lifecycle": str(interaction.get("lifecycle") or ""),
+        "title": str(interaction.get("title") or ""),
+        "target": str(interaction.get("target") or ""),
+        "required_fields": [
+            str(row.get("name") or "")
+            for row in list(interaction.get("fields") or [])
+            if isinstance(row, dict) and str(row.get("name") or "")
+        ],
+        "chat_write_authorized": False,
+        "runtime_redirect_required": True,
+    }
+
+
 def verify_goal_granularity(
     *,
     state: dict[str, Any],
     goals: list[dict[str, Any]],
 ) -> GoalGranularityVerdict:
     user_text = _text(state.get("current_user_input"), limit=20_000)
+    active_structured_interaction = _active_structured_interaction_context(state)
     ids = {
         str(row.get("goal_id") or "")
         for row in goals
@@ -580,6 +626,7 @@ def verify_goal_granularity(
         validated_authority, outcome_spans, authority_error = _validate_inventory_authority(
             user_text=user_text,
             authority=frozen_authority,
+            active_structured_interaction=active_structured_interaction,
         )
         if authority_error or validated_authority is None:
             return GoalGranularityVerdict(
@@ -613,7 +660,15 @@ def verify_goal_granularity(
         else CandidateOnlyGoalGranularityVerifier()
     )
     try:
-        raw = verifier.verify(user_text=user_text, goals=goals)
+        raw = (
+            verifier.verify(
+                user_text=user_text,
+                goals=goals,
+                active_structured_interaction=active_structured_interaction,
+            )
+            if isinstance(verifier, ModelGoalGranularityVerifier)
+            else verifier.verify(user_text=user_text, goals=goals)
+        )
         return _normalize(
             raw,
             user_text=user_text,
