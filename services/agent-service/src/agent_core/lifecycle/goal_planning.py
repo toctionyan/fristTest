@@ -852,6 +852,69 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
 
 
 
+def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any]:
+    """Expose only the independent verifier-owned dependency graph for redeclaration.
+
+    Runtime does not infer, add or remove an edge. When GoalAlignment has a
+    complete grounded proof that the Planner's graph differs, the same proof
+    that blocked freezing becomes explicit machine-readable repair feedback.
+    The model must redeclare; no business capability, oracle answer or hidden
+    implementation step is disclosed.
+    """
+    if (
+        alignment.verdict != "incomplete"
+        or alignment.reason_code != "goal_alignment_dependency_graph_mismatch"
+    ):
+        return {}
+    details = alignment.details if isinstance(alignment.details, dict) else {}
+    if (
+        details.get("dependency_authority") != "independent_goal_alignment"
+        or details.get("dependency_proof_complete") is not True
+        or details.get("dependency_graph_match") is not False
+    ):
+        return {}
+    edges: list[dict[str, str]] = []
+    for raw in list(details.get("dependency_edges") or []):
+        if not isinstance(raw, dict):
+            continue
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        basis_kind = _clean_text(raw.get("basis_kind"), limit=80)
+        basis_span = _clean_text(raw.get("basis_span"), limit=240)
+        if dependent and prerequisite and basis_kind and basis_span:
+            edges.append({
+                "dependent_goal_id": dependent,
+                "requires_result_of_goal_id": prerequisite,
+                "basis_kind": basis_kind,
+                "basis_span": basis_span,
+            })
+    declared_edges = [
+        {
+            "dependent_goal_id": _clean_text(raw.get("dependent_goal_id"), limit=80),
+            "requires_result_of_goal_id": _clean_text(raw.get("requires_result_of_goal_id"), limit=80),
+        }
+        for raw in list(details.get("declared_dependency_edges") or [])
+        if isinstance(raw, dict)
+        and _clean_text(raw.get("dependent_goal_id"), limit=80)
+        and _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+    ]
+    return {
+        "independent_verifier_feedback": {
+            "authority": "independent_goal_alignment",
+            "required_action": "redeclaration_matching_complete_independent_dependency_graph",
+            "dependency_edges": edges,
+            "declared_dependency_edges": declared_edges,
+            "constraints": [
+                "preserve_all_declared_user_observable_business_outcomes",
+                "replace_only_the_current_turn_dependency_graph_as_proved",
+                "dependency_edges_are_verifier_owned_not_runtime_language_inference",
+                "do_not_infer_or_copy_tool_capability_or_oracle_answers",
+                "do_not_change_requested_effect_to_fit_available_capabilities",
+            ],
+        }
+    }
+
+
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
     verdict = str(getattr(granularity, "verdict", "") or "")
     reason_code = str(getattr(granularity, "reason_code", "") or "")
@@ -1144,8 +1207,12 @@ def validate_goal_declaration(
         return ({
             "ok": False,
             "code": code,
-            "message": "本轮语义候选尚未得到独立完整性证明，Runtime 已阻止能力发现。",
-            "data": {"alignment_proof": alignment.as_dict(), **_goal_declaration_repair_context(user_text)},
+            "message": "本轮语义候选尚未得到独立完整性证明，Runtime 已阻止能力发现；若返回 independent_verifier_feedback，必须保留业务效果并按该独立证明重新声明。",
+            "data": {
+                "alignment_proof": alignment.as_dict(),
+                **_alignment_repair_feedback(alignment),
+                **_goal_declaration_repair_context(user_text),
+            },
         }, None)
 
     granularity = verify_goal_granularity(state=state, goals=deepcopy(goals))
