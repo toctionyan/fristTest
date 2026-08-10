@@ -114,8 +114,7 @@ class AntiStallTaskHarness:
 
     def _acquire(self, request: ReadRequest, item: WorkingSetItem) -> ResourceResult:
         machine = AtomicFallbackStateMachine(policy=AtomicToolPolicy(max_remote_calls=2))
-        machine.begin_cache_lookup()
-        machine.cache_miss(request.source)
+        machine.begin(request.source)
         primary_calls = 0
         fallback_calls = 0
         content: bytes | None = None
@@ -157,7 +156,7 @@ class AntiStallTaskHarness:
         else:
             machine.remote_succeeded()
 
-        if machine.state != "CACHE_STORE" or content is None:
+        if machine.state != "SUCCEEDED" or content is None:
             raise TaskHarnessError(
                 f"resource acquisition ended in unexpected state {machine.state}: {request.key}"
             )
@@ -167,8 +166,6 @@ class AntiStallTaskHarness:
             path=request.path,
             content=content,
         )
-        machine.cache_stored()
-        machine.analysis_completed()
         return ResourceResult(
             key=request.key,
             source=request.source,
