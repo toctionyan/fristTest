@@ -1,3 +1,4 @@
+# one-shot branch-local repair carrier; remove after successful application
 name: wp08-attempt7-clarification-retry-fix-applier
 
 on:
