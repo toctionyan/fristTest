@@ -26,6 +26,8 @@ def _goal(goal_id: str, span: str, depends_on: list[str]) -> dict:
 
 
 class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
+    """Lock repair feedback to independent, literal-evidence dependency proof only."""
+
     def test_missing_true_result_dependency_returns_grounded_edge(self) -> None:
         text = "查一下键盘订单，再看看它能不能退款"
         goals = [
