@@ -8,7 +8,7 @@ MAX_PARALLEL_REMOTE_READS = 4
 
 
 class BatchPlanError(ValueError):
-    """Raised when a bounded remote-read plan is invalid or cyclic."""
+    """Raised when a bounded remote-read plan is invalid."""
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,6 @@ class ReadRequest:
     source: str
     ref: str
     path: str
-    depends_on: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.key.strip():
@@ -30,8 +29,6 @@ class ReadRequest:
             raise BatchPlanError(f"read request {self.key} must declare an immutable ref")
         if not self.path.strip():
             raise BatchPlanError(f"read request {self.key} must declare path")
-        if self.key in self.depends_on:
-            raise BatchPlanError(f"read request {self.key} cannot depend on itself")
 
 
 @dataclass(frozen=True)
@@ -56,13 +53,6 @@ def _validated_requests(requests: Iterable[ReadRequest]) -> list[ReadRequest]:
     keys = [request.key for request in ordered]
     if len(keys) != len(set(keys)):
         raise BatchPlanError("remote read request keys must be unique")
-    known = set(keys)
-    for request in ordered:
-        unknown = set(request.depends_on) - known
-        if unknown:
-            raise BatchPlanError(
-                f"read request {request.key} depends on unknown requests: {sorted(unknown)}"
-            )
     return ordered
 
 
@@ -71,15 +61,12 @@ def plan_read_batches(
     *,
     max_parallel: int = MAX_PARALLEL_REMOTE_READS,
 ) -> list[ReadBatch]:
-    """Create dependency-safe, connector-local, bounded parallel read batches.
+    """Group immutable reads into deterministic connector-local bounded batches.
 
-    The planner never executes tools.  It converts a frozen working set into a
-    deterministic execution plan that a task harness may run concurrently.
-    Independent reads sharing the same source/ref are grouped together, but no
-    batch may exceed ``max_parallel``.  Dependency descendants are not scheduled
-    until all requests in the current dependency frontier are complete.
+    Dependency scheduling is deliberately out of scope until the real harness
+    has a dependency-bearing working-set contract. This planner only solves the
+    requirement we execute today: cap parallel independent reads.
     """
-
     if max_parallel < 1:
         raise BatchPlanError("max_parallel must be at least 1")
     if max_parallel > MAX_PARALLEL_REMOTE_READS:
@@ -88,47 +75,26 @@ def plan_read_batches(
         )
 
     ordered = _validated_requests(requests)
-    pending = {request.key: request for request in ordered}
-    completed: set[str] = set()
+    grouped: dict[tuple[str, str], list[ReadRequest]] = {}
+    group_order: list[tuple[str, str]] = []
+    for request in ordered:
+        boundary = (request.source, request.ref)
+        if boundary not in grouped:
+            grouped[boundary] = []
+            group_order.append(boundary)
+        grouped[boundary].append(request)
+
     plan: list[ReadBatch] = []
-
-    while pending:
-        ready = [
-            request
-            for request in ordered
-            if request.key in pending and set(request.depends_on).issubset(completed)
-        ]
-        if not ready:
-            cycle = [request.key for request in ordered if request.key in pending]
-            raise BatchPlanError(
-                "remote read dependency graph is cyclic or unsatisfied: " + ", ".join(cycle)
+    for source, ref in group_order:
+        members = grouped[(source, ref)]
+        for offset in range(0, len(members), max_parallel):
+            plan.append(
+                ReadBatch(
+                    source=source,
+                    ref=ref,
+                    requests=tuple(members[offset : offset + max_parallel]),
+                )
             )
-
-        grouped: dict[tuple[str, str], list[ReadRequest]] = {}
-        group_order: list[tuple[str, str]] = []
-        for request in ready:
-            boundary = (request.source, request.ref)
-            if boundary not in grouped:
-                grouped[boundary] = []
-                group_order.append(boundary)
-            grouped[boundary].append(request)
-
-        frontier_keys: set[str] = set()
-        for boundary in group_order:
-            source, ref = boundary
-            members = grouped[boundary]
-            for offset in range(0, len(members), max_parallel):
-                chunk = tuple(members[offset : offset + max_parallel])
-                plan.append(ReadBatch(source=source, ref=ref, requests=chunk))
-                frontier_keys.update(request.key for request in chunk)
-
-        # Advance only after the complete dependency frontier has been planned.
-        # This prevents a descendant from being placed in a batch concurrent
-        # with one of its prerequisites merely because an earlier chunk was full.
-        completed.update(frontier_keys)
-        for key in frontier_keys:
-            pending.pop(key, None)
-
     return plan
 
 
