@@ -62,14 +62,7 @@ def run(name: str) -> dict[str, Any]:
 
 def _stage1_command(argv: list[str], *, label: str, timeout_seconds: int = 180) -> dict[str, Any]:
     try:
-        completed = subprocess.run(
-            argv,
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
+        completed = subprocess.run(argv,cwd=ROOT,text=True,capture_output=True,check=False,timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
         stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
@@ -85,11 +78,10 @@ def _stage1_command(argv: list[str], *, label: str, timeout_seconds: int = 180) 
         print(completed.stderr, file=sys.stderr)
     if completed.returncode:
         raise RuntimeError(f"{label} failed with exit {completed.returncode}")
-    return {"label": label, "argv": argv, "exit_code": completed.returncode, "timeout_seconds": timeout_seconds}
+    return {"label":label,"argv":argv,"exit_code":completed.returncode,"timeout_seconds":timeout_seconds}
 
 
 def _attempt3_stage1() -> dict[str, Any]:
-    """Temporary carrier-only Stage-1 executor; never shipped to main."""
     commands: list[dict[str, Any]] = []
     for helper in (
         ".github/wp08-attempt3-target-authority-fix.py",
@@ -108,38 +100,26 @@ def _attempt3_stage1() -> dict[str, Any]:
         "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
         "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
     ]
-    commands.append(_stage1_command(
-        [sys.executable, "-m", "py_compile", *compile_paths],
-        label="py_compile_attempt3_sources",
-        timeout_seconds=60,
-    ))
-    commands.append(_stage1_command(
-        [
-            sys.executable, "-m", "pytest", "-q",
-            "skill-system/tests/test_wp08_new_release_attempt2_root_fixes.py",
-            "skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py",
-        ],
-        label="focused_skill_attempt2_attempt3",
-        timeout_seconds=120,
-    ))
+    commands.append(_stage1_command([sys.executable,"-m","py_compile",*compile_paths],label="py_compile_attempt3_sources",timeout_seconds=60))
+    commands.append(_stage1_command([
+        sys.executable,"-m","pytest","-q",
+        "skill-system/tests/test_wp08_new_release_attempt2_root_fixes.py",
+        "skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py",
+    ],label="focused_skill_attempt2_attempt3",timeout_seconds=120))
 
-    # The immediately previous broad Stage-1 run executed 991 focused Agent
-    # tests: 985 passed and exactly six failed, all confined to these four
-    # modules. Fixture migration/environment bootstrap only touch those failing
-    # paths. Re-run exactly the failed modules here; Stage 2 will run the full
-    # standard Agent/Business suites before any baseline or release attempt.
-    agent_tests = [
-        "services/agent-service/tests/context/test_conversation_regression_suite_execution.py",
-        "services/agent-service/tests/context/test_dialogue_counterexamples.py",
-        "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py",
-        "services/agent-service/tests/runtime/test_goal_coverage_runtime.py",
+    # Run `31346555772` already proved 985/991 focused Agent tests. Exactly six
+    # failures remained. The only subsequent product/test changes are the
+    # deterministic fixture migration plus Stage-1 test environment bootstrap,
+    # so rerun those exact six nodes here. Stage 2 runs the full standard suites.
+    nodes = [
+        "services/agent-service/tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[multi_query_orders_and_logistics]",
+        "services/agent-service/tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[correction_latest_to_most_expensive]",
+        "services/agent-service/tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[visible_superlative_cheapest]",
+        "services/agent-service/tests/context/test_dialogue_counterexamples.py::test_pending_action_goal_re_presents_card_without_second_model_call",
+        "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_query_then_refund_consult]",
+        "services/agent-service/tests/runtime/test_goal_coverage_runtime.py::test_goal_plan_persists_independent_alignment_proof_when_exact",
     ]
-    for index, test_file in enumerate(agent_tests, start=1):
-        commands.append(_stage1_command(
-            [sys.executable, "-m", "pytest", "-q", test_file],
-            label=f"focused_agent_retry_{index:02d}_{Path(test_file).name}",
-            timeout_seconds=120,
-        ))
+    commands.append(_stage1_command([sys.executable,"-m","pytest","-q",*nodes],label="rerun_exact_six_previous_failures",timeout_seconds=180))
 
     product_paths = [
         "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
@@ -155,48 +135,26 @@ def _attempt3_stage1() -> dict[str, Any]:
         "services/agent-service/tests/runtime/test_goal_coverage_runtime.py",
         "skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py",
     ]
-    files: dict[str, str] = {}
-    for relative in product_paths:
-        path = ROOT / relative
-        if not path.is_file():
-            raise RuntimeError(f"Stage1 output missing: {relative}")
-        files[relative] = base64.b64encode(path.read_bytes()).decode("ascii")
+    files = {relative:base64.b64encode((ROOT/relative).read_bytes()).decode("ascii") for relative in product_paths}
     bundle = {
-        "contract": "wp08-attempt3-stage1-fileset@1",
-        "base_sha": WP08_STAGE1_BASE_SHA,
-        "paths": product_paths,
-        "files_base64": files,
-        "focused_agent_files": agent_tests,
-        "previous_broad_stage1": {"passed": 985, "failed": 6, "failed_modules_rerun": agent_tests},
-        "commands": commands,
-        "release_attempt_dispatched": False,
-        "baseline_regenerated": False,
+        "contract":"wp08-attempt3-stage1-fileset@1",
+        "base_sha":WP08_STAGE1_BASE_SHA,
+        "paths":product_paths,
+        "files_base64":files,
+        "previous_broad_stage1":{"passed":985,"failed":6,"rerun_nodes":nodes},
+        "commands":commands,
+        "release_attempt_dispatched":False,
+        "baseline_regenerated":False,
     }
-    encoded = base64.b64encode(json.dumps(bundle, ensure_ascii=False, sort_keys=True).encode("utf-8")).decode("ascii")
-    print("WP08_STAGE1_FILESET_BEGIN")
-    print(encoded)
-    print("WP08_STAGE1_FILESET_END")
-    return {
-        "status": "PASS",
-        "requested_profile": "skill-control-plane",
-        "temporary_stage1_carrier": True,
-        "base_sha": WP08_STAGE1_BASE_SHA,
-        "product_path_count": len(product_paths),
-        "focused_agent_file_count": len(agent_tests),
-        "previous_broad_stage1_passed": 985,
-        "baseline_regenerated": False,
-        "release_attempt_dispatched": False,
-        "results": commands,
-    }
+    encoded=base64.b64encode(json.dumps(bundle,ensure_ascii=False,sort_keys=True).encode("utf-8")).decode("ascii")
+    print("WP08_STAGE1_FILESET_BEGIN"); print(encoded); print("WP08_STAGE1_FILESET_END")
+    return {"status":"PASS","requested_profile":"skill-control-plane","temporary_stage1_carrier":True,"base_sha":WP08_STAGE1_BASE_SHA,"product_path_count":len(product_paths),"previous_broad_stage1_passed":985,"exact_failure_nodes_rerun":len(nodes),"baseline_regenerated":False,"release_attempt_dispatched":False,"results":commands}
 
 
 def main() -> int:
     parser=argparse.ArgumentParser(); parser.add_argument("profile"); args=parser.parse_args()
     try:
-        if args.profile == "skill-control-plane" and WP08_STAGE1_TRIGGER.is_file():
-            result = _attempt3_stage1()
-        else:
-            result=run(args.profile)
+        result=_attempt3_stage1() if args.profile=="skill-control-plane" and WP08_STAGE1_TRIGGER.is_file() else run(args.profile)
     except (OSError,ValueError,json.JSONDecodeError,RuntimeError) as exc:
         result={"status":"FAIL","requested_profile":args.profile,"error":str(exc),"results":[]}
     print(json.dumps(result,ensure_ascii=False,indent=2))
