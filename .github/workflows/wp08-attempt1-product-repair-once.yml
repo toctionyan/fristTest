@@ -1,0 +1,59 @@
+name: wp08-attempt1-product-repair-once
+
+on:
+  push:
+    branches:
+      - wp08-release-31388975089-attempt1-repair
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, '[wp08-attempt1-repair-done]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Apply product repair
+        run: python -B scripts/apply_wp08_attempt1_product_repair_once.py
+      - name: Compile repaired modules
+        run: |
+          python -B -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            skill-system/tests/test_wp08_attempt1_product_repair.py
+      - name: Run focused repair contracts
+        run: >-
+          services/agent-service/.venv/bin/python -B -m unittest discover
+          -s skill-system/tests -p 'test_wp08_attempt1_product_repair.py'
+      - name: Run architecture debt guard
+        run: >-
+          services/agent-service/.venv/bin/python -B -m unittest discover
+          -s skill-system/tests -p 'test_architecture_cycle_debt.py'
+      - name: Commit only after focused validation
+        run: |
+          rm scripts/apply_wp08_attempt1_product_repair_once.py
+          rm .github/workflows/wp08-attempt1-product-repair-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m '[wp08-attempt1-repair-done] Harden dependency proof and planning retry'
+          git push origin HEAD:wp08-release-31388975089-attempt1-repair
