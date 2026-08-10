@@ -516,7 +516,7 @@
     "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "857c6a45da961026314b5c3c38aa7369b5c5638696c845b3f418a4326cc79b8e",
     "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "96d1a418497c057e0e642474afbb2cde6467f9544bddb4d024eada8c96f08a3f",
     "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "3eb435d91170fb67de3f5c9e1a954a9e6e3010ad7f5295ec7ab72f0c2693ef21",
-    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "f0212b99b379b575208d3ffab8479b146f0234f407e62e02c6fcd1160eecc5d",
+    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "f0212b99b379b575208d3ffab8479b146f0234f4077e62e02c6fcd1160eecc5d",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
     "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
     "services/agent-service/tests/support/conversation_case_runner.py": "a9a826277c81f08f16f0bb0e8e2f268f0df588c9c8a19b1695380f7e32e66d31",
