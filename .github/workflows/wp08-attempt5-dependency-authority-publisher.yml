@@ -35,7 +35,21 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "92b4227b6b9af8f32a73be9020ee1a03da164f8e"
-          python -B .github/wp08-attempt5-dependency-authority-fix-v2.py
+          git fetch --no-tags --depth=1 origin 0c6c8960c7a8472f988658d8a6ddc829d6052a09
+          git show FETCH_HEAD:.github/wp08-attempt5-dependency-authority-fix.py > /tmp/wp08-attempt5-validated-fix.py
+          python -B /tmp/wp08-attempt5-validated-fix.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'goal_alignment_exact_dependency_contradiction'
+          new = 'goal_alignment_dependency_exact_contradiction'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one dependency contradiction marker, found {text.count(old)}')
+          if new in text:
+              raise SystemExit('corrected dependency contradiction marker already present unexpectedly')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
           python -m py_compile \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
