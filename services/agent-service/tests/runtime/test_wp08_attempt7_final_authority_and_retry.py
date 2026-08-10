@@ -56,7 +56,11 @@ def test_attempt7_false_dependency_requires_candidate_blind_second_audit() -> No
             "verdict": "exact",
             "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
             "missing_spans": [],
-            "dependency_edges": [],
+            "dependency_decisions": [{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "independent",
+            }],
             "reason_code": "blind_shared_scope_independent",
         }),
     ]
@@ -94,16 +98,29 @@ def test_candidate_blind_second_audit_preserves_true_result_dependency() -> None
         "basis_kind": "result_reference",
         "basis_span": "它",
     }
-    exact = _response({
+    candidate = _response({
         "verdict": "exact",
         "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
         "missing_spans": [],
         "dependency_edges": [true_edge],
         "reason_code": "true_result_reference",
     })
+    blind = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "它",
+        }],
+        "reason_code": "true_result_reference",
+    })
 
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[exact, exact]
+        "agent_core.model_calls.invoke_model", side_effect=[candidate, blind]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(
             user_text=text,
@@ -142,7 +159,13 @@ def test_candidate_blind_second_audit_detects_missing_true_dependency() -> None:
             "verdict": "exact",
             "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
             "missing_spans": [],
-            "dependency_edges": [true_edge],
+            "dependency_decisions": [{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "b_depends_on_a",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
             "reason_code": "blind_true_result_reference",
         }),
     ]

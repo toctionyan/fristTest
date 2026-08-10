@@ -322,6 +322,135 @@ def _model_alignment_dependency_proof(
     return details, None
 
 
+def _model_alignment_pairwise_dependency_proof(
+    *,
+    user_text: str,
+    goals: list[dict[str, Any]],
+    values: Any,
+) -> tuple[dict[str, Any], str | None]:
+    """Validate a candidate-blind, pairwise-complete dependency audit.
+
+    An empty edge list is not evidence that a multi-goal graph is complete.
+    The blind second verifier call must explicitly judge every unordered Goal
+    pair as dependent in one direction or independent. Runtime validates only
+    pair coverage, Goal IDs and literal grounding for positive dependency
+    edges; it never infers a dependency from user vocabulary.
+    """
+    goal_by_id = {
+        str(goal.get("goal_id") or ""): goal
+        for goal in goals
+        if str(goal.get("goal_id") or "")
+    }
+    goal_ids = list(goal_by_id)
+    declared_edges = {
+        (str(goal.get("goal_id") or ""), str(prerequisite))
+        for goal in goals
+        for prerequisite in list(goal.get("depends_on") or [])
+        if str(goal.get("goal_id") or "") and str(prerequisite)
+    }
+    expected_pairs = {
+        tuple(sorted((goal_ids[left], goal_ids[right])))
+        for left in range(len(goal_ids))
+        for right in range(left + 1, len(goal_ids))
+    }
+    base_details: dict[str, Any] = {
+        "dependency_authority": "independent_goal_alignment",
+        "dependency_proof_complete": False,
+        "dependency_graph_match": False,
+        "declared_dependency_edges": [
+            {
+                "dependent_goal_id": dependent,
+                "requires_result_of_goal_id": prerequisite,
+            }
+            for dependent, prerequisite in sorted(declared_edges)
+        ],
+        "dependency_edges": [],
+        "dependency_pair_decisions": [],
+        "expected_pair_count": len(expected_pairs),
+    }
+    if not isinstance(values, list):
+        return base_details, "goal_alignment_dependency_decisions_required"
+
+    seen_pairs: set[tuple[str, str]] = set()
+    proof_edges: set[tuple[str, str]] = set()
+    proof_rows: list[dict[str, Any]] = []
+    decision_rows: list[dict[str, Any]] = []
+    allowed_relations = {"a_depends_on_b", "b_depends_on_a", "independent"}
+    for index, raw in enumerate(values):
+        if not isinstance(raw, dict):
+            return base_details, f"goal_alignment_dependency_decision_invalid:{index}"
+        goal_a = _clean_text(raw.get("goal_a_id"), limit=80)
+        goal_b = _clean_text(raw.get("goal_b_id"), limit=80)
+        relation = _clean_text(raw.get("relation"), limit=80).lower()
+        if goal_a not in goal_by_id or goal_b not in goal_by_id or goal_a == goal_b:
+            return base_details, f"goal_alignment_dependency_decision_goal_invalid:{index}"
+        pair = tuple(sorted((goal_a, goal_b)))
+        if pair not in expected_pairs:
+            return base_details, f"goal_alignment_dependency_decision_pair_unknown:{index}"
+        if pair in seen_pairs:
+            return base_details, f"goal_alignment_dependency_decision_duplicate_pair:{index}"
+        if relation not in allowed_relations:
+            return base_details, f"goal_alignment_dependency_decision_relation_invalid:{index}"
+        seen_pairs.add(pair)
+        decision_row: dict[str, Any] = {
+            "goal_a_id": goal_a,
+            "goal_b_id": goal_b,
+            "relation": relation,
+        }
+        if relation != "independent":
+            dependent = goal_a if relation == "a_depends_on_b" else goal_b
+            prerequisite = goal_b if relation == "a_depends_on_b" else goal_a
+            basis_kind = _clean_text(raw.get("basis_kind"), limit=80).lower()
+            basis_span = _clean_text(raw.get("basis_span"), limit=240)
+            dependent_span = _clean_text(goal_by_id[dependent].get("evidence_span"), limit=240)
+            if basis_kind not in _ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS:
+                return base_details, f"goal_alignment_dependency_basis_kind_invalid:{index}"
+            if (
+                not basis_span
+                or basis_span not in user_text
+                or not dependent_span
+                or basis_span not in dependent_span
+            ):
+                return base_details, f"goal_alignment_dependency_basis_not_in_dependent_goal:{index}"
+            edge = (dependent, prerequisite)
+            proof_edges.add(edge)
+            proof_rows.append({
+                "dependent_goal_id": dependent,
+                "requires_result_of_goal_id": prerequisite,
+                "basis_kind": basis_kind,
+                "basis_span": basis_span,
+            })
+            decision_row.update({"basis_kind": basis_kind, "basis_span": basis_span})
+        decision_rows.append(decision_row)
+
+    missing_pairs = sorted(expected_pairs - seen_pairs)
+    extra_pairs = sorted(seen_pairs - expected_pairs)
+    details = {
+        **base_details,
+        "dependency_proof_complete": not missing_pairs and not extra_pairs,
+        "dependency_graph_match": (
+            not missing_pairs and not extra_pairs and proof_edges == declared_edges
+        ),
+        "dependency_edges": sorted(
+            proof_rows,
+            key=lambda row: (
+                str(row["dependent_goal_id"]),
+                str(row["requires_result_of_goal_id"]),
+            ),
+        ),
+        "dependency_pair_decisions": sorted(
+            decision_rows,
+            key=lambda row: tuple(sorted((str(row["goal_a_id"]), str(row["goal_b_id"])))),
+        ),
+        "missing_dependency_pairs": [list(pair) for pair in missing_pairs],
+    }
+    if missing_pairs or extra_pairs:
+        return details, "goal_alignment_dependency_pair_coverage_incomplete"
+    if proof_edges != declared_edges:
+        return details, "goal_alignment_dependency_graph_mismatch"
+    return details, None
+
+
 def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Project outcome identity without exposing the candidate dependency graph.
 
@@ -438,7 +567,18 @@ class ModelGoalAlignmentVerifier:
         )
         for attempt in range(2):
             blind_dependency_audit = verifier_repair_kind == "candidate_blind_dependency_reaudit"
-            effective_instruction = blind_dependency_instruction if blind_dependency_audit else instruction
+            effective_instruction = (
+                blind_dependency_instruction
+                + " For this candidate-blind audit, dependency absence must also be proven. "
+                "Return dependency_decisions with exactly one row for every unordered pair of supplied Goal IDs. "
+                "Each row has goal_a_id, goal_b_id and relation=a_depends_on_b|b_depends_on_a|independent. "
+                "For a dependency relation also include basis_kind=result_reference|result_condition|result_value_input "
+                "and basis_span copied literally from inside the dependent Goal evidence_span. "
+                "Do not omit a pair merely because you believe it is independent; an empty dependency_decisions list "
+                "is valid only when fewer than two Goals are supplied. Return JSON only with verdict, evidence_spans, "
+                "missing_spans, dependency_decisions and reason_code."
+                if blind_dependency_audit else instruction
+            )
             effective_rules = blind_dependency_rules if blind_dependency_audit else decision_rules
             try:
                 response, _trace = invoke_model(
@@ -481,11 +621,18 @@ class ModelGoalAlignmentVerifier:
                 dependency_details: dict[str, Any] = {}
                 dependency_error: str | None = None
                 if raw_verdict in {"exact", "incomplete"}:
-                    dependency_details, dependency_error = _model_alignment_dependency_proof(
-                        user_text=user_text,
-                        goals=goals,
-                        values=parsed.get("dependency_edges"),
-                    )
+                    if blind_dependency_audit:
+                        dependency_details, dependency_error = _model_alignment_pairwise_dependency_proof(
+                            user_text=user_text,
+                            goals=goals,
+                            values=parsed.get("dependency_decisions"),
+                        )
+                    else:
+                        dependency_details, dependency_error = _model_alignment_dependency_proof(
+                            user_text=user_text,
+                            goals=goals,
+                            values=parsed.get("dependency_edges"),
+                        )
                 if (
                     raw_verdict == "incomplete"
                     and dependency_error == "goal_alignment_dependency_graph_mismatch"

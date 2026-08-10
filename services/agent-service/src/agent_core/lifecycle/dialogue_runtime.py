@@ -67,6 +67,22 @@ FINAL_PROTOCOL_MAX_RETRIES = 1
 GOAL_DECLARATION_MAX_RETRIES = 2
 
 
+def _goal_declaration_protocol_repair_rule(state: dict[str, Any]) -> str | None:
+    """Return a tool-only planning repair after a model emitted prose.
+
+    This is protocol feedback only. It does not infer a Goal, target, intent or
+    business fact from the prose; the model must redeclare the same user turn
+    through the normal semantic authority on its one remaining bounded retry.
+    """
+    if str(state.get("status") or "") != "GoalDeclarationProtocolRetry":
+        return None
+    return (
+        "上一次统一语义声明没有产生且仅产生一次 declare_turn_goals 调用；纯文本回答不能建立本轮正式语义，也不会发送给用户。"
+        "本次仍处于同一个用户回合的语义声明阶段，必须只调用一次 declare_turn_goals，重新完整声明当前用户原话中的 Goal、条件和依赖；"
+        "不得直接回答用户、不得调用业务能力、不得根据上一次纯文本自行冻结语义。"
+    )
+
+
 def _declaration_clarification_required(state: dict[str, Any]) -> bool:
     """Detect a same-turn declaration rejection that explicitly requires input."""
     if goal_plan_ready(state):
@@ -518,11 +534,14 @@ def _loop_runtime_prompt(
         if budget.terminal_only
         else "可继续选择一次必要观察；不要重复同一参数工具。"
     )
+    goal_declaration_protocol_repair = _goal_declaration_protocol_repair_rule(state)
     if declaration_clarification_mode:
         protocol_repair_rule = (
             "上一次 declare_turn_goals 已由独立语义验证明确判定需要用户澄清；本次不能再次声明 Goal，"
             "也不能调用任何业务能力。只能调用一次 ask_user_clarification，直接询问缺失的对象、范围、条件或真实意图。"
         )
+    elif goal_declaration_protocol_repair is not None:
+        protocol_repair_rule = goal_declaration_protocol_repair
     elif str(state.get("status") or "") == "ClarificationNotNeededRetry":
         protocol_repair_rule = (
             "上一次澄清被 Runtime 拒绝：普通承接已有唯一的最新公开范围，不能复活更旧、更宽的集合制造歧义。"

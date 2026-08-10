@@ -30,15 +30,28 @@ def test_true_result_reference_is_owned_by_grounded_alignment_dependency_proof()
     details, error = _model_alignment_dependency_proof(user_text=text, goals=goals, values=edges)
     assert error is None
     assert details["dependency_graph_match"] is True
+    candidate = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+        "missing_spans": [],
+        "dependency_edges": edges,
+        "reason_code": "all_requested_outcomes_and_dependency_preserved",
+    })
+    blind = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "它",
+        }],
+        "reason_code": "all_requested_outcomes_and_dependency_preserved",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model",
-        return_value=_response({
-            "verdict": "exact",
-            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
-            "missing_spans": [],
-            "dependency_edges": edges,
-            "reason_code": "all_requested_outcomes_and_dependency_preserved",
-        }),
+        "agent_core.model_calls.invoke_model", side_effect=[candidate, blind]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
     assert invoke.call_count == 2

@@ -179,7 +179,9 @@ def _match_oracle(
         actual_dependencies = {str(value) for value in goal.get("depends_on") or []}
         if actual_dependencies != expected_dependencies:
             raise RuntimeError(
-                f"{case_id}: goal dependency mismatch for oracle {expected['oracle_id']}"
+                f"{case_id}: goal dependency mismatch for oracle {expected['oracle_id']}; "
+                f"expected_dependencies={sorted(expected_dependencies)!r}; "
+                f"actual_dependencies={sorted(actual_dependencies)!r}"
             )
 
 
