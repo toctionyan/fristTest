@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_from": "git:9ae404c722bf60b5a694f1841ee0a0a84331ddea",
+  "generated_from": "git:03361d0a1a083e6b09d9f8d4f6e9aefc223767ad",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-10T05:24:28Z",
+  "generated_at": "2026-08-10T06:21:07Z",
   "protected_roots": [
     "services",
     "web",
     "contracts"
   ],
-  "file_count": 560,
+  "file_count": 561,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -167,7 +167,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "5b2029153f4943225dd39c751597d065337e9533cb83927caf51bdd608185de7",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "4ad5e716ec96a0f650be4a4a93bdb782d918a5aa7c0b808649cc6a5603d9eb5c",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "fc8185c6b64f5c611da7f3d9f2389e69fe738ac9301cf977d82a0a4de696f4cd",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "8a6ac4f7fc9bb0c8d861b86721ee893bac636be6a8cafa7f94f2c092eb09882a",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "a487449ed21fb06f56121403cde0d8c1708de2b7b6ae98b10d1ede755336100e",
@@ -514,6 +514,7 @@
     "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py": "72d3713979979e3517cd160c0fabffd1836ac56158f418e83e7c2265c50a56d2",
     "services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py": "8591d0871ad510b362defa7a2ab4149af5813079b91390bd30315aa8fbb2a2fd",
     "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "01b24c11ac44eaeba35cd91f7f98106ccf4868556765cb03b3fc902b382228b1",
+    "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "96d1a418497c057e0e642474afbb2cde6467f9544bddb4d024eada8c96f08a3f",
     "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "3eb435d91170fb67de3f5c9e1a954a9e6e3010ad7f5295ec7ab72f0c2693ef21",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
     "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
