@@ -72,23 +72,7 @@ jobs:
             skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
           git diff --check
-      - name: Run full Skill control plane
-        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
-      - name: Run semantic focused regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd services/agent-service
-          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
-            tests/runtime/test_wp08_attempt5_dependency_authority.py \
-            tests/runtime/test_wp08_attempt4_release_repairs.py \
-            tests/runtime/test_goal_granularity_and_conditions.py \
-            tests/context/test_reference_resolution_contract.py
-          cd ../..
-          PYTHONPATH=services/agent-service/src:services/agent-service services/agent-service/.venv/bin/python -B -m pytest -q \
-            services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
-            services/agent-service/tests/runtime/test_semantic_reference_binding.py
-      - name: Commit compatibility repair
+      - name: Create local compatibility product commit
         shell: bash
         run: |
           set -euo pipefail
@@ -99,7 +83,7 @@ jobs:
             skill-system/tests/test_wp08_new_release_attempt4_repair.py \
             skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
           git commit -m 'test: align protected Skill regressions with dependency proof schema'
-      - name: Regenerate protected baseline and publish formal head
+      - name: Regenerate protected baseline for validation
         shell: bash
         run: |
           set -euo pipefail
@@ -118,6 +102,27 @@ jobs:
           path.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
           git diff --check
+      - name: Run full Skill control plane
+        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+      - name: Run semantic focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            tests/runtime/test_wp08_attempt4_release_repairs.py \
+            tests/runtime/test_goal_granularity_and_conditions.py \
+            tests/context/test_reference_resolution_contract.py
+          cd ../..
+          PYTHONPATH=services/agent-service/src:services/agent-service services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
+            services/agent-service/tests/runtime/test_semantic_reference_binding.py
+      - name: Publish exact validated formal head
+        shell: bash
+        run: |
+          set -euo pipefail
           git add skill-system/registry/product-source-baseline.json
           git commit -m 'chore: rebind Attempt 5 repair baseline after Skill compatibility'
+          git diff --check HEAD~2..HEAD
           git push origin HEAD:agent/wp08-attempt5-dependency-authority-20260810
