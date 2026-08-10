@@ -460,6 +460,13 @@ def reference_resolution_prompt_contract() -> dict[str, Any]:
                 "available for explicit return, but their mere presence does not make the latest "
                 "continuation ambiguous; Runtime never auto-selects the relation."
             ),
+            (
+                "expected_cardinality belongs to the historical referent, not the Goal output. "
+                "Use single only when the user is pointing at one prior visible object/member; use "
+                "collection when the user is pointing at a visible set that will be filtered, sorted "
+                "or compared. A UNIQUE single proof exposes the verified member handle; Runtime does "
+                "not choose a member from a multi-member collection."
+            ),
         ],
     }
 
