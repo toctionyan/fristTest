@@ -829,7 +829,7 @@ def run_loop(
                 evidence_dir=evidence_dir,
             ):
                 raise QualityRunConflictError(
-                    f"evidence directory must be new or belong to a compatible interrupted run: {evidence_dir}"
+                    f"evidence directory must be new and empty, or belong to a compatible interrupted run: {evidence_dir}"
                 )
         return _run_loop_unlocked(
             workspace,
