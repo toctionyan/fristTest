@@ -98,7 +98,11 @@ def test_attempt7_dependency_reaudit_preserves_true_result_reference_edge() -> N
 
 
 class _Registry:
-    def contract_for_tool(self, _name: str):
+    def contract_for_tool(self, name: str):
+        if name == "report_unsupported_request":
+            return SimpleNamespace(execution_kind="unsupported")
+        if name == "get_order_details":
+            return SimpleNamespace(execution_kind="grounding_read")
         return None
 
 

@@ -171,7 +171,12 @@ def _workflow_repair_tools(
         for row in list(policy.get("goal_policies") or [])
         if isinstance(row, dict) and str(row.get("goal_id") or "") in pending_goal_ids
         for name in list(row.get("allowed_tools") or [])
-        if str(name) and str(name) not in TERMINAL_TOOL_NAMES
+        if str(name)
+        and str(name) not in TERMINAL_TOOL_NAMES
+        and (
+            (contract := capability_registry.contract_for_tool(str(name))) is not None
+            and contract.execution_kind != "unsupported"
+        )
     }
     # agent_loop_schemas was already compiled from the same policy's global
     # allowed_capability_tools. This union only prevents the later repair
