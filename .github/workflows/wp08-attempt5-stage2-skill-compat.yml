@@ -1,0 +1,123 @@
+name: wp08-attempt5-stage2-skill-compat
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt5-stage2-skill-compat-20260810'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact formal repair head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: agent/wp08-attempt5-dependency-authority-20260810
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Apply exact Skill compatibility repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "3ba054640ad82239ea1ccc3688f2c797fa063509"
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one marker, found {count}: {old!r}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/goal_granularity.py',
+              'Do not inspect or re-judge DECLARED_GOALS.depends_on, execution order, IDs, tools, capability availability or transaction mechanics.',
+              'Do not inspect or re-judge any candidate Goal dependency declaration, execution order, IDs, tools, capability availability or transaction mechanics.',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/goal_granularity.py',
+              'of independently requested business outcomes. If boundaries are identifiable, return exact with each result once. ',
+              'of independently requested business outcomes. target membership, filters/status vocabulary, thresholds, slot/form values, current facts and execution-time cardinality are downstream Runtime concerns, not outcome-granularity ambiguity. If boundaries are identifiable, return exact with each result once. ',
+          )
+          replace_once(
+              'skill-system/tests/test_wp08_new_release_attempt4_repair.py',
+              '\"verdict\": \"exact\", \"evidence_spans\": [\"查订单\"], \"missing_spans\": [], \"reason_code\": \"exact\"',
+              '\"verdict\": \"exact\", \"evidence_spans\": [\"查订单\"], \"missing_spans\": [], \"dependency_edges\": [], \"reason_code\": \"exact\"',
+          )
+          replace_once(
+              'skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py',
+              '\"verdict\": \"exact\", \"evidence_spans\": [\"哪些还在路上\"], \"missing_spans\": [], \"reason_code\": \"query_outcome_preserved\"',
+              '\"verdict\": \"exact\", \"evidence_spans\": [\"哪些还在路上\"], \"missing_spans\": [], \"dependency_edges\": [], \"reason_code\": \"query_outcome_preserved\"',
+          )
+          PY
+          python -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
+          git diff --check
+      - name: Run full Skill control plane
+        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+      - name: Run semantic focused regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            tests/runtime/test_wp08_attempt4_release_repairs.py \
+            tests/runtime/test_goal_granularity_and_conditions.py \
+            tests/context/test_reference_resolution_contract.py
+          cd ../..
+          PYTHONPATH=services/agent-service/src:services/agent-service services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
+            services/agent-service/tests/runtime/test_semantic_reference_binding.py
+      - name: Commit compatibility repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py \
+            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
+          git commit -m 'test: align protected Skill regressions with dependency proof schema'
+      - name: Regenerate protected baseline and publish formal head
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('.').resolve(); path=root/'skill-system/registry/product-source-baseline.json'
+          previous=json.loads(path.read_text(encoding='utf-8')); roots=['services','web','contracts']
+          raw=subprocess.check_output(['git','ls-files','-z','--',*roots],cwd=root)
+          tracked=sorted(x.decode() for x in raw.split(b'\0') if x)
+          files={rel:hashlib.sha256((root/rel).read_bytes()).hexdigest() for rel in tracked}
+          head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+          payload={'schema_version':int(previous.get('schema_version') or 2),'generated_from':f'git:{head}','source_release_sha256':str(previous.get('source_release_sha256') or ''),'generated_at':datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'protected_roots':roots,'file_count':len(files),'files':files}
+          if any(len(v)!=64 for v in files.values()): raise SystemExit('invalid protected sha256')
+          path.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          git diff --check
+          git add skill-system/registry/product-source-baseline.json
+          git commit -m 'chore: rebind Attempt 5 repair baseline after Skill compatibility'
+          git push origin HEAD:agent/wp08-attempt5-dependency-authority-20260810
