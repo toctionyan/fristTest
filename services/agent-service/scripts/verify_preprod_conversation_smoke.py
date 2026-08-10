@@ -224,6 +224,19 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
             "grounding_failure": str(alignment_details.get("grounding_failure") or ""),
             "verifier_repair_attempted": bool(alignment_details.get("verifier_repair_attempted")),
             "verifier_repair_kind": str(alignment_details.get("verifier_repair_kind") or ""),
+            "dependency_authority": str(alignment_details.get("dependency_authority") or ""),
+            "dependency_proof_complete": bool(alignment_details.get("dependency_proof_complete")),
+            "dependency_graph_match": alignment_details.get("dependency_graph_match"),
+            "dependency_edges": [
+                {
+                    "dependent_goal_id": str(row.get("dependent_goal_id") or ""),
+                    "requires_result_of_goal_id": str(row.get("requires_result_of_goal_id") or ""),
+                    "basis_kind": str(row.get("basis_kind") or ""),
+                    "basis_span": str(row.get("basis_span") or ""),
+                }
+                for row in list(alignment_details.get("dependency_edges") or [])
+                if isinstance(row, dict)
+            ][:8],
         }
     granularity = data.get("granularity_proof") if isinstance(data.get("granularity_proof"), dict) else None
     if granularity is not None:
@@ -235,15 +248,8 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
             "declared_goal_count": details.get("declared_goal_count"),
             "matched_outcome_count": details.get("matched_outcome_count"),
             "outcome_spans": [str(value) for value in list(details.get("outcome_spans") or []) if str(value)][:8],
-            "dependency_edges": [
-                {
-                    "dependent_span": str(row.get("dependent_span") or ""),
-                    "requires_result_of_span": str(row.get("requires_result_of_span") or ""),
-                }
-                for row in list(details.get("dependency_edges") or [])
-                if isinstance(row, dict)
-            ][:8],
-            "dependency_graph_match": details.get("dependency_graph_match"),
+            "authority_scope": str(details.get("authority_scope") or ""),
+            "dependency_authority": str(details.get("dependency_authority") or ""),
             "inventory_authority_reused": bool(details.get("inventory_authority_reused")),
             "blind_self_audit_attempted": bool(details.get("blind_self_audit_attempted")),
         }
@@ -434,11 +440,13 @@ def main() -> int:
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
-        # Each accepted declaration is checked by both independent model validators
-        # (alignment + candidate-blind granularity). A rejected declaration may be repaired
-        # once through the exact same protected path. Each independent verifier remains capped
-        # at two calls; alignment may spend its existing second call on format/grounding re-audit,
-        # so the worst-case envelope stays 12 * 2 * (1 declaration + 2 alignment + 2 granularity) = 120.
+        # Each accepted declaration is checked by both independent model validators:
+        # alignment owns the complete grounded dependency graph, while candidate-blind
+        # granularity owns only outcome decomposition. A rejected declaration may be repaired
+        # once through the same protected path. Each verifier remains capped at two calls;
+        # granularity's second call is decomposition-only self-audit (never dependency
+        # re-judgment), so the existing worst-case envelope remains
+        # 12 * 2 * (1 declaration + 2 alignment + 2 granularity) = 120.
         with model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
                 turn = case["execution_contract"]["turn_contracts"][0]

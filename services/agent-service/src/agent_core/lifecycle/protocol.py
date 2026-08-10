@@ -208,6 +208,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
             "显式引用已经向客户可见的历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"
             "同一当前轮内只有真实结果依赖才填写 depends_on：后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才依赖；并列、再/然后/另外、共享对象或共享主题本身不构成依赖。同一原话前文已明确对象或范围、后文真正省略重复对象（零指代）时继承该已明示范围，不依赖前一个 Goal 的执行结果；但后文若出现显式指代表达并指向前一个 Goal 尚未产生的本轮结果，这不是“仅省略重复对象”，真实结果依赖优先，必须 depends_on 前一个 Goal。即使执行时需要先查一次把已明示对象解析成订单号/ID/artifact handle，这也只是执行支持数据流，不是 Goal 语义依赖。不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"
             "能力缺失不能改变依赖图；unsupported/open Goal 若语义上可独立判断是否得到满足，就必须保持独立，后续由 Capability MatchProof 证明缺失。"
+            "depends_on 的完整图由独立 GoalAlignmentVerifier 结合当前声明做二次语义证明，每条保留边必须有位于依赖 Goal evidence_span 内的当前原文字面 basis；Runtime 只校验证明结构和图一致性，不用代词/关键词规则自行解释语言。GoalGranularityVerifier 只独立核验用户可验收结果的拆分/合并边界，不再二次裁决依赖图。"
             "requested_effect 变化不能 PATCH，必须新建 Goal 并显式 supersede 旧 Goal。此阶段看不到业务工具名。"
         ),
         "parameters": {

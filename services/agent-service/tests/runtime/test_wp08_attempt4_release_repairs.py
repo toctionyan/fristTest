@@ -8,7 +8,7 @@ from agent_core.context.reference_resolution import (
     resolve_reference_expression,
 )
 from agent_core.lifecycle import protocol
-from agent_core.lifecycle.goal_granularity import _run_dependency_basis_audit
+from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
 from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
 
 
@@ -124,10 +124,11 @@ def test_temporal_reference_keeps_distinct_parent_scope_ambiguity() -> None:
 def test_semantic_dependency_contract_explicit_result_reference_precedes_zero_anaphora_ellipsis() -> None:
     schema_text = str(protocol.DECLARE_TURN_GOALS_SCHEMA)
     alignment_source = inspect.getsource(ModelGoalAlignmentVerifier.verify)
-    dependency_source = inspect.getsource(_run_dependency_basis_audit)
+    granularity_source = inspect.getsource(ModelGoalGranularityVerifier.verify)
     assert "显式结果指代不是普通零指代省略" in schema_text
     assert "takes precedence over ordinary same-turn zero-anaphora ellipsis" in alignment_source
-    assert "takes precedence over ordinary same-turn zero-anaphora ellipsis" in dependency_source
+    assert "dependency_edges" in alignment_source
+    assert "Do not judge or emit a Goal dependency graph" in granularity_source
 
 
 def test_reference_prompt_contract_documents_exact_member_alias_semantics() -> None:

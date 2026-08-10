@@ -37,88 +37,55 @@ def _goal(goal_id: str, span: str, depends_on: list[str]) -> dict:
 
 
 class Attempt3DependencyAuthorityTests(unittest.TestCase):
-    def test_shared_literal_scope_dependency_is_removed_by_dedicated_blind_audit(self) -> None:
-        from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
+    def test_shared_literal_scope_remains_independent_under_alignment_proof(self) -> None:
+        from agent_core.lifecycle.goal_planning import _model_alignment_dependency_proof
 
         user_text = "查一下鼠标订单，然后帮我申请退款"
-        spans = ["查一下鼠标订单", "帮我申请退款"]
-        first_edge = [{
-            "dependent_span": spans[1],
-            "requires_result_of_span": spans[0],
-        }]
-        calls = [
-            _inventory(spans, first_edge, "first_pass_execution_support_confusion"),
-            _dependency([], "same_turn_literal_scope_not_result_dependency"),
-        ]
-        goals = [_goal("g1", spans[0], []), _goal("g2", spans[1], ["g1"])]
-        with patch("agent_core.config.get_model", return_value=object()), patch(
-            "agent_core.model_calls.invoke_model", side_effect=calls
-        ) as invoke:
-            verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
-        self.assertEqual(invoke.call_count, 2)
-        self.assertEqual(verdict.verdict, "mixed")
-        self.assertEqual(verdict.reason_code, "blind_inventory_dependency_graph_mismatch")
-        self.assertEqual(verdict.details["dependency_edges"], [])
-        self.assertTrue(verdict.details["dependency_basis_audited"])
-        authority = verdict.details["inventory_authority"]
-        self.assertEqual(authority["dependency_edge_basis"], [])
-
-        repaired_goals = [_goal("g1", spans[0], []), _goal("g2", spans[1], [])]
-        with patch("agent_core.config.get_model", side_effect=AssertionError("frozen authority must avoid a new model call")):
-            from agent_core.lifecycle.goal_granularity import verify_goal_granularity
-            repaired = verify_goal_granularity(
-                state={
-                    "current_user_input": user_text,
-                    "current_turn_plan": {"goal_granularity_inventory_authority": authority},
-                },
-                goals=repaired_goals,
-            )
-        self.assertTrue(repaired.exact)
-        self.assertTrue(repaired.details["inventory_authority_reused"])
+        goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", [])]
+        details, error = _model_alignment_dependency_proof(user_text=user_text, goals=goals, values=[])
+        self.assertIsNone(error)
+        self.assertTrue(details["dependency_proof_complete"])
+        self.assertTrue(details["dependency_graph_match"])
 
     def test_true_result_reference_dependency_requires_literal_basis_inside_dependent_outcome(self) -> None:
-        from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
+        from agent_core.lifecycle.goal_planning import _model_alignment_dependency_proof
 
         user_text = "查一下键盘订单，再看看它能不能退款"
-        spans = ["查一下键盘订单", "它能不能退款"]
-        edge = {
-            "dependent_span": spans[1],
-            "requires_result_of_span": spans[0],
-        }
-        calls = [
-            _inventory(spans, [edge], "first_pass_result_dependency"),
-            _dependency([{**edge, "basis_kind": "result_reference", "basis_span": "它"}], "result_reference_reaudited"),
-        ]
-        goals = [_goal("g1", spans[0], []), _goal("g2", spans[1], ["g1"])]
-        with patch("agent_core.config.get_model", return_value=object()), patch(
-            "agent_core.model_calls.invoke_model", side_effect=calls
-        ) as invoke:
-            verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
-        self.assertEqual(invoke.call_count, 2)
-        self.assertTrue(verdict.exact)
-        self.assertEqual(verdict.details["dependency_edge_basis"][0]["basis_span"], "它")
-        self.assertEqual(verdict.details["dependency_edge_basis"][0]["basis_kind"], "result_reference")
+        goals = [_goal("g1", "查一下键盘订单", []), _goal("g2", "它能不能退款", ["g1"])]
+        details, error = _model_alignment_dependency_proof(
+            user_text=user_text,
+            goals=goals,
+            values=[{
+                "dependent_goal_id": "g2",
+                "requires_result_of_goal_id": "g1",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
+        )
+        self.assertIsNone(error)
+        self.assertTrue(details["dependency_graph_match"])
+        self.assertEqual(details["dependency_edges"][0]["basis_span"], "它")
+        self.assertEqual(details["dependency_edges"][0]["basis_kind"], "result_reference")
 
     def test_dependency_basis_outside_dependent_outcome_fails_closed(self) -> None:
-        from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
+        from agent_core.lifecycle.goal_planning import _model_alignment_dependency_proof
 
         user_text = "查一下键盘订单，再看看它能不能退款"
-        spans = ["查一下键盘订单", "它能不能退款"]
-        edge = {
-            "dependent_span": spans[1],
-            "requires_result_of_span": spans[0],
-        }
-        calls = [
-            _inventory(spans, [edge], "first_pass"),
-            _dependency([{**edge, "basis_kind": "result_reference", "basis_span": "键盘订单"}], "bad_basis"),
-        ]
-        goals = [_goal("g1", spans[0], []), _goal("g2", spans[1], ["g1"])]
-        with patch("agent_core.config.get_model", return_value=object()), patch(
-            "agent_core.model_calls.invoke_model", side_effect=calls
-        ):
-            verdict = ModelGoalGranularityVerifier().verify(user_text=user_text, goals=goals)
-        self.assertEqual(verdict.verdict, "indeterminate")
-        self.assertTrue(verdict.reason_code.startswith("blind_dependency_basis_span_not_in_dependent_outcome"))
+        goals = [_goal("g1", "查一下键盘订单", []), _goal("g2", "它能不能退款", ["g1"])]
+        details, error = _model_alignment_dependency_proof(
+            user_text=user_text,
+            goals=goals,
+            values=[{
+                "dependent_goal_id": "g2",
+                "requires_result_of_goal_id": "g1",
+                "basis_kind": "result_reference",
+                "basis_span": "键盘订单",
+            }],
+        )
+        self.assertEqual(error, "goal_alignment_dependency_basis_not_in_dependent_goal:0")
+        self.assertFalse(details["dependency_proof_complete"])
+
+
 
 
 class Attempt3SemanticTargetAuthorityTests(unittest.TestCase):
