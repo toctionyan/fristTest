@@ -467,6 +467,7 @@ class ModelSemanticCapabilityVerifier:
             "a target.mode=pipeline is exact only when every registered filter/sort/take/ordinal step preserves the user's stated field, comparison, direction, value and scope; pipeline steps are not permission to invent SQL, code, fields or values",
             "for sort/filter/pipeline operations, literal source/value spans and declared formal parameters are semantic evidence for conditions; do not invent unbound conditions",
             "when RUNTIME_TARGET_AUTHORITY.historical_reference_binding_authoritative=true, target identity/member/recency/scope is a trusted Runtime fact; do not use target as a mismatch dimension and do not compare the redacted opaque reference with labels or ResultRefs",
+            "when Runtime target authority is false, reject target.mode=all_orders for implicit pronoun/其中 continuation; a fresh all-orders query requires explicit global-scope or scope-reset wording in USER_TEXT",
             "when Runtime target authority is false, implicit pronoun or collection continuation may be rejected for a stale/wider target according to verified visible context",
             "context_binding explicit_return or explicit_group_reference never overrides USER_TEXT semantics",
             "when execution_kind is action_draft, exact means the draft action itself matches the requested effect",
