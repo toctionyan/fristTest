@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import site
 import subprocess
 import sys
 from pathlib import Path
@@ -73,5 +74,18 @@ if completed.returncode == 1:
     )
     smoke = replace_once(smoke, old, new, label="smoke-structured-dependency-rule-v2")
     SMOKE.write_text(smoke, encoding="utf-8")
+
+# The registered Quality job launches focused pytest from repository root.
+# Existing Agent tests assume the service root and src tree are importable.
+# Persist only these exact repository-local paths into the temporary carrier
+# virtualenv so subsequent test subprocesses use the same import topology as
+# normal Agent test invocations. This .pth file is runner-local, never product.
+agent_root = ROOT / "services" / "agent-service"
+site_dirs = [Path(value) for value in site.getsitepackages() if value]
+if not site_dirs:
+    raise SystemExit("unable to resolve carrier virtualenv site-packages")
+pth = site_dirs[0] / "wp08_attempt3_stage1_agent_paths.pth"
+pth.write_text(f"{agent_root}\n{agent_root / 'src'}\n", encoding="utf-8")
+print(f"Stage1 test import bootstrap: {pth}")
 
 print("Attempt-3 dependency grounding core + prompt finish applied")
