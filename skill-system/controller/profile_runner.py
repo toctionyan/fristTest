@@ -84,7 +84,7 @@ def _attempt3_stage1() -> dict[str, Any]:
     commands: list[dict[str, Any]] = []
     for helper in (
         ".github/wp08-attempt3-target-authority-fix.py",
-        ".github/wp08-attempt3-dependency-grounding-fix.py",
+        ".github/wp08-attempt3-dependency-grounding-wrapper.py",
         ".github/wp08-attempt3-root-fix-tests.py",
     ):
         commands.append(_stage1_command([sys.executable, helper], label=helper))
