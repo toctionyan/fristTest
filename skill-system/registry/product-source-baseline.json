@@ -504,10 +504,10 @@
     "services/agent-service/tests/runtime/test_workflow_runtime.py": "35716e2b2270ce1f30cbc57511836ed3d6288f69e0495a61e70b2570d73f7fcf",
     "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py": "72d3713979979e3517cd160c0fabffd1836ac56158f418e83e7c2265c50a56d2",
     "services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py": "8591d0871ad510b362defa7a2ab4149af5813079b91390bd30315aa8fbb2a2fd",
-    "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "857c6a45da961026314b5c3c38aa7369b5c5638696c845b3f418a4326cc79b8e",
+    "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "63df5c6baa542f6f013bb14b47aebd96c444bca4f6eee6693a2250ad460058bb",
     "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "96d1a418497c057e0e642474afbb2cde6467f9544bddb4d024eada8c96f08a3f",
     "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "3eb435d91170fb67de3f5c9e1a954a9e6e3010ad7f5295ec7ab72f0c2693ef21",
-    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "f0212b99b379b575208d3ffab8479b146f0234f4077e62e02c6fcd1160eecc5d",
+    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "7de4de532cff05f742ba4e91fa0247d04a17bc03bce5fa362504299fae1b8249",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
     "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
     "services/agent-service/tests/support/conversation_case_runner.py": "a9a826277c81f08f16f0bb0e8e2f268f0df588c9c8a19b1695380f7e32e66d31",
@@ -564,8 +564,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-10T13:00:48.727255+00:00",
-  "generated_from": "git:3099821dc0ac0375fa185a3f1bc58eb015f9209b",
+  "generated_at": "2026-08-10T13:15:36.261023+00:00",
+  "generated_from": "git:78c5ac4080649bb97db0e1c74617317b402c63da",
   "protected_roots": [
     "services",
     "web",
