@@ -61,8 +61,29 @@ def run(name: str) -> dict[str, Any]:
     return {"status":"PASS","requested_profile":name,"results":results}
 
 
-def _stage1_command(argv: list[str], *, label: str) -> dict[str, Any]:
-    completed = subprocess.run(argv, cwd=ROOT, text=True, capture_output=True, check=False)
+def _stage1_command(
+    argv: list[str],
+    *,
+    label: str,
+    timeout_seconds: int = 180,
+) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        if stdout:
+            print(stdout)
+        if stderr:
+            print(stderr, file=sys.stderr)
+        raise RuntimeError(f"{label} timed out after {timeout_seconds}s") from exc
     print(f"WP08_STAGE1_COMMAND {label} exit={completed.returncode}")
     if completed.stdout:
         print(completed.stdout)
@@ -70,7 +91,12 @@ def _stage1_command(argv: list[str], *, label: str) -> dict[str, Any]:
         print(completed.stderr, file=sys.stderr)
     if completed.returncode:
         raise RuntimeError(f"{label} failed with exit {completed.returncode}")
-    return {"label": label, "argv": argv, "exit_code": completed.returncode}
+    return {
+        "label": label,
+        "argv": argv,
+        "exit_code": completed.returncode,
+        "timeout_seconds": timeout_seconds,
+    }
 
 
 def _attempt3_stage1() -> dict[str, Any]:
@@ -87,7 +113,7 @@ def _attempt3_stage1() -> dict[str, Any]:
         ".github/wp08-attempt3-dependency-grounding-wrapper.py",
         ".github/wp08-attempt3-root-fix-tests.py",
     ):
-        commands.append(_stage1_command([sys.executable, helper], label=helper))
+        commands.append(_stage1_command([sys.executable, helper], label=helper, timeout_seconds=60))
 
     compile_paths = [
         "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py",
@@ -102,6 +128,7 @@ def _attempt3_stage1() -> dict[str, Any]:
     commands.append(_stage1_command(
         [sys.executable, "-m", "py_compile", *compile_paths],
         label="py_compile_attempt3_sources",
+        timeout_seconds=60,
     ))
     commands.append(_stage1_command(
         [
@@ -110,6 +137,7 @@ def _attempt3_stage1() -> dict[str, Any]:
             "skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py",
         ],
         label="focused_skill_attempt2_attempt3",
+        timeout_seconds=120,
     ))
 
     pattern = re.compile(
@@ -125,14 +153,19 @@ def _attempt3_stage1() -> dict[str, Any]:
             continue
         if pattern.search(source):
             agent_tests.append(path.relative_to(ROOT).as_posix())
-    mandatory = "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py"
-    if (ROOT / mandatory).is_file() and mandatory not in agent_tests:
-        agent_tests.append(mandatory)
+    for mandatory in (
+        "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py",
+        "services/agent-service/tests/context/test_conversation_regression_suite_execution.py",
+        "services/agent-service/tests/runtime/test_goal_coverage_runtime.py",
+    ):
+        if (ROOT / mandatory).is_file() and mandatory not in agent_tests:
+            agent_tests.append(mandatory)
     if not agent_tests:
         raise RuntimeError("focused Agent test discovery returned no files")
     commands.append(_stage1_command(
         [sys.executable, "-m", "pytest", "-q", *sorted(agent_tests)],
         label=f"focused_agent_{len(agent_tests)}_files",
+        timeout_seconds=360,
     ))
 
     product_paths = [
@@ -144,6 +177,9 @@ def _attempt3_stage1() -> dict[str, Any]:
         "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
         "services/agent-service/src/agent_core/runtime/capability_gate.py",
         "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py",
+        "services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json",
+        "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json",
+        "services/agent-service/tests/runtime/test_goal_coverage_runtime.py",
         "skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py",
     ]
     files: dict[str, str] = {}
