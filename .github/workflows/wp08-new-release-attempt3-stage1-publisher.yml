@@ -15,6 +15,7 @@ on:
       - '.github/wp08-attempt3-dependency-grounding-fix.py'
       - '.github/wp08-attempt3-root-fix-tests.py'
       - '.github/workflows/wp08-new-release-attempt3-stage1-publisher.yml'
+      - '.github/wp08-attempt3-stage1-trigger.txt'
   workflow_dispatch:
 
 permissions:
@@ -41,10 +42,10 @@ jobs:
           test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN_SHA"
           mapfile -t changed < <(git diff --name-only "$EXPECTED_MAIN_SHA"...HEAD | sort)
           printf 'carrier delta:\n%s\n' "${changed[*]}"
-          test "${#changed[@]}" -eq 4
+          [[ "${#changed[@]}" -eq 4 || "${#changed[@]}" -eq 5 ]]
           for path in "${changed[@]}"; do
             case "$path" in
-              .github/wp08-attempt3-target-authority-fix.py|.github/wp08-attempt3-dependency-grounding-fix.py|.github/wp08-attempt3-root-fix-tests.py|.github/workflows/wp08-new-release-attempt3-stage1-publisher.yml) ;;
+              .github/wp08-attempt3-target-authority-fix.py|.github/wp08-attempt3-dependency-grounding-fix.py|.github/wp08-attempt3-root-fix-tests.py|.github/workflows/wp08-new-release-attempt3-stage1-publisher.yml|.github/wp08-attempt3-stage1-trigger.txt) ;;
               *) echo "unexpected carrier path: $path" >&2; exit 1 ;;
             esac
           done
