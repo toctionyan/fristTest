@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "0c6c8960c7a8472f988658d8a6ddc829d6052a09"
+          test "$(git rev-parse HEAD)" = "dd72a3a86dc26f886332a73cfbc70bd6b87980b2"
           python -B .github/wp08-attempt5-dependency-authority-fix.py
           python -m py_compile \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
