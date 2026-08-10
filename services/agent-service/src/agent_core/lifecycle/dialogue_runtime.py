@@ -187,6 +187,30 @@ def _workflow_repair_tools(
     }
     return pending_goal_ids, completion_tools, unsupported_tools
 
+
+def _workflow_repair_allowed_tools(
+    *,
+    policy_frontier: set[str] | None,
+    completion_tools: set[str],
+    unsupported_tools: set[str],
+) -> set[str]:
+    """Keep a rejected candidate repair inside the exact pre-tool frontier.
+
+    A MatchProof rejection does not complete a PlanRun step. The pre-tool
+    policy may therefore still expose a support/grounding capability needed to
+    propose a corrected target. Workflow completion repair must preserve that
+    already-bounded frontier instead of narrowing the model to clarification.
+    This helper never adds a terminal answer or a capability that the policy,
+    exact completion surface, or exact unsupported reporter did not supply.
+    """
+    return {
+        *set(policy_frontier or set()),
+        *completion_tools,
+        *unsupported_tools,
+        "ask_user_clarification",
+    }
+
+
 def _unnecessary_unique_scope_clarification(
     state: dict[str, Any],
     call: dict[str, Any] | None = None,
@@ -932,9 +956,16 @@ def agent_loop_node(
                 state, capability_registry, capability_surface or {}
             )
             # A rejected terminal answer proves the workflow is not complete.
-            # Expose only exact completion capabilities, the exact unsupported
-            # reporter when absence was proved, and explicit clarification.
-            allowed = {*completion_tools, *unsupported_tools, "ask_user_clarification"}
+            # Preserve the exact pre-tool frontier as well as exact completion
+            # and unsupported reporters. This lets a model correct a rejected
+            # support/target candidate without widening the capability surface
+            # or bypassing MatchProof on the next attempt. Terminal response is
+            # intentionally still absent until workflow completion is proven.
+            allowed = _workflow_repair_allowed_tools(
+                policy_frontier=surfaced_tools,
+                completion_tools=completion_tools,
+                unsupported_tools=unsupported_tools,
+            )
             schemas = [
                 schema
                 for schema in schemas
