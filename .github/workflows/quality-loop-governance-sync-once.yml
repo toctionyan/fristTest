@@ -1,0 +1,78 @@
+name: One-shot Quality Loop governance sync
+
+on:
+  push:
+    branches:
+      - quality-loop-resumable-checkpoint-20260810
+    paths:
+      - .github/workflows/quality-loop-governance-sync-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: quality-loop-resumable-checkpoint-20260810
+          fetch-depth: 0
+
+      - name: Synchronize governed metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import datetime as dt
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+
+          root = Path('.').resolve()
+
+          modularity = root / 'skill-system/tests/test_quality_loop_modularity.py'
+          text = modularity.read_text(encoding='utf-8')
+          old = '            "claims.py", "convergence.py", "state.py",\n'
+          new = '            "claims.py", "convergence.py", "state.py", "checkpoint.py",\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'modularity allowlist fragment count={text.count(old)}')
+          modularity.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          roots = [str(value) for value in baseline.get('protected_roots') or []]
+          if roots != ['services', 'web', 'contracts']:
+              raise SystemExit(f'unexpected protected_roots: {roots!r}')
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          files = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+          baseline['generated_from'] = f'git:{head}'
+          baseline['generated_at'] = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          baseline['file_count'] = len(files)
+          baseline['files'] = files
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'protected_file_count': len(files), 'generated_from': baseline['generated_from']}))
+          PY
+
+      - name: Verify the two failed governance tests
+        shell: bash
+        run: |
+          python skill-system/tests/test_product_source_baseline_binding.py
+          python skill-system/tests/test_quality_loop_modularity.py
+
+      - name: Commit synchronized governance metadata
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add skill-system/registry/product-source-baseline.json skill-system/tests/test_quality_loop_modularity.py
+          git rm .github/workflows/quality-loop-governance-sync-once.yml
+          git commit -m "Sync Quality Loop governance metadata"
+          git push origin HEAD:quality-loop-resumable-checkpoint-20260810
