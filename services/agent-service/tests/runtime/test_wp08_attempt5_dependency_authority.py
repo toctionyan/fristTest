@@ -88,13 +88,30 @@ def test_false_declared_dependency_is_rejected_by_independent_alignment_graph() 
     assert verdict.details["dependency_graph_match"] is False
 
 
-def test_exact_contradictory_graph_self_reaudits_before_touching_candidate() -> None:
+def test_exact_contradictory_graph_self_reaudits_candidate_blind() -> None:
     text = "查一下键盘订单，再看看它能不能退款"
     goals = [_goal("g1", "查一下键盘订单", []), _goal("g2", "再看看它能不能退款", ["g1"])]
-    edge = {"dependent_goal_id": "g2", "requires_result_of_goal_id": "g1", "basis_kind": "result_reference", "basis_span": "它"}
     calls = [
-        _response({"verdict": "exact", "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"], "missing_spans": [], "dependency_edges": [], "reason_code": "contradictory_exact"}),
-        _response({"verdict": "exact", "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"], "missing_spans": [], "dependency_edges": [edge], "reason_code": "dependency_reaudit_exact"}),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+            "missing_spans": [],
+            "dependency_edges": [],
+            "reason_code": "contradictory_exact",
+        }),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+            "missing_spans": [],
+            "dependency_decisions": [{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "b_depends_on_a",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
+            "reason_code": "blind_dependency_reaudit_exact",
+        }),
     ]
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model", side_effect=calls
@@ -102,26 +119,84 @@ def test_exact_contradictory_graph_self_reaudits_before_touching_candidate() -> 
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
     assert invoke.call_count == 2
     assert verdict.exact
-    assert verdict.details["verifier_repair_kind"] == "dependency_proof_reaudit"
+    assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
 
 
-def test_malformed_alignment_basis_fails_closed_after_bounded_reaudit() -> None:
+def test_malformed_alignment_basis_fails_closed_after_blind_reaudit() -> None:
     text = "查一下键盘订单，再看看它能不能退款"
     goals = [_goal("g1", "查一下键盘订单", []), _goal("g2", "再看看它能不能退款", ["g1"])]
     bad = _response({
         "verdict": "exact",
         "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
         "missing_spans": [],
-        "dependency_edges": [{"dependent_goal_id": "g2", "requires_result_of_goal_id": "g1", "basis_kind": "result_reference", "basis_span": "键盘订单"}],
+        "dependency_edges": [{
+            "dependent_goal_id": "g2",
+            "requires_result_of_goal_id": "g1",
+            "basis_kind": "result_reference",
+            "basis_span": "键盘订单",
+        }],
         "reason_code": "bad_basis",
     })
+    blind_bad = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "键盘订单",
+        }],
+        "reason_code": "bad_blind_basis",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[bad, bad]
+        "agent_core.model_calls.invoke_model", side_effect=[bad, blind_bad]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
     assert invoke.call_count == 2
     assert verdict.verdict == "indeterminate"
     assert verdict.reason_code == "goal_alignment_dependency_basis_not_in_dependent_goal:0"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+
+
+def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() -> None:
+    text = "查一下鼠标订单，然后帮我申请退款"
+    goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", [])]
+    false_positive = _response({
+        "verdict": "incomplete",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_edges": [{
+            "dependent_goal_id": "g2",
+            "requires_result_of_goal_id": "g1",
+            "basis_kind": "result_reference",
+            "basis_span": "帮我申请退款",
+        }],
+        "reason_code": "refund_needs_query_result",
+    })
+    blind_independent = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "independent",
+        }],
+        "reason_code": "same_turn_scope_is_not_result_dependency",
+    })
+    with patch("agent_core.config.get_model", return_value=object()), patch(
+        "agent_core.model_calls.invoke_model", side_effect=[false_positive, blind_independent]
+    ) as invoke:
+        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
+    assert invoke.call_count == 2
+    assert verdict.exact
+    assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    second_payload = str(invoke.call_args_list[1].kwargs["payload"])
+    assert '"depends_on"' not in second_payload
 
 
 def test_unknown_and_self_dependency_edges_fail_closed() -> None:

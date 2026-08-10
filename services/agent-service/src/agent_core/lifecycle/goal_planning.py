@@ -755,8 +755,31 @@ class ModelGoalAlignmentVerifier:
                         "verifier_repair_kind": verifier_repair_kind,
                     },
                 )
-            if attempt == 0 and verdict.exact and len(goals) > 1:
-                initial_exact_alignment = verdict
+            dependency_mismatch_introduces_new_edge = False
+            if (
+                attempt == 0
+                and verdict.verdict == "incomplete"
+                and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+            ):
+                details = verdict.details if isinstance(verdict.details, dict) else {}
+                declared_pairs = {
+                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))
+                    for row in list(details.get("declared_dependency_edges") or [])
+                    if isinstance(row, dict)
+                }
+                verified_pairs = {
+                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))
+                    for row in list(details.get("dependency_edges") or [])
+                    if isinstance(row, dict)
+                }
+                dependency_mismatch_introduces_new_edge = bool(verified_pairs - declared_pairs)
+            if (
+                attempt == 0
+                and len(goals) > 1
+                and (verdict.exact or dependency_mismatch_introduces_new_edge)
+            ):
+                if verdict.exact:
+                    initial_exact_alignment = verdict
                 # The first verifier saw Planner's candidate graph and may have
                 # anchored on the same execution-dataflow mistake. Spend the
                 # existing second-call budget on an independent dependency audit
@@ -823,17 +846,17 @@ class ModelGoalAlignmentVerifier:
                         "use tool/capability/oracle knowledge. Return only verdict, evidence_spans, missing_spans and reason_code."
                     )
                 elif verdict.reason_code.startswith("goal_alignment_dependency_"):
-                    verifier_repair_kind = "dependency_proof_reaudit"
-                    verifier_repair = (
-                        "Re-audit the current-turn dependency relation independently against the same USER_TEXT and DECLARED_GOALS. "
-                        "The previous response did not provide a self-consistent, machine-grounded dependency proof. "
-                        "Return exactly one JSON object using verdict, evidence_spans, missing_spans, dependency_edges and reason_code. "
-                        "dependency_edges must be the complete independently judged graph, not a copy of DECLARED_GOALS.depends_on. "
-                        "Every edge must use existing goal IDs and include basis_kind=result_reference|result_condition|result_value_input "
-                        "plus a basis_span copied literally from inside the dependent Goal evidence_span. "
-                        "If your independently judged graph differs from DECLARED_GOALS.depends_on, return incomplete; "
-                        "if you return exact, the two graphs must match. Do not use tool/capability knowledge."
-                    )
+                    # A malformed or contradictory candidate-visible dependency proof
+                    # cannot be repaired by showing the same candidate graph again.
+                    # Spend the bounded second call on the graph-blind pairwise audit.
+                    verifier_repair_kind = "candidate_blind_dependency_reaudit"
+                    verifier_repair = None
+                    prompt = {
+                        "USER_TEXT_UNTRUSTED": user_text,
+                        "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                        "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                        "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                    }
                 else:
                     verifier_repair_kind = "machine_format_repair"
                     verifier_repair = (
