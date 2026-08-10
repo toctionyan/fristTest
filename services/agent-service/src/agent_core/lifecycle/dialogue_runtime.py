@@ -193,22 +193,45 @@ def _workflow_repair_allowed_tools(
     policy_frontier: set[str] | None,
     completion_tools: set[str],
     unsupported_tools: set[str],
+    clarification_only: bool = False,
 ) -> set[str]:
-    """Keep a rejected candidate repair inside the exact pre-tool frontier.
+    """Keep an incomplete-workflow repair inside its exact legal frontier.
 
-    A MatchProof rejection does not complete a PlanRun step. The pre-tool
-    policy may therefore still expose a support/grounding capability needed to
-    propose a corrected target. Workflow completion repair must preserve that
-    already-bounded frontier instead of narrowing the model to clarification.
-    This helper never adds a terminal answer or a capability that the policy,
-    exact completion surface, or exact unsupported reporter did not supply.
+    A MatchProof rejection does not complete a PlanRun step, so ordinary
+    candidate repair preserves the already policy-bounded support frontier. A
+    clarification-only Goal is different: clarification is itself the supported
+    terminal outcome, therefore support and unsupported-reporting capabilities
+    must not leak into that retry. No branch here invents a capability outside
+    the exact policy/completion surfaces supplied by Runtime.
     """
+    if clarification_only:
+        return {*completion_tools, "ask_user_clarification"}
     return {
         *set(policy_frontier or set()),
         *completion_tools,
         *unsupported_tools,
         "ask_user_clarification",
     }
+
+
+def _workflow_repair_is_clarification_only(
+    state: dict[str, Any],
+    pending_goal_ids: set[str],
+) -> bool:
+    """Read clarification-only status from frozen Goal metadata only."""
+    if not pending_goal_ids:
+        return False
+    execution_plan = read_plan_projection(state) or {}
+    rows = [
+        goal
+        for goal in list(execution_plan.get("goals") or [])
+        if isinstance(goal, dict)
+        and str(goal.get("goal_id") or "") in pending_goal_ids
+    ]
+    return (
+        len(rows) == len(pending_goal_ids)
+        and all(str(goal.get("goal_type") or "").lower() == "clarification" for goal in rows)
+    )
 
 
 def _unnecessary_unique_scope_clarification(
@@ -952,19 +975,21 @@ def agent_loop_node(
                 if str((schema.get("function") or {}).get("name") or "") == "respond_to_user"
             ]
         elif workflow_completion_repair:
-            _pending_goal_ids, completion_tools, unsupported_tools = _workflow_repair_tools(
+            pending_goal_ids, completion_tools, unsupported_tools = _workflow_repair_tools(
                 state, capability_registry, capability_surface or {}
             )
+            clarification_only = _workflow_repair_is_clarification_only(
+                state, pending_goal_ids
+            )
             # A rejected terminal answer proves the workflow is not complete.
-            # Preserve the exact pre-tool frontier as well as exact completion
-            # and unsupported reporters. This lets a model correct a rejected
-            # support/target candidate without widening the capability surface
-            # or bypassing MatchProof on the next attempt. Terminal response is
-            # intentionally still absent until workflow completion is proven.
+            # Ordinary candidate repair preserves the exact pre-tool frontier so
+            # a rejected support/target can be corrected and re-proved. A frozen
+            # clarification-only Goal remains strictly clarification-only.
             allowed = _workflow_repair_allowed_tools(
                 policy_frontier=surfaced_tools,
                 completion_tools=completion_tools,
                 unsupported_tools=unsupported_tools,
+                clarification_only=clarification_only,
             )
             schemas = [
                 schema

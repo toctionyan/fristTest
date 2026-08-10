@@ -188,3 +188,14 @@ def test_workflow_completion_retry_never_widens_beyond_supplied_exact_sets() -> 
         "report_unsupported_request",
         "ask_user_clarification",
     }
+
+
+def test_workflow_completion_retry_clarification_only_does_not_inherit_policy_frontier() -> None:
+    allowed = _workflow_repair_allowed_tools(
+        policy_frontier={"get_order_details", "report_unsupported_request"},
+        completion_tools=set(),
+        unsupported_tools={"report_unsupported_request"},
+        clarification_only=True,
+    )
+
+    assert allowed == {"ask_user_clarification"}
