@@ -158,7 +158,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "5b2029153f4943225dd39c751597d065337e9533cb83927caf51bdd608185de7",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "56c2d8e6bcc03351a1f817fed035751f246963b9f67dc15366526d6e81b91684",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "20aafafa267297b966a417b1ba01a30b9a5966c52764c007e078629c997a7c40",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "8a6ac4f7fc9bb0c8d861b86721ee893bac636be6a8cafa7f94f2c092eb09882a",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "a487449ed21fb06f56121403cde0d8c1708de2b7b6ae98b10d1ede755336100e",
@@ -258,7 +258,7 @@
     "services/agent-service/src/agent_core/runtime/__init__.py": "a89ccf2feed2281675242ccf4ab9123765b6858bc997ccc5f2c16876404207cf",
     "services/agent-service/src/agent_core/runtime/answer_release_alignment.py": "fc661808ff93c3142262b51cbb3a7eb651ea53b15221d7b8572a25a75dc2da12",
     "services/agent-service/src/agent_core/runtime/capability_effects.py": "8196a0b5692740dd839ab2dc601cc37f086da4944a29d404d31debf1b63e48f9",
-    "services/agent-service/src/agent_core/runtime/capability_gate.py": "54138565c6dacb3f76517c0054697d2a26983bb699dcdd95969bf4891533930c",
+    "services/agent-service/src/agent_core/runtime/capability_gate.py": "32e367a5a19751ad035b7b6ca4160797a996a2ad23c971df19f09056b5c471f9",
     "services/agent-service/src/agent_core/runtime/deps.py": "132f5093501d66facb6116681f3782feee09636f21cd085aee6fd5433d3c8a7f",
     "services/agent-service/src/agent_core/runtime/migrations.py": "d71793fcd1179afbe509ccf5670b452c9c84a9557c39efcbedc63b9dbe75d5a6",
     "services/agent-service/src/agent_core/runtime/node_support.py": "8dd790c1eac49fcfa00b38af3b5c089fc893f5b0b9acaceed3359a445aeeb1d0",
@@ -564,8 +564,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-10T13:15:36.261023+00:00",
-  "generated_from": "git:78c5ac4080649bb97db0e1c74617317b402c63da",
+  "generated_at": "2026-08-10T14:08:04.334241+00:00",
+  "generated_from": "git:e6c58fa5705c9b4f2167bb6e6d6711f62f405aff",
   "protected_roots": [
     "services",
     "web",
