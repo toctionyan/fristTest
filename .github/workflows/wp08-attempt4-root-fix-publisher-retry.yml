@@ -53,13 +53,13 @@ jobs:
         run: |
           set -euo pipefail
           cd services/agent-service
-          .venv/bin/python -B -m pytest -q \
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
             tests/runtime/test_wp08_attempt4_release_repairs.py \
             tests/context/test_reference_resolution_contract.py \
             tests/runtime/test_goal_granularity_and_conditions.py
           cd ../..
-          services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
-          services/agent-service/.venv/bin/python -B -m pytest -q \
+          PYTHONPATH=services/agent-service/src services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
+          PYTHONPATH=services/agent-service/src services/agent-service/.venv/bin/python -B -m pytest -q \
             services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
             services/agent-service/tests/runtime/test_semantic_reference_binding.py
       - name: Commit focused-green product repair
