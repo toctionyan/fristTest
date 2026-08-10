@@ -858,7 +858,9 @@ class ModelGoalAlignmentVerifier:
                         "as an exact literal contiguous substring of USER_TEXT. Do not paraphrase, infer a hidden prerequisite, "
                         "invent a target-resolution step, or use tool/capability/oracle knowledge. If no literal omitted outcome "
                         "can be identified after re-audit, withdraw the incomplete claim and return exact with literal "
-                        "evidence_spans. Return only verdict, evidence_spans, missing_spans and reason_code."
+                        "evidence_spans. Preserve the normal machine contract: return only verdict, evidence_spans, missing_spans, "
+                        "dependency_edges and reason_code. dependency_edges must still be the complete independently judged current-turn "
+                        "result-dependency graph; for a single Goal it must be an empty list."
                     )
                 elif (
                     verdict.reason_code == "goal_alignment_evidence_not_in_current_user_text"
@@ -870,7 +872,9 @@ class ModelGoalAlignmentVerifier:
                         "claim lacked machine-grounded evidence. If exact, copy literal contiguous USER_TEXT spans that cover "
                         "the preserved requested outcomes into evidence_spans. If it is not exact, return incomplete or clarify "
                         "only with the normal strict contract; any missing_spans must be literal USER_TEXT substrings. Do not "
-                        "use tool/capability/oracle knowledge. Return only verdict, evidence_spans, missing_spans and reason_code."
+                        "use tool/capability/oracle knowledge. Preserve the normal machine contract: return only verdict, "
+                        "evidence_spans, missing_spans, dependency_edges and reason_code. dependency_edges must still be the complete "
+                        "independently judged current-turn result-dependency graph; for a single Goal it must be an empty list."
                     )
                 elif verdict.reason_code.startswith("goal_alignment_dependency_"):
                     # A malformed or contradictory candidate-visible dependency proof
