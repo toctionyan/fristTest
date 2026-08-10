@@ -34,8 +34,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "dd72a3a86dc26f886332a73cfbc70bd6b87980b2"
-          python -B .github/wp08-attempt5-dependency-authority-fix.py
+          test "$(git rev-parse HEAD)" = "92b4227b6b9af8f32a73be9020ee1a03da164f8e"
+          python -B .github/wp08-attempt5-dependency-authority-fix-v2.py
           python -m py_compile \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
@@ -91,8 +91,13 @@ jobs:
           if any(len(v)!=64 for v in files.values()): raise SystemExit('invalid protected sha256')
           path.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
-          git rm .github/wp08-attempt5-dependency-authority-fix.py
+          git rm \
+            .github/wp08-attempt5-dependency-authority-fix.py \
+            .github/wp08-attempt5-dependency-authority-fix-v2.py
           git diff --check
-          git add skill-system/registry/product-source-baseline.json .github/wp08-attempt5-dependency-authority-fix.py
+          git add \
+            skill-system/registry/product-source-baseline.json \
+            .github/wp08-attempt5-dependency-authority-fix.py \
+            .github/wp08-attempt5-dependency-authority-fix-v2.py
           git commit -m 'chore: bind Attempt 5 repair to exact protected baseline'
           git push origin HEAD:agent/wp08-attempt5-dependency-authority-20260810
