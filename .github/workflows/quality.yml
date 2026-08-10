@@ -50,12 +50,8 @@ jobs:
           test_name = 'test_workflow_completion_retry_clarification_only_does_not_inherit_policy_frontier'
           if test_name in text:
               raise SystemExit('clarification-only regression already exists unexpectedly')
-          test_path.write_text(
-              text.rstrip()
-              + '''\n\n\ndef test_workflow_completion_retry_clarification_only_does_not_inherit_policy_frontier() -> None:\n    allowed = _workflow_repair_allowed_tools(\n        policy_frontier={\"get_order_details\", \"report_unsupported_request\"},\n        completion_tools=set(),\n        unsupported_tools={\"report_unsupported_request\"},\n        clarification_only=True,\n    )\n\n    assert allowed == {\"ask_user_clarification\"}\n'''
-              + '\n',
-              encoding='utf-8',
-          )
+          addition = '''\n\n\ndef test_workflow_completion_retry_clarification_only_does_not_inherit_policy_frontier() -> None:\n    allowed = _workflow_repair_allowed_tools(\n        policy_frontier={\"get_order_details\", \"report_unsupported_request\"},\n        completion_tools=set(),\n        unsupported_tools={\"report_unsupported_request\"},\n        clarification_only=True,\n    )\n\n    assert allowed == {\"ask_user_clarification\"}\n'''
+          test_path.write_text(text.rstrip() + addition.rstrip() + '\n', encoding='utf-8')
           PY
 
           python3 -m py_compile \
