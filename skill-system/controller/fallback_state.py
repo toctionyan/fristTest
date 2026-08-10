@@ -7,23 +7,22 @@ from anti_stall import AtomicToolPolicy
 
 
 class InvalidFallbackTransition(RuntimeError):
-    """Raised when an atomic task tries to leave the declared fallback flow."""
+    """Raised when an atomic remote attempt leaves the declared fallback flow."""
 
 
-TERMINAL_STATES = {"DONE", "STOPPED"}
+TERMINAL_STATES = {"SUCCEEDED", "STOPPED"}
 
 
 @dataclass
 class AtomicFallbackStateMachine:
-    """Fail-closed orchestration for one remote-backed atomic task step.
+    """Fail-closed orchestration for one primary remote path plus one fallback.
 
-    The machine does not execute connector calls itself.  It coordinates the
-    existing anti-stall policy around cache lookup, one primary remote path,
-    at most one explicit fallback path, cache store and local analysis.
+    Cache lookup/store and local analysis are owned by ``AntiStallTaskHarness``.
+    This machine only governs remote-attempt transitions.
     """
 
     policy: AtomicToolPolicy = field(default_factory=AtomicToolPolicy)
-    state: str = "PLAN"
+    state: str = "READY"
     current_tool: str | None = None
     primary_tool: str | None = None
     fallback_tool: str | None = None
@@ -39,28 +38,18 @@ class AtomicFallbackStateMachine:
                 f"event is invalid from state {self.state}; expected one of {sorted(allowed)}"
             )
 
-    def begin_cache_lookup(self) -> None:
-        self._require("PLAN")
-        self.state = "CACHE_LOOKUP"
-        self._record("cache_lookup_started")
-
-    def cache_hit(self) -> None:
-        self._require("CACHE_LOOKUP")
-        self.state = "LOCAL_ANALYSIS"
-        self._record("cache_hit")
-
-    def cache_miss(self, primary_tool: str) -> None:
-        self._require("CACHE_LOOKUP")
+    def begin(self, primary_tool: str) -> None:
+        self._require("READY")
         tool = str(primary_tool).strip()
         if not tool:
             raise ValueError("primary_tool must be non-empty")
         self.primary_tool = tool
         self.current_tool = tool
-        self.state = "REMOTE_FETCH"
-        self._record("cache_miss", tool=tool)
+        self.state = "PRIMARY"
+        self._record("primary_selected", tool=tool)
 
     def authorize_remote(self) -> str:
-        self._require("REMOTE_FETCH", "FALLBACK")
+        self._require("PRIMARY", "FALLBACK")
         if not self.current_tool:
             raise InvalidFallbackTransition("remote state has no current tool")
         self.policy.authorize(self.current_tool)
@@ -68,16 +57,17 @@ class AtomicFallbackStateMachine:
         return self.current_tool
 
     def remote_succeeded(self) -> None:
-        self._require("REMOTE_FETCH", "FALLBACK")
+        self._require("PRIMARY", "FALLBACK")
         if not self.current_tool:
             raise InvalidFallbackTransition("remote success has no current tool")
         tool = self.current_tool
         self.policy.record_success(tool)
-        self.state = "CACHE_STORE"
+        self.current_tool = None
+        self.state = "SUCCEEDED"
         self._record("remote_succeeded", tool=tool)
 
     def remote_failed(self, failure_kind: str, *, fallback_tool: str | None = None) -> None:
-        self._require("REMOTE_FETCH", "FALLBACK")
+        self._require("PRIMARY", "FALLBACK")
         if not self.current_tool:
             raise InvalidFallbackTransition("remote failure has no current tool")
         failed_tool = self.current_tool
@@ -101,24 +91,11 @@ class AtomicFallbackStateMachine:
         fallback = str(fallback_tool).strip()
         if not fallback:
             raise ValueError("fallback_tool must be non-empty when supplied")
-        if self.fallback_tool is not None:
-            raise InvalidFallbackTransition("only one fallback path is allowed per atomic step")
         self.policy.claim_fallback(failed_tool, fallback)
         self.fallback_tool = fallback
         self.current_tool = fallback
         self.state = "FALLBACK"
         self._record("fallback_selected", source=failed_tool, fallback=fallback)
-
-    def cache_stored(self) -> None:
-        self._require("CACHE_STORE")
-        self.state = "LOCAL_ANALYSIS"
-        self.current_tool = None
-        self._record("cache_stored")
-
-    def analysis_completed(self) -> None:
-        self._require("LOCAL_ANALYSIS")
-        self.state = "DONE"
-        self._record("analysis_completed")
 
     def stop(self, reason: str) -> None:
         if self.state in TERMINAL_STATES:
