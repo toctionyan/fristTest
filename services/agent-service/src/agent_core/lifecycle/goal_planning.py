@@ -149,6 +149,49 @@ def _literal_spans(user_text: str, values: Any) -> tuple[str, ...]:
     return tuple(rows)
 
 
+def _machine_grounded_alignment_dependency_mismatch(details: dict[str, Any]) -> bool:
+    """Return True only for a complete internal dependency proof that disproves the declaration.
+
+    A semantic declaration can be incomplete because its dependency relation is wrong
+    even when no user-text outcome span is omitted. This helper validates only the
+    already-machine-checked proof metadata; it never interprets language, tools or
+    business vocabulary.
+    """
+    if (
+        details.get("dependency_authority") != "independent_goal_alignment"
+        or details.get("dependency_proof_complete") is not True
+        or details.get("dependency_graph_match") is not False
+    ):
+        return False
+    declared = details.get("declared_dependency_edges")
+    proven = details.get("dependency_edges")
+    if not isinstance(declared, list) or not isinstance(proven, list):
+        return False
+
+    def edge_pairs(rows: list[Any]) -> set[tuple[str, str]] | None:
+        result: set[tuple[str, str]] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            dependent = str(row.get("dependent_goal_id") or "").strip()
+            prerequisite = str(row.get("requires_result_of_goal_id") or "").strip()
+            if not dependent or not prerequisite or dependent == prerequisite:
+                return None
+            pair = (dependent, prerequisite)
+            if pair in result:
+                return None
+            result.add(pair)
+        return result
+
+    declared_pairs = edge_pairs(declared)
+    proven_pairs = edge_pairs(proven)
+    return (
+        declared_pairs is not None
+        and proven_pairs is not None
+        and declared_pairs != proven_pairs
+    )
+
+
 def _as_alignment_verdict(
     value: GoalAlignmentVerdict | dict[str, Any],
     *,
@@ -198,7 +241,17 @@ def _as_alignment_verdict(
                 "grounding_failure": "evidence_spans",
             },
         )
-    if verdict == "incomplete" and not missing:
+    dependency_mismatch_incomplete = (
+        isinstance(value, GoalAlignmentVerdict)
+        and result_source == "model"
+        and result_independent is True
+        and verdict == "incomplete"
+        and not missing
+        and bool(evidence)
+        and reason_code == "goal_alignment_dependency_graph_mismatch"
+        and _machine_grounded_alignment_dependency_mismatch(details)
+    )
+    if verdict == "incomplete" and not missing and not dependency_mismatch_incomplete:
         return GoalAlignmentVerdict(
             "indeterminate",
             evidence,
@@ -212,6 +265,8 @@ def _as_alignment_verdict(
                 "grounding_failure": "missing_spans",
             },
         )
+    if dependency_mismatch_incomplete:
+        details = {**details, "incomplete_grounding": "dependency_graph_mismatch"}
     return GoalAlignmentVerdict(
         verdict,
         evidence,
