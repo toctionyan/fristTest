@@ -40,22 +40,31 @@ jobs:
           python -B /tmp/wp08-attempt5-validated-fix.py
           python - <<'PY'
           from pathlib import Path
-          path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
-          text = path.read_text(encoding='utf-8')
+
+          goal_path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
+          goal_text = goal_path.read_text(encoding='utf-8')
           old = 'goal_alignment_exact_dependency_contradiction'
           new = 'goal_alignment_dependency_exact_contradiction'
-          if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one dependency contradiction marker, found {text.count(old)}')
-          if new in text:
+          if goal_text.count(old) != 1:
+              raise SystemExit(f'expected exactly one dependency contradiction marker, found {goal_text.count(old)}')
+          if new in goal_text:
               raise SystemExit('corrected dependency contradiction marker already present unexpectedly')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+          goal_path.write_text(goal_text.replace(old, new), encoding='utf-8')
+
+          regression_path = Path('skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py')
+          regression_text = regression_path.read_text(encoding='utf-8')
+          class_marker = 'class Attempt3SemanticTargetAuthorityTests(unittest.TestCase):\n'
+          if regression_text.count(class_marker) != 2:
+              raise SystemExit(f'expected exactly two duplicated semantic target class markers, found {regression_text.count(class_marker)}')
+          regression_path.write_text(regression_text.replace(class_marker, '', 1), encoding='utf-8')
           PY
           python -m py_compile \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/protocol.py \
             services/agent-service/scripts/verify_preprod_conversation_smoke.py \
-            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
           git diff --check
       - name: Run focused Attempt 5 regression gates
         shell: bash
