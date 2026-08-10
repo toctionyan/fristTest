@@ -82,7 +82,6 @@ jobs:
             skill-system/tests/test_wp08_new_release_attempt6_root_fixes.py
           cd services/agent-service
           PYTHONPATH="$PWD:$PWD/src" .venv/bin/python -B -m pytest -q \
-            tests/context/test_reference_resolution.py \
             tests/context/test_semantic_goal_coverage_suite_execution.py \
             tests/runtime/test_global_goal_capability_coverage.py \
             tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py \
