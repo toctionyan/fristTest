@@ -30,7 +30,7 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Install locked Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Extract and apply reviewed patch program
+      - name: Apply reviewed Attempt 4 patch
         shell: bash
         run: |
           set -euo pipefail
@@ -41,10 +41,8 @@ jobs:
           start = workflow.index(marker) + len(marker)
           end = workflow.index("\n          PY\n", start)
           raw = workflow[start:end]
-          lines = raw.splitlines()
-          patch = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
+          patch = "\n".join(line[10:] if line.startswith("          ") else line for line in raw.splitlines()) + "\n"
           Path('/tmp/wp08_attempt4_apply.py').write_text(patch, encoding='utf-8')
-          print(f'extracted_patch_bytes={len(patch.encode("utf-8"))}')
           PY
           python /tmp/wp08_attempt4_apply.py
           git diff --check
@@ -59,10 +57,10 @@ jobs:
             tests/runtime/test_goal_granularity_and_conditions.py
           cd ../..
           PYTHONPATH=services/agent-service/src services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_new_release_attempt3_root_fixes.py
-          PYTHONPATH=services/agent-service/src services/agent-service/.venv/bin/python -B -m pytest -q \
+          PYTHONPATH=services/agent-service/src:services/agent-service services/agent-service/.venv/bin/python -B -m pytest -q \
             services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py \
             services/agent-service/tests/runtime/test_semantic_reference_binding.py
-      - name: Commit focused-green product repair
+      - name: Commit focused-green repair
         shell: bash
         run: |
           set -euo pipefail
@@ -77,7 +75,7 @@ jobs:
             services/agent-service/scripts/verify_preprod_conversation_smoke.py \
             services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py
           git commit -m 'fix: close Attempt 4 dependency and historical member alias boundaries'
-      - name: Regenerate exact protected baseline, remove old publisher, and push formal branch
+      - name: Regenerate exact protected baseline and publish formal branch
         shell: bash
         run: |
           set -euo pipefail
@@ -85,26 +83,15 @@ jobs:
           import hashlib, json, subprocess
           from datetime import datetime, timezone
           from pathlib import Path
-          root = Path('.').resolve()
-          path = root / 'skill-system/registry/product-source-baseline.json'
-          previous = json.loads(path.read_text(encoding='utf-8'))
-          roots = ['services', 'web', 'contracts']
-          raw = subprocess.check_output(['git','ls-files','-z','--',*roots], cwd=root)
-          tracked = sorted(x.decode('utf-8') for x in raw.split(b'\0') if x)
-          files = {rel: hashlib.sha256((root / rel).read_bytes()).hexdigest() for rel in tracked}
-          head = subprocess.check_output(['git','rev-parse','HEAD'], cwd=root, text=True).strip()
-          payload = {
-              'schema_version': int(previous.get('schema_version') or 2),
-              'generated_from': f'git:{head}',
-              'source_release_sha256': str(previous.get('source_release_sha256') or ''),
-              'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),
-              'protected_roots': roots,
-              'file_count': len(files),
-              'files': files,
-          }
-          if any(len(v) != 64 for v in files.values()):
-              raise SystemExit('invalid protected sha256')
-          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          root=Path('.').resolve(); path=root/'skill-system/registry/product-source-baseline.json'
+          previous=json.loads(path.read_text(encoding='utf-8')); roots=['services','web','contracts']
+          raw=subprocess.check_output(['git','ls-files','-z','--',*roots],cwd=root)
+          tracked=sorted(x.decode() for x in raw.split(b'\0') if x)
+          files={rel:hashlib.sha256((root/rel).read_bytes()).hexdigest() for rel in tracked}
+          head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
+          payload={'schema_version':int(previous.get('schema_version') or 2),'generated_from':f'git:{head}','source_release_sha256':str(previous.get('source_release_sha256') or ''),'generated_at':datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'protected_roots':roots,'file_count':len(files),'files':files}
+          if any(len(v)!=64 for v in files.values()): raise SystemExit('invalid protected sha256')
+          path.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
           rm .github/workflows/wp08-attempt4-root-fix-publisher.yml
           git diff --check
