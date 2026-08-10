@@ -266,6 +266,7 @@ jobs:
           WP08_EVIDENCE_DIR: ${{ runner.temp }}/wp08-certification-evidence
           WP08_STATE_FILE: ${{ runner.temp }}/wp08-certification-state/wp08-state.json
           WP08_RESUME_REQUESTED: ${{ env.WP08_RESUME_RUN_ID_RESOLVED != '' && '1' || '0' }}
+          WP08_HEARTBEAT_SECONDS: "60"
         run: |
           RESUME_ARGS=()
           if [[ "$WP08_RESUME_REQUESTED" == "1" ]]; then
