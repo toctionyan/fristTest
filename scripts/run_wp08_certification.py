@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Run WP-08 certification batches with bounded time, durable checkpoints, and resume.
+"""Run WP-08 certification batches with bounded time, durable checkpoints, resume, and liveness evidence.
 
-This is a pre-production diagnostic orchestrator.  It deliberately does not
-produce ``production_closed`` evidence.  Its job is to execute every independent
-WP-08 batch, preserve each result, and prevent one blocked or hung component
-from hiding the state of the remaining components.
+This is a pre-production diagnostic orchestrator. It deliberately does not
+produce ``production_closed`` evidence. Its job is to execute every independent
+WP-08 batch, preserve each result, prevent one blocked or hung component from
+hiding the state of the remaining components, and emit externally observable
+heartbeats while long-running child processes are active.
 """
 from __future__ import annotations
 
@@ -18,17 +19,22 @@ import signal
 import secrets
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, TextIO
 
 CONTRACT = "wp08-resumable-certification@1"
+LIVENESS_CONTRACT = "wp08-certification-liveness@1"
 PASS = "PASS"
 BLOCKED = "BLOCKED_BY_ENVIRONMENT"
 FAIL = "FAIL"
 TIMEOUT = "TIMEOUT"
 VALID_STATUSES = {PASS, BLOCKED, FAIL, TIMEOUT}
 DEFAULT_CONFIG = "deployment/ci/wp08-certification-batches.json"
+DEFAULT_HEARTBEAT_SECONDS = 30.0
+DEFAULT_STALL_WARNING_SECONDS = 240.0
+DEFAULT_STALL_TIMEOUT_SECONDS = 600.0
 
 
 class CertificationInputError(RuntimeError):
@@ -113,7 +119,11 @@ def _source_fingerprint(workspace: Path, config_path: Path) -> str:
     for path in candidates:
         if not path.is_file():
             continue
-        digest.update(path.relative_to(workspace).as_posix().encode("utf-8") if path.is_relative_to(workspace) else str(path).encode("utf-8"))
+        digest.update(
+            path.relative_to(workspace).as_posix().encode("utf-8")
+            if path.is_relative_to(workspace)
+            else str(path).encode("utf-8")
+        )
         digest.update(b"\0")
         digest.update(hashlib.sha256(path.read_bytes()).digest())
         included += 1
@@ -183,7 +193,12 @@ def load_batches(
             "id": batch_id,
             "title": str(row.get("title") or batch_id),
             "timeout_seconds": timeout_seconds,
-            "command": _expand_command(command, workspace=workspace, evidence_dir=evidence_dir, state_dir=state_dir),
+            "command": _expand_command(
+                command,
+                workspace=workspace,
+                evidence_dir=evidence_dir,
+                state_dir=state_dir,
+            ),
             "required": bool(row.get("required", True)),
             "production_component": component or None,
         })
@@ -205,7 +220,168 @@ def _classify(returncode: int, payload: Mapping[str, Any] | None) -> str:
     return FAIL
 
 
-def _run_process(command: list[str], *, cwd: Path, env: Mapping[str, str], timeout_seconds: int) -> tuple[int, str, str, bool]:
+def _positive_float(env: Mapping[str, str], name: str, default: float) -> float:
+    raw = str(env.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _terminate_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    else:
+        process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _stream_reader(
+    stream: TextIO,
+    *,
+    chunks: list[str],
+    sink: TextIO,
+    stream_name: str,
+    activity: dict[str, Any],
+    lock: threading.Lock,
+) -> None:
+    try:
+        for line in iter(stream.readline, ""):
+            if not line:
+                break
+            chunks.append(line)
+            sink.write(line)
+            sink.flush()
+            with lock:
+                activity["last_progress_monotonic"] = time.monotonic()
+                activity["last_progress_at"] = utc_now()
+                activity["last_activity"] = f"{stream_name}_output"
+                activity["progress_event_count"] = int(activity.get("progress_event_count") or 0) + 1
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
+def _liveness_paths(env: Mapping[str, str]) -> tuple[Path | None, Path | None]:
+    state_raw = str(env.get("WP08_CERTIFICATION_STATE_FILE") or "").strip()
+    if not state_raw:
+        return None, None
+    state_file = Path(state_raw).expanduser().resolve()
+    liveness_file = state_file.with_name("wp08-liveness.json")
+    return state_file, liveness_file
+
+
+def _publish_liveness(env: Mapping[str, str], payload: Mapping[str, Any]) -> None:
+    state_file, liveness_file = _liveness_paths(env)
+    if liveness_file is not None:
+        _atomic_json(liveness_file, payload)
+    if state_file is None or not state_file.is_file():
+        return
+    try:
+        state = _load_json(state_file)
+    except CertificationInputError:
+        return
+    state.update({
+        "heartbeat_at": payload.get("heartbeat_at"),
+        "last_progress_at": payload.get("last_progress_at"),
+        "last_activity": payload.get("last_activity"),
+        "progress_event_count": payload.get("progress_event_count"),
+        "liveness_status": payload.get("liveness_status"),
+        "current_batch": payload.get("current_batch"),
+        "child_process_alive": payload.get("child_process_alive"),
+        "child_pid": payload.get("child_pid"),
+        "batch_elapsed_seconds": payload.get("elapsed_seconds"),
+        "batch_idle_seconds": payload.get("idle_seconds"),
+        "updated_at": payload.get("heartbeat_at") or utc_now(),
+    })
+    _atomic_json(state_file, state)
+
+
+def _heartbeat_payload(
+    *,
+    env: Mapping[str, str],
+    process: subprocess.Popen[str],
+    batch_started_at: str,
+    started_monotonic: float,
+    activity: Mapping[str, Any],
+    liveness_status: str,
+    termination_reason: str | None = None,
+) -> dict[str, Any]:
+    now = time.monotonic()
+    last_progress = float(activity.get("last_progress_monotonic") or started_monotonic)
+    batch_index = int(str(env.get("WP08_BATCH_INDEX") or "0") or "0")
+    batch_total = int(str(env.get("WP08_BATCH_TOTAL") or "0") or "0")
+    return {
+        "contract": LIVENESS_CONTRACT,
+        "run_id": str(env.get("GITHUB_RUN_ID") or ""),
+        "run_attempt": str(env.get("GITHUB_RUN_ATTEMPT") or ""),
+        "commit_sha": str(env.get("GITHUB_SHA") or ""),
+        "heartbeat_at": utc_now(),
+        "batch_started_at": batch_started_at,
+        "last_progress_at": str(activity.get("last_progress_at") or batch_started_at),
+        "last_activity": str(activity.get("last_activity") or "process_started"),
+        "progress_event_count": int(activity.get("progress_event_count") or 0),
+        "liveness_status": liveness_status,
+        "child_process_alive": process.poll() is None,
+        "child_pid": process.pid,
+        "elapsed_seconds": round(max(0.0, now - started_monotonic), 3),
+        "idle_seconds": round(max(0.0, now - last_progress), 3),
+        "current_batch": {
+            "id": str(env.get("WP08_CURRENT_BATCH_ID") or ""),
+            "title": str(env.get("WP08_CURRENT_BATCH_TITLE") or ""),
+            "index": batch_index,
+            "total": batch_total,
+            "timeout_seconds": int(str(env.get("WP08_CURRENT_BATCH_TIMEOUT") or "0") or "0"),
+        },
+        "termination_reason": termination_reason,
+        "production_closed": False,
+    }
+
+
+def _run_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    timeout_seconds: int,
+) -> tuple[int, str, str, bool]:
+    heartbeat_seconds = _positive_float(
+        env, "WP08_HEARTBEAT_SECONDS", DEFAULT_HEARTBEAT_SECONDS
+    )
+    stall_warning_seconds = _positive_float(
+        env, "WP08_STALL_WARNING_SECONDS", DEFAULT_STALL_WARNING_SECONDS
+    )
+    stall_timeout_seconds = _positive_float(
+        env, "WP08_STALL_TIMEOUT_SECONDS", DEFAULT_STALL_TIMEOUT_SECONDS
+    )
+    stall_warning_seconds = max(stall_warning_seconds, heartbeat_seconds)
+    stall_timeout_seconds = max(stall_timeout_seconds, stall_warning_seconds + heartbeat_seconds)
+
     try:
         process = subprocess.Popen(
             command,
@@ -215,6 +391,7 @@ def _run_process(command: list[str], *, cwd: Path, env: Mapping[str, str], timeo
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=(os.name == "posix"),
+            bufsize=1,
         )
     except OSError as exc:
         payload = {
@@ -224,29 +401,130 @@ def _run_process(command: list[str], *, cwd: Path, env: Mapping[str, str], timeo
             "error": str(exc),
         }
         return 78, json.dumps(payload, ensure_ascii=False) + "\n", str(exc), False
-    try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
-        return int(process.returncode), stdout, stderr, False
-    except subprocess.TimeoutExpired:
-        if os.name == "posix":
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        else:
-            process.terminate()
-        try:
-            stdout, stderr = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                process.kill()
-            stdout, stderr = process.communicate()
-        return 124, stdout, stderr, True
+
+    assert process.stdout is not None
+    assert process.stderr is not None
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    started_monotonic = time.monotonic()
+    batch_started_at = utc_now()
+    activity: dict[str, Any] = {
+        "last_progress_monotonic": started_monotonic,
+        "last_progress_at": batch_started_at,
+        "last_activity": "process_started",
+        "progress_event_count": 0,
+    }
+    lock = threading.Lock()
+    stdout_thread = threading.Thread(
+        target=_stream_reader,
+        kwargs={
+            "stream": process.stdout,
+            "chunks": stdout_chunks,
+            "sink": sys.stdout,
+            "stream_name": "stdout",
+            "activity": activity,
+            "lock": lock,
+        },
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_stream_reader,
+        kwargs={
+            "stream": process.stderr,
+            "chunks": stderr_chunks,
+            "sink": sys.stderr,
+            "stream_name": "stderr",
+            "activity": activity,
+            "lock": lock,
+        },
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+    next_heartbeat = started_monotonic
+    termination_reason: str | None = None
+    timed_out = False
+    while process.poll() is None:
+        now = time.monotonic()
+        with lock:
+            last_progress = float(activity.get("last_progress_monotonic") or started_monotonic)
+            snapshot_activity = dict(activity)
+        elapsed = now - started_monotonic
+        idle = now - last_progress
+        if idle >= stall_timeout_seconds:
+            termination_reason = "no_progress_stall"
+            timed_out = True
+            payload = _heartbeat_payload(
+                env=env,
+                process=process,
+                batch_started_at=batch_started_at,
+                started_monotonic=started_monotonic,
+                activity=snapshot_activity,
+                liveness_status="STALL_TIMEOUT",
+                termination_reason=termination_reason,
+            )
+            _publish_liveness(env, payload)
+            print("[WP08 STALL] " + json.dumps(payload, ensure_ascii=False), flush=True)
+            _terminate_process(process)
+            break
+        if elapsed >= timeout_seconds:
+            termination_reason = "batch_timeout"
+            timed_out = True
+            payload = _heartbeat_payload(
+                env=env,
+                process=process,
+                batch_started_at=batch_started_at,
+                started_monotonic=started_monotonic,
+                activity=snapshot_activity,
+                liveness_status="TIMEOUT",
+                termination_reason=termination_reason,
+            )
+            _publish_liveness(env, payload)
+            print("[WP08 TIMEOUT] " + json.dumps(payload, ensure_ascii=False), flush=True)
+            _terminate_process(process)
+            break
+        if now >= next_heartbeat:
+            liveness_status = "SUSPECTED_STALL" if idle >= stall_warning_seconds else "RUNNING"
+            payload = _heartbeat_payload(
+                env=env,
+                process=process,
+                batch_started_at=batch_started_at,
+                started_monotonic=started_monotonic,
+                activity=snapshot_activity,
+                liveness_status=liveness_status,
+            )
+            _publish_liveness(env, payload)
+            print("[WP08 HEARTBEAT] " + json.dumps(payload, ensure_ascii=False), flush=True)
+            next_heartbeat = now + heartbeat_seconds
+        time.sleep(min(0.2, max(0.02, heartbeat_seconds / 5.0)))
+
+    stdout_thread.join(timeout=2)
+    stderr_thread.join(timeout=2)
+    returncode = 124 if timed_out else int(process.returncode or 0)
+    with lock:
+        final_activity = dict(activity)
+    final_status = (
+        "STALL_TIMEOUT"
+        if termination_reason == "no_progress_stall"
+        else "TIMEOUT"
+        if termination_reason == "batch_timeout"
+        else "BATCH_COMPLETED"
+    )
+    final_payload = _heartbeat_payload(
+        env=env,
+        process=process,
+        batch_started_at=batch_started_at,
+        started_monotonic=started_monotonic,
+        activity=final_activity,
+        liveness_status=final_status,
+        termination_reason=termination_reason,
+    )
+    final_payload["child_process_alive"] = False
+    final_payload["returncode"] = returncode
+    _publish_liveness(env, final_payload)
+    print("[WP08 LIVENESS] " + json.dumps(final_payload, ensure_ascii=False), flush=True)
+    return returncode, "".join(stdout_chunks), "".join(stderr_chunks), timed_out
 
 
 def run_certification(
@@ -309,6 +587,9 @@ def run_certification(
         "updated_at": utc_now(),
         "resume": bool(resume),
         "batches": dict(previous_batches),
+        "liveness_status": "RUNNING",
+        "current_batch": None,
+        "child_process_alive": False,
     }
     _atomic_json(state_file, state)
 
@@ -317,14 +598,24 @@ def run_certification(
         "WP08_CERTIFICATION_EVIDENCE_DIR": str(evidence_dir),
         "WP08_CERTIFICATION_STATE_FILE": str(state_file),
         "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONUNBUFFERED": "1",
     })
 
-    for batch in batches:
+    batch_total = len(batches)
+    for batch_index, batch in enumerate(batches, start=1):
         batch_id = batch["id"]
         prior = state["batches"].get(batch_id)
         if resume and isinstance(prior, dict) and prior.get("status") == PASS:
             state["batches"][batch_id] = {**prior, "resume_action": "SKIPPED_ALREADY_PASS"}
             state["updated_at"] = utc_now()
+            state["liveness_status"] = "RESUME_SKIPPED"
+            state["current_batch"] = {
+                "id": batch_id,
+                "title": batch["title"],
+                "index": batch_index,
+                "total": batch_total,
+                "resume_action": "SKIPPED_ALREADY_PASS",
+            }
             _atomic_json(state_file, state)
             continue
 
@@ -333,6 +624,13 @@ def run_certification(
         started = time.monotonic()
         started_at = utc_now()
         batch_env = dict(env)
+        batch_env.update({
+            "WP08_CURRENT_BATCH_ID": batch_id,
+            "WP08_CURRENT_BATCH_TITLE": str(batch["title"]),
+            "WP08_CURRENT_BATCH_TIMEOUT": str(batch["timeout_seconds"]),
+            "WP08_BATCH_INDEX": str(batch_index),
+            "WP08_BATCH_TOTAL": str(batch_total),
+        })
         component = batch.get("production_component")
         if component:
             batch_env.update({
@@ -344,6 +642,40 @@ def run_certification(
                     env.get("PRODUCTION_CERTIFICATION_TOOLCHAIN_FINGERPRINT") or ""
                 ).strip().casefold(),
             })
+        state.update({
+            "updated_at": started_at,
+            "heartbeat_at": started_at,
+            "last_progress_at": started_at,
+            "last_activity": "batch_start",
+            "progress_event_count": 0,
+            "liveness_status": "RUNNING",
+            "child_process_alive": True,
+            "current_batch": {
+                "id": batch_id,
+                "title": batch["title"],
+                "index": batch_index,
+                "total": batch_total,
+                "timeout_seconds": batch["timeout_seconds"],
+                "started_at": started_at,
+            },
+        })
+        _atomic_json(state_file, state)
+        print(
+            "[WP08 BATCH] "
+            + json.dumps(
+                {
+                    "event": "batch_started",
+                    "batch": batch_id,
+                    "title": batch["title"],
+                    "index": batch_index,
+                    "total": batch_total,
+                    "timeout_seconds": batch["timeout_seconds"],
+                    "started_at": started_at,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
         returncode, stdout, stderr, timed_out = _run_process(
             batch["command"],
             cwd=workspace,
@@ -375,7 +707,33 @@ def run_certification(
         _atomic_json(batch_dir / "result.json", result)
         state["batches"][batch_id] = result
         state["updated_at"] = utc_now()
+        state["liveness_status"] = "BATCH_COMPLETED"
+        state["child_process_alive"] = False
+        state["current_batch"] = {
+            "id": batch_id,
+            "title": batch["title"],
+            "index": batch_index,
+            "total": batch_total,
+            "status": status,
+            "completed_at": result["completed_at"],
+        }
         _atomic_json(state_file, state)
+        print(
+            "[WP08 BATCH] "
+            + json.dumps(
+                {
+                    "event": "batch_completed",
+                    "batch": batch_id,
+                    "index": batch_index,
+                    "total": batch_total,
+                    "status": status,
+                    "duration_seconds": duration,
+                    "completed_at": result["completed_at"],
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
 
     selected_ids = [row["id"] for row in batches]
     selected_results = [state["batches"].get(batch_id, {}) for batch_id in selected_ids]
@@ -390,10 +748,15 @@ def run_certification(
     else:
         overall, exit_code = FAIL, 1
 
+    completed_at = utc_now()
     state.update({
         "status": overall,
-        "completed_at": utc_now(),
-        "updated_at": utc_now(),
+        "completed_at": completed_at,
+        "updated_at": completed_at,
+        "heartbeat_at": completed_at,
+        "liveness_status": "COMPLETED",
+        "child_process_alive": False,
+        "current_batch": None,
         "selected_batches": selected_ids,
         "summary": {
             status: sum(1 for row in selected_results if row.get("status") == status)
@@ -404,6 +767,22 @@ def run_certification(
     })
     _atomic_json(state_file, state)
     _atomic_json(evidence_dir / "wp08-certification-summary.json", state)
+    _atomic_json(
+        state_file.with_name("wp08-liveness.json"),
+        {
+            "contract": LIVENESS_CONTRACT,
+            "run_id": str(env.get("GITHUB_RUN_ID") or ""),
+            "run_attempt": str(env.get("GITHUB_RUN_ATTEMPT") or ""),
+            "commit_sha": str(env.get("GITHUB_SHA") or ""),
+            "heartbeat_at": completed_at,
+            "liveness_status": "COMPLETED",
+            "certification_status": overall,
+            "certification_exit_code": exit_code,
+            "current_batch": None,
+            "child_process_alive": False,
+            "production_closed": False,
+        },
+    )
     return state, exit_code
 
 
@@ -432,6 +811,9 @@ def main() -> int:
     if args.reset:
         if state_file.exists():
             state_file.unlink()
+        liveness_file = state_file.with_name("wp08-liveness.json")
+        if liveness_file.exists():
+            liveness_file.unlink()
         if evidence_dir.exists():
             import shutil
             shutil.rmtree(evidence_dir)
