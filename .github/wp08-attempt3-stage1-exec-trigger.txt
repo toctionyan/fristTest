@@ -1,0 +1,1 @@
+Execute the temporary registered quality-path Stage-1 validation. Never merge this trigger.
