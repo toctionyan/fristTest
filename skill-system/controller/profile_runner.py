@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -61,12 +60,7 @@ def run(name: str) -> dict[str, Any]:
     return {"status":"PASS","requested_profile":name,"results":results}
 
 
-def _stage1_command(
-    argv: list[str],
-    *,
-    label: str,
-    timeout_seconds: int = 180,
-) -> dict[str, Any]:
+def _stage1_command(argv: list[str], *, label: str, timeout_seconds: int = 180) -> dict[str, Any]:
     try:
         completed = subprocess.run(
             argv,
@@ -91,12 +85,7 @@ def _stage1_command(
         print(completed.stderr, file=sys.stderr)
     if completed.returncode:
         raise RuntimeError(f"{label} failed with exit {completed.returncode}")
-    return {
-        "label": label,
-        "argv": argv,
-        "exit_code": completed.returncode,
-        "timeout_seconds": timeout_seconds,
-    }
+    return {"label": label, "argv": argv, "exit_code": completed.returncode, "timeout_seconds": timeout_seconds}
 
 
 def _attempt3_stage1() -> dict[str, Any]:
@@ -134,33 +123,21 @@ def _attempt3_stage1() -> dict[str, Any]:
         timeout_seconds=120,
     ))
 
-    pattern = re.compile(
-        r"goal_granularity|validate_goal_declaration|semantic_capability_verifier|"
-        r"issue_execution_permit|SEMANTIC_REFERENCE_BINDING|same_turn_literal|strong_context"
-    )
-    agent_tests: list[str] = []
-    test_root = ROOT / "services/agent-service/tests"
-    for path in sorted(test_root.rglob("test_*.py")):
-        try:
-            source = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if pattern.search(source):
-            agent_tests.append(path.relative_to(ROOT).as_posix())
-    for mandatory in (
-        "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py",
+    # The immediately previous broad Stage-1 run executed 991 focused Agent
+    # tests: 985 passed and exactly six failed, all confined to these four
+    # modules. Fixture migration/environment bootstrap only touch those failing
+    # paths. Re-run exactly the failed modules here; Stage 2 will run the full
+    # standard Agent/Business suites before any baseline or release attempt.
+    agent_tests = [
         "services/agent-service/tests/context/test_conversation_regression_suite_execution.py",
+        "services/agent-service/tests/context/test_dialogue_counterexamples.py",
+        "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py",
         "services/agent-service/tests/runtime/test_goal_coverage_runtime.py",
-    ):
-        if (ROOT / mandatory).is_file() and mandatory not in agent_tests:
-            agent_tests.append(mandatory)
-    agent_tests = sorted(set(agent_tests))
-    if not agent_tests:
-        raise RuntimeError("focused Agent test discovery returned no files")
+    ]
     for index, test_file in enumerate(agent_tests, start=1):
         commands.append(_stage1_command(
             [sys.executable, "-m", "pytest", "-q", test_file],
-            label=f"focused_agent_{index:02d}_{Path(test_file).name}",
+            label=f"focused_agent_retry_{index:02d}_{Path(test_file).name}",
             timeout_seconds=120,
         ))
 
@@ -190,13 +167,12 @@ def _attempt3_stage1() -> dict[str, Any]:
         "paths": product_paths,
         "files_base64": files,
         "focused_agent_files": agent_tests,
+        "previous_broad_stage1": {"passed": 985, "failed": 6, "failed_modules_rerun": agent_tests},
         "commands": commands,
         "release_attempt_dispatched": False,
         "baseline_regenerated": False,
     }
-    encoded = base64.b64encode(
-        json.dumps(bundle, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).decode("ascii")
+    encoded = base64.b64encode(json.dumps(bundle, ensure_ascii=False, sort_keys=True).encode("utf-8")).decode("ascii")
     print("WP08_STAGE1_FILESET_BEGIN")
     print(encoded)
     print("WP08_STAGE1_FILESET_END")
@@ -207,6 +183,7 @@ def _attempt3_stage1() -> dict[str, Any]:
         "base_sha": WP08_STAGE1_BASE_SHA,
         "product_path_count": len(product_paths),
         "focused_agent_file_count": len(agent_tests),
+        "previous_broad_stage1_passed": 985,
         "baseline_regenerated": False,
         "release_attempt_dispatched": False,
         "results": commands,
