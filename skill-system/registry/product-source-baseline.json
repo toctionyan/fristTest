@@ -110,7 +110,7 @@
     "services/agent-service/scripts/run_demo.py": "ae2d07e7d602cf8987e95aefe34c7a91e186af8bc005f50dc096df1d9ef46d7a",
     "services/agent-service/scripts/run_eval.py": "5b52ed97a4ae63842dec078fca8ed66bd269b2daecc43e09bff34e5c57ee390d",
     "services/agent-service/scripts/seed_ephemeral_rag_fixture.py": "edde088e3de26d44dd04061f945e7bc4c46df249cc367a5568609985b0e2f55b",
-    "services/agent-service/scripts/sync_module_manifests.py": "4f67b3b01c38f3516afe44ba19d5fa13d347f057927e9399431906098",
+    "services/agent-service/scripts/sync_module_manifests.py": "4f67b3b01f225c01b38f3516afe44ba19d5fa13d347f057927e9399431906098",
     "services/agent-service/scripts/test_all.sh": "f0535a715590232fd83e99801eb8d38beede626487c5392899172337b98d031c",
     "services/agent-service/scripts/validate_presentation_contracts.py": "417fd0350ea83d091ca8dfada390afe1c507607d934d36ca93c955ff2044ab52",
     "services/agent-service/scripts/verify_external_business_service.py": "a5db8e7c6fdb5e4e30b4a788afe96003835ae2ed79ce12bc00bf36f7ee1edef9",
