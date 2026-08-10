@@ -1,13 +1,4 @@
 {
-  "schema_version": 2,
-  "generated_from": "git:ba12dbdf545f663fd584ae91d60fabc068aa53d7",
-  "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-10T07:13:18Z",
-  "protected_roots": [
-    "services",
-    "web",
-    "contracts"
-  ],
   "file_count": 562,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
@@ -265,9 +256,9 @@
     "services/agent-service/src/agent_core/resources/runtime.py": "02d868aaca2e9ee568b4f4c61b3dd867f74c799e2615ff7a569715fc5cf92906",
     "services/agent-service/src/agent_core/resources/targets.py": "55588b7cd511bca003e01e17427361b2a111749ce657fa879e757a900a22e98b",
     "services/agent-service/src/agent_core/runtime/__init__.py": "a89ccf2feed2281675242ccf4ab9123765b6858bc997ccc5f2c16876404207cf",
-    "services/agent-service/src/agent_core/runtime/answer_release_alignment.py": "637be82793c3365d6ebea734868a07d0a0a89c0e6b9ff7d6447dcbe6f2a6024d",
+    "services/agent-service/src/agent_core/runtime/answer_release_alignment.py": "fc661808ff93c3142262b51cbb3a7eb651ea53b15221d7b8572a25a75dc2da12",
     "services/agent-service/src/agent_core/runtime/capability_effects.py": "8196a0b5692740dd839ab2dc601cc37f086da4944a29d404d31debf1b63e48f9",
-    "services/agent-service/src/agent_core/runtime/capability_gate.py": "da4f04cfff1785c21510d9473fbdf86f053583b465a01d254466fa862f4e560f",
+    "services/agent-service/src/agent_core/runtime/capability_gate.py": "611c0d650540cd23396a84983e520de28d7b21a3da0bde433eed336ed2a7a664",
     "services/agent-service/src/agent_core/runtime/deps.py": "132f5093501d66facb6116681f3782feee09636f21cd085aee6fd5433d3c8a7f",
     "services/agent-service/src/agent_core/runtime/migrations.py": "d71793fcd1179afbe509ccf5670b452c9c84a9557c39efcbedc63b9dbe75d5a6",
     "services/agent-service/src/agent_core/runtime/node_support.py": "8dd790c1eac49fcfa00b38af3b5c089fc893f5b0b9acaceed3359a445aeeb1d0",
@@ -572,5 +563,14 @@
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
-  }
+  },
+  "generated_at": "2026-08-10T11:33:57.547280+00:00",
+  "generated_from": "git:1db83705725a47d69e0da9e2907cd269f87ba274",
+  "protected_roots": [
+    "services",
+    "web",
+    "contracts"
+  ],
+  "schema_version": 2,
+  "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047"
 }

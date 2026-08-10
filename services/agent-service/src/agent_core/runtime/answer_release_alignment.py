@@ -337,10 +337,48 @@ def _deterministic_verdict(*, result: dict[str, Any], blocks: list[dict[str, Any
             {"chat_write_authorized": False},
         )
     proofs = _effective_match_proofs(result)
+    runtime_evidence = _runtime_evidence(result)
     for proof in proofs:
         if proof.get("candidate_tool") and not bool(proof.get("parameterization_complete", True)):
             return AnswerAlignmentVerdict("reject", "capability_parameterization_incomplete", "deterministic", False, {"match_proof": proof})
-    for evidence in _runtime_evidence(result):
+        formal_condition = (
+            proof.get("formal_goal_condition_coverage")
+            if isinstance(proof.get("formal_goal_condition_coverage"), dict)
+            else {}
+        )
+        if proof.get("candidate_tool") and bool(formal_condition.get("required")) and not bool(formal_condition.get("complete")):
+            return AnswerAlignmentVerdict(
+                "reject",
+                "formal_goal_condition_parameterization_incomplete",
+                "deterministic",
+                False,
+                {"match_proof": proof},
+            )
+    condition_required_tools = {
+        str(proof.get("candidate_tool") or "")
+        for proof in proofs
+        if str(proof.get("candidate_tool") or "")
+        and isinstance(proof.get("formal_goal_condition_coverage"), dict)
+        and bool(proof["formal_goal_condition_coverage"].get("required"))
+        and bool(proof["formal_goal_condition_coverage"].get("complete"))
+    }
+    parameterized_tools = {
+        str(evidence.get("tool_name") or "")
+        for evidence in runtime_evidence
+        if str(evidence.get("evidence_kind") or "") == "current_tool_parameterization"
+        and bool(evidence.get("ok"))
+        and isinstance(evidence.get("parameterization"), dict)
+    }
+    missing_condition_execution = sorted(condition_required_tools - parameterized_tools)
+    if missing_condition_execution:
+        return AnswerAlignmentVerdict(
+            "reject",
+            "required_condition_execution_evidence_missing",
+            "deterministic",
+            False,
+            {"tools": missing_condition_execution},
+        )
+    for evidence in runtime_evidence:
         params = evidence.get("parameterization") if isinstance(evidence.get("parameterization"), dict) else {}
         required = dict(params.get("required_backend_conditions") or {})
         applied = dict(params.get("backend_applied_conditions") or {})
@@ -380,6 +418,10 @@ def _deterministic_release_authority(result: dict[str, Any]) -> AnswerAlignmentV
         exact = all(
             bool(proof.get("exact_match"))
             and bool(proof.get("parameterization_complete", True))
+            and (
+                not bool((proof.get("formal_goal_condition_coverage") or {}).get("required"))
+                or bool((proof.get("formal_goal_condition_coverage") or {}).get("complete"))
+            )
             and bool((proof.get("visible_result_reference") or {}).get("complete", True))
             and bool((proof.get("explicit_member_scope") or {}).get("complete", True))
             and bool((proof.get("derived_collection_scope") or {}).get("complete", True))
