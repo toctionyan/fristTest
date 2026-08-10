@@ -322,6 +322,31 @@ def _model_alignment_dependency_proof(
     return details, None
 
 
+def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project outcome identity without exposing the candidate dependency graph.
+
+    A second dependency audit must not anchor on Planner's ``depends_on``
+    proposal. Runtime preserves only the already-declared outcome identity and
+    literal evidence needed to refer to Goal IDs; it does not infer or rewrite
+    any dependency itself.
+    """
+    rows: list[dict[str, Any]] = []
+    for goal in goals:
+        row = {
+            "goal_id": _clean_text(goal.get("goal_id"), limit=80),
+            "evidence_span": _clean_text(goal.get("evidence_span"), limit=240),
+            "requested_effect": deepcopy(goal.get("requested_effect"))
+            if isinstance(goal.get("requested_effect"), dict)
+            else None,
+            "expected_result_cardinality": _clean_text(
+                goal.get("expected_result_cardinality"), limit=40
+            ) or "unknown",
+            "required": bool(goal.get("required", True)),
+        }
+        rows.append(row)
+    return rows
+
+
 class ModelGoalAlignmentVerifier:
     """Second-model verifier that can only judge declaration completeness."""
 
@@ -380,6 +405,26 @@ class ModelGoalAlignmentVerifier:
             "an active structured interaction does not absorb a read-only query or a separately requested outcome; those must remain separate declared goals",
             "do not require hidden implementation steps that the user did not request",
         ]
+        blind_dependency_instruction = (
+            "Independently audit only the current-turn semantic result-dependency graph among the supplied Goal IDs. "
+            "The Planner's candidate dependency graph has been intentionally withheld, so do not reconstruct one from "
+            "tool order, implementation prerequisites, stable-ID lookup needs, capability availability, or sentence order. "
+            "A dependency exists only when the later user-visible outcome itself must consume an earlier current-turn "
+            "Goal result as its target, value input, or condition. Shared same-turn object/scope ellipsis is not a result "
+            "dependency. An explicit reference in the later literal span to the not-yet-produced earlier result is a "
+            "dependency. Return JSON only with verdict, evidence_spans, missing_spans, dependency_edges and reason_code. "
+            "Use verdict=exact when the supplied outcome inventory is represented; this audit must not invent omitted "
+            "outcomes. dependency_edges must be your complete independent graph. Every edge must contain dependent_goal_id, "
+            "requires_result_of_goal_id, basis_kind and a literal basis_span inside the dependent Goal evidence_span."
+        )
+        blind_dependency_rules = [
+            "judge semantic result dependency independently from execution-support dataflow",
+            "shared object/topic/scope and sequencing words alone never create a result dependency",
+            "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",
+            "an explicit later reference to an earlier current-turn result, or a condition/value that genuinely consumes that result, does create a dependency",
+            "use only literal USER_TEXT evidence and the supplied Goal IDs; do not use capability, tool, oracle or business-state knowledge",
+            "return the complete graph, including an empty list when the outcomes are independently acceptable",
+        ]
         prompt = {
             "USER_TEXT_UNTRUSTED": user_text,
             "DECLARED_GOALS": goals,
@@ -392,14 +437,17 @@ class ModelGoalAlignmentVerifier:
             "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
         )
         for attempt in range(2):
+            blind_dependency_audit = verifier_repair_kind == "candidate_blind_dependency_reaudit"
+            effective_instruction = blind_dependency_instruction if blind_dependency_audit else instruction
+            effective_rules = blind_dependency_rules if blind_dependency_audit else decision_rules
             try:
                 response, _trace = invoke_model(
                     purpose="turn_goal_alignment_verifier",
                     model=get_model(),
                     payload=structured_verifier_messages(
                         role="turn_goal_alignment_verifier",
-                        instruction=instruction,
-                        decision_rules=decision_rules,
+                        instruction=effective_instruction,
+                        decision_rules=effective_rules,
                         payload=prompt,
                         format_repair=verifier_repair,
                     ),
@@ -464,15 +512,37 @@ class ModelGoalAlignmentVerifier:
                             dependency_details,
                         )
                 elif raw_verdict == "exact" and dependency_error == "goal_alignment_dependency_graph_mismatch":
-                    verdict = GoalAlignmentVerdict(
-                        "indeterminate",
-                        _literal_spans(user_text, parsed.get("evidence_spans")),
-                        (),
-                        "goal_alignment_dependency_exact_contradiction",
-                        "model",
-                        True,
-                        dependency_details,
-                    )
+                    evidence = _literal_spans(user_text, parsed.get("evidence_spans"))
+                    if blind_dependency_audit and evidence:
+                        verdict = GoalAlignmentVerdict(
+                            "incomplete",
+                            evidence,
+                            (),
+                            "goal_alignment_dependency_graph_mismatch",
+                            "model",
+                            True,
+                            {**dependency_details, "candidate_blind_dependency_reaudit": True},
+                        )
+                    elif blind_dependency_audit:
+                        verdict = GoalAlignmentVerdict(
+                            "indeterminate",
+                            (),
+                            (),
+                            "goal_alignment_dependency_mismatch_without_literal_evidence",
+                            "model",
+                            True,
+                            {**dependency_details, "candidate_blind_dependency_reaudit": True},
+                        )
+                    else:
+                        verdict = GoalAlignmentVerdict(
+                            "indeterminate",
+                            evidence,
+                            (),
+                            "goal_alignment_dependency_exact_contradiction",
+                            "model",
+                            True,
+                            dependency_details,
+                        )
                 elif dependency_error:
                     verdict = GoalAlignmentVerdict(
                         "indeterminate",
@@ -514,6 +584,22 @@ class ModelGoalAlignmentVerifier:
                         "verifier_repair_kind": verifier_repair_kind,
                     },
                 )
+            if attempt == 0 and verdict.exact and len(goals) > 1:
+                # The first verifier saw Planner's candidate graph and may have
+                # anchored on the same execution-dataflow mistake. Spend the
+                # existing second-call budget on an independent dependency audit
+                # whose Goal projection deliberately omits that graph. Runtime
+                # still performs only structural comparison; it never infers an
+                # edge itself.
+                verifier_repair_kind = "candidate_blind_dependency_reaudit"
+                verifier_repair = None
+                prompt = {
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                }
+                continue
             if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
             if verdict.verdict == "clarify":
