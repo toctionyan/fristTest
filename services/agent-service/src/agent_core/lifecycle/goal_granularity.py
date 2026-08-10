@@ -696,11 +696,13 @@ class ModelGoalGranularityVerifier:
     """Candidate-blind outcome inventory plus a separate dependency-basis audit.
 
     The first model call sees only current USER_TEXT and inventories independent
-    user-observable outcomes.  When a multi-outcome inventory structurally
-    matches the declaration, the second and final blind call is dedicated only
-    to the true result-dependency graph over those fixed spans.  It never sees
-    candidate Goals, tools or capabilities and cannot move the outcome inventory.
-    The resulting authority is then frozen across bounded declaration repair.
+    user-observable outcomes.  When that inventory already matches the declared
+    outcome count, the second and final blind call is dedicated only to the true
+    result-dependency graph over those fixed spans.  If the first inventory
+    itself needs a candidate-blind repair, the final repair response must include
+    the same dependency-basis evidence for its corrected spans.  Thus at most two
+    model calls are used, no candidate Goal plan is disclosed, and the authority
+    frozen for declaration repair is complete rather than moving later.
     """
 
     def verify(self, *, user_text: str, goals: list[dict[str, Any]]) -> GoalGranularityVerdict:
@@ -716,7 +718,7 @@ class ModelGoalGranularityVerifier:
             "business outcome that the customer could independently judge complete or incomplete. Do not infer or "
             "inspect available tools/capabilities and do not decide whether the system supports an outcome. Return "
             "JSON only with verdict (exact|clarify), outcome_spans, dependency_edges, reason_code. Every outcome_span must be a local "
-            "literal contiguous substring of USER_TEXT. dependency_edges are only a first-pass suggestion; the Runtime will use a separate blind audit for any multi-outcome dependency authority."
+            "literal contiguous substring of USER_TEXT. dependency_edges are only a first-pass suggestion; Runtime independently audits dependency basis before freezing any multi-outcome authority."
         )
         rules = [
             "A separately requested unsupported/open business effect is still an outcome and must remain in the inventory.",
@@ -728,11 +730,14 @@ class ModelGoalGranularityVerifier:
             "dependency_edges express true current-turn result dependency only; sentence order, shared topic/object/scope and execution-support dataflow do not create an edge.",
             "When a later outcome omits its target but an earlier phrase in the same USER_TEXT already names the reusable business object or scope, inherit that stated scope as ellipsis; that is not a dependency on the earlier Goal result by itself.",
             "A lookup needed only to convert an already-stated target into an ID/artifact/transaction input is implementation support, not semantic dependency.",
-            "A later outcome that refers to the not-yet-produced earlier result or is explicitly conditional on that result may require an edge; the dedicated second audit will certify the basis.",
+            "A later outcome that refers to the not-yet-produced earlier result or is explicitly conditional on that result may require an edge; the independent dependency audit certifies the basis.",
             "Return each independently acceptable requested result exactly once. Sibling outcome spans must be non-overlapping local spans; never emit both a target phrase and the business action over that same target as separate outcomes.",
             "clarify only when ambiguity changes the number or identity of independently requested business outcomes; target membership, filters, status vocabulary, thresholds, current facts and slot values are not granularity ambiguity.",
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
         ]
+        final_repair_dependency_contract = (
+            " This is the final candidate-blind repair response, so its dependency_edges must also be freeze-ready: return [] when the corrected outcomes are independent; for every retained edge include dependent_span, requires_result_of_span, basis_kind and basis_span. basis_kind must be result_reference, result_condition or result_value_input, and basis_span must be a literal substring inside the dependent outcome that specifically expresses use of the earlier current-turn result. Do not inspect candidate Goals, tools or capabilities."
+        )
         verifier_repair: str | None = None
         last_indeterminate = GoalGranularityVerdict(
             "indeterminate", "goal_granularity_inventory_unverified", (),
@@ -771,7 +776,8 @@ class ModelGoalGranularityVerifier:
                     verifier_repair = (
                         "The previous candidate-blind inventory response did not satisfy the machine-readable JSON contract. "
                         "Return exactly one JSON object using only verdict, outcome_spans, dependency_edges and reason_code; verdict must be exact or clarify. "
-                        "Every outcome_span must be a local literal substring of USER_TEXT. Do not inspect or infer capabilities or candidate Goals."
+                        "Every outcome_span must be a local literal substring of USER_TEXT."
+                        + final_repair_dependency_contract
                     )
                     continue
                 return last_indeterminate
@@ -783,6 +789,7 @@ class ModelGoalGranularityVerifier:
                         "the number or identity of independently requested business outcomes. Do not clarify target membership, "
                         "filter/status vocabulary, thresholds, current facts, cardinality or slot/form values. If outcome boundaries "
                         "are identifiable, return exact with each independently acceptable result exactly once as non-overlapping literal spans."
+                        + final_repair_dependency_contract
                     )
                     continue
                 return GoalGranularityVerdict(
@@ -798,7 +805,8 @@ class ModelGoalGranularityVerifier:
                 )
                 if attempt == 0:
                     verifier_repair = (
-                        "Return the candidate-blind business-outcome inventory in the strict JSON contract: verdict exact|clarify, literal outcome_spans, dependency_edges and reason_code. Do not inspect candidate Goals or capabilities."
+                        "Return the candidate-blind business-outcome inventory in the strict JSON contract: verdict exact|clarify, literal outcome_spans, dependency_edges and reason_code."
+                        + final_repair_dependency_contract
                     )
                     continue
                 return last_indeterminate
@@ -811,7 +819,8 @@ class ModelGoalGranularityVerifier:
                 )
                 if attempt == 0:
                     verifier_repair = (
-                        "Return exact only with at least one local literal outcome_span from USER_TEXT. Inventory each independently acceptable business result exactly once and do not inspect candidate Goals or capabilities."
+                        "Return exact only with at least one local literal outcome_span from USER_TEXT. Inventory each independently acceptable business result exactly once."
+                        + final_repair_dependency_contract
                     )
                     continue
                 return last_indeterminate
@@ -825,7 +834,8 @@ class ModelGoalGranularityVerifier:
                 )
                 if attempt == 0:
                     verifier_repair = (
-                        "Return dependency_edges as an array of {dependent_span, requires_result_of_span}; both fields must refer to exactly one literal outcome_span. Use [] when independent. Do not inspect candidate Goals, tools or capabilities."
+                        "Return dependency_edges as an array using only the literal outcome_spans."
+                        + final_repair_dependency_contract
                     )
                     continue
                 return last_indeterminate
@@ -858,18 +868,42 @@ class ModelGoalGranularityVerifier:
                     authority_reused=False,
                 )
 
-            if structural_outcome_match and len(outcome_spans) > 1 and attempt > 0:
-                return GoalGranularityVerdict(
-                    "indeterminate",
-                    "goal_dependency_basis_audit_budget_unavailable_after_inventory_repair",
-                    (),
-                    "model_blind_inventory",
-                    True,
-                    {
-                        "candidate_blind": True,
-                        "verifier_repair_attempted": True,
-                        "outcome_spans": list(outcome_spans),
-                    },
+            if attempt > 0 and len(outcome_spans) > 1:
+                audited_edges, basis_rows, basis_error = _audited_dependency_edges(
+                    user_text,
+                    outcome_spans,
+                    parsed.get("dependency_edges"),
+                )
+                if basis_error:
+                    return GoalGranularityVerdict(
+                        "indeterminate",
+                        basis_error,
+                        (),
+                        "model_blind_inventory",
+                        True,
+                        {
+                            "candidate_blind": True,
+                            "verifier_repair_attempted": True,
+                            "outcome_spans": list(outcome_spans),
+                            "dependency_basis_audited": False,
+                        },
+                    )
+                authority = _build_inventory_authority(
+                    user_text=user_text,
+                    outcome_spans=outcome_spans,
+                    dependency_edges=audited_edges,
+                    reason_code=_text(parsed.get("reason_code"), limit=120) or "blind_inventory_repaired_and_dependency_audited",
+                    blind_self_audit_attempted=True,
+                    dependency_edge_basis=basis_rows,
+                    dependency_basis_audited=True,
+                )
+                return _evaluate_blind_inventory(
+                    user_text=user_text,
+                    goals=goals,
+                    outcome_spans=outcome_spans,
+                    dependency_edges=audited_edges,
+                    authority=authority,
+                    authority_reused=False,
                 )
 
             authority = _build_inventory_authority(
@@ -894,7 +928,8 @@ class ModelGoalGranularityVerifier:
             verifier_repair = (
                 "Run a candidate-blind self-audit of USER_TEXT only. Return each independently acceptable business result exactly once. "
                 "Do not duplicate a target phrase and its enclosing business action as two outcomes. Filters, status predicates, target selectors, ordering, exclusions, cardinality and form values stay inside the outcome they constrain. "
-                "A later omitted target may inherit an explicitly stated same-turn business object/scope without depending on an earlier result. Do not inspect, infer or ask about any candidate Goal plan, candidate count, tool or capability."
+                "A later omitted target may inherit an explicitly stated same-turn business object/scope without depending on an earlier result."
+                + final_repair_dependency_contract
             )
         return last_indeterminate
 
