@@ -38,9 +38,14 @@ jobs:
         working-directory: candidate
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Apply focused dependency-authority repair
-        run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt3_repair_carrier.py
-          patch --workspace candidate
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt3_repair_carrier.py \
+            patch --workspace candidate
+          # The Actions token cannot publish workflow-file changes. The approved
+          # 60-second heartbeat is applied to the same formal branch afterward
+          # through the GitHub connector, which has workflow-file write authority.
+          git -C candidate checkout -- .github/workflows/wp08-certification.yml
       - name: Run focused dependency regressions
         working-directory: candidate/services/agent-service
         run: PYTHONPATH=src .venv/bin/python -m pytest tests/runtime/test_wp08_attempt5_dependency_authority.py -q
@@ -52,8 +57,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
-            .github/workflows/wp08-certification.yml
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
           git diff --cached --check
           git commit -m "Repair WP-08 Attempt 3 dependency reaudit authority"
           git rev-parse HEAD > ../product-sha.txt
