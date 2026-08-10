@@ -75,6 +75,8 @@ class AntiStallTaskHarness:
 
     The harness is intentionally independent from Quality Loop gate, claim,
     repair-round and convergence semantics. It only acquires immutable inputs.
+    Connector execution policy is therefore an outer acquisition concern, not
+    a replacement for the existing automated Quality Loop control plane.
     """
 
     def __init__(
