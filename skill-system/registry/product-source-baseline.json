@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "git:e2e5116b592717e2dde243a35611b7585c71b67d",
+  "generated_from": "git:9ae404c722bf60b5a694f1841ee0a0a84331ddea",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-10T05:16:07Z",
+  "generated_at": "2026-08-10T05:24:28Z",
   "protected_roots": [
     "services",
     "web",
@@ -164,7 +164,7 @@
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
     "services/agent-service/src/agent_core/lifecycle/goal_blockers.py": "3e49585106c3c3ff90b6b5c5da996cfa9bd6845bd82d65ad4a4f0f8f7e8abf8e",
     "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py": "c0e5fe02acb49b272e7d83d1c558dcf0af4d1ed40c41a65f05ed7c8bf734a26d",
-    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "bb65adf64281103fde67309af335340a34d5e077959d58d8fa9c6c9476deb3b6",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "5b2029153f4943225dd39c751597d065337e9533cb83927caf51bdd608185de7",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "4ad5e716ec96a0f650be4a4a93bdb782d918a5aa7c0b808649cc6a5603d9eb5c",
