@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "git:dfd82bf4cecab08b5cf00be3a757e91066579be2",
+  "generated_from": "git:6ecfd4b9e164a30ce68ea060ef6775d49afae4ee",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-10T02:06:00Z",
+  "generated_at": "2026-08-10T02:42:48Z",
   "protected_roots": [
     "services",
     "web",
@@ -252,7 +252,7 @@
     "services/agent-service/src/agent_core/rag/providers/base.py": "940648c1311a130f2da775419e803c8f903cfb630debfb8c5c33e816e972c1ff",
     "services/agent-service/src/agent_core/rag/providers/local_sparse_provider.py": "e42bc4372c8e15d2cf84e232a51adfd9d6289996bd46f0e052b453e223f43891",
     "services/agent-service/src/agent_core/rag/providers/pgvector_provider.py": "302f8a7bade8d1b9a67b0bcaad5608b49d428e0979a867585a028490071751d6",
-    "services/agent-service/src/agent_core/rag/providers/qdrant_provider.py": "c6f72704aeabac511d1ded21d273aaf2ce8bb94b06e4173bba04ff5fa97980ae4",
+    "services/agent-service/src/agent_core/rag/providers/qdrant_provider.py": "c6f72704aeabac511d1ded21d273aaf2ce8bb94b06e4173bba04ff5a97980ae4",
     "services/agent-service/src/agent_core/rag/query_rewriter.py": "37e19056bd6ebcd6d636eca5d78b9edcff08b8ee759733bea8c9647548c806f5",
     "services/agent-service/src/agent_core/rag/rag_answer.py": "dc03ba0113b2c5dbc0f401395598810ed1870375caa22704f1b5760f7bdd1736",
     "services/agent-service/src/agent_core/rag/retriever.py": "72e30a24f743939cb4e724ada0c770a4399f41355d8bafff84dd6e1d3673ad2b",
