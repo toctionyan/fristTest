@@ -851,6 +851,79 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
     }
 
 
+def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any]:
+    """Expose only a complete independent dependency-graph mismatch proof.
+
+    The verifier has already grounded each retained edge to literal current-turn
+    evidence. Runtime does not rewrite the Goal graph; it only returns this
+    bounded proof to the next model redeclaration so semantic ownership remains
+    with the model and capability/execution order cannot leak into depends_on.
+    """
+    if (
+        alignment.verdict != "incomplete"
+        or alignment.reason_code != "goal_alignment_dependency_graph_mismatch"
+        or not alignment.independent
+    ):
+        return {}
+    details = alignment.details if isinstance(alignment.details, dict) else {}
+    if not (
+        details.get("dependency_authority") == "independent_goal_alignment"
+        and details.get("dependency_proof_complete") is True
+        and details.get("dependency_graph_match") is False
+    ):
+        return {}
+
+    verified_edges: list[dict[str, str]] = []
+    for raw in list(details.get("dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        basis_kind = _clean_text(raw.get("basis_kind"), limit=80).lower()
+        basis_span = _clean_text(raw.get("basis_span"), limit=240)
+        if (
+            not dependent
+            or not prerequisite
+            or basis_kind not in _ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS
+            or not basis_span
+        ):
+            return {}
+        verified_edges.append({
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+            "basis_kind": basis_kind,
+            "basis_span": basis_span,
+        })
+
+    declared_edges: list[dict[str, str]] = []
+    for raw in list(details.get("declared_dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        if not dependent or not prerequisite:
+            return {}
+        declared_edges.append({
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+        })
+
+    return {
+        "independent_verifier_feedback": {
+            "authority": "independent_goal_alignment",
+            "required_action": "redeclaration_preserving_grounded_dependency_graph",
+            "dependency_edges": verified_edges,
+            "candidate_declared_dependency_edges": declared_edges,
+            "constraints": [
+                "change_only_the_dependency_relation_proved_by_this_feedback",
+                "preserve_goal_inventory_requested_effects_and_literal_evidence_spans",
+                "do_not_infer_tool_order_or_capability_prerequisites_as_goal_dependencies",
+                "an_empty_verified_dependency_graph_requires_removing_unproved_candidate_edges",
+                "runtime_does_not_auto_rewrite_the_candidate",
+            ],
+        }
+    }
+
 
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
     verdict = str(getattr(granularity, "verdict", "") or "")
@@ -1145,7 +1218,11 @@ def validate_goal_declaration(
             "ok": False,
             "code": code,
             "message": "本轮语义候选尚未得到独立完整性证明，Runtime 已阻止能力发现。",
-            "data": {"alignment_proof": alignment.as_dict(), **_goal_declaration_repair_context(user_text)},
+            "data": {
+                "alignment_proof": alignment.as_dict(),
+                **_alignment_repair_feedback(alignment),
+                **_goal_declaration_repair_context(user_text),
+            },
         }, None)
 
     granularity = verify_goal_granularity(state=state, goals=deepcopy(goals))
