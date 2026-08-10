@@ -1,0 +1,61 @@
+name: wp08-attempt7-baseline-regenerator
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-final-repair-20260810' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: wp08-attempt7-final-repair-20260810
+          fetch-depth: 1
+      - name: Regenerate exact protected product-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          previous = json.loads(path.read_text(encoding='utf-8'))
+          protected_roots = ['services', 'web', 'contracts']
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          files = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+          payload = {
+              'schema_version': int(previous.get('schema_version') or 2),
+              'generated_from': f'git:{head}',
+              'source_release_sha256': str(previous.get('source_release_sha256') or ''),
+              'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z'),
+              'protected_roots': protected_roots,
+              'file_count': len(files),
+              'files': files,
+          }
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'generated_from': payload['generated_from'], 'file_count': len(files)}, sort_keys=True))
+          PY
+          git diff --check
+          git add skill-system/registry/product-source-baseline.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --cached --quiet; then
+            echo 'baseline already exact'
+            exit 0
+          fi
+          git commit -m 'chore: regenerate Attempt 7 final repair source baseline'
+          git push origin HEAD:wp08-attempt7-final-repair-20260810
