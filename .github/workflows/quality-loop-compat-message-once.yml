@@ -1,0 +1,48 @@
+name: One-shot Quality Loop compatibility message
+
+on:
+  push:
+    branches:
+      - quality-loop-resumable-checkpoint-20260810
+    paths:
+      - .github/workflows/quality-loop-compat-message-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: quality-loop-resumable-checkpoint-20260810
+          fetch-depth: 0
+
+      - name: Preserve legacy rejection wording while retaining resume semantics
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/quality_loop.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'f"evidence directory must be new or belong to a compatible interrupted run: {evidence_dir}"'
+          new = 'f"evidence directory must be new and empty, or belong to a compatible interrupted run: {evidence_dir}"'
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'compatibility message fragment count={count}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          python -m py_compile scripts/quality_loop.py scripts/quality_control/checkpoint.py
+          grep -F 'must be new and empty, or belong to a compatible interrupted run' scripts/quality_loop.py
+
+      - name: Commit compatibility fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/quality_loop.py
+          git rm .github/workflows/quality-loop-compat-message-once.yml
+          git commit -m "Preserve Quality Loop evidence rejection contract"
+          git push origin HEAD:quality-loop-resumable-checkpoint-20260810
