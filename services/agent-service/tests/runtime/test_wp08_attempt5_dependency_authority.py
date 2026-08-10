@@ -41,9 +41,10 @@ def test_true_result_reference_is_owned_by_grounded_alignment_dependency_proof()
         }),
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
-    assert invoke.call_count == 1
+    assert invoke.call_count == 2
     assert verdict.exact
     assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["verifier_repair_kind"] == "dependency_independent_reaudit"
     assert verdict.details["dependency_edges"][0]["basis_span"] == "它"
 
 

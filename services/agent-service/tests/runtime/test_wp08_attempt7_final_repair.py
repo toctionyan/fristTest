@@ -110,7 +110,7 @@ def test_attempt7_workflow_repair_keeps_current_policy_support_frontier() -> Non
         "status": "matched",
     }]}
     policy = {"goal_policies": [
-        {"goal_id": "g1", "allowed_tools": ["get_order_details"]},
+        {"goal_id": "g1", "allowed_tools": ["get_order_details", "report_unsupported_request"]},
         {"goal_id": "other", "allowed_tools": ["list_orders"]},
     ]}
     with patch(
@@ -127,6 +127,7 @@ def test_attempt7_workflow_repair_keeps_current_policy_support_frontier() -> Non
     assert repair_tools == {"get_order_details"}
     assert unsupported == set()
     assert "list_orders" not in repair_tools
+    assert "report_unsupported_request" not in repair_tools
 
 
 def test_workflow_repair_preserves_exact_completion_tools_without_policy() -> None:
