@@ -100,13 +100,7 @@ def _stage1_command(
 
 
 def _attempt3_stage1() -> dict[str, Any]:
-    """Temporary carrier-only Stage-1 executor; never shipped to main.
-
-    The registered quality workflow checks out the PR head and calls this file.
-    This hook applies the carrier helpers only inside that CI workspace, runs the
-    focused gates, and emits an exact base64 fileset so the assistant can publish
-    a product-only formal branch through the GitHub connector after validation.
-    """
+    """Temporary carrier-only Stage-1 executor; never shipped to main."""
     commands: list[dict[str, Any]] = []
     for helper in (
         ".github/wp08-attempt3-target-authority-fix.py",
@@ -160,13 +154,15 @@ def _attempt3_stage1() -> dict[str, Any]:
     ):
         if (ROOT / mandatory).is_file() and mandatory not in agent_tests:
             agent_tests.append(mandatory)
+    agent_tests = sorted(set(agent_tests))
     if not agent_tests:
         raise RuntimeError("focused Agent test discovery returned no files")
-    commands.append(_stage1_command(
-        [sys.executable, "-m", "pytest", "-q", *sorted(agent_tests)],
-        label=f"focused_agent_{len(agent_tests)}_files",
-        timeout_seconds=360,
-    ))
+    for index, test_file in enumerate(agent_tests, start=1):
+        commands.append(_stage1_command(
+            [sys.executable, "-m", "pytest", "-q", test_file],
+            label=f"focused_agent_{index:02d}_{Path(test_file).name}",
+            timeout_seconds=120,
+        ))
 
     product_paths = [
         "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
@@ -193,7 +189,7 @@ def _attempt3_stage1() -> dict[str, Any]:
         "base_sha": WP08_STAGE1_BASE_SHA,
         "paths": product_paths,
         "files_base64": files,
-        "focused_agent_files": sorted(agent_tests),
+        "focused_agent_files": agent_tests,
         "commands": commands,
         "release_attempt_dispatched": False,
         "baseline_regenerated": False,
