@@ -33,7 +33,6 @@ from agent_core.runtime.capability_effects import (
 )
 from agent_core.kernel.semantic_contract import semantic_goals
 from agent_core.kernel.semantic_contract import prove_goal_target_compatibility
-from agent_core.lifecycle.condition_expression import condition_operands
 from agent_core.context.visible_result_refs import (
     validate_runtime_result_ref,
     visible_result_refs_from_ledger,
@@ -629,6 +628,33 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
     }
 
 
+
+def _frozen_condition_operands(expression: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read operands from an already-normalized frozen Goal condition.
+
+    Lifecycle owns condition parsing, normalization and semantic validity.
+    Runtime must not import Lifecycle merely to inspect that immutable contract,
+    because doing so recreates the resolved context/lifecycle/runtime cycle.
+    This helper therefore performs no normalization, aliasing or inference: it
+    only projects operand objects that are already present in the frozen tree.
+    """
+    if not isinstance(expression, dict):
+        return []
+    op = str(expression.get("op") or "")
+    if op in {"and", "or", "not"}:
+        return [
+            operand
+            for child in list(expression.get("args") or [])
+            if isinstance(child, dict)
+            for operand in _frozen_condition_operands(child)
+        ]
+    return [
+        dict(expression[key])
+        for key in ("left", "right", "lower", "upper")
+        if isinstance(expression.get(key), dict)
+    ]
+
+
 def _formal_goal_condition_coverage_proof(
     state: dict[str, Any],
     *,
@@ -657,7 +683,7 @@ def _formal_goal_condition_coverage_proof(
         condition = goal.get("condition") if isinstance(goal.get("condition"), dict) else None
         if condition is None:
             continue
-        for operand in condition_operands(condition):
+        for operand in _frozen_condition_operands(condition):
             source = str(operand.get("source") or "")
             path = str(operand.get("path") or "").strip()
             if source not in {"target_fact", "input"} or not path:

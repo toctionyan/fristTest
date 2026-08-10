@@ -12,49 +12,6 @@ env:
   GH_REPO: ${{ github.repository }}
 
 jobs:
-  c2-architecture-repair:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'strong-context-scope-repair-20260810' }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: strong-context-scope-repair-20260810
-          fetch-depth: 0
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12.13'
-      - name: Bootstrap locked uv
-        run: >-
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
-          --require-hashes --only-binary=:all:
-          -r deployment/ci/uv-requirements-linux-x86_64.txt
-      - name: Install locked Agent validation environment
-        run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Apply architecture-clean C2 patch
-        run: python -B scripts/apply_c2_architecture_boundary_once.py
-      - name: Validate focused C2 regressions
-        run: services/agent-service/.venv/bin/python -B -m pytest -q skill-system/tests/test_c2_strong_context_scope_repair.py
-      - name: Validate architecture debt remains resolved
-        run: services/agent-service/.venv/bin/python -B -m unittest discover -s skill-system/tests -p 'test_architecture_cycle_debt.py'
-      - name: Validate full Skill tests
-        run: services/agent-service/.venv/bin/python -B -m unittest discover -s skill-system/tests -p 'test_*.py'
-      - name: Commit only architecture-clean product repair
-        run: |
-          set -euo pipefail
-          git fetch origin main --depth=1
-          git checkout FETCH_HEAD -- .github/workflows/quality.yml
-          rm -f .github/workflows/c2-architecture-boundary-once.yml
-          rm -f scripts/apply_c2_architecture_boundary_once.py
-          rm -f .github/c2-arch-trigger.txt
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --quiet && exit 0
-          git commit -m '[c2-arch-done] Keep condition scope proof out of lifecycle dependency'
-          git push origin HEAD:strong-context-scope-repair-20260810
-
   skill-control-plane:
     runs-on: ubuntu-24.04
     steps:

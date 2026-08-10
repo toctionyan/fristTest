@@ -179,7 +179,8 @@ def test_attempt8_regression_contract_is_structural_not_phrase_heuristic() -> No
     answer_source = (AGENT_SRC / "agent_core/runtime/answer_release_alignment.py").read_text(encoding="utf-8")
 
     assert "formal_goal_condition_coverage" in capability_source
-    assert "condition_operands" in capability_source
+    assert "_frozen_condition_operands" in capability_source
+    assert "from agent_core.lifecycle.condition_expression" not in capability_source
     assert "required_condition_execution_evidence_missing" in answer_source
     assert "哪些还在路上" not in capability_source
     assert "在路上" not in answer_source
