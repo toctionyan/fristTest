@@ -118,9 +118,7 @@ jobs:
             .github/wp08-attempt5-dependency-authority-fix.py \
             .github/wp08-attempt5-dependency-authority-fix-v2.py
           git diff --check
-          git add \
-            skill-system/registry/product-source-baseline.json \
-            .github/wp08-attempt5-dependency-authority-fix.py \
-            .github/wp08-attempt5-dependency-authority-fix-v2.py
+          git add skill-system/registry/product-source-baseline.json
+          git status --short
           git commit -m 'chore: bind Attempt 5 repair to exact protected baseline'
           git push origin HEAD:agent/wp08-attempt5-dependency-authority-20260810
