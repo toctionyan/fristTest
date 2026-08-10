@@ -32,7 +32,7 @@ jobs:
       - name: Run historical dependency regressions
         run: |
           cd services/agent-service
-          .venv/bin/python -B -m pytest -q \
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
             tests/runtime/test_wp08_attempt5_dependency_authority.py::test_true_result_reference_is_owned_by_grounded_alignment_dependency_proof \
             tests/runtime/test_wp08_attempt7_final_authority_and_retry.py::test_attempt7_false_dependency_requires_candidate_blind_second_audit \
             tests/runtime/test_wp08_attempt7_final_authority_and_retry.py::test_candidate_blind_second_audit_preserves_true_result_dependency \
