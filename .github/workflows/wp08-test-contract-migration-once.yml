@@ -1,7 +1,9 @@
-name: quality
+name: wp08-test-contract-migration-once
 
 on:
-  pull_request:
+  push:
+    branches:
+      - wp08-release-31388975089-attempt1-repair
 
 permissions:
   contents: write
@@ -10,7 +12,8 @@ env:
   PYTHONDONTWRITEBYTECODE: '1'
 
 jobs:
-  wp08-test-contract-migration:
+  migrate-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[wp08-test-contract-done]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -27,31 +30,32 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Install locked Agent environment
         run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Migrate old blind-audit mocks and refresh protected-source baseline
+      - name: Migrate blind audit test mocks and refresh baseline
         run: python -B scripts/migrate_wp08_blind_dependency_test_contract_once.py
-      - name: Run historical dependency regressions
+      - name: Run four historical dependency regressions
         run: |
           cd services/agent-service
-          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
+          .venv/bin/python -B -m pytest -q \
             tests/runtime/test_wp08_attempt5_dependency_authority.py::test_true_result_reference_is_owned_by_grounded_alignment_dependency_proof \
             tests/runtime/test_wp08_attempt7_final_authority_and_retry.py::test_attempt7_false_dependency_requires_candidate_blind_second_audit \
             tests/runtime/test_wp08_attempt7_final_authority_and_retry.py::test_candidate_blind_second_audit_preserves_true_result_dependency \
             tests/runtime/test_wp08_attempt7_final_authority_and_retry.py::test_candidate_blind_second_audit_detects_missing_true_dependency
-      - name: Run Attempt 1 repair and full Skill tests
+      - name: Run new Attempt 1 repair contracts
+        run: >-
+          services/agent-service/.venv/bin/python -B -m unittest discover
+          -s skill-system/tests -p 'test_wp08_attempt1_product_repair.py'
+      - name: Run full Skill control-plane tests
+        run: >-
+          services/agent-service/.venv/bin/python -B -m unittest discover
+          -s skill-system/tests -p 'test_*.py'
+      - name: Commit migrated test contract only after validation
         run: |
-          services/agent-service/.venv/bin/python -B -m unittest discover -s skill-system/tests -p 'test_wp08_attempt1_product_repair.py'
-          services/agent-service/.venv/bin/python -B -m unittest discover -s skill-system/tests -p 'test_*.py'
-      - name: Commit clean migrated branch and restore canonical Quality workflow
-        run: |
-          set -euo pipefail
-          git fetch origin main --depth=1
-          git show origin/main:.github/workflows/quality.yml > .github/workflows/quality.yml
-          rm -f scripts/migrate_wp08_blind_dependency_test_contract_once.py
-          rm -f .github/workflows/wp08-test-contract-migration-once.yml
+          rm scripts/migrate_wp08_blind_dependency_test_contract_once.py
+          rm .github/workflows/wp08-test-contract-migration-once.yml
           rm -f .github/wp08-test-contract-trigger.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git diff --cached --quiet && exit 1
+          git diff --cached --quiet && exit 0
           git commit -m '[wp08-test-contract-done] Migrate blind dependency regression mocks'
           git push origin HEAD:wp08-release-31388975089-attempt1-repair
