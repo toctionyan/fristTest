@@ -43,7 +43,7 @@ jobs:
           patch --workspace candidate
       - name: Run focused dependency regressions
         working-directory: candidate/services/agent-service
-        run: .venv/bin/python -m pytest tests/runtime/test_wp08_attempt5_dependency_authority.py -q
+        run: PYTHONPATH=src .venv/bin/python -m pytest tests/runtime/test_wp08_attempt5_dependency_authority.py -q
       - name: Commit product repair
         working-directory: candidate
         run: |
