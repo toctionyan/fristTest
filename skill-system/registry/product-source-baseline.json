@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "generated_from": "git:38ac154b7268acd99d07553c31cafe9c6abf3a1a",
+  "generated_from": "git:6ecfd4b9e164a30ce68ea060ef6775d49afae4ee",
   "source_release_sha256": "2418db8c897cbb91b5f5b4cc0b8028cc3efec60dfc43c5114802547e9c544047",
-  "generated_at": "2026-08-10T00:06:15Z",
+  "generated_at": "2026-08-10T02:42:48Z",
   "protected_roots": [
     "services",
     "web",
@@ -164,7 +164,7 @@
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
     "services/agent-service/src/agent_core/lifecycle/goal_blockers.py": "3e49585106c3c3ff90b6b5c5da996cfa9bd6845bd82d65ad4a4f0f8f7e8abf8e",
     "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py": "c0e5fe02acb49b272e7d83d1c558dcf0af4d1ed40c41a65f05ed7c8bf734a26d",
-    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "c71ae217cdd540ee6b9f0da117d3232b80be8d88c1334dee79b597e70d1f5440",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "b9f027e16a9234af0f9cd1902eb7e5466699d94b4b71a005f2932777a2a9afb3",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "c0838a754050a505fee2164b4a0e94e5d6cbf0e5a6cb2ba56f6fd60306bf3c91",
@@ -273,7 +273,7 @@
     "services/agent-service/src/agent_core/runtime/node_support.py": "8dd790c1eac49fcfa00b38af3b5c089fc893f5b0b9acaceed3359a445aeeb1d0",
     "services/agent-service/src/agent_core/runtime/outcomes.py": "f16bfdf8717a808ae40b2ec1033be58f198ab2d0e25183c552ccd31e5724b4e6",
     "services/agent-service/src/agent_core/runtime/profile.py": "9e8609da97d86bd45ffa39f0c3b852d5d7f58857155c24700131062646e8479f",
-    "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py": "e5ee2a61054ee5c11c157f1f2fd1110b215fee99a53a24a8624db5fad20b6678",
+    "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py": "0dd4c803fc74dbb46ebf08dfb33ee3b9d72f13c662c2eafdc57e7b4a7408ff48",
     "services/agent-service/src/agent_core/runtime/turn_fencing.py": "d2a4100865a7d235f902393b68a07bf320de569e659ca4e903827d54ffd687f2",
     "services/agent-service/src/agent_core/security/__init__.py": "3e383d9d7fd0e783854e21faa8e98ca6ff330182ca1ad57c436abf84ec9d25db",
     "services/agent-service/src/agent_core/security/auth_provider.py": "9de3436fbc83d39b4fede6e46c15b9d84e9e4a514c93711c3444e4bcc51e2d52",

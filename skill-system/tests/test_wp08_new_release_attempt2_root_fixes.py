@@ -27,6 +27,14 @@ def _response(*, spans: list[str], edges: list[dict[str, str]], reason: str) -> 
     }, ensure_ascii=False))
 
 
+def _dependency_response(*, edges: list[dict[str, str]], reason: str) -> SimpleNamespace:
+    return SimpleNamespace(content=json.dumps({
+        "verdict": "exact",
+        "dependency_edges": edges,
+        "reason_code": reason,
+    }, ensure_ascii=False))
+
+
 def test_first_pass_dependency_cannot_freeze_without_candidate_blind_second_audit() -> None:
     from agent_core.lifecycle.goal_granularity import ModelGoalGranularityVerifier
 
@@ -38,7 +46,7 @@ def test_first_pass_dependency_cannot_freeze_without_candidate_blind_second_audi
     }]
     calls = [
         (_response(spans=spans, edges=asserted, reason="first_pass_execution_order_confusion"), {}),
-        (_response(spans=spans, edges=[], reason="second_pass_shared_literal_target_is_independent"), {}),
+        (_dependency_response(edges=[], reason="second_pass_shared_literal_target_is_independent"), {}),
     ]
     goals = [_goal("g1", spans[0], []), _goal("g2", spans[1], ["g1"])]
     with patch("agent_core.config.get_model", return_value=object()), patch(
@@ -50,6 +58,7 @@ def test_first_pass_dependency_cannot_freeze_without_candidate_blind_second_audi
     assert verdict.reason_code == "blind_inventory_dependency_graph_mismatch"
     assert verdict.details["dependency_edges"] == []
     assert verdict.details["blind_self_audit_attempted"] is True
+    assert verdict.details["dependency_basis_audited"] is True
 
 
 def test_true_result_dependency_survives_required_second_blind_audit() -> None:
@@ -61,9 +70,14 @@ def test_true_result_dependency_survives_required_second_blind_audit() -> None:
         "dependent_span": spans[1],
         "requires_result_of_span": spans[0],
     }]
+    audited_edge = [{
+        **edge[0],
+        "basis_kind": "result_reference",
+        "basis_span": "它",
+    }]
     calls = [
         (_response(spans=spans, edges=edge, reason="pronoun_result_dependency"), {}),
-        (_response(spans=spans, edges=edge, reason="pronoun_result_dependency_reaudited"), {}),
+        (_dependency_response(edges=audited_edge, reason="pronoun_result_dependency_reaudited"), {}),
     ]
     goals = [_goal("g1", spans[0], []), _goal("g2", spans[1], ["g1"])]
     with patch("agent_core.config.get_model", return_value=object()), patch(
@@ -73,10 +87,12 @@ def test_true_result_dependency_survives_required_second_blind_audit() -> None:
     assert invoke.call_count == 2
     assert verdict.exact
     assert verdict.details["blind_self_audit_attempted"] is True
+    assert verdict.details["dependency_basis_audited"] is True
     assert verdict.details["dependency_edges"] == [{
         "dependent_span": spans[1],
         "requires_result_of_span": spans[0],
     }]
+    assert verdict.details["dependency_edge_basis"] == audited_edge
 
 
 def _contract(*, reference_cardinality: str, goal_result_cardinality: str = "single") -> dict:
