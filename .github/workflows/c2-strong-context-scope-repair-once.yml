@@ -1,0 +1,42 @@
+name: C2 strong-context scope repair once
+
+on:
+  push:
+    branches:
+      - strong-context-scope-repair-20260810
+
+permissions:
+  contents: write
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  repair:
+    if: ${{ !contains(github.event.head_commit.message, '[c2-carrier-done]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply exact C2 patch
+        run: python -B scripts/apply_c2_scope_repair_once.py
+      - name: Compile repaired modules
+        run: |
+          python -B -m py_compile \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            services/agent-service/src/agent_core/runtime/answer_release_alignment.py \
+            skill-system/tests/test_c2_strong_context_scope_repair.py
+      - name: Commit repaired scope contracts
+        run: |
+          rm scripts/apply_c2_scope_repair_once.py
+          rm .github/workflows/c2-strong-context-scope-repair-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m '[c2-carrier-done] Repair formal condition scope proof'
+          git push origin HEAD:strong-context-scope-repair-20260810
