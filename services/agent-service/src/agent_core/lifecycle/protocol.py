@@ -95,7 +95,9 @@ TARGET_CANDIDATE_SCHEMA: dict[str, Any] = {
     "description": (
         "开放的目标候选，不是业务事实。若当前 Goal 含有明确缩小目标/结果人口的筛选、状态、阈值或比较谓词，"
         "必须把最小的当前原文字面证据写入 scope_constraints[].evidence_span。这里只冻结用户表达过的范围证据，"
-        "不得在此猜测归一化业务值；普通目标集合筛选也不得为了结构化而伪装成 Goal.condition。"
+        "不得在此猜测归一化业务值；普通目标集合筛选也不得为了结构化而伪装成 Goal.condition。历史结果/成员引用"
+        "必须只进入 reference_expression；不要提交/只查询等执行承诺、输入或控制措辞也不是人口筛选，禁止复制到"
+        "scope_constraints。一个字面片段不得同时充当 reference_expression 与 scope_constraints。"
     ),
     "properties": {
         "scope_constraints": {
@@ -299,7 +301,10 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                             "reference_expression": deepcopy(REFERENCE_EXPRESSION_SCHEMA),
                             "input_candidates": {"type": "object", "additionalProperties": True},
                             "condition": condition_schema(depth=3),
-                            "execution_commitment": {"type": "string"},
+                            "execution_commitment": {
+                                "type": "string",
+                                "description": "用户对执行方式/是否提交的承诺或限制；它不是 target_candidate.scope_constraints，也不能用来缩小业务对象人口。",
+                            },
                         },
                         "required": [
                             "goal_id", "description", "evidence_span", "requested_effect",
