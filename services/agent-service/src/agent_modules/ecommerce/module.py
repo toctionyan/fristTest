@@ -8,10 +8,11 @@ from agent_modules.ecommerce.capabilities import CAPABILITIES
 from agent_modules.ecommerce.operation_plugins import default_order_operations
 from agent_modules.ecommerce.resource_plugins import OrderResourcePlugin
 from agent_modules.ecommerce.rag_seed import ecommerce_builtin_knowledge_documents
+from agent_modules.ecommerce.semantic_vocabulary import SEMANTIC_OUTPUTS
 
 
 class EcommerceModule:
-    """Explicitly installed ecommerce module; all public capability facts originate in ``capabilities/*``."""
+    """Explicitly installed ecommerce module with separate semantic and capability contracts."""
 
     module_id = "ecommerce"
     version = "20.6.1"
@@ -65,6 +66,7 @@ class EcommerceModule:
             operations=operations,
             assessments=tuple(ecommerce_operation_assessments()),
             presentation_adapters=(EcommerceObservationAdapter(),),
+            semantic_outputs=SEMANTIC_OUTPUTS,
             resource_types=frozenset({"order", "logistics", "refund", "after_sales", "invoice", "product", "coupon"}),
             action_ids=frozenset(plugin.action_id for plugin in operations) | frozenset(plugin.business_operation for plugin in operations),
             business_port_factory=get_ecommerce_business_port,
