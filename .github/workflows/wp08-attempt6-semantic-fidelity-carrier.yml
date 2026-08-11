@@ -41,6 +41,31 @@ jobs:
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt6_semantic_fidelity_carrier.py
           patch --workspace candidate
+      - name: Correct carrier verifier-message assertion
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+          path = Path("skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    audit_prompt = invoke.call_args_list[1].kwargs["payload"][-1].content
+              assert "requested_effect" in audit_prompt
+              assert "structured condition" in audit_prompt
+              assert "target-member selection" in audit_prompt
+              assert "dependency_decisions" in audit_prompt
+          '''.replace("              ", "    ")
+          new = '''    audit_messages = invoke.call_args_list[1].kwargs["payload"]
+              audit_text = "\\n".join(str(getattr(message, "content", "") or "") for message in audit_messages)
+              assert "requested_effect" in audit_text
+              assert "structured condition" in audit_text
+              assert "target-member selection" in audit_text
+              assert "dependency_decisions" in audit_text
+          '''.replace("              ", "    ")
+          if text.count(old) != 1:
+              raise SystemExit(f"carrier assertion anchor count={text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Run focused Attempt 6 and preserved authority regressions
         working-directory: candidate
         run: |
