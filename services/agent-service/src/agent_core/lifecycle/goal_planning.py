@@ -482,6 +482,104 @@ def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[
     return rows
 
 
+def _requested_effect_identity_key(goal: dict[str, Any]) -> tuple[str, str, str]:
+    effect = goal.get("requested_effect") if isinstance(goal.get("requested_effect"), dict) else {}
+    return tuple(
+        _clean_text(effect.get(field), limit=160).casefold()
+        for field in ("domain", "operation", "object_type")
+    )
+
+
+def _requested_effect_reaudit_collision_guard(
+    goals: list[dict[str, Any]],
+    missing_spans: tuple[str, ...],
+) -> dict[str, Any]:
+    """Fail closed on a structurally ambiguous sibling-effect collapse.
+
+    The semantic verifier still owns language meaning. Runtime does not decide
+    whether an effect is supported or inspect the capability registry. This
+    guard activates only after the independent candidate-blind verifier has
+    already reported a requested-effect mismatch. If the disputed Goal shares
+    the exact same structured effect identity with a different sibling Goal, a
+    later verifier call is not allowed to erase that mismatch as mere naming
+    granularity without a fresh declaration.
+    """
+    missing = tuple(_clean_text(value, limit=240) for value in missing_spans if _clean_text(value, limit=240))
+    disputed_ids: set[str] = set()
+    for goal in goals:
+        evidence = _clean_text(goal.get("evidence_span"), limit=240)
+        if evidence and any(span in evidence or evidence in span for span in missing):
+            disputed_ids.add(_clean_text(goal.get("goal_id"), limit=80))
+    by_identity: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for goal in goals:
+        identity = _requested_effect_identity_key(goal)
+        if all(identity):
+            by_identity.setdefault(identity, []).append(goal)
+    collisions: list[dict[str, Any]] = []
+    for identity, rows in by_identity.items():
+        ids = {_clean_text(row.get("goal_id"), limit=80) for row in rows}
+        if len(ids) < 2 or not ids.intersection(disputed_ids):
+            continue
+        evidence = {_clean_text(row.get("evidence_span"), limit=240) for row in rows}
+        if len({value for value in evidence if value}) < 2:
+            continue
+        collisions.append({
+            "effect_identity": {
+                "domain": identity[0],
+                "operation": identity[1],
+                "object_type": identity[2],
+            },
+            "goal_ids": sorted(ids),
+        })
+    return {
+        "risk": bool(collisions),
+        "missing_spans": list(missing),
+        "disputed_goal_ids": sorted(disputed_ids),
+        "collisions": collisions,
+        "capability_registry_consulted": False,
+        "language_interpretation_used": False,
+    }
+
+
+def _literal_role_overlap(left: str, right: str) -> bool:
+    left_key = "".join(str(left or "").split()).casefold()
+    right_key = "".join(str(right or "").split()).casefold()
+    return bool(left_key and right_key and (left_key in right_key or right_key in left_key))
+
+
+def _scope_constraint_role_conflict_errors(
+    goals: list[dict[str, Any]],
+    *,
+    user_text: str,
+) -> list[str]:
+    """Reject one literal span being assigned incompatible semantic roles.
+
+    This is a structural invariant only. It does not classify pronouns, filters
+    or business vocabulary. A historical reference span and a literal execution
+    commitment are already explicitly typed by the Planner; neither may also be
+    frozen as a population-narrowing scope constraint.
+    """
+    errors: list[str] = []
+    for goal in goals:
+        goal_id = _clean_text(goal.get("goal_id"), limit=80) or "missing"
+        target = goal.get("target_candidate") if isinstance(goal.get("target_candidate"), dict) else {}
+        scope_spans = [
+            _clean_text(row.get("evidence_span"), limit=240)
+            for row in list(target.get("scope_constraints") or [])
+            if isinstance(row, dict) and _clean_text(row.get("evidence_span"), limit=240)
+        ]
+        reference = goal.get("reference_expression") if isinstance(goal.get("reference_expression"), dict) else {}
+        reference_span = _clean_text(reference.get("evidence_span"), limit=240)
+        commitment = _clean_text(goal.get("execution_commitment"), limit=240)
+        literal_commitment = commitment if commitment and commitment in user_text else ""
+        for index, span in enumerate(scope_spans):
+            if reference_span and _literal_role_overlap(span, reference_span):
+                errors.append(f"scope_constraint_conflicts_with_reference_expression:{goal_id}:{index}")
+            if literal_commitment and _literal_role_overlap(span, literal_commitment):
+                errors.append(f"scope_constraint_conflicts_with_execution_commitment:{goal_id}:{index}")
+    return errors
+
+
 class ModelGoalAlignmentVerifier:
     """Second-model verifier that can only judge declaration completeness."""
 
@@ -549,10 +647,14 @@ class ModelGoalAlignmentVerifier:
             "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints. A scope constraint stores only the smallest "
             "literal USER_TEXT evidence_span; do not translate it into a normalized business value, tool field or capability. "
             "Mere object/topic/member naming is target identity, not automatically a scope constraint. Goal.condition is a "
-            "separate condition/dependency algebra and ordinary target-population filtering must not be forced into it. Do not "
-            "invent a missing target member, slot/form value, current business fact or execution-time cardinality. If "
-            "requested_effect is semantically substituted, or an explicit narrowing predicate is absent from scope_constraints, "
-            "verdict must be incomplete and missing_spans must copy the smallest literal USER_TEXT span that proves the mismatch. "
+            "separate condition/dependency algebra and ordinary target-population filtering must not be forced into it. Audit the "
+            "inverse direction too: every supplied scope_constraints entry must itself be a real population-narrowing predicate. "
+            "A historical-result/member reference, execution commitment, input/control wording or ordinary target identity must not "
+            "be stored as a scope constraint. If a supplied scope constraint has one of those other semantic roles, verdict must be "
+            "incomplete with a target-scope-constraint fidelity reason. Do not invent a missing target member, slot/form value, current "
+            "business fact or execution-time cardinality. If requested_effect is semantically substituted, an explicit narrowing "
+            "predicate is absent from scope_constraints, or scope_constraints overstates a non-narrowing phrase, verdict must be "
+            "incomplete and missing_spans must copy the smallest literal USER_TEXT span that proves the mismatch. "
             "Do not propose a replacement identity, normalized predicate value, tool or capability. A result dependency exists "
             "only when the later user-visible outcome itself "
             "must consume an earlier current-turn Goal result as target, value input or condition; shared topic/scope, sentence "
@@ -562,7 +664,7 @@ class ModelGoalAlignmentVerifier:
             "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span; nearby registered capability identity is never acceptable merely because it exists",
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
-            "target-member selection, unprovided form values and current business facts are downstream Runtime concerns and are not missing scope constraints",
+            "target-member selection, historical-result/member reference, execution commitment, input/control wording, unprovided form values and current business facts are not scope constraints; if one is explicitly placed in scope_constraints return incomplete instead of letting Runtime bind it as a filter",
             "judge semantic result dependency independently from execution-support dataflow",
             "shared object/topic/scope and sequencing words alone never create a result dependency",
             "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",
@@ -582,6 +684,7 @@ class ModelGoalAlignmentVerifier:
             "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
         )
         initial_exact_alignment: GoalAlignmentVerdict | None = None
+        requested_effect_reaudit_guard: dict[str, Any] | None = None
         for attempt in range(3):
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             effective_instruction = (
@@ -729,19 +832,43 @@ class ModelGoalAlignmentVerifier:
                         # Outcome grounding was already proven by the first exact
                         # call, so preserve that literal evidence while accepting
                         # only a structurally valid candidate-blind audit result.
-                        verdict = GoalAlignmentVerdict(
-                            "exact",
-                            initial_exact_alignment.evidence_spans,
-                            (),
-                            "goal_alignment_candidate_blind_dependency_reaudit_exact",
-                            "model",
-                            True,
-                            {
-                                **initial_exact_alignment.details,
-                                "initial_alignment_reason_code": initial_exact_alignment.reason_code,
-                                "candidate_blind_dependency_reaudit": True,
-                            },
-                        )
+                        if (
+                            verifier_repair_kind == "candidate_blind_dependency_requested_effect_reaudit"
+                            and isinstance(requested_effect_reaudit_guard, dict)
+                            and requested_effect_reaudit_guard.get("risk") is True
+                        ):
+                            # A verifier disagreement cannot silently collapse two
+                            # independently declared sibling outcomes onto the same
+                            # structured effect identity. This guard is structural
+                            # only and does not inspect capability availability.
+                            verdict = GoalAlignmentVerdict(
+                                "incomplete",
+                                initial_exact_alignment.evidence_spans,
+                                tuple(requested_effect_reaudit_guard.get("missing_spans") or ()),
+                                "requested_effect_reaudit_structural_collision",
+                                "model",
+                                True,
+                                {
+                                    **initial_exact_alignment.details,
+                                    "initial_alignment_reason_code": initial_exact_alignment.reason_code,
+                                    "candidate_blind_dependency_reaudit": True,
+                                    "requested_effect_reaudit_guard": dict(requested_effect_reaudit_guard),
+                                },
+                            )
+                        else:
+                            verdict = GoalAlignmentVerdict(
+                                "exact",
+                                initial_exact_alignment.evidence_spans,
+                                (),
+                                "goal_alignment_candidate_blind_dependency_reaudit_exact",
+                                "model",
+                                True,
+                                {
+                                    **initial_exact_alignment.details,
+                                    "initial_alignment_reason_code": initial_exact_alignment.reason_code,
+                                    "candidate_blind_dependency_reaudit": True,
+                                },
+                            )
                     else:
                         verdict = _as_alignment_verdict(
                             parsed,
@@ -872,6 +999,9 @@ class ModelGoalAlignmentVerifier:
                 # on the semantic mismatch claim itself instead of treating naming
                 # granularity as product evidence. Runtime still never chooses a
                 # capability or rewrites the requested effect.
+                requested_effect_reaudit_guard = _requested_effect_reaudit_collision_guard(
+                    goals, verdict.missing_spans
+                )
                 verifier_repair_kind = "candidate_blind_dependency_requested_effect_reaudit"
                 verifier_repair = (
                     "Re-audit only the previous requested-effect fidelity mismatch claim while preserving the complete "
@@ -881,7 +1011,10 @@ class ModelGoalAlignmentVerifier:
                     "or harmless naming granularity is not itself a mismatch, and capability availability must not be used as "
                     "evidence. Withdraw the mismatch only when the declared effect still denotes the same user-visible outcome. "
                     "If it substitutes a different lookup, action, object or business effect, remain incomplete and copy only "
-                    "the smallest literal USER_TEXT span proving that substitution into missing_spans. Do not choose a tool, "
+                    "the smallest literal USER_TEXT span proving that substitution into missing_spans. If the disputed Goal uses "
+                    "the exact same structured domain/operation/object_type as a sibling Goal with a distinct independently requested "
+                    "outcome, do not erase the mismatch merely because raw_description is broad enough to sound compatible; that is a "
+                    "high-risk effect-collapse signal and requires a faithful fresh declaration. Do not choose a tool, "
                     "consult a capability registry, normalize to a nearby registered effect, or rewrite the declaration. Return "
                     "the full candidate-blind JSON contract, including one dependency_decisions row for every unordered Goal pair."
                 )
@@ -1505,6 +1638,7 @@ def validate_goal_declaration(
                     }
             except ValueError as exc:
                 errors.append(f"invalid_reference_expression:{row['goal_id']}:{exc}")
+    errors.extend(_scope_constraint_role_conflict_errors(goals, user_text=user_text))
     for row in goals:
         invalid = [dep for dep in row["depends_on"] if dep not in ids or dep == row["goal_id"]]
         errors.extend(f"invalid_goal_dependency:{row['goal_id']}:{dep}" for dep in invalid)
