@@ -30,7 +30,7 @@ def patch_goal_planning(root: Path) -> None:
         "        for attempt in range(4):\n"
         "            if (\n"
         "                attempt >= 3\n"
-        "                and verifier_repair_kind != \\\"candidate_blind_dependency_positive_edge_counterfactual\\\"\n"
+        '                and verifier_repair_kind != "candidate_blind_dependency_positive_edge_counterfactual"\n'
         "            ):\n"
         "                break\n",
         "alignment verifier bounded fourth slot",
