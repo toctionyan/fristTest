@@ -159,9 +159,9 @@ class ProductRuntimeHarness:
         self.business_url = f"http://127.0.0.1:{self.business_port}"
         self.agent_url = f"http://127.0.0.1:{self.agent_port}"
         self.secondary_agent_url = f"http://127.0.0.1:{self.secondary_agent_port}"
-        self.jwt_secret = secrets.token_urlsafe(48) if self.protected_preprod else ""
+        self.jwt_secret = secrets.token_hex(32) if self.protected_preprod else ""
         self.business_service_token = secrets.token_urlsafe(48) if self.protected_preprod else "dev-service-token"
-        self.actor_signing_secret = secrets.token_urlsafe(48) if self.protected_preprod else ""
+        self.actor_signing_secret = secrets.token_hex(32) if self.protected_preprod else ""
         self.browser_auth_token = (
             build_ephemeral_customer_jwt(self.jwt_secret) if self.protected_preprod else ""
         )

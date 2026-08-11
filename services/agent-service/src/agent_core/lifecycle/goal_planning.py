@@ -845,6 +845,39 @@ class ModelGoalAlignmentVerifier:
                     "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
                 }
                 continue
+            normalized_scope_reason = (
+                str(verdict.reason_code or "").strip().casefold().replace("-", "_").replace(" ", "_")
+            )
+            scope_details = verdict.details if isinstance(verdict.details, dict) else {}
+            if (
+                blind_dependency_audit
+                and verifier_repair_kind == "candidate_blind_dependency_reaudit"
+                and verdict.verdict == "incomplete"
+                and normalized_scope_reason == "target_scope_constraint_coverage"
+                and scope_details.get("dependency_proof_complete") is True
+                and scope_details.get("dependency_graph_match") is True
+                and bool(verdict.missing_spans)
+                and attempt < 2
+            ):
+                # A candidate-blind verifier can still confuse target identity or a
+                # current-turn ResultRef with a population-narrowing predicate. Spend
+                # the already-budgeted third call on an independent scope-claim
+                # re-audit; Runtime never interprets the user's language itself.
+                verifier_repair_kind = "candidate_blind_dependency_scope_constraint_reaudit"
+                verifier_repair = (
+                    "Re-audit only the previous target-scope-constraint mismatch claim while preserving the complete "
+                    "candidate-blind dependency proof. A target_candidate.scope_constraints entry is required only for an "
+                    "explicit filter, status predicate, threshold or comparison that narrows which members belong in this "
+                    "Goal's requested target/result population. Object identity, member naming, ordinary target selection, "
+                    "and an explicit reference to an earlier current-turn Goal result are not scope constraints; a true "
+                    "current-turn result reference belongs only in dependency_decisions. If the prior missing_spans confused "
+                    "one of those target/reference forms with a narrowing predicate, withdraw that scope mismatch and return "
+                    "exact only when no other semantic mismatch remains. If USER_TEXT really contains an omitted narrowing "
+                    "predicate, remain incomplete and copy only its smallest literal span into missing_spans. Do not choose a "
+                    "tool, target, entity, normalized business value, capability or implementation step. Return the full "
+                    "candidate-blind JSON contract, including one dependency_decisions row for every unordered Goal pair."
+                )
+                continue
             if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
             if verdict.verdict == "clarify":
