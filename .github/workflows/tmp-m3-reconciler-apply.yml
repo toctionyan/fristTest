@@ -25,7 +25,9 @@ jobs:
         with:
           python-version: '3.12.13'
       - name: Apply M3 patch
-        run: python -B scripts/tmp_m3_reconciler_apply.py
+        run: |
+          python -B scripts/tmp_m3_reconciler_apply.py
+          python -B scripts/tmp_m3_contract_anchor_fix.py
       - name: Compile changed controllers
         run: |
           python -m py_compile \
