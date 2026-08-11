@@ -68,7 +68,8 @@ jobs:
           EXPECTED=$(printf '%s\n' \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py \
-            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py | sort)
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py | sort)
           ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
           test "$ACTUAL" = "$EXPECTED"
 
@@ -89,7 +90,8 @@ jobs:
           git add \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py \
-            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py
           git diff --cached --check
           git commit -m 'Repair requested-effect verifier false positives'
           git rev-parse HEAD > ../product-sha.txt
@@ -123,6 +125,7 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             skill-system/registry/product-source-baseline.json \
             skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py \
-            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py | sort)
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py | sort)
           test "$FINAL" = "$EXPECTED"
           git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
