@@ -44,14 +44,15 @@ jobs:
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt7_scope_constraint_carrier.py
           patch --workspace candidate
-      - name: Correct brittle source-text assertion
+      - name: Correct focused regressions and close scope permit gate
         working-directory: candidate
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" - <<'PY'
           from pathlib import Path
-          path = Path("skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py")
-          text = path.read_text(encoding="utf-8")
+
+          test_path = Path("skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py")
+          text = test_path.read_text(encoding="utf-8")
           old = '    assert "Goal.condition is a separate" in policy\n'
           new = (
               '    assert "Goal.condition" in policy\n'
@@ -59,7 +60,96 @@ jobs:
           )
           if text.count(old) != 1:
               raise SystemExit(f"brittle assertion anchor count={text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          text = text.replace(old, new, 1)
+
+          old_loop = '''    for forbidden in ("待发货", "已签收", "在路上", "运输中", "快递员"):\n        assert forbidden not in policy\n        assert forbidden not in gate_source\n'''
+          new_loop = '''    scope_start = gate_source.index("def _literal_scope_overlap")\n    scope_end = gate_source.index("def _visible_reference_proof", scope_start)\n    scope_bridge = gate_source[scope_start:scope_end]\n    for forbidden in ("待发货", "已签收", "在路上", "运输中", "快递员"):\n        assert forbidden not in policy\n        assert forbidden not in scope_bridge\n'''
+          if text.count(old_loop) != 1:
+              raise SystemExit(f"domain-neutral scope anchor count={text.count(old_loop)}")
+          text = text.replace(old_loop, new_loop, 1)
+
+          text += r'''
+
+
+def test_issue_execution_permit_fails_closed_when_frozen_scope_is_unbound() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    import agent_core.runtime.capability_gate as gate
+
+    contract = SimpleNamespace(key="order.query_logistics:order", execution_kind="read")
+    registry = SimpleNamespace(contract_for_tool=lambda _name: contract)
+    state = {
+        "current_turn_plan": {
+            "effects": [{"effect_id": "effect-1", "goal_ids": ["g1"]}],
+        },
+    }
+    with patch.object(gate, "normalize_tool_arguments", return_value=({}, {})), patch.object(
+        gate, "validate_tool_arguments", return_value=[]
+    ), patch.object(
+        gate, "_parameterization_proof", return_value={"parameterization_complete": True, "bindings": [], "errors": []}
+    ), patch.object(
+        gate, "_visible_reference_proof", return_value={"complete": True, "checks": [], "errors": []}
+    ), patch.object(
+        gate, "_explicit_member_scope_proof", return_value={"complete": True, "errors": []}
+    ), patch.object(
+        gate, "_derived_collection_scope_proof", return_value={"complete": True, "errors": []}
+    ), patch.object(
+        gate, "_formal_goal_condition_coverage_proof", return_value={"complete": True, "errors": []}
+    ), patch.object(
+        gate, "_formal_goal_scope_coverage_proof", return_value={
+            "complete": False,
+            "errors": ["formal_goal_scope_constraint_unbound:g1:0"],
+        }
+    ), patch.object(
+        gate, "_semantic_reference_binding_proof", return_value={"complete": True, "errors": []}
+    ), patch.object(
+        gate, "_pretool_frontier_proof", return_value={"allowed": True, "errors": [], "reason_code": "allowed"}
+    ), patch.object(
+        gate, "semantic_goals", return_value=[]
+    ), patch.object(
+        gate, "goal_effect_match_proof", return_value={"allowed": True, "errors": []}
+    ):
+        decision = gate.issue_execution_permit(
+            state=state,
+            tool_name="query_logistics",
+            args={},
+            effect_id="effect-1",
+            capability_registry=registry,
+        )
+
+    assert decision.permitted is False
+    assert decision.rejection["code"] == "CAPABILITY_SCOPE_CONSTRAINT_UNBOUND"
+    assert "formal_goal_scope_constraint_unbound:g1:0" in decision.match_proof["constraint_errors"]
+'''
+          test_path.write_text(text.rstrip() + "\n", encoding="utf-8")
+
+          gate_path = Path("services/agent-service/src/agent_core/runtime/capability_gate.py")
+          source = gate_path.read_text(encoding="utf-8")
+
+          old_exact = '''"exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and formal_condition_coverage.get("complete") and visible_reference.get("complete")'''
+          new_exact = '''"exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and formal_condition_coverage.get("complete") and formal_scope_coverage.get("complete") and visible_reference.get("complete")'''
+          if source.count(old_exact) != 1:
+              raise SystemExit(f"exact-match scope anchor count={source.count(old_exact)}")
+          source = source.replace(old_exact, new_exact, 1)
+
+          old_reject = '''if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete") or not visible_reference.get("complete")'''
+          new_reject = '''if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete") or not formal_scope_coverage.get("complete") or not visible_reference.get("complete")'''
+          if source.count(old_reject) != 1:
+              raise SystemExit(f"reject scope anchor count={source.count(old_reject)}")
+          source = source.replace(old_reject, new_reject, 1)
+
+          old_code = '''                            else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"\n                            if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+          new_code = '''                            else "CAPABILITY_SCOPE_CONSTRAINT_UNBOUND"\n                            if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")\n                            else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"\n                            if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+          if source.count(old_code) != 1:
+              raise SystemExit(f"rejection-code scope anchor count={source.count(old_code)}")
+          source = source.replace(old_code, new_code, 1)
+
+          old_message = '''                            else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"\n                            if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+          new_message = '''                            else "当前请求中冻结的目标范围约束没有绑定到真实查询/目标参数或已验证结果血缘，系统不会用更宽泛查询代替。"\n                            if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")\n                            else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"\n                            if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+          if source.count(old_message) != 1:
+              raise SystemExit(f"rejection-message scope anchor count={source.count(old_message)}")
+          source = source.replace(old_message, new_message, 1)
+          gate_path.write_text(source, encoding="utf-8")
           PY
       - name: Run focused Attempt 7 and preserved authority regressions
         working-directory: candidate
