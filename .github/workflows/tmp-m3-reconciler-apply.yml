@@ -1,0 +1,64 @@
+name: temporary-m3-reconciler-apply
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.head_ref == 'long-task-execution-control-plane-m3-reconciler'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: long-task-execution-control-plane-m3-reconciler
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Apply M3 patch
+        run: python -B scripts/tmp_m3_reconciler_apply.py
+      - name: Compile changed controllers
+        run: |
+          python -m py_compile \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_coordinator_contract.py
+      - name: Run focused M3 counterexamples
+        run: python -m unittest discover -s skill-system/tests -p 'test_wp08_m3_reconciler_authority.py' -v
+      - name: Validate static coordinator contract
+        run: python -B scripts/wp08_release_coordinator_contract.py --workspace-root .
+      - name: Check diff
+        run: git diff --check
+      - name: Publish validated M3 product commit if needed
+        env:
+          BRANCH: long-task-execution-control-plane-m3-reconciler
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_coordinator_contract.py \
+            .github/workflows/wp08-release-coordinator.yml \
+            skill-system/tests/test_wp08_m3_reconciler_authority.py; then
+            echo 'M3 product patch already published'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            scripts/wp08_release_coordinator.py \
+            scripts/wp08_release_recovery.py \
+            scripts/wp08_release_coordinator_contract.py \
+            .github/workflows/wp08-release-coordinator.yml \
+            skill-system/tests/test_wp08_m3_reconciler_authority.py
+          git commit -m 'Make WP-08 reconciliation replay coordinator authority'
+          git push origin "HEAD:${BRANCH}"
