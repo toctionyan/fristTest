@@ -1,0 +1,42 @@
+name: wp08-attempt7-formal-focused-validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  focused-validation:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-formal-focused-validation-20260811'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact formal Attempt 7 repair
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: dd2373898bbe1e2ca8f0ec53f0db09b9adff6d15
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Run focused Attempt 7 formal repair regressions
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/agent-service/src \
+            services/agent-service/.venv/bin/python -m pytest \
+            skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py \
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
+            skill-system/tests/test_wp08_attempt5_followup_repair.py \
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            -q
