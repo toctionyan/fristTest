@@ -33,6 +33,7 @@ from wp08_release_coordinator import handle_workflow_run as consume_workflow_run
 from wp08_release_state import (  # noqa: E402
     CONTRACT,
     ReleaseStateError,
+    STATUS_ABORTED,
     STATUS_ATTEMPT_BUDGET_EXHAUSTED,
     STATUS_AWAITING_ENVIRONMENT_CONFIGURATION,
     STATUS_AWAITING_ENVIRONMENT_RUNTIME,
@@ -52,6 +53,7 @@ _CLASSIFY_RE = re.compile(r"^/wp08\s+classify\s+environment_configuration\s+run=
 _RESUME_RE = re.compile(r"^/wp08\s+resume\s+environment_configuration\s+run=([0-9]+)\s*$")
 _CLASSIFY_RUNTIME_RE = re.compile(r"^/wp08\s+classify\s+environment_runtime\s+run=([0-9]+)\s*$")
 _RESUME_RUNTIME_RE = re.compile(r"^/wp08\s+resume\s+environment_runtime\s+run=([0-9]+)\s*$")
+_RETIRE_EXHAUSTED_RE = re.compile(r"^/wp08\s+retire\s+attempt_budget_exhausted\s+run=([0-9]+)\s*$")
 
 
 class RecoveryError(RuntimeError):
@@ -198,6 +200,37 @@ def handle_issue_comment(api: GitHubAPI, event: Mapping[str, Any]) -> None:
     comment = event.get("comment") if isinstance(event.get("comment"), Mapping) else {}
     body = str(comment.get("body") or "").strip()
 
+
+    retire_exhausted = _RETIRE_EXHAUSTED_RE.fullmatch(body)
+    if retire_exhausted:
+        run_id = positive_int(retire_exhausted.group(1), name="retired WP-08 run id")
+        if int(current.get("current_wp08_run_id") or 0) != run_id:
+            raise RecoveryError("retirement run ID does not match active WP-08 run")
+        if current["attempt"] != current["max_attempts"]:
+            raise RecoveryError("ReleaseRun attempt budget is not exhausted")
+        if current["status"] not in {
+            STATUS_FAILED_NEEDS_CLASSIFICATION,
+            STATUS_ATTEMPT_BUDGET_EXHAUSTED,
+        }:
+            raise RecoveryError("ReleaseRun is not eligible for exhausted-budget retirement")
+        run = _validate_wp08_run(api, current, run_id)
+        conclusion = str(run.get("conclusion") or "")
+        if conclusion not in {"failure", "cancelled", "timed_out", "stale"}:
+            raise RecoveryError("retirement requires a terminal failure-like WP-08 run")
+        retired = {
+            **current,
+            "status": STATUS_ABORTED,
+            "updated_at": utc_now(),
+            "history": _history(
+                current,
+                event="release_run_retired_attempt_budget_exhausted",
+                wp08_run_id=run_id,
+                conclusion=conclusion,
+                actor=actor,
+            ),
+        }
+        persist_release_state(api, issue_number, retired, close=True)
+        return
 
     classify_runtime = _CLASSIFY_RUNTIME_RE.fullmatch(body)
     if classify_runtime:

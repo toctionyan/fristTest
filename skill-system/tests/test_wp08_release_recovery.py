@@ -72,7 +72,13 @@ class FakeAPI:
     def list_workflow_runs(self, workflow_file: str, *, branch: str = "main", event: str | None = None):
         return []
 
-    def dispatch_wp08(self, *, candidate_sha: str) -> int:
+    def dispatch_wp08(
+        self,
+        *,
+        candidate_sha: str,
+        resume_run_id: int | None = None,
+        resume_run_attempt: int = 1,
+    ) -> int:
         self.dispatched.append(candidate_sha)
         return 43
 
