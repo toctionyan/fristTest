@@ -46,6 +46,8 @@ jobs:
           patch --workspace candidate
       - name: Run exact failed contract test
         working-directory: candidate/services/agent-service
+        env:
+          PYTHONPATH: src
         run: >-
           .venv/bin/python -m pytest
           tests/runtime/test_goal_coverage_runtime.py::test_invalid_goal_declaration_returns_authoritative_current_user_text
@@ -78,6 +80,8 @@ jobs:
             baseline --workspace candidate --product-sha "$PRODUCT_SHA"
       - name: Run full Agent standard test suite
         working-directory: candidate/services/agent-service
+        env:
+          PYTHONPATH: src
         run: .venv/bin/python -m pytest -q -ra -p no:cacheprovider -m "not integration and not preprod"
       - name: Run full Skill control plane
         working-directory: candidate
