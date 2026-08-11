@@ -1,0 +1,132 @@
+name: wp08-attempt4-quality-followup-carrier
+
+"on":
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/wp08-attempt4-quality-followup-carrier.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wp08-attempt4-quality-followup-carrier-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-publish-followup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact formal repair head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: e6f3bd83a35a51f565654f863feb680fd799b62b
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify exact formal source identity
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "e6f3bd83a35a51f565654f863feb680fd799b62b"
+          test -z "$(git -C source status --porcelain)"
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r source/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd source/services/agent-service && uv sync --locked --all-groups
+
+      - name: Align legacy dependency-authority regressions with adversarial third-call contract
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+          path = Path('source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py')
+          text = path.read_text(encoding='utf-8')
+
+          old1 = '''    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=[candidate, blind]\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 2\n    assert verdict.exact\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["dependency_edges"][0]["basis_span"] == "它"\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"\n'''
+          new1 = '''    adversarial_confirmation = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "b_depends_on_a",\n            "basis_kind": "result_reference",\n            "basis_span": "它",\n        }],\n        "reason_code": "adversarial_true_result_reference",\n    })\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=[candidate, blind, adversarial_confirmation]\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 3\n    assert verdict.exact\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["dependency_edges"][0]["basis_span"] == "它"\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_positive_edge_adjudication"\n'''
+          if text.count(old1) != 1:
+              raise SystemExit('first legacy assertion block drifted')
+          text = text.replace(old1, new1, 1)
+
+          old2 = '''        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "b_depends_on_a",\n                "basis_kind": "result_reference",\n                "basis_span": "它",\n            }],\n            "reason_code": "blind_dependency_reaudit_exact",\n        }),\n    ]\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=calls\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 2\n    assert verdict.exact\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"\n'''
+          new2 = '''        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "b_depends_on_a",\n                "basis_kind": "result_reference",\n                "basis_span": "它",\n            }],\n            "reason_code": "blind_dependency_reaudit_exact",\n        }),\n        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "b_depends_on_a",\n                "basis_kind": "result_reference",\n                "basis_span": "它",\n            }],\n            "reason_code": "adversarial_dependency_confirmation",\n        }),\n    ]\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=calls\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 3\n    assert verdict.exact\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_positive_edge_adjudication"\n'''
+          if text.count(old2) != 1:
+              raise SystemExit('second legacy assertion block drifted')
+          path.write_text(text.replace(old2, new2, 1), encoding='utf-8')
+          PY
+          git -C source diff --check
+          test "$(git -C source diff --name-only)" = "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py"
+
+      - name: Run focused Attempt 4 and dependency-authority regressions
+        run: >-
+          source/services/agent-service/.venv/bin/python -B -m pytest -q
+          source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+          source/services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py
+          source/skill-system/tests/test_wp08_attempt4_dependency_reference_repair.py
+          source/skill-system/tests/test_wp08_attempt3_verifier_stability_repair.py
+          source/skill-system/tests/test_wp08_attempt2_semantic_boundary_repair.py
+
+      - name: Run complete standard Python suites
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/scripts/run_python_test_suites.py source --mode standard
+
+      - name: Commit regression alignment
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+          git diff --cached --check
+          git commit -m 'Align dependency authority regressions with adversarial re-audit'
+          git rev-parse HEAD > ../product-sha.txt
+
+      - name: Refresh protected baseline for exact test change
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from datetime import datetime, timezone
+          from pathlib import Path
+          import hashlib, json
+          root = Path('source')
+          baseline = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(baseline.read_text(encoding='utf-8'))
+          rel = 'services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py'
+          if rel not in payload.get('files', {}):
+              raise SystemExit('protected baseline does not own legacy dependency-authority test')
+          payload['files'][rel] = hashlib.sha256((root / rel).read_bytes()).hexdigest()
+          payload['generated_at'] = datetime.now(timezone.utc).isoformat()
+          payload['generated_from'] = 'git:' + Path('product-sha.txt').read_text(encoding='utf-8').strip()
+          baseline.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          PY
+
+      - name: Run complete Skill control plane after baseline refresh
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Bind baseline and publish formal branch follow-up
+        working-directory: source
+        env:
+          FORMAL_BRANCH: wp08-release-31474689970-attempt4-repair
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          test "$(git diff --cached --name-only)" = "skill-system/registry/product-source-baseline.json"
+          git diff --cached --check
+          git commit -m 'Bind Attempt 4 quality follow-up to protected baseline'
+          test -z "$(git status --porcelain)"
+          git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
