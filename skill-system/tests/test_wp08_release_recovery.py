@@ -156,7 +156,7 @@ def test_environment_resume_is_forbidden_before_classification() -> None:
 def test_coordinator_workflow_has_reconciliation_and_comment_control_without_secrets() -> None:
     workflow = (ROOT / ".github" / "workflows" / "wp08-release-coordinator.yml").read_text(encoding="utf-8")
     assert "schedule:" in workflow
-    assert "cron: '*/5 * * * *'" in workflow
+    assert "cron: '2-59/5 * * * *'" in workflow
     assert "issue_comment:" in workflow
     assert "scripts/wp08_release_recovery.py --mode reconcile" in workflow
     assert "scripts/wp08_release_recovery.py --mode issue-comment" in workflow
