@@ -1139,7 +1139,6 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
             "required_action": "redeclaration",
             "evidence_span_rule": "literal_contiguous_substring",
             "requested_effect_rule": "preserve the user's open business effect; do not coerce it into a nearby registered capability",
-            "scope_constraint_rule": "explicit target/result-population predicates use target_candidate.scope_constraints literal evidence; ordinary scope filters are not Goal.condition",
         },
     }
 
