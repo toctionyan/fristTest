@@ -53,6 +53,10 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
     required_workflow_fragments = (
         "name: wp08-release-coordinator",
         "workflow_dispatch:",
+        "operation:",
+        "default: authorize",
+        "- reconcile",
+        "cron: '2-59/5 * * * *'",
         "pull_request:",
         "workflow_run:",
         "push:",
@@ -75,6 +79,8 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "scripts/wp08_release_coordinator.py --mode bootstrap",
         "scripts/wp08_release_coordinator.py --mode pull-request",
         "scripts/wp08_release_coordinator.py --mode workflow-run",
+        "scripts/wp08_release_recovery.py --mode reconcile",
+        "WP08_COORDINATOR_OPERATION",
         "GITHUB_TOKEN: ${{ github.token }}",
     )
     missing = [fragment for fragment in required_workflow_fragments if fragment not in workflow]
@@ -133,7 +139,8 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         'WP08_WORKFLOW_FILE = "wp08-certification.yml"',
         'QUALITY_WORKFLOW_FILE = "quality.yml"',
         'actions/workflows/{WP08_WORKFLOW_FILE}/dispatches',
-        'payload={"ref": MAIN_BRANCH}',
+        'dispatch_payload: dict[str, Any] = {"ref": MAIN_BRANCH}',
+        "payload=dispatch_payload",
         "multiple active WP-08 release runs are forbidden",
         "workflow dispatch succeeded but the WP-08 run ID could not be resolved",
         '"X-GitHub-Api-Version": "2026-03-10"',
@@ -154,6 +161,8 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "bounded_retry_after_",
         "STATUS_FAILED_NEEDS_CLASSIFICATION",
         "STATUS_WAITING_REPAIR_CI",
+        "workflow run source must be event or reconcile",
+        "wp08_reconciled_completed_failure",
     )
     missing_orchestrator = [
         fragment for fragment in required_orchestrator_fragments if fragment not in coordinator
@@ -214,6 +223,8 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "bounded_retry": True,
         "max_attempts": EXPECTED_MAX_ATTEMPTS,
         "semantic_failure_auto_retry": False,
+        "manual_reconcile": True,
+        "reconciliation_authority": "coordinator-event-replay",
         "production_secret_boundary": "not-accessible-to-coordinator",
         "production_closed": False,
         "bootstraps": bootstraps,
