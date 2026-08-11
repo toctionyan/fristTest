@@ -115,8 +115,17 @@ def test_near_capability_effect_coercion_is_rejected_without_runtime_keyword_rul
         ],
         "reason_code": "requested_effect_not_faithful_to_business_effect",
     })
+    confirmed = _response({
+        "verdict": "incomplete",
+        "evidence_spans": ["查一下鼠标物流", "再告诉我快递员手机号"],
+        "missing_spans": ["快递员手机号"],
+        "dependency_decisions": [
+            {"goal_a_id": "g1", "goal_b_id": "g2", "relation": "independent"}
+        ],
+        "reason_code": "requested_effect_fidelity",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[first, blind]
+        "agent_core.model_calls.invoke_model", side_effect=[first, blind, confirmed]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(
             user_text=text,
@@ -124,10 +133,11 @@ def test_near_capability_effect_coercion_is_rejected_without_runtime_keyword_rul
             known_tools=set(),
         )
 
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.missing_spans == ("快递员手机号",)
-    assert verdict.reason_code == "requested_effect_not_faithful_to_business_effect"
+    assert verdict.reason_code == "requested_effect_fidelity"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_requested_effect_reaudit"
     assert verdict.details["dependency_pair_decisions"] == [
         {"goal_a_id": "g1", "goal_b_id": "g2", "relation": "independent"}
     ]

@@ -159,7 +159,7 @@ class WP08FinalProductClosureRepairTests(unittest.TestCase):
             "candidate_blind_dependency_scope_constraint_reaudit",
         )
 
-    def test_non_scope_semantic_mismatch_does_not_gain_extra_reaudit(self) -> None:
+    def test_requested_effect_mismatch_gets_bounded_reaudit_and_stays_fail_closed(self) -> None:
         from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
 
         text = "查一下键盘订单"
@@ -185,8 +185,15 @@ class WP08FinalProductClosureRepairTests(unittest.TestCase):
             "dependency_decisions": [],
             "reason_code": "requested-effect fidelity",
         })
+        confirmed_mismatch = _response({
+            "verdict": "incomplete",
+            "evidence_spans": [text],
+            "missing_spans": [text],
+            "dependency_decisions": [],
+            "reason_code": "requested_effect_fidelity",
+        })
         with patch("agent_core.config.get_model", return_value=object()), patch(
-            "agent_core.model_calls.invoke_model", side_effect=[first, effect_mismatch]
+            "agent_core.model_calls.invoke_model", side_effect=[first, effect_mismatch, confirmed_mismatch]
         ) as invoke:
             verdict = ModelGoalAlignmentVerifier().verify(
                 user_text=text,
@@ -194,8 +201,12 @@ class WP08FinalProductClosureRepairTests(unittest.TestCase):
                 known_tools=set(),
             )
 
-        self.assertEqual(invoke.call_count, 2)
+        self.assertEqual(invoke.call_count, 3)
         self.assertEqual(verdict.verdict, "incomplete")
+        self.assertEqual(
+            verdict.details.get("verifier_repair_kind"),
+            "candidate_blind_dependency_requested_effect_reaudit",
+        )
         self.assertNotEqual(
             verdict.details.get("verifier_repair_kind"),
             "candidate_blind_dependency_scope_constraint_reaudit",

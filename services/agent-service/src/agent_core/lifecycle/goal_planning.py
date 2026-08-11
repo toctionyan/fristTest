@@ -845,10 +845,49 @@ class ModelGoalAlignmentVerifier:
                     "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
                 }
                 continue
-            normalized_scope_reason = (
+            normalized_semantic_reason = (
                 str(verdict.reason_code or "").strip().casefold().replace("-", "_").replace(" ", "_")
             )
-            scope_details = verdict.details if isinstance(verdict.details, dict) else {}
+            semantic_details = verdict.details if isinstance(verdict.details, dict) else {}
+            requested_effect_mismatch = (
+                "requested_effect" in normalized_semantic_reason
+                and any(
+                    marker in normalized_semantic_reason
+                    for marker in ("fidelity", "faithful", "business_effect")
+                )
+            )
+            if (
+                blind_dependency_audit
+                and verifier_repair_kind == "candidate_blind_dependency_reaudit"
+                and verdict.verdict == "incomplete"
+                and requested_effect_mismatch
+                and semantic_details.get("dependency_proof_complete") is True
+                and semantic_details.get("dependency_graph_match") is True
+                and bool(verdict.missing_spans)
+                and attempt < 2
+            ):
+                # Candidate-blind requested-effect audit is intentionally strict,
+                # but an open/unsupported effect has no registered capability
+                # identity to copy. Spend the already-budgeted third verifier call
+                # on the semantic mismatch claim itself instead of treating naming
+                # granularity as product evidence. Runtime still never chooses a
+                # capability or rewrites the requested effect.
+                verifier_repair_kind = "candidate_blind_dependency_requested_effect_reaudit"
+                verifier_repair = (
+                    "Re-audit only the previous requested-effect fidelity mismatch claim while preserving the complete "
+                    "candidate-blind dependency proof. requested_effect is an open semantic identity of the customer's "
+                    "user-visible business outcome, not a capability-selection result. Judge domain, operation, object_type "
+                    "and raw_description together against the literal Goal evidence_span. An unsupported/unregistered effect "
+                    "or harmless naming granularity is not itself a mismatch, and capability availability must not be used as "
+                    "evidence. Withdraw the mismatch only when the declared effect still denotes the same user-visible outcome. "
+                    "If it substitutes a different lookup, action, object or business effect, remain incomplete and copy only "
+                    "the smallest literal USER_TEXT span proving that substitution into missing_spans. Do not choose a tool, "
+                    "consult a capability registry, normalize to a nearby registered effect, or rewrite the declaration. Return "
+                    "the full candidate-blind JSON contract, including one dependency_decisions row for every unordered Goal pair."
+                )
+                continue
+            normalized_scope_reason = normalized_semantic_reason
+            scope_details = semantic_details
             if (
                 blind_dependency_audit
                 and verifier_repair_kind == "candidate_blind_dependency_reaudit"
