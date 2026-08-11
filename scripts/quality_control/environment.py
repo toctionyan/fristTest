@@ -8,6 +8,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -18,6 +19,15 @@ from typing import Any
 
 from .common import _interpolate, _npm_executable
 from .constants import BLOCKED
+
+CONTROL_PLANE_DIR = Path(__file__).resolve().parents[2] / "skill-system" / "controller"
+if str(CONTROL_PLANE_DIR) not in sys.path:
+    sys.path.insert(0, str(CONTROL_PLANE_DIR))
+from execution_runtime import (  # type: ignore  # noqa: E402
+    atomic_json as _execution_atomic_json,
+    external_wait_file_probe,
+    run_streaming_command,
+)
 
 def _python_ast_parse(workspace: Path) -> dict[str, Any]:
     roots = [workspace / "services", workspace / "architecture-skill", workspace / "scripts"]
@@ -133,19 +143,10 @@ def _run_shell(workspace: Path, evidence_dir: Path, mode: str, step: dict[str, A
     if not cwd.is_dir():
         return {"exit_code": 2, "stdout": "", "stderr": f"step cwd does not exist: {cwd}", "metadata": {}}
     env = os.environ.copy()
-    # A quality-loop run may itself be launched by pytest-cov. Propagating
-    # that bootstrap into nested pytest/npm gates causes recursive collection,
-    # unstable timings and duplicate coverage files. Each declared gate owns
-    # its own coverage evidence, so strip only the outer bootstrap variables.
     for key in tuple(env):
         if key.startswith("COV_CORE_") or key == "COVERAGE_PROCESS_START":
             env.pop(key, None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    # Every Gate gets an explicit, writable evidence boundary.  Build tools and
-    # browser runners must put generated artifacts here instead of rewriting
-    # governed workspace inputs (for example frontend/dist).  These values are
-    # controller-owned and therefore deliberately override inherited shell
-    # values before the Gate-specific environment is applied below.
     env["QUALITY_EVIDENCE_DIR"] = str(evidence_dir)
     env["QUALITY_LOOP_MODE"] = mode
     env["QUALITY_GATE_ID"] = str(step.get("id") or "")
@@ -154,45 +155,58 @@ def _run_shell(workspace: Path, evidence_dir: Path, mode: str, step: dict[str, A
         env["PATH"] = str(npm.parent) + os.pathsep + env.get("PATH", "")
     for key, value in (step.get("env") or {}).items():
         env[str(key)] = _interpolate(str(value), workspace=workspace, evidence_dir=evidence_dir, mode=mode)
+
     timeout = int(step.get("timeout_seconds", 300))
-    started = time.monotonic()
-    timed_out = False
-    with tempfile.TemporaryDirectory(prefix=f"quality-step-{step.get('id', 'gate')}-") as temp:
-        stdout_path = Path(temp) / "stdout.log"
-        stderr_path = Path(temp) / "stderr.log"
-        with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
-            proc = subprocess.Popen(
-                argv,
-                cwd=str(cwd),
-                stdout=stdout_file,
-                stderr=stderr_file,
-                env=env,
-                start_new_session=True,
-            )
-            try:
-                proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _terminate_process_group(proc, grace_seconds=10)
-                if proc.poll() is None:
-                    proc.wait(timeout=2)
-            else:
-                # A successful gate is not allowed to leave background workers
-                # alive. They can retain controller descriptors and corrupt the
-                # next Gate even though the declared command already returned.
-                _terminate_process_group(proc, grace_seconds=0.5)
-        stdout = stdout_path.read_text(encoding="utf-8", errors="replace")
-        stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
-    duration_ms = int((time.monotonic() - started) * 1000)
-    if timed_out:
-        stderr = (stderr or "") + f"\nquality_loop_step_timeout_after_{timeout}s"
+    gate_id = str(step.get("id") or "gate")
+    safe_gate_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", gate_id).strip("-") or "gate"
+    liveness_dir = evidence_dir / "liveness"
+    liveness_file = liveness_dir / f"{safe_gate_id}.json"
+    external_wait_file = liveness_dir / f"{safe_gate_id}.external-wait.json"
+    external_wait_file.parent.mkdir(parents=True, exist_ok=True)
+    external_wait_file.unlink(missing_ok=True)
+    env.update({
+        "EXECUTION_EXTERNAL_WAIT_FILE": str(external_wait_file),
+        "EXECUTION_EXTERNAL_WAIT_CONTRACT": "execution-external-wait@1",
+        "EXECUTION_EXTERNAL_WAIT_SCOPE_KIND": "quality_gate",
+        "EXECUTION_EXTERNAL_WAIT_SCOPE_ID": gate_id,
+    })
+
+    def publish(event: dict[str, Any]) -> None:
+        payload = {
+            **event,
+            "contract": "quality-gate-liveness@1",
+            "gate_id": gate_id,
+            "mode": mode,
+        }
+        _execution_atomic_json(liveness_file, payload)
+        print("[quality-gate heartbeat] " + json.dumps(payload, ensure_ascii=False), file=sys.stderr, flush=True)
+
+    raw = run_streaming_command(
+        argv,
+        cwd=cwd,
+        env=env,
+        heartbeat_seconds=float(step.get("heartbeat_seconds") or 30.0),
+        stall_warning_seconds=float(step.get("stall_warning_seconds") or 240.0),
+        timeout_seconds=timeout,
+        on_heartbeat=publish,
+        external_wait_probe=external_wait_file_probe(
+            external_wait_file,
+            expected_scope={"kind": "quality_gate", "id": gate_id},
+        ),
+        cleanup_process_group_after_exit=True,
+        cleanup_grace_seconds=0.5,
+    )
+    stderr = str(raw.get("stderr") or "")
+    if bool(raw.get("timed_out")):
+        stderr += f"\nquality_loop_step_timeout_after_{timeout}s"
     return {
-        "exit_code": 124 if timed_out else int(proc.returncode or 0),
-        "stdout": stdout or "",
-        "stderr": stderr or "",
-        "duration_ms": duration_ms,
+        "exit_code": int(raw.get("exit_code") or 0),
+        "stdout": str(raw.get("stdout") or ""),
+        "stderr": stderr,
+        "duration_ms": int(float(raw.get("duration_seconds") or 0.0) * 1000),
         "metadata": {"argv": argv},
     }
+
 
 def _runtime_environment_block_evidence(raw: dict[str, Any]) -> dict[str, str] | None:
     """Accept a dynamic environment block only through an explicit protocol.

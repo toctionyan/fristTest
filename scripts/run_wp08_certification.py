@@ -24,6 +24,16 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, TextIO
 
+CONTROL_PLANE_DIR = Path(__file__).resolve().parents[1] / "skill-system" / "controller"
+if str(CONTROL_PLANE_DIR) not in sys.path:
+    sys.path.insert(0, str(CONTROL_PLANE_DIR))
+from execution_runtime import (  # type: ignore  # noqa: E402
+    ExecutionRuntimeError,
+    atomic_json as _execution_atomic_json,
+    external_wait_file_probe,
+    run_streaming_command,
+)
+
 CONTRACT = "wp08-resumable-certification@1"
 LIVENESS_CONTRACT = "wp08-certification-liveness@1"
 PASS = "PASS"
@@ -46,13 +56,8 @@ def utc_now() -> str:
 
 
 def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    _execution_atomic_json(path, payload)
+
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -231,60 +236,8 @@ def _positive_float(env: Mapping[str, str], name: str, default: float) -> float:
     return value if value > 0 else default
 
 
-def _terminate_process(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-    else:
-        process.terminate()
-    try:
-        process.wait(timeout=5)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    if os.name == "posix":
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
-    else:
-        process.kill()
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
 
 
-def _stream_reader(
-    stream: TextIO,
-    *,
-    chunks: list[str],
-    sink: TextIO,
-    stream_name: str,
-    activity: dict[str, Any],
-    lock: threading.Lock,
-) -> None:
-    try:
-        for line in iter(stream.readline, ""):
-            if not line:
-                break
-            chunks.append(line)
-            sink.write(line)
-            sink.flush()
-            with lock:
-                activity["last_progress_monotonic"] = time.monotonic()
-                activity["last_progress_at"] = utc_now()
-                activity["last_activity"] = f"{stream_name}_output"
-                activity["progress_event_count"] = int(activity.get("progress_event_count") or 0) + 1
-    finally:
-        try:
-            stream.close()
-        except OSError:
-            pass
 
 
 def _liveness_paths(env: Mapping[str, str]) -> tuple[Path | None, Path | None]:
@@ -325,32 +278,38 @@ def _publish_liveness(env: Mapping[str, str], payload: Mapping[str, Any]) -> Non
 def _heartbeat_payload(
     *,
     env: Mapping[str, str],
-    process: subprocess.Popen[str],
-    batch_started_at: str,
-    started_monotonic: float,
-    activity: Mapping[str, Any],
-    liveness_status: str,
-    termination_reason: str | None = None,
+    runtime_payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    now = time.monotonic()
-    last_progress = float(activity.get("last_progress_monotonic") or started_monotonic)
+    generic = str(runtime_payload.get("liveness_status") or "")
+    status_map = {
+        "RUNNING_ACTIVE": "RUNNING",
+        "RUNNING_WAITING_EXTERNAL": "RUNNING_WAITING_EXTERNAL",
+        "SUSPECTED_STALL": "SUSPECTED_STALL",
+        "STALL_TIMEOUT": "STALL_TIMEOUT",
+        "TIMEOUT": "TIMEOUT",
+        "COMPLETED": "BATCH_COMPLETED",
+        "FAILED": "BATCH_COMPLETED",
+    }
+    termination_reason = runtime_payload.get("termination_reason")
+    if termination_reason == "command_timeout":
+        termination_reason = "batch_timeout"
     batch_index = int(str(env.get("WP08_BATCH_INDEX") or "0") or "0")
     batch_total = int(str(env.get("WP08_BATCH_TOTAL") or "0") or "0")
-    return {
+    payload = {
         "contract": LIVENESS_CONTRACT,
         "run_id": str(env.get("GITHUB_RUN_ID") or ""),
         "run_attempt": str(env.get("GITHUB_RUN_ATTEMPT") or ""),
         "commit_sha": str(env.get("GITHUB_SHA") or ""),
-        "heartbeat_at": utc_now(),
-        "batch_started_at": batch_started_at,
-        "last_progress_at": str(activity.get("last_progress_at") or batch_started_at),
-        "last_activity": str(activity.get("last_activity") or "process_started"),
-        "progress_event_count": int(activity.get("progress_event_count") or 0),
-        "liveness_status": liveness_status,
-        "child_process_alive": process.poll() is None,
-        "child_pid": process.pid,
-        "elapsed_seconds": round(max(0.0, now - started_monotonic), 3),
-        "idle_seconds": round(max(0.0, now - last_progress), 3),
+        "heartbeat_at": runtime_payload.get("heartbeat_at") or utc_now(),
+        "batch_started_at": runtime_payload.get("started_at"),
+        "last_progress_at": runtime_payload.get("last_progress_at"),
+        "last_activity": runtime_payload.get("last_activity"),
+        "progress_event_count": int(runtime_payload.get("progress_event_count") or 0),
+        "liveness_status": status_map.get(generic, generic or "RUNNING"),
+        "child_process_alive": bool(runtime_payload.get("child_process_alive")),
+        "child_pid": runtime_payload.get("child_pid"),
+        "elapsed_seconds": runtime_payload.get("elapsed_seconds"),
+        "idle_seconds": runtime_payload.get("idle_seconds"),
         "current_batch": {
             "id": str(env.get("WP08_CURRENT_BATCH_ID") or ""),
             "title": str(env.get("WP08_CURRENT_BATCH_TITLE") or ""),
@@ -361,6 +320,12 @@ def _heartbeat_payload(
         "termination_reason": termination_reason,
         "production_closed": False,
     }
+    if runtime_payload.get("external_wait_evidence") is not None:
+        payload["external_wait_evidence"] = runtime_payload.get("external_wait_evidence")
+    if runtime_payload.get("returncode") is not None:
+        payload["returncode"] = runtime_payload.get("returncode")
+    return payload
+
 
 
 def _run_process(
@@ -382,18 +347,47 @@ def _run_process(
     stall_warning_seconds = max(stall_warning_seconds, heartbeat_seconds)
     stall_timeout_seconds = max(stall_timeout_seconds, stall_warning_seconds + heartbeat_seconds)
 
+    external_wait_raw = str(env.get("WP08_EXTERNAL_WAIT_FILE") or "").strip()
+    external_wait_probe = None
+    if external_wait_raw:
+        external_wait_probe = external_wait_file_probe(
+            Path(external_wait_raw),
+            expected_scope={
+                "kind": "wp08_batch",
+                "id": str(env.get("WP08_CURRENT_BATCH_ID") or ""),
+            },
+        )
+
+    def publish(runtime_event: dict[str, Any]) -> None:
+        payload = _heartbeat_payload(env=env, runtime_payload=runtime_event)
+        _publish_liveness(env, payload)
+        status = str(payload.get("liveness_status") or "")
+        alive = bool(payload.get("child_process_alive"))
+        if alive and status == "STALL_TIMEOUT":
+            prefix = "[WP08 STALL] "
+        elif alive and status == "TIMEOUT":
+            prefix = "[WP08 TIMEOUT] "
+        elif status == "BATCH_COMPLETED" or not alive:
+            prefix = "[WP08 LIVENESS] "
+        else:
+            prefix = "[WP08 HEARTBEAT] "
+        print(prefix + json.dumps(payload, ensure_ascii=False), flush=True)
+
     try:
-        process = subprocess.Popen(
+        raw = run_streaming_command(
             command,
             cwd=cwd,
-            env=dict(env),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=(os.name == "posix"),
-            bufsize=1,
+            env=env,
+            heartbeat_seconds=heartbeat_seconds,
+            stall_warning_seconds=stall_warning_seconds,
+            stall_timeout_seconds=stall_timeout_seconds,
+            timeout_seconds=timeout_seconds,
+            on_heartbeat=publish,
+            external_wait_probe=external_wait_probe,
+            stdout_mirror=sys.stdout,
+            stderr_mirror=sys.stderr,
         )
-    except OSError as exc:
+    except ExecutionRuntimeError as exc:
         payload = {
             "status": BLOCKED,
             "reason": "batch_executable_unavailable",
@@ -401,130 +395,13 @@ def _run_process(
             "error": str(exc),
         }
         return 78, json.dumps(payload, ensure_ascii=False) + "\n", str(exc), False
+    return (
+        int(raw.get("exit_code") or 0),
+        str(raw.get("stdout") or ""),
+        str(raw.get("stderr") or ""),
+        bool(raw.get("timed_out")),
+    )
 
-    assert process.stdout is not None
-    assert process.stderr is not None
-    stdout_chunks: list[str] = []
-    stderr_chunks: list[str] = []
-    started_monotonic = time.monotonic()
-    batch_started_at = utc_now()
-    activity: dict[str, Any] = {
-        "last_progress_monotonic": started_monotonic,
-        "last_progress_at": batch_started_at,
-        "last_activity": "process_started",
-        "progress_event_count": 0,
-    }
-    lock = threading.Lock()
-    stdout_thread = threading.Thread(
-        target=_stream_reader,
-        kwargs={
-            "stream": process.stdout,
-            "chunks": stdout_chunks,
-            "sink": sys.stdout,
-            "stream_name": "stdout",
-            "activity": activity,
-            "lock": lock,
-        },
-        daemon=True,
-    )
-    stderr_thread = threading.Thread(
-        target=_stream_reader,
-        kwargs={
-            "stream": process.stderr,
-            "chunks": stderr_chunks,
-            "sink": sys.stderr,
-            "stream_name": "stderr",
-            "activity": activity,
-            "lock": lock,
-        },
-        daemon=True,
-    )
-    stdout_thread.start()
-    stderr_thread.start()
-
-    next_heartbeat = started_monotonic
-    termination_reason: str | None = None
-    timed_out = False
-    while process.poll() is None:
-        now = time.monotonic()
-        with lock:
-            last_progress = float(activity.get("last_progress_monotonic") or started_monotonic)
-            snapshot_activity = dict(activity)
-        elapsed = now - started_monotonic
-        idle = now - last_progress
-        if idle >= stall_timeout_seconds:
-            termination_reason = "no_progress_stall"
-            timed_out = True
-            payload = _heartbeat_payload(
-                env=env,
-                process=process,
-                batch_started_at=batch_started_at,
-                started_monotonic=started_monotonic,
-                activity=snapshot_activity,
-                liveness_status="STALL_TIMEOUT",
-                termination_reason=termination_reason,
-            )
-            _publish_liveness(env, payload)
-            print("[WP08 STALL] " + json.dumps(payload, ensure_ascii=False), flush=True)
-            _terminate_process(process)
-            break
-        if elapsed >= timeout_seconds:
-            termination_reason = "batch_timeout"
-            timed_out = True
-            payload = _heartbeat_payload(
-                env=env,
-                process=process,
-                batch_started_at=batch_started_at,
-                started_monotonic=started_monotonic,
-                activity=snapshot_activity,
-                liveness_status="TIMEOUT",
-                termination_reason=termination_reason,
-            )
-            _publish_liveness(env, payload)
-            print("[WP08 TIMEOUT] " + json.dumps(payload, ensure_ascii=False), flush=True)
-            _terminate_process(process)
-            break
-        if now >= next_heartbeat:
-            liveness_status = "SUSPECTED_STALL" if idle >= stall_warning_seconds else "RUNNING"
-            payload = _heartbeat_payload(
-                env=env,
-                process=process,
-                batch_started_at=batch_started_at,
-                started_monotonic=started_monotonic,
-                activity=snapshot_activity,
-                liveness_status=liveness_status,
-            )
-            _publish_liveness(env, payload)
-            print("[WP08 HEARTBEAT] " + json.dumps(payload, ensure_ascii=False), flush=True)
-            next_heartbeat = now + heartbeat_seconds
-        time.sleep(min(0.2, max(0.02, heartbeat_seconds / 5.0)))
-
-    stdout_thread.join(timeout=2)
-    stderr_thread.join(timeout=2)
-    returncode = 124 if timed_out else int(process.returncode or 0)
-    with lock:
-        final_activity = dict(activity)
-    final_status = (
-        "STALL_TIMEOUT"
-        if termination_reason == "no_progress_stall"
-        else "TIMEOUT"
-        if termination_reason == "batch_timeout"
-        else "BATCH_COMPLETED"
-    )
-    final_payload = _heartbeat_payload(
-        env=env,
-        process=process,
-        batch_started_at=batch_started_at,
-        started_monotonic=started_monotonic,
-        activity=final_activity,
-        liveness_status=final_status,
-        termination_reason=termination_reason,
-    )
-    final_payload["child_process_alive"] = False
-    final_payload["returncode"] = returncode
-    _publish_liveness(env, final_payload)
-    print("[WP08 LIVENESS] " + json.dumps(final_payload, ensure_ascii=False), flush=True)
-    return returncode, "".join(stdout_chunks), "".join(stderr_chunks), timed_out
 
 
 def run_certification(
@@ -624,12 +501,19 @@ def run_certification(
         started = time.monotonic()
         started_at = utc_now()
         batch_env = dict(env)
+        external_wait_file = batch_dir / "external-wait.json"
+        external_wait_file.unlink(missing_ok=True)
         batch_env.update({
             "WP08_CURRENT_BATCH_ID": batch_id,
             "WP08_CURRENT_BATCH_TITLE": str(batch["title"]),
             "WP08_CURRENT_BATCH_TIMEOUT": str(batch["timeout_seconds"]),
             "WP08_BATCH_INDEX": str(batch_index),
             "WP08_BATCH_TOTAL": str(batch_total),
+            "WP08_EXTERNAL_WAIT_FILE": str(external_wait_file),
+            "EXECUTION_EXTERNAL_WAIT_FILE": str(external_wait_file),
+            "EXECUTION_EXTERNAL_WAIT_CONTRACT": "execution-external-wait@1",
+            "EXECUTION_EXTERNAL_WAIT_SCOPE_KIND": "wp08_batch",
+            "EXECUTION_EXTERNAL_WAIT_SCOPE_ID": batch_id,
         })
         component = batch.get("production_component")
         if component:
