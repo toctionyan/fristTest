@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           test "$(git -C source rev-parse HEAD)" = "8896a996e4de906d8c2ac41ea33f3dae0438c7f2"
           test -z "$(git -C source status --porcelain)"
-          "${pythonLocation}/bin/python" -B -m py_compile \
+          python3 -B -m py_compile \
             control/scripts/tmp_wp08_attempt6_dependency_reference_repair.py \
             control/scripts/tmp_wp08_attempt6_dependency_reference_test_template.py
 
