@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/wp08-attempt1-requested-effect-reaudit-carrier.yml
       - scripts/tmp_wp08_attempt1_requested_effect_reaudit.py
+      - scripts/tmp_wp08_attempt1_requested_effect_reaudit_followup.py
 
 permissions:
   contents: write
@@ -56,10 +57,14 @@ jobs:
         run: cd source/services/agent-service && uv sync --locked --all-groups
 
       - name: Apply bounded requested-effect re-audit repair
-        run: >-
-          "${pythonLocation}/bin/python" -B
-          control/scripts/tmp_wp08_attempt1_requested_effect_reaudit.py
-          patch --workspace source
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt1_requested_effect_reaudit.py \
+            patch --workspace source
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt1_requested_effect_reaudit_followup.py \
+            source
 
       - name: Verify exact pre-baseline repair scope
         run: |
