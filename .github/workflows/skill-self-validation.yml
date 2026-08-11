@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   skill-self-validation:
@@ -32,79 +32,3 @@ jobs:
         run: >-
           services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py
           --workspace-root . --static-only
-
-      - name: Checkout exact V20.18 builder head
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'temp/v20.18-a2b-builder-20260812'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Reinstall locked Agent environment for builder head
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'temp/v20.18-a2b-builder-20260812'
-        run: cd services/agent-service && uv sync --locked --all-groups
-
-      - name: Apply governed V20.18 A2/B patch
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'temp/v20.18-a2b-builder-20260812'
-        run: "${pythonLocation}/bin/python" -B scripts/temp_v2018_a2b_builder.py
-
-      - name: Compile governed V20.18 A2/B sources
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'temp/v20.18-a2b-builder-20260812'
-        run: |
-          services/agent-service/.venv/bin/python -B -m py_compile \
-            services/agent-service/src/agent_core/modules/contracts.py \
-            services/agent-service/src/agent_core/modules/registry.py \
-            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
-            services/agent-service/src/agent_core/kernel/semantic_contract.py \
-            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
-            services/agent-service/src/agent_core/runtime/capability_effects.py \
-            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
-            services/agent-service/src/agent_modules/ecommerce/module.py
-
-      - name: Run focused and adjacent V20.18 A2/B regressions
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'temp/v20.18-a2b-builder-20260812'
-        env:
-          PYTHONPATH: ${{ github.workspace }}/services/agent-service/src
-        run: |
-          services/agent-service/.venv/bin/python -B -m pytest -q \
-            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
-            services/agent-service/tests/runtime/test_semantic_output_coverage.py \
-            services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py \
-            services/agent-service/tests/runtime/test_capability_contract_v2.py \
-            services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py \
-            services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py \
-            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
-
-      - name: Commit tested V20.18 candidate to temporary builder
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'temp/v20.18-a2b-builder-20260812'
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          git add \
-            services/agent-service/src/agent_core/modules/contracts.py \
-            services/agent-service/src/agent_core/modules/registry.py \
-            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
-            services/agent-service/src/agent_core/kernel/semantic_contract.py \
-            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
-            services/agent-service/src/agent_core/runtime/capability_effects.py \
-            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
-            services/agent-service/src/agent_modules/ecommerce/module.py \
-            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
-            services/agent-service/tests/runtime/test_semantic_output_coverage.py \
-            services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py
-          if git diff --cached --quiet; then
-            echo "Candidate already applied and focused tests passed."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Builder: implement V20.18 semantic output coverage"
-          git push origin "HEAD:${HEAD_REF}"
