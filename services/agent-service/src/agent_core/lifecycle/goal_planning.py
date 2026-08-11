@@ -513,6 +513,56 @@ def _requested_effect_identity_key(goal: dict[str, Any]) -> tuple[str, str, str]
     )
 
 
+def _requested_effect_sibling_collision_risk(
+    goals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project structural sibling-effect collisions for model adjudication.
+
+    Sharing one structured requested-effect identity is not itself a semantic
+    error: two siblings may legitimately request the same effect on different
+    targets. Runtime therefore never rejects from this signal. It only spends
+    the already-bounded third verifier slot when distinct sibling evidence spans
+    reuse an identical structured effect identity, so the independent model can
+    adversarially check whether one user-visible effect was collapsed into its
+    neighbor. No capability registry or business vocabulary is consulted.
+    """
+    by_identity: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for goal in goals:
+        identity = _requested_effect_identity_key(goal)
+        if all(identity):
+            by_identity.setdefault(identity, []).append(goal)
+    collisions: list[dict[str, Any]] = []
+    for identity, rows in by_identity.items():
+        goal_ids = sorted({
+            _clean_text(row.get("goal_id"), limit=80)
+            for row in rows
+            if _clean_text(row.get("goal_id"), limit=80)
+        })
+        evidence_spans = sorted({
+            _clean_text(row.get("evidence_span"), limit=240)
+            for row in rows
+            if _clean_text(row.get("evidence_span"), limit=240)
+        })
+        if len(goal_ids) < 2 or len(evidence_spans) < 2:
+            continue
+        collisions.append({
+            "effect_identity": {
+                "domain": identity[0],
+                "operation": identity[1],
+                "object_type": identity[2],
+            },
+            "goal_ids": goal_ids,
+            "evidence_spans": evidence_spans,
+        })
+    return {
+        "risk": bool(collisions),
+        "collisions": collisions,
+        "capability_registry_consulted": False,
+        "language_interpretation_used": False,
+        "runtime_rejection_authority": False,
+    }
+
+
 def _requested_effect_reaudit_collision_guard(
     goals: list[dict[str, Any]],
     missing_spans: tuple[str, ...],
@@ -1030,32 +1080,54 @@ class ModelGoalAlignmentVerifier:
                 and isinstance(verdict.details, dict)
                 and verdict.details.get("dependency_proof_complete") is True
                 and verdict.details.get("dependency_graph_match") is True
-                and bool(list(verdict.details.get("dependency_edges") or []))
                 and attempt < 2
             ):
-                # Positive same-turn result dependencies are high-impact because a
-                # false edge blocks an otherwise independently reportable sibling.
-                # Spend the existing third verifier slot on an adversarial graph-only
-                # confirmation while still hiding Planner depends_on. Runtime does
-                # not infer language or rewrite the graph; disagreement stays
-                # fail-closed and flows through ordinary redeclaration feedback.
-                verifier_repair_kind = "candidate_blind_dependency_positive_edge_adjudication"
-                verifier_repair = (
-                    "Adversarially re-audit the complete current-turn dependency graph from USER_TEXT only. Start every unordered "
-                    "Goal pair from independent and retain a positive edge only when a literal basis_span inside the dependent Goal "
-                    "proves that the user-visible later outcome itself consumes the earlier current-turn Goal result as a result_reference, "
-                    "result_condition or result_value_input. Sequencing, shared topic/scope, repeated business object, and stable-ID/artifact "
-                    "lookup needed only by execution are not result dependencies. Do not see or reconstruct Planner depends_on from tool "
-                    "needs. Return one dependency_decisions row for every unordered Goal pair together with the normal requested-effect and "
-                    "scope audit fields. A true explicit result reference/condition/value dependency must still be retained."
-                )
-                prompt = {
-                    "USER_TEXT_UNTRUSTED": user_text,
-                    "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
-                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
-                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
-                }
-                continue
+                positive_dependency_edges = bool(list(verdict.details.get("dependency_edges") or []))
+                effect_collision_risk = _requested_effect_sibling_collision_risk(goals)
+                if positive_dependency_edges or effect_collision_risk["risk"]:
+                    # The third verifier slot is already the bounded adversarial
+                    # adjudicator for high-impact semantic claims. Keep one slot:
+                    # confirm positive dependency edges and, when structurally
+                    # signaled, independently challenge sibling effect-identity
+                    # reuse. Runtime never decides language meaning or rewrites a
+                    # requested effect from this structural signal.
+                    if positive_dependency_edges:
+                        verifier_repair_kind = "candidate_blind_dependency_positive_edge_adjudication"
+                        verifier_repair = (
+                            "Adversarially re-audit the complete current-turn dependency graph from USER_TEXT only. Start every unordered "
+                            "Goal pair from independent and retain a positive edge only when a literal basis_span inside the dependent Goal "
+                            "proves that the user-visible later outcome itself consumes the earlier current-turn Goal result as a result_reference, "
+                            "result_condition or result_value_input. Sequencing, shared topic/scope, repeated business object, and stable-ID/artifact "
+                            "lookup needed only by execution are not result dependencies. Do not see or reconstruct Planner depends_on from tool "
+                            "needs. Return one dependency_decisions row for every unordered Goal pair together with the normal requested-effect and "
+                            "scope audit fields. A true explicit result reference/condition/value dependency must still be retained. When "
+                            "REQUESTED_EFFECT_COLLISION_RISK is supplied, also adversarially verify that each sibling's identical structured "
+                            "requested_effect still denotes that sibling's own literal user-visible business effect; if one sibling has been "
+                            "collapsed into a different lookup/action/object/effect, return incomplete with the smallest literal mismatch span."
+                        )
+                    else:
+                        verifier_repair_kind = "candidate_blind_dependency_effect_collision_adjudication"
+                        verifier_repair = (
+                            "Adversarially re-audit the structurally signaled sibling requested-effect collision from USER_TEXT only while also "
+                            "returning the complete candidate-blind dependency_decisions proof. REQUESTED_EFFECT_COLLISION_RISK is only a structural "
+                            "risk signal: identical structured effects may be legitimate for two different targets, so do not reject merely because "
+                            "the identities match. Start by assuming the shared identity is unsafe, then retain it only if domain, operation, "
+                            "object_type and raw_description still denote each sibling's own literal user-visible business effect. If a sibling asks "
+                            "for a materially different lookup, action, object or business effect, return verdict=incomplete and copy only the "
+                            "smallest literal USER_TEXT span proving the substitution into missing_spans. Do not choose a tool, inspect capability "
+                            "availability, normalize to a registered effect, or rewrite the declaration. For every unordered Goal pair, return one "
+                            "dependency_decisions row using only literal result-reference/result-condition/result-value evidence; otherwise mark it "
+                            "independent."
+                        )
+                    prompt = {
+                        "USER_TEXT_UNTRUSTED": user_text,
+                        "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                        "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                        "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                    }
+                    if effect_collision_risk["risk"]:
+                        prompt["REQUESTED_EFFECT_COLLISION_RISK"] = effect_collision_risk
+                    continue
             normalized_semantic_reason = (
                 str(verdict.reason_code or "").strip().casefold().replace("-", "_").replace(" ", "_")
             )

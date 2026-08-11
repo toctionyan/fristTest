@@ -155,10 +155,10 @@
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
     "services/agent-service/src/agent_core/lifecycle/goal_blockers.py": "3e49585106c3c3ff90b6b5c5da996cfa9bd6845bd82d65ad4a4f0f8f7e8abf8e",
     "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py": "c0e5fe02acb49b272e7d83d1c558dcf0af4d1ed40c41a65f05ed7c8bf734a26d",
-    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "658e5d4b5db6257afbd69960c5243536de8c7f772818dd228f3169c3cb027431",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "bcdd844219357cfd55706a5275dd3a617c4161ac6cf415d73a8af1f552ef03ba",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "f6574476874d8eadbba017db35de06a6aea10aa9f3effa259ede018db577d8cd",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "fc191349698040dfa286faca8dc8e13560e605f86945db5a5ecac0f7b11639ad",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "8a6ac4f7fc9bb0c8d861b86721ee893bac636be6a8cafa7f94f2c092eb09882a",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "a487449ed21fb06f56121403cde0d8c1708de2b7b6ae98b10d1ede755336100e",
@@ -564,8 +564,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-11T12:24:19.782061+00:00",
-  "generated_from": "git:8c3de685005dfdee4f9edbdcd176894263748ad6",
+  "generated_at": "2026-08-11T13:05:04.472079+00:00",
+  "generated_from": "git:a1182e57fa796ccb4fab782e58df48f66edcf69f",
   "protected_roots": [
     "services",
     "web",
