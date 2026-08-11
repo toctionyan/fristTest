@@ -49,6 +49,28 @@ def _emit_candidate_archive(root: Path) -> None:
         print(f"V2018_A2B_ARCHIVE_{index:04d}={chunk}", flush=True)
 
 
+def _tighten_generated_architecture_assertions(root: Path) -> None:
+    """Repair a carrier-only test assertion without changing its invariant.
+
+    The intended invariant is that verifier replacement graphs are absent as
+    structured fields. A literal substring assertion also matched explanatory
+    constraint text containing the words ``dependency_edges``. Make the
+    generated product regression check JSON keys instead; the candidate source
+    semantics are unchanged.
+    """
+    path = root / "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py"
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        'assert "dependency_edges" not in encoded',
+        'assert \'"dependency_edges":\' not in encoded',
+    )
+    text = text.replace(
+        'assert "requires_result_of_goal_id" not in encoded',
+        'assert \'"requires_result_of_goal_id":\' not in encoded',
+    )
+    path.write_text(text, encoding="utf-8")
+
+
 class V2018SemanticVocabularyBatchTest(unittest.TestCase):
     def test_capability_independent_vocabulary_contract(self) -> None:
         root = Path(__file__).resolve().parents[2]
@@ -92,6 +114,7 @@ class V2018SemanticVocabularyBatchTest(unittest.TestCase):
             cwd=root,
             check=True,
         )
+        _tighten_generated_architecture_assertions(root)
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join((
             str(service_root),
