@@ -44,13 +44,18 @@ jobs:
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt7_repair_contract_compat.py
           patch --workspace candidate
-      - name: Run exact failed contract test and focused authority regressions
+      - name: Run exact failed contract test
+        working-directory: candidate/services/agent-service
+        run: >-
+          .venv/bin/python -m pytest
+          tests/runtime/test_goal_coverage_runtime.py::test_invalid_goal_declaration_returns_authoritative_current_user_text
+          -q
+      - name: Run focused Attempt 7 and preserved authority regressions
         working-directory: candidate
         run: |
           set -euo pipefail
           PYTHONPATH=services/agent-service/src \
             services/agent-service/.venv/bin/python -m pytest \
-            services/agent-service/tests/runtime/test_goal_coverage_runtime.py::test_invalid_goal_declaration_returns_authoritative_current_user_text \
             skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py \
             skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
             services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
