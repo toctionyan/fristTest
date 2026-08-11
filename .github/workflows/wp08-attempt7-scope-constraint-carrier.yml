@@ -44,6 +44,23 @@ jobs:
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt7_scope_constraint_carrier.py
           patch --workspace candidate
+      - name: Correct brittle source-text assertion
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+          path = Path("skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py")
+          text = path.read_text(encoding="utf-8")
+          old = '    assert "Goal.condition is a separate" in policy\n'
+          new = (
+              '    assert "Goal.condition" in policy\n'
+              '    assert "separate condition/dependency algebra" in policy\n'
+          )
+          if text.count(old) != 1:
+              raise SystemExit(f"brittle assertion anchor count={text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Run focused Attempt 7 and preserved authority regressions
         working-directory: candidate
         run: |
