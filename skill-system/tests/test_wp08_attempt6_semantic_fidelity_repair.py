@@ -18,7 +18,7 @@ def _response(payload: dict):
     return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)), {}
 
 
-def _goal(goal_id: str, span: str, effect: dict, *, condition=None) -> dict:
+def _goal(goal_id: str, span: str, effect: dict, *, target_candidate=None, condition=None) -> dict:
     row = {
         "goal_id": goal_id,
         "description": span,
@@ -28,12 +28,14 @@ def _goal(goal_id: str, span: str, effect: dict, *, condition=None) -> dict:
         "required": True,
         "depends_on": [],
     }
+    if target_candidate is not None:
+        row["target_candidate"] = target_candidate
     if condition is not None:
         row["condition"] = condition
     return row
 
 
-def test_single_goal_exact_is_reaudited_for_omitted_structured_filter() -> None:
+def test_single_goal_exact_is_reaudited_for_omitted_scope_constraint() -> None:
     from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
 
     text = "哪些还在路上？"
@@ -54,7 +56,7 @@ def test_single_goal_exact_is_reaudited_for_omitted_structured_filter() -> None:
         "evidence_spans": [text],
         "missing_spans": ["在路上"],
         "dependency_decisions": [],
-        "reason_code": "explicit_condition_not_structured",
+        "reason_code": "explicit_scope_constraint_not_structured",
     })
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model", side_effect=[first, blind]
@@ -68,14 +70,14 @@ def test_single_goal_exact_is_reaudited_for_omitted_structured_filter() -> None:
     assert invoke.call_count == 2
     assert verdict.verdict == "incomplete"
     assert verdict.missing_spans == ("在路上",)
-    assert verdict.reason_code == "explicit_condition_not_structured"
+    assert verdict.reason_code == "explicit_scope_constraint_not_structured"
     assert verdict.details["dependency_proof_complete"] is True
     assert verdict.details["dependency_graph_match"] is True
     assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
     audit_messages = invoke.call_args_list[1].kwargs["payload"]
     audit_text = "\n".join(str(getattr(message, "content", "") or "") for message in audit_messages)
     assert "requested_effect" in audit_text
-    assert "structured condition" in audit_text
+    assert "scope_constraints" in audit_text
     assert "target-member selection" in audit_text
     assert "dependency_decisions" in audit_text
 
@@ -131,20 +133,15 @@ def test_near_capability_effect_coercion_is_rejected_without_runtime_keyword_rul
     ]
 
 
-def test_single_goal_with_structured_condition_can_pass_same_reaudit() -> None:
+def test_single_goal_with_structured_scope_constraint_can_pass_same_reaudit() -> None:
     from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
 
     text = "哪些还在路上？"
-    condition = {
-        "op": "eq",
-        "left": {"source": "input", "path": "delivery_status"},
-        "right": {"source": "literal", "value": "运输中"},
-    }
     goal = _goal(
         "g1",
         text,
         {"domain": "order", "operation": "query_logistics", "object_type": "order"},
-        condition=condition,
+        target_candidate={"scope_constraints": [{"evidence_span": "在路上"}]},
     )
     first = _response({
         "verdict": "exact",
@@ -179,24 +176,20 @@ def test_single_goal_with_structured_condition_can_pass_same_reaudit() -> None:
 def test_blind_projection_hides_candidate_dependency_but_keeps_semantic_fields() -> None:
     from agent_core.lifecycle.goal_planning import _dependency_blind_goal_projection
 
-    condition = {
-        "op": "eq",
-        "left": {"source": "input", "path": "delivery_status"},
-        "right": {"source": "literal", "value": "运输中"},
-    }
+    target_candidate = {"scope_constraints": [{"evidence_span": "在路上"}]}
     projected = _dependency_blind_goal_projection([
         {
             "goal_id": "g1",
             "evidence_span": "在路上",
             "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"},
-            "condition": condition,
+            "target_candidate": target_candidate,
             "expected_result_cardinality": "collection",
             "required": True,
             "depends_on": ["g0"],
         }
     ])[0]
     assert "depends_on" not in projected
-    assert projected["condition"] == condition
+    assert projected["target_candidate"] == target_candidate
     assert projected["requested_effect"]["operation"] == "query_logistics"
 
 
@@ -206,7 +199,7 @@ def test_reaudit_policy_is_domain_neutral_and_does_not_hardcode_attempt6_phrases
     end = source.index("prompt = {", start)
     policy = source[start:end]
     assert "requested_effect" in policy
-    assert "structured condition" in policy
+    assert "scope_constraints" in policy
     assert "unsupported/open" in policy
     assert "快递员" not in policy
     assert "在路上" not in policy
@@ -216,5 +209,6 @@ def test_reaudit_policy_is_domain_neutral_and_does_not_hardcode_attempt6_phrases
 def test_existing_capability_gate_still_requires_frozen_condition_binding() -> None:
     source = (AGENT_SRC / "agent_core/runtime/capability_gate.py").read_text(encoding="utf-8")
     assert "def _formal_goal_condition_coverage_proof" in source
+    assert "def _formal_goal_scope_coverage_proof" in source
     assert "formal_goal_condition_unbound" in source
     assert "parameterized_query_missing_constraint_binding" in source

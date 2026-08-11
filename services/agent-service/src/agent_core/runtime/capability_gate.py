@@ -556,6 +556,7 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
             errors.append(f"constraint_binding_value_mismatch:{path}")
         rows.append({
             "kind": str(raw.get("kind") or "condition"),
+            "provenance": "candidate_constraint_binding",
             "source_span": span,
             "parameter_path": path,
             "normalized_value": expected,
@@ -573,6 +574,33 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
         if not any(row.get("parameter_path") == path and row.get("status") == "covered" for row in rows):
             errors.append(f"parameterized_query_missing_constraint_binding:{path}")
     target = args.get("target") if isinstance(args.get("target"), dict) else {}
+    # A typed target field may carry its own literal evidence sibling
+    # (for example <field> + <field>_span). Project that pair as a Runtime
+    # target-evidence binding without interpreting the field or value.
+    for span_key, span_value in target.items():
+        if not str(span_key).endswith("_span"):
+            continue
+        field = str(span_key)[:-5]
+        if not field or field not in target or target.get(field) in (None, ""):
+            continue
+        span = str(span_value or "").strip()
+        covered = bool(span and span in user_text)
+        if not covered:
+            errors.append(f"target_parameter_evidence_not_current_turn:target.{field}")
+        if not any(
+            str(row.get("parameter_path") or "") == f"target.{field}"
+            and str(row.get("source_span") or "") == span
+            for row in rows
+        ):
+            rows.append({
+                "kind": "scope",
+                "provenance": "runtime_target_evidence",
+                "source_span": span,
+                "parameter_path": f"target.{field}",
+                "normalized_value": target.get(field),
+                "actual_value": target.get(field),
+                "status": "covered" if covered else "uncovered",
+            })
     if str(target.get("mode") or "") == "set_operation" and str(target.get("operator") or "") == "sort":
         span = str(target.get("sort_span") or "").strip()
         status = "covered" if span and span in user_text else "uncovered"
@@ -581,6 +609,7 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
         for field in ("sort_field", "sort_direction"):
             rows.append({
                 "kind": "condition",
+                "provenance": "runtime_target_evidence",
                 "source_span": span,
                 "parameter_path": f"target.{field}",
                 "normalized_value": target.get(field),
@@ -614,6 +643,7 @@ def _parameterization_proof(state: dict[str, Any], args: dict[str, Any]) -> dict
                     errors.append(f"target_pipeline_evidence_not_current_turn:{path}")
                 rows.append({
                     "kind": "condition",
+                    "provenance": "runtime_target_evidence",
                     "source_span": span,
                     "parameter_path": path,
                     "normalized_value": span,
@@ -740,6 +770,137 @@ def _formal_goal_condition_coverage_proof(
         "checks": checks,
         "complete": not errors,
         "errors": errors,
+    }
+
+
+def _literal_scope_overlap(left: str, right: str) -> bool:
+    left = str(left or "").strip()
+    right = str(right or "").strip()
+    return bool(left and right and (left in right or right in left))
+
+
+def _source_operation_scope_spans(value: Any) -> set[str]:
+    """Read literal evidence already stored on a verified operation; never interpret it."""
+    spans: set[str] = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).endswith("_span") and isinstance(item, str) and item.strip():
+                spans.add(item.strip())
+            elif key == "source_span" and isinstance(item, str) and item.strip():
+                spans.add(item.strip())
+            spans.update(_source_operation_scope_spans(item))
+    elif isinstance(value, list):
+        for item in value:
+            spans.update(_source_operation_scope_spans(item))
+    return spans
+
+
+def _formal_goal_scope_coverage_proof(
+    state: dict[str, Any],
+    *,
+    goal_ids: set[str],
+    parameterization: dict[str, Any],
+    visible_reference: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind frozen literal scope predicates to real candidate narrowing evidence.
+
+    Lifecycle/Alignment decides only which current-user phrases are explicit
+    population-narrowing constraints. Runtime never interprets those phrases or
+    normalizes their business values. It requires each frozen literal span to
+    overlap evidence attached to a real query/target parameter, or to a verified
+    current-turn observation that already carries the same narrowing evidence.
+    """
+    formal_by_id = {
+        str(goal.get("goal_id") or ""): goal
+        for goal in semantic_goals(state)
+        if str(goal.get("goal_id") or "")
+    }
+    requirements: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for goal_id in sorted(goal_ids):
+        goal = formal_by_id.get(goal_id) or {}
+        target_candidate = (
+            goal.get("target_candidate")
+            if isinstance(goal.get("target_candidate"), dict)
+            else {}
+        )
+        values = target_candidate.get("scope_constraints")
+        if not isinstance(values, list):
+            continue
+        for index, raw in enumerate(values):
+            span = str((raw or {}).get("evidence_span") or "").strip() if isinstance(raw, dict) else ""
+            if not span or (goal_id, span) in seen:
+                continue
+            seen.add((goal_id, span))
+            requirements.append({"goal_id": goal_id, "scope_index": str(index), "evidence_span": span})
+
+    structural_leaves = {
+        "mode", "operator", "left_handle", "right_handle", "source_handle",
+        "reference_kind", "group_size", "expected_shape", "action", "capability",
+    }
+    candidate_rows: list[dict[str, Any]] = []
+    for raw in list(parameterization.get("bindings") or []):
+        if not isinstance(raw, dict) or str(raw.get("status") or "") != "covered":
+            continue
+        path = str(raw.get("parameter_path") or "").strip()
+        span = str(raw.get("source_span") or "").strip()
+        provenance = str(raw.get("provenance") or "")
+        leaf = path.rsplit(".", 1)[-1]
+        if provenance == "runtime_target_evidence":
+            eligible = True
+        else:
+            eligible = (
+                provenance == "candidate_constraint_binding"
+                and (path.startswith("query.") or path.startswith("target."))
+                and leaf not in structural_leaves
+                and not leaf.endswith("_span")
+            )
+        if eligible and span:
+            candidate_rows.append({"source_span": span, "parameter_path": path, "provenance": provenance})
+
+    user_text = str(state.get("current_user_input") or "")
+    lineage_spans: set[str] = set()
+    for check in list(visible_reference.get("checks") or []):
+        if not isinstance(check, dict):
+            continue
+        ref = check.get("validated_ref") if isinstance(check.get("validated_ref"), dict) else {}
+        source = ref.get("source_operation") if isinstance(ref, dict) else None
+        for span in _source_operation_scope_spans(source):
+            if span and span in user_text:
+                lineage_spans.add(span)
+
+    checks: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for requirement in requirements:
+        formal_span = requirement["evidence_span"]
+        parameter_matches = [
+            row for row in candidate_rows
+            if _literal_scope_overlap(formal_span, str(row.get("source_span") or ""))
+        ]
+        lineage_matches = sorted(
+            span for span in lineage_spans if _literal_scope_overlap(formal_span, span)
+        )
+        covered = bool(parameter_matches or lineage_matches)
+        if not covered:
+            errors.append(
+                f"formal_goal_scope_constraint_unbound:{requirement['goal_id']}:{requirement['scope_index']}"
+            )
+        checks.append({
+            **requirement,
+            "status": "covered" if covered else "uncovered",
+            "parameter_matches": parameter_matches,
+            "verified_lineage_spans": lineage_matches,
+        })
+    return {
+        "version": "formal-goal-scope-coverage@1",
+        "required": bool(requirements),
+        "goal_ids": sorted(goal_ids),
+        "requirements": requirements,
+        "checks": checks,
+        "complete": not errors,
+        "errors": errors,
+        "language_interpretation_used": False,
+        "value_normalization_used": False,
     }
 
 
@@ -1418,6 +1579,9 @@ def issue_execution_permit(
     formal_condition_coverage = _formal_goal_condition_coverage_proof(
         state, goal_ids=goal_ids, parameterization=parameterization
     )
+    formal_scope_coverage = _formal_goal_scope_coverage_proof(
+        state, goal_ids=goal_ids, parameterization=parameterization, visible_reference=visible_reference
+    )
     semantic_reference_binding = _semantic_reference_binding_proof(
         state, normalized_args, goal_ids=goal_ids
     )
@@ -1430,6 +1594,7 @@ def issue_execution_permit(
         and not arg_errors
         and parameterization.get("parameterization_complete")
         and formal_condition_coverage.get("complete")
+        and formal_scope_coverage.get("complete")
         and visible_reference.get("complete")
         and semantic_reference_binding.get("complete")
         and member_scope.get("complete")
@@ -1503,16 +1668,17 @@ def issue_execution_permit(
         "parameterization": parameterization,
         "parameterization_complete": bool(parameterization.get("parameterization_complete")),
         "formal_goal_condition_coverage": formal_condition_coverage,
+        "formal_goal_scope_coverage": formal_scope_coverage,
         "visible_result_reference": visible_reference,
         "semantic_reference_binding": semantic_reference_binding,
         "explicit_member_scope": member_scope,
         "derived_collection_scope": derived_scope,
-        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(formal_condition_coverage.get("errors") or []), *list(visible_reference.get("errors") or []), *list(semantic_reference_binding.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
-        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and formal_condition_coverage.get("complete") and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
+        "constraint_errors": [*list(arg_errors), *list(parameterization.get("errors") or []), *list(formal_condition_coverage.get("errors") or []), *list(formal_scope_coverage.get("errors") or []), *list(visible_reference.get("errors") or []), *list(semantic_reference_binding.get("errors") or []), *list(member_scope.get("errors") or []), *list(derived_scope.get("errors") or []), *semantic_errors, *([] if surface_allowed else ["capability_not_in_current_goal_surface"]), *list(frontier_proof.get("errors") or []), *([] if formal_effect_allowed else ["capability_goal_effect_identity_mismatch"])],
+        "exact_match": bool(contract is not None and not arg_errors and parameterization.get("parameterization_complete") and formal_condition_coverage.get("complete") and formal_scope_coverage.get("complete") and visible_reference.get("complete") and semantic_reference_binding.get("complete") and member_scope.get("complete") and derived_scope.get("complete") and semantic_exact and surface_allowed and frontier_allowed and formal_effect_allowed),
         "rejected_candidates": [],
         "scope": _scope(state),
     }
-    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete") or not visible_reference.get("complete") or not semantic_reference_binding.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
+    if contract is None or arg_errors or not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete") or not formal_scope_coverage.get("complete") or not visible_reference.get("complete") or not semantic_reference_binding.get("complete") or not member_scope.get("complete") or not derived_scope.get("complete") or not semantic_exact or not surface_allowed or not frontier_allowed or not formal_effect_allowed:
         return PermitDecision(
             permitted=False,
             match_proof=proof,
@@ -1535,6 +1701,8 @@ def issue_execution_permit(
                     if contract is not None and not arg_errors and visible_reference.get("complete") and semantic_reference_binding.get("complete") and not member_scope.get("complete")
                     else "VISIBLE_RESULT_REF_INVALID"
                     if contract is not None and not arg_errors and not visible_reference.get("complete")
+                    else "CAPABILITY_SCOPE_CONSTRAINT_UNBOUND"
+                    if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")
                     else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"
                     if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))
                     else "CAPABILITY_SEMANTIC_CLARIFICATION_REQUIRED"
@@ -1560,6 +1728,8 @@ def issue_execution_permit(
                     if contract is not None and not arg_errors and visible_reference.get("complete") and semantic_reference_binding.get("complete") and not member_scope.get("complete")
                     else "当前引用的结果不存在、未向用户展示、已失效或与所需对象形态不符；系统不会改选其他结果。"
                     if contract is not None and not arg_errors and not visible_reference.get("complete")
+                    else "当前请求中冻结的目标范围约束没有绑定到真实查询/目标参数或已验证结果血缘，系统不会用更宽泛查询代替。"
+                    if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")
                     else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"
                     if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))
                     else "当前请求需要先澄清，系统不会自行改用相近能力。"

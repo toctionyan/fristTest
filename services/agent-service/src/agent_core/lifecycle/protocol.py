@@ -90,6 +90,33 @@ REFERENCE_EXPRESSION_SCHEMA: dict[str, Any] = {
 }
 
 
+TARGET_CANDIDATE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "开放的目标候选，不是业务事实。若当前 Goal 含有明确缩小目标/结果人口的筛选、状态、阈值或比较谓词，"
+        "必须把最小的当前原文字面证据写入 scope_constraints[].evidence_span。这里只冻结用户表达过的范围证据，"
+        "不得在此猜测归一化业务值；普通目标集合筛选也不得为了结构化而伪装成 Goal.condition。"
+    ),
+    "properties": {
+        "scope_constraints": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "evidence_span": {
+                        "type": "string",
+                        "description": "缩小本 Goal 目标/结果范围的最小当前用户原话连续片段。",
+                    },
+                },
+                "required": ["evidence_span"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "additionalProperties": True,
+}
+
 _GOAL_LIFECYCLE_ENUM = ["OPEN", "ACTIVE", "BLOCKED", "PAUSED", "COMPLETED", "CANCELLED", "SUPERSEDED"]
 _MODEL_SETTABLE_GOAL_LIFECYCLE_ENUM = ["ACTIVE", "PAUSED", "CANCELLED"]
 
@@ -120,7 +147,7 @@ GOAL_CHANGE_SCHEMA: dict[str, Any] = {
                 "patch": {
                     "type": "object",
                     "properties": {
-                        "target_candidate": {"type": "object", "additionalProperties": True},
+                        "target_candidate": deepcopy(TARGET_CANDIDATE_SCHEMA),
                         "input_candidates": {"type": "object", "additionalProperties": True},
                         "condition": condition_schema(depth=3),
                         "depends_on": {"type": "array", "items": {"type": "string"}},
@@ -268,7 +295,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                                 "type": "string",
                                 "description": "需要继续既有 Goal 时引用其 goal_id；不要求改变本轮其他独立 Goal。",
                             },
-                            "target_candidate": {"type": "object", "additionalProperties": True},
+                            "target_candidate": deepcopy(TARGET_CANDIDATE_SCHEMA),
                             "reference_expression": deepcopy(REFERENCE_EXPRESSION_SCHEMA),
                             "input_candidates": {"type": "object", "additionalProperties": True},
                             "condition": condition_schema(depth=3),
