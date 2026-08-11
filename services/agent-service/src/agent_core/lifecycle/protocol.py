@@ -24,6 +24,7 @@ MAX_WORK_ITEMS = 12
 REFERENCE_EXPRESSION_SCHEMA: dict[str, Any] = {
     "description": (
         "只用于引用已经在更早轮次向客户可见的 ResultRef、历史轮次或其展示成员。reference_expression.expected_cardinality 描述被引用对象本身：指向一个可见对象/成员时用 single，指向将继续筛选/排序/比较的可见集合时用 collection；它不是 Goal 最终输出数量。"
+        "reference_expression.evidence_span 必须只复制当前用户原话中真正承担历史指代的最小连续片段；它允许只是 Goal.evidence_span 的严格子串。对象状态、属性、筛选、比较、动作等其余问题文字仍属于 Goal 本身，禁止为了凑满 Goal 证据而扩大 reference_expression.evidence_span。"
         "同一当前轮中一个 Goal 依赖另一个尚未执行 Goal 的未来结果时禁止填写 reference_expression；"
         "这种当前轮先后/结果依赖只能用 depends_on 表达。"
     ),
