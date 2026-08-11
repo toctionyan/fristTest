@@ -467,6 +467,9 @@ def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[
             "requested_effect": deepcopy(goal.get("requested_effect"))
             if isinstance(goal.get("requested_effect"), dict)
             else None,
+            "target_candidate": deepcopy(goal.get("target_candidate"))
+            if isinstance(goal.get("target_candidate"), dict)
+            else None,
             "condition": deepcopy(goal.get("condition"))
             if isinstance(goal.get("condition"), dict)
             else None,
@@ -542,20 +545,24 @@ class ModelGoalAlignmentVerifier:
             "Audit three things from USER_TEXT: (1) the complete current-turn semantic result-dependency graph; "
             "(2) whether each DECLARED_GOAL.requested_effect preserves the customer's actual business effect instead of "
             "coercing an unsupported/open effect into a nearby registered effect; and (3) whether every explicit user-stated "
-            "filter, status predicate, threshold, condition or other result-scope constraint inside a Goal evidence_span is "
-            "actually represented in that Goal's structured condition rather than existing only in description/evidence prose. "
-            "Do not invent a missing target member, slot/form value, current business fact or execution-time cardinality as a "
-            "semantic condition; those remain downstream Runtime concerns. If requested_effect is semantically substituted, or "
-            "an explicit predicate is missing from structured condition, verdict must be incomplete and missing_spans must copy "
-            "the smallest literal USER_TEXT span that proves the mismatch. Do not propose a replacement identity, normalized "
-            "predicate value, tool or capability. A result dependency exists only when the later user-visible outcome itself "
+            "filter, status predicate, threshold or comparison that narrows the Goal target/result population is preserved as "
+            "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints. A scope constraint stores only the smallest "
+            "literal USER_TEXT evidence_span; do not translate it into a normalized business value, tool field or capability. "
+            "Mere object/topic/member naming is target identity, not automatically a scope constraint. Goal.condition is a "
+            "separate condition/dependency algebra and ordinary target-population filtering must not be forced into it. Do not "
+            "invent a missing target member, slot/form value, current business fact or execution-time cardinality. If "
+            "requested_effect is semantically substituted, or an explicit narrowing predicate is absent from scope_constraints, "
+            "verdict must be incomplete and missing_spans must copy the smallest literal USER_TEXT span that proves the mismatch. "
+            "Do not propose a replacement identity, normalized predicate value, tool or capability. A result dependency exists "
+            "only when the later user-visible outcome itself "
             "must consume an earlier current-turn Goal result as target, value input or condition; shared topic/scope, sentence "
             "order, stable-ID lookup and implementation prerequisites are not dependencies."
         )
         blind_dependency_rules = [
             "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span; nearby registered capability identity is never acceptable merely because it exists",
-            "an explicit user-stated result filter/status/predicate must be structurally preserved in Goal.condition; repeating the words only in description, raw_description or evidence_span is not enough",
-            "target-member selection, unprovided form values and current business facts are downstream Runtime concerns and are not missing semantic conditions",
+            "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
+            "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
+            "target-member selection, unprovided form values and current business facts are downstream Runtime concerns and are not missing scope constraints",
             "judge semantic result dependency independently from execution-support dataflow",
             "shared object/topic/scope and sequencing words alone never create a result dependency",
             "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",
@@ -584,9 +591,9 @@ class ModelGoalAlignmentVerifier:
                 "relation=a_depends_on_b|b_depends_on_a|independent. For a dependency relation also include "
                 "basis_kind=result_reference|result_condition|result_value_input and basis_span copied literally from inside "
                 "the dependent Goal evidence_span. Do not omit independent pairs; dependency_decisions=[] is valid only when "
-                "fewer than two Goals are supplied. For requested_effect or structured-condition mismatch, do not alter the "
+                "fewer than two Goals are supplied. For requested_effect or target-scope-constraint mismatch, do not alter the "
                 "dependency decisions: set verdict=incomplete, copy the literal mismatched phrase into missing_spans, and use "
-                "a reason_code that identifies requested-effect fidelity or structured-condition coverage. Return JSON only "
+                "a reason_code that identifies requested-effect fidelity or target-scope-constraint coverage. Return JSON only "
                 "with verdict, evidence_spans, missing_spans, dependency_decisions and reason_code."
                 if blind_dependency_audit else instruction
             )
@@ -718,7 +725,7 @@ class ModelGoalAlignmentVerifier:
                         and initial_exact_alignment is not None
                     ):
                         # The second verifier is an independent semantic-contract audit:
-                        # dependency graph plus requested-effect/condition fidelity.
+                        # dependency graph plus requested-effect/target-scope fidelity.
                         # Outcome grounding was already proven by the first exact
                         # call, so preserve that literal evidence while accepting
                         # only a structurally valid candidate-blind audit result.
@@ -796,8 +803,8 @@ class ModelGoalAlignmentVerifier:
                 # Every first-pass exact declaration receives one independent
                 # semantic-contract re-audit within the existing verifier budget.
                 # The projection hides Planner depends_on but retains the declared
-                # requested_effect and condition so the verifier can detect semantic
-                # substitution or a predicate that exists only in prose. Runtime
+                # requested_effect and target_candidate so the verifier can detect semantic
+                # substitution or a target-scope predicate that exists only in prose. Runtime
                 # still never interprets language or rewrites a field itself.
                 verifier_repair_kind = "candidate_blind_dependency_reaudit"
                 verifier_repair = None
@@ -821,11 +828,12 @@ class ModelGoalAlignmentVerifier:
                 verifier_repair_kind = "candidate_blind_dependency_format_repair"
                 verifier_repair = (
                     "The previous candidate-blind semantic-contract proof was rejected by the structural grounding contract: "
-                    f"{verdict.reason_code}. Re-audit requested_effect fidelity, structured condition coverage, and every unordered "
+                    f"{verdict.reason_code}. Re-audit requested_effect fidelity, target scope-constraint coverage, and every unordered "
                     "Goal pair from USER_TEXT only. A nearby registered effect is not a faithful replacement for an unsupported/open "
-                    "business effect. An explicit filter/status/predicate must be present in Goal.condition, not merely repeated in "
-                    "description/evidence prose. Do not treat target-member selection, missing form values or current business facts as "
-                    "semantic conditions. If a semantic-field mismatch exists, return verdict=incomplete and copy its smallest literal "
+                    "business effect. An explicit filter/status/threshold/comparison that narrows the target population must have its "
+                    "smallest literal phrase in target_candidate.scope_constraints; do not translate it into Goal.condition or a "
+                    "normalized business value. Do not treat target-member selection, missing form values or current business facts as "
+                    "scope constraints. If a semantic-field mismatch exists, return verdict=incomplete and copy its smallest literal "
                     "USER_TEXT span into missing_spans without proposing a replacement field/value. For dependencies, assert one only "
                     "when a literal basis_span inside the dependent Goal proves result_reference, result_condition or result_value_input; "
                     "otherwise return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only."
@@ -1069,6 +1077,49 @@ def _clean_text(value: Any, *, limit: int = 500) -> str:
     return str(value or "").strip()[:limit]
 
 
+def _normalize_target_candidate_scope_constraints(
+    raw: Any,
+    *,
+    user_text: str,
+    goal_evidence_span: str,
+    goal_id: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Validate only literal scope evidence; never interpret or normalize its meaning."""
+    if raw in (None, "", [], {}):
+        return None, []
+    if not isinstance(raw, dict):
+        return None, [f"target_candidate_object_required:{goal_id}"]
+    candidate = deepcopy(raw)
+    values = candidate.get("scope_constraints")
+    if values is None:
+        return candidate, []
+    if not isinstance(values, list):
+        return candidate, [f"scope_constraints_array_required:{goal_id}"]
+    errors: list[str] = []
+    normalized: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(values[:8]):
+        if not isinstance(item, dict) or set(item) - {"evidence_span"}:
+            errors.append(f"scope_constraint_invalid:{goal_id}:{index}")
+            continue
+        span = _clean_text(item.get("evidence_span"), limit=240)
+        if (
+            not span
+            or span not in user_text
+            or not goal_evidence_span
+            or span not in goal_evidence_span
+        ):
+            errors.append(f"scope_constraint_evidence_not_in_goal:{goal_id}:{index}")
+            continue
+        if span not in seen:
+            seen.add(span)
+            normalized.append({"evidence_span": span})
+    if len(values) > 8:
+        errors.append(f"scope_constraint_limit_exceeded:{goal_id}")
+    candidate["scope_constraints"] = normalized
+    return candidate, errors
+
+
 def _known_tool_names(capability_registry: CapabilityRegistry) -> set[str]:
     return {
         *capability_registry.tool_names(),
@@ -1088,6 +1139,7 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
             "required_action": "redeclaration",
             "evidence_span_rule": "literal_contiguous_substring",
             "requested_effect_rule": "preserve the user's open business effect; do not coerce it into a nearby registered capability",
+            "scope_constraint_rule": "explicit target/result-population predicates use target_candidate.scope_constraints literal evidence; ordinary scope filters are not Goal.condition",
         },
     }
 
@@ -1319,7 +1371,16 @@ def validate_goal_declaration(
                 if _clean_text(value, limit=120)
             ],
         }
-        for key in ("target_candidate", "input_candidates", "execution_commitment"):
+        target_candidate, target_errors = _normalize_target_candidate_scope_constraints(
+            raw.get("target_candidate"),
+            user_text=user_text,
+            goal_evidence_span=evidence_span,
+            goal_id=goal_id,
+        )
+        errors.extend(target_errors)
+        if target_candidate is not None:
+            row["target_candidate"] = target_candidate
+        for key in ("input_candidates", "execution_commitment"):
             value = raw.get(key)
             if value not in (None, "", [], {}):
                 row[key] = deepcopy(value)
