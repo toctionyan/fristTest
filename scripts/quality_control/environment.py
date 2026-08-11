@@ -20,10 +20,12 @@ CONTROL_PLANE_DIR = Path(__file__).resolve().parents[2] / "skill-system" / "cont
 if str(CONTROL_PLANE_DIR) not in sys.path:
     sys.path.insert(0, str(CONTROL_PLANE_DIR))
 from execution_runtime import (  # type: ignore  # noqa: E402
+    _cleanup_process_group as _shared_cleanup_process_group,
     atomic_json as _execution_atomic_json,
     external_wait_file_probe,
     run_streaming_command,
 )
+
 
 def _python_ast_parse(workspace: Path) -> dict[str, Any]:
     roots = [workspace / "services", workspace / "architecture-skill", workspace / "scripts"]
@@ -47,6 +49,7 @@ def _python_ast_parse(workspace: Path) -> dict[str, Any]:
         "metadata": {"parsed_files": parsed, "syntax_errors": errors},
     }
 
+
 def _probe_http(url: str, *, path: str, timeout_seconds: float) -> bool:
     base = url.rstrip("/")
     request = urllib.request.Request(f"{base}{path}", method="GET")
@@ -55,6 +58,7 @@ def _probe_http(url: str, *, path: str, timeout_seconds: float) -> bool:
             return 200 <= int(response.status) < 400
     except (OSError, urllib.error.HTTPError, urllib.error.URLError):
         return False
+
 
 def _probe_tcp_url(url: str, *, timeout_seconds: float) -> bool:
     normalized = re.sub(r"^postgresql\+[A-Za-z0-9_+-]+://", "postgresql://", url)
@@ -68,6 +72,7 @@ def _probe_tcp_url(url: str, *, timeout_seconds: float) -> bool:
             return True
     except OSError:
         return False
+
 
 def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
     requirements = step.get("environment") or {}
@@ -102,6 +107,11 @@ def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
         elif kind not in {"http", "tcp"}:
             missing.append(f"probe:unknown:{kind}")
     return missing
+
+
+def _terminate_process_group(proc: Any, *, grace_seconds: float) -> None:
+    """Compatibility facade; process-group mechanics are owned by execution_runtime."""
+    _shared_cleanup_process_group(proc, grace_seconds=grace_seconds)
 
 
 def _run_shell(workspace: Path, evidence_dir: Path, mode: str, step: dict[str, Any]) -> dict[str, Any]:
@@ -199,6 +209,7 @@ def _runtime_environment_block_evidence(raw: dict[str, Any]) -> dict[str, str] |
             return {"status": BLOCKED, "reason": reason}
     return None
 
+
 def _structured_stdout_payload(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Return a structured Gate payload only when stdout is one JSON object.
 
@@ -215,4 +226,3 @@ def _structured_stdout_payload(raw: dict[str, Any]) -> dict[str, Any] | None:
     except (TypeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
-
