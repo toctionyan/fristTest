@@ -1,0 +1,97 @@
+name: wp08-release-retirement-carrier
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/tmp-wp08-release-retirement-carrier.yml
+      - scripts/tmp_wp08_release_retirement_apply.py
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: wp08-release-retirement-carrier-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish-validated-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout carrier control files
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact main source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: c71d8c9749f33b282cdb0b23e53bf65dca523c45
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify exact source identity
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "c71d8c9749f33b282cdb0b23e53bf65dca523c45"
+          test -z "$(git -C source status --porcelain)"
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Apply bounded retirement-authority repair
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_release_retirement_apply.py source
+          git -C source diff --check
+
+      - name: Run focused retirement counterexamples
+        run: >-
+          "${pythonLocation}/bin/python" -B -m unittest discover
+          -s source/skill-system/tests
+          -p 'test_wp08_release_retirement.py'
+          -v
+
+      - name: Run preserved WP08 recovery and M3 authority tests
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B -m unittest discover -s source/skill-system/tests -p 'test_wp08_m3_reconciler_authority.py' -v
+          cd source && "${pythonLocation}/bin/python" -B -m pytest -q skill-system/tests/test_wp08_release_recovery.py
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r source/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd source/services/agent-service && uv sync --locked --all-groups
+
+      - name: Run complete Skill control plane
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Verify exact durable diff and publish formal repair branch
+        env:
+          FORMAL_BRANCH: wp08-release-retirement-authority-20260811
+        run: |
+          set -euo pipefail
+          git -C source add scripts/wp08_release_recovery.py skill-system/tests/test_wp08_release_retirement.py
+          git -C source diff --cached --check
+          ACTUAL=$(git -C source diff --cached --name-only)
+          EXPECTED=$'scripts/wp08_release_recovery.py\nskill-system/tests/test_wp08_release_retirement.py'
+          test "$ACTUAL" = "$EXPECTED"
+          test -z "$(git -C source status --porcelain | grep -vE '^(M |A ) (scripts/wp08_release_recovery.py|skill-system/tests/test_wp08_release_retirement.py)$' || true)"
+          git -C source config user.name 'github-actions[bot]'
+          git -C source config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C source commit -m 'Add governed retirement for exhausted WP08 ReleaseRuns'
+          git -C source push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
