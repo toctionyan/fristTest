@@ -29,19 +29,17 @@ from wp08_release_github import (  # noqa: E402
     find_release_issue,
     persist_release_state,
 )
+from wp08_release_coordinator import handle_workflow_run as consume_workflow_run  # noqa: E402
 from wp08_release_state import (  # noqa: E402
     CONTRACT,
-    RETRYABLE_WORKFLOW_CONCLUSIONS,
     ReleaseStateError,
     STATUS_ATTEMPT_BUDGET_EXHAUSTED,
     STATUS_AWAITING_ENVIRONMENT_CONFIGURATION,
     STATUS_AWAITING_ENVIRONMENT_RUNTIME,
     STATUS_CERTIFYING,
     STATUS_FAILED_NEEDS_CLASSIFICATION,
-    STATUS_MAIN_QUALITY_FAILED,
     STATUS_WAITING_MAIN_QUALITY,
     STATUS_WAITING_REPAIR_CI,
-    STATUS_WP08_PASS,
     append_history,
     positive_int,
     sha40,
@@ -134,92 +132,46 @@ def _validate_wp08_run(
     return run
 
 
-def _complete_wp08(api: GitHubAPI, issue_number: int, state: Mapping[str, Any], run: Mapping[str, Any]) -> dict[str, Any]:
-    current = validate_state(state)
-    run_id = positive_int(run.get("id"), name="WP-08 run id")
-    conclusion = str(run.get("conclusion") or "")
-    if conclusion == "success":
-        passed = {
-            **current,
-            "status": STATUS_WP08_PASS,
-            "last_wp08_run_id": run_id,
-            "last_wp08_conclusion": "success",
-            "failure_signature": None,
-            "updated_at": utc_now(),
-            "history": _history(current, event="wp08_reconciled_pass", wp08_run_id=run_id),
-        }
-        return persist_release_state(api, issue_number, passed)
-    if conclusion in RETRYABLE_WORKFLOW_CONCLUSIONS:
-        retry = {
-            **current,
-            "last_wp08_run_id": run_id,
-            "last_wp08_conclusion": conclusion,
-            "failure_signature": f"workflow:{conclusion}",
-            "updated_at": utc_now(),
-            "history": _history(current, event="wp08_reconciled_retryable_end", wp08_run_id=run_id, conclusion=conclusion),
-        }
-        return _dispatch(api, issue_number, retry, reason=f"reconciled_{conclusion}")
-    failed = {
-        **current,
-        "status": STATUS_FAILED_NEEDS_CLASSIFICATION,
-        "last_wp08_run_id": run_id,
-        "last_wp08_conclusion": conclusion or "unknown",
-        "failure_signature": f"wp08:{conclusion or 'unknown'}",
-        "updated_at": utc_now(),
-        "history": _history(
-            current,
-            event="wp08_reconciled_completed_failure",
-            wp08_run_id=run_id,
-            conclusion=conclusion or "unknown",
-        ),
-    }
-    return persist_release_state(api, issue_number, failed)
+
+def _replay_workflow_run(api: GitHubAPI, run: Mapping[str, Any]) -> None:
+    """Replay authoritative GitHub run evidence through coordinator authority."""
+    consume_workflow_run(api, {"workflow_run": dict(run)}, source="reconcile")
 
 
-def _reconcile_quality(api: GitHubAPI, issue_number: int, state: Mapping[str, Any]) -> dict[str, Any] | None:
+def _latest_completed_quality_run(
+    api: GitHubAPI,
+    state: Mapping[str, Any],
+) -> dict[str, Any] | None:
     current = validate_state(state)
     matching = [
-        row for row in api.list_workflow_runs(QUALITY_WORKFLOW_FILE, event="push")
+        row
+        for row in api.list_workflow_runs(QUALITY_WORKFLOW_FILE, event="push")
         if str(row.get("head_branch") or "") == MAIN_BRANCH
         and str(row.get("head_sha") or "").casefold() == current["current_candidate_sha"]
         and str(row.get("status") or "") == "completed"
     ]
     if not matching:
         return None
-    run = max(matching, key=lambda row: int(row.get("id") or 0))
-    conclusion = str(run.get("conclusion") or "")
-    if conclusion == "success":
-        return _dispatch(api, issue_number, current, reason="reconciled_main_quality_passed")
-    failed = {
-        **current,
-        "status": STATUS_MAIN_QUALITY_FAILED,
-        "failure_signature": f"main_quality:{conclusion or 'unknown'}",
-        "updated_at": utc_now(),
-        "history": _history(
-            current,
-            event="main_quality_reconciled_failure",
-            quality_run_id=run.get("id"),
-            conclusion=conclusion or "unknown",
-        ),
-    }
-    return persist_release_state(api, issue_number, failed)
+    return dict(max(matching, key=lambda row: int(row.get("id") or 0)))
 
 
 def reconcile(api: GitHubAPI) -> None:
+    """Observe missed terminal evidence and replay it; never decide state here."""
     found = find_release_issue(api)
     if found is None:
         return
-    issue_number, state = found
+    _, state = found
     current = validate_state(state)
     if current["status"] == STATUS_CERTIFYING:
         run_id = positive_int(current.get("current_wp08_run_id"), name="current_wp08_run_id")
         run = _validate_wp08_run(api, current, run_id, require_completed=False)
         if str(run.get("status") or "") == "completed":
-            _complete_wp08(api, issue_number, current, run)
+            _replay_workflow_run(api, run)
         return
     if current["status"] in {STATUS_WAITING_MAIN_QUALITY, STATUS_WAITING_REPAIR_CI}:
-        _reconcile_quality(api, issue_number, current)
-
+        run = _latest_completed_quality_run(api, current)
+        if run is not None:
+            _replay_workflow_run(api, run)
 
 def _authorized_commenter(state: Mapping[str, Any], event: Mapping[str, Any], repository: str) -> str:
     comment = event.get("comment") if isinstance(event.get("comment"), Mapping) else {}

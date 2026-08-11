@@ -2,8 +2,17 @@ name: wp08-release-coordinator
 
 "on":
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Authorize a new ReleaseRun or reconcile the active one
+        required: true
+        default: authorize
+        type: choice
+        options:
+          - authorize
+          - reconcile
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '2-59/5 * * * *'
   issue_comment:
     types:
       - created
@@ -51,11 +60,23 @@ jobs:
       - name: Coordinate authorized WP-08 release run
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          WP08_COORDINATOR_OPERATION: ${{ inputs.operation }}
         run: |
           set -euo pipefail
           case "$GITHUB_EVENT_NAME" in
             workflow_dispatch)
-              python -B scripts/wp08_release_coordinator.py --mode authorize
+              case "${WP08_COORDINATOR_OPERATION:-authorize}" in
+                authorize)
+                  python -B scripts/wp08_release_coordinator.py --mode authorize
+                  ;;
+                reconcile)
+                  python -B scripts/wp08_release_recovery.py --mode reconcile
+                  ;;
+                *)
+                  echo "Unsupported workflow_dispatch operation: ${WP08_COORDINATOR_OPERATION}" >&2
+                  exit 2
+                  ;;
+              esac
               ;;
             schedule)
               python -B scripts/wp08_release_recovery.py --mode reconcile

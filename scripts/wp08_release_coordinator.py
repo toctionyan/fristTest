@@ -363,7 +363,12 @@ def handle_pull_request(api: GitHubAPI, event: Mapping[str, Any]) -> None:
     )
 
 
-def handle_quality_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
+def handle_quality_run(
+    api: GitHubAPI,
+    workflow_run: Mapping[str, Any],
+    *,
+    source: str = "event",
+) -> None:
     if (
         str(workflow_run.get("event") or "") != "push"
         or str(workflow_run.get("head_branch") or "") != MAIN_BRANCH
@@ -383,7 +388,12 @@ def handle_quality_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
 
     conclusion = str(workflow_run.get("conclusion") or "")
     if conclusion == "success":
-        _after_quality_success(api, issue_number, current, reason="main_quality_passed")
+        reason = (
+            "reconciled_main_quality_passed"
+            if source == "reconcile"
+            else "main_quality_passed"
+        )
+        _after_quality_success(api, issue_number, current, reason=reason)
         return
 
     failed = {
@@ -393,7 +403,11 @@ def handle_quality_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
         "updated_at": utc_now(),
         "history": _history(
             current,
-            event="main_quality_failed",
+            event=(
+                "main_quality_reconciled_failure"
+                if source == "reconcile"
+                else "main_quality_failed"
+            ),
             quality_run_id=workflow_run.get("id"),
             conclusion=conclusion,
             candidate_sha=head_sha,
@@ -402,7 +416,12 @@ def handle_quality_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
     persist_release_state(api, issue_number, failed)
 
 
-def handle_wp08_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
+def handle_wp08_run(
+    api: GitHubAPI,
+    workflow_run: Mapping[str, Any],
+    *,
+    source: str = "event",
+) -> None:
     if str(workflow_run.get("event") or "") != "workflow_dispatch":
         return
     run_id = positive_int(workflow_run.get("id"), name="WP-08 workflow run id")
@@ -435,7 +454,11 @@ def handle_wp08_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
             "updated_at": utc_now(),
             "history": _history(
                 current,
-                event="wp08_passed",
+                event=(
+                    "wp08_reconciled_pass"
+                    if source == "reconcile"
+                    else "wp08_passed"
+                ),
                 wp08_run_id=run_id,
                 attempt=current["attempt"],
                 candidate_sha=head_sha,
@@ -453,13 +476,22 @@ def handle_wp08_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
             "updated_at": utc_now(),
             "history": _history(
                 current,
-                event="wp08_retryable_workflow_end",
+                event=(
+                    "wp08_reconciled_retryable_end"
+                    if source == "reconcile"
+                    else "wp08_retryable_workflow_end"
+                ),
                 wp08_run_id=run_id,
                 conclusion=conclusion,
                 attempt=current["attempt"],
             ),
         }
-        _dispatch(api, issue_number, retry_state, reason=f"bounded_retry_after_{conclusion}")
+        retry_reason = (
+            f"reconciled_{conclusion}"
+            if source == "reconcile"
+            else f"bounded_retry_after_{conclusion}"
+        )
+        _dispatch(api, issue_number, retry_state, reason=retry_reason)
         return
 
     failed = {
@@ -471,7 +503,11 @@ def handle_wp08_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
         "updated_at": utc_now(),
         "history": _history(
             current,
-            event="wp08_requires_classification",
+            event=(
+                "wp08_reconciled_completed_failure"
+                if source == "reconcile"
+                else "wp08_requires_classification"
+            ),
             wp08_run_id=run_id,
             conclusion=conclusion or "unknown",
             attempt=current["attempt"],
@@ -481,15 +517,22 @@ def handle_wp08_run(api: GitHubAPI, workflow_run: Mapping[str, Any]) -> None:
     persist_release_state(api, issue_number, failed)
 
 
-def handle_workflow_run(api: GitHubAPI, event: Mapping[str, Any]) -> None:
+def handle_workflow_run(
+    api: GitHubAPI,
+    event: Mapping[str, Any],
+    *,
+    source: str = "event",
+) -> None:
+    if source not in {"event", "reconcile"}:
+        raise CoordinatorError("workflow run source must be event or reconcile")
     workflow_run = event.get("workflow_run") if isinstance(event.get("workflow_run"), Mapping) else {}
     if not workflow_run:
         return
     name = str(workflow_run.get("name") or "")
     if name == QUALITY_WORKFLOW_NAME:
-        handle_quality_run(api, workflow_run)
+        handle_quality_run(api, workflow_run, source=source)
     elif name == WP08_WORKFLOW_NAME:
-        handle_wp08_run(api, workflow_run)
+        handle_wp08_run(api, workflow_run, source=source)
 
 
 def _load_event(path: str | None) -> dict[str, Any]:
