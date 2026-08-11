@@ -1,0 +1,128 @@
+name: wp08-attempt1-requested-effect-reaudit-carrier
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/wp08-attempt1-requested-effect-reaudit-carrier.yml
+      - scripts/tmp_wp08_attempt1_requested_effect_reaudit.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wp08-attempt1-requested-effect-reaudit-carrier-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish-validated-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout carrier controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact Attempt 1 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 7e18b27f3194e483a70c34ae37e6635d0a791ca9
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify exact source identity
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "7e18b27f3194e483a70c34ae37e6635d0a791ca9"
+          test -z "$(git -C source status --porcelain)"
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r source/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd source/services/agent-service && uv sync --locked --all-groups
+
+      - name: Apply bounded requested-effect re-audit repair
+        run: >-
+          "${pythonLocation}/bin/python" -B
+          control/scripts/tmp_wp08_attempt1_requested_effect_reaudit.py
+          patch --workspace source
+
+      - name: Verify exact pre-baseline repair scope
+        run: |
+          set -euo pipefail
+          git -C source diff --check
+          EXPECTED=$(printf '%s\n' \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py \
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py | sort)
+          ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Run focused positive and negative verifier regressions
+        run: >-
+          source/services/agent-service/.venv/bin/python -B -m pytest -q
+          source/skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py
+          source/skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py
+          source/skill-system/tests/test_wp08_final_product_closure_repair.py
+          source/skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py
+
+      - name: Commit product repair and verifier regressions
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py \
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py
+          git diff --cached --check
+          git commit -m 'Repair requested-effect verifier false positives'
+          git rev-parse HEAD > ../product-sha.txt
+
+      - name: Regenerate protected source baseline from product commit
+        run: |
+          set -euo pipefail
+          PRODUCT_SHA=$(cat product-sha.txt)
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt1_requested_effect_reaudit.py \
+            baseline --workspace source --product-sha "$PRODUCT_SHA"
+
+      - name: Run complete Skill control plane
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Bind baseline and publish formal repair branch
+        working-directory: source
+        env:
+          FORMAL_BRANCH: wp08-release-31474689970-attempt1-repair
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          test "$(git diff --cached --name-only)" = "skill-system/registry/product-source-baseline.json"
+          git diff --cached --check
+          git commit -m 'Bind Attempt 1 repair to protected source baseline'
+          test -z "$(git status --porcelain)"
+          FINAL=$(git diff --name-only 7e18b27f3194e483a70c34ae37e6635d0a791ca9..HEAD | sort)
+          EXPECTED=$(printf '%s\n' \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_attempt1_requested_effect_reaudit.py \
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py | sort)
+          test "$FINAL" = "$EXPECTED"
+          git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
