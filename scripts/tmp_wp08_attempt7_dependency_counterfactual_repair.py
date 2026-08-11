@@ -46,7 +46,7 @@ def patch_goal_planning(root: Path) -> None:
                             "counterfactual before retaining it: imagine the earlier Goal has produced no result payload at all—no returned fields, "
                             "status/value, selected member, or answer text—while the complete literal USER_TEXT remains available. If the later "
                             "user-visible business outcome is still fully specified by literal wording, a shared same-turn business target/scope, or "
-                            "zero-anaphora omission of an already literal target, the pair is independent. A lookup, stable-ID/artifact resolution, "
+                            "zero-anaphora ellipsis/omission of an already literal target, the pair is independent. A lookup, stable-ID/artifact resolution, "
                             "eligibility/preflight read, Draft prerequisite, form input, transaction setup, or other execution support needed to act "
                             "against that already specified target is support dataflow, not result_condition/result_value_input. Retain a positive edge "
                             "only when removing the earlier result payload makes the later outcome's target, condition, or value input semantically "
