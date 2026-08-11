@@ -1,0 +1,32 @@
+{
+  "affected_boundaries": [
+    "pre-freeze semantic writer input",
+    "validator-to-writer repair feedback",
+    "frozen requested-output representation",
+    "post-freeze exact capability coverage",
+    "Goal completion proof classification"
+  ],
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "classification": "architecture-defect",
+  "record_type": "failure-case",
+  "reproduction": {
+    "actual": "Current goal declaration receives deployment capability-effect identities/guidance, and validator repair feedback can prescribe replacement dependency/decomposition values. Exact post-freeze matching therefore depends on capability-shaped pre-freeze semantics and does not have a capability-independent requested-output join.",
+    "evidence_refs": [
+      "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/evidence/red-baseline.md",
+      "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+      "services/agent-service/src/agent_core/lifecycle/protocol.py",
+      "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+      "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+      "services/agent-service/src/agent_core/runtime/capability_effects.py"
+    ],
+    "expected": "Before FrozenSemanticContract is accepted, exactly one Semantic Writer owns semantic values and receives capability-independent domain meaning only; validators may reject but never supply replacement semantic answers.",
+    "status": "REPRODUCED"
+  },
+  "schema_version": 1,
+  "violated_invariants": [
+    "Only the goal-declaration writer may create semantic values before freeze.",
+    "Pre-freeze model input must not disclose tool/capability availability, capability identities, planning contracts, discovery examples, or exclusion examples.",
+    "Semantic validators may return PASS/REJECT/CLARIFY with grounded violations but may not provide replacement requested-effect, dependency, target, or Goal-decomposition values.",
+    "Capability execution authority must be derived after freeze from exact machine-checkable semantic output coverage; no exact coverage means no execution."
+  ]
+}
