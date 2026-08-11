@@ -50,24 +50,35 @@ def _emit_candidate_archive(root: Path) -> None:
 
 
 def _tighten_generated_architecture_assertions(root: Path) -> None:
-    """Repair a carrier-only test assertion without changing its invariant.
+    """Make the permanent regression inspect structured fields, not words.
 
-    The intended invariant is that verifier replacement graphs are absent as
-    structured fields. A literal substring assertion also matched explanatory
-    constraint text containing the words ``dependency_edges``. Make the
-    generated product regression check JSON keys instead; the candidate source
-    semantics are unchanged.
+    Validator feedback may legitimately contain explanatory constraint strings
+    such as ``do_not_copy_verifier_dependency_edges...``.  The invariant is
+    narrower and stronger: replacement semantic answers must not survive as
+    structured keys anywhere in writer-facing feedback.  Rewrite the generated
+    product regression accordingly before running it and before exporting the
+    clean candidate archive.
     """
     path = root / "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py"
     text = path.read_text(encoding="utf-8")
-    text = text.replace(
-        'assert "dependency_edges" not in encoded',
-        'assert \'"dependency_edges":\' not in encoded',
-    )
-    text = text.replace(
-        'assert "requires_result_of_goal_id" not in encoded',
-        'assert \'"requires_result_of_goal_id":\' not in encoded',
-    )
+    helper = '''\n\ndef _contains_forbidden_semantic_key(value, forbidden: set[str]) -> bool:\n    if isinstance(value, dict):\n        return any(\n            str(key) in forbidden or _contains_forbidden_semantic_key(child, forbidden)\n            for key, child in value.items()\n        )\n    if isinstance(value, list):\n        return any(_contains_forbidden_semantic_key(child, forbidden) for child in value)\n    return False\n'''
+    if "def _contains_forbidden_semantic_key(" not in text:
+        anchor = "\n\ndef test_planning_schema_is_requested_output_based_and_has_no_legacy_deployed_identity_fields() -> None:\n"
+        if anchor not in text:
+            raise AssertionError("generated architecture test anchor missing")
+        text = text.replace(anchor, helper + anchor, 1)
+
+    alignment_old = '''    encoded = json.dumps(alignment_feedback, ensure_ascii=False)\n    assert "dependency_edges" not in encoded\n    assert "requires_result_of_goal_id" not in encoded\n    assert alignment_feedback["independent_verifier_feedback"]["authority"] == "read_only_violation_evidence"\n'''
+    alignment_new = '''    assert not _contains_forbidden_semantic_key(\n        alignment_feedback,\n        {\n            "dependency_edges",\n            "requires_result_of_goal_id",\n            "recommended_role",\n            "requested_effect",\n            "replacement_requested_effect",\n            "replacement_target",\n        },\n    )\n    assert alignment_feedback["independent_verifier_feedback"]["authority"] == "read_only_violation_evidence"\n'''
+    if alignment_old not in text and alignment_new not in text:
+        raise AssertionError("generated alignment assertion block missing")
+    text = text.replace(alignment_old, alignment_new, 1)
+
+    granularity_old = '''    encoded = json.dumps(granularity_feedback, ensure_ascii=False)\n    assert "recommended_role" not in encoded\n    assert "dependency_edges" not in encoded\n    assert "快递员手机号" in encoded\n'''
+    granularity_new = '''    assert not _contains_forbidden_semantic_key(\n        granularity_feedback,\n        {\n            "dependency_edges",\n            "requires_result_of_goal_id",\n            "recommended_role",\n            "requested_effect",\n            "replacement_requested_effect",\n            "replacement_target",\n        },\n    )\n    encoded = json.dumps(granularity_feedback, ensure_ascii=False)\n    assert "快递员手机号" in encoded\n'''
+    if granularity_old not in text and granularity_new not in text:
+        raise AssertionError("generated granularity assertion block missing")
+    text = text.replace(granularity_old, granularity_new, 1)
     path.write_text(text, encoding="utf-8")
 
 
