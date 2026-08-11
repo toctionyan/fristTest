@@ -82,7 +82,8 @@ class V2018SemanticVocabularyBatchTest(unittest.TestCase):
 
     def test_build_and_validate_full_a2b_candidate(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        python = root / "services" / "agent-service" / ".venv" / "bin" / "python"
+        service_root = root / "services" / "agent-service"
+        python = service_root / ".venv" / "bin" / "python"
         if not python.is_file():
             python = Path(sys.executable)
 
@@ -92,19 +93,22 @@ class V2018SemanticVocabularyBatchTest(unittest.TestCase):
             check=True,
         )
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(root / "services" / "agent-service" / "src")
+        env["PYTHONPATH"] = os.pathsep.join((
+            str(service_root),
+            str(service_root / "src"),
+        ))
         subprocess.run(
             [
                 str(python), "-B", "-m", "pytest", "-q",
-                "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
-                "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
-                "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py",
-                "services/agent-service/tests/runtime/test_capability_contract_v2.py",
-                "services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py",
-                "services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py",
-                "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py",
+                "tests/architecture/test_semantic_single_writer_invariants.py",
+                "tests/runtime/test_semantic_output_coverage.py",
+                "tests/runtime/test_unified_semantic_planning_contract.py",
+                "tests/runtime/test_capability_contract_v2.py",
+                "tests/runtime/test_unsupported_capability_surface_binding.py",
+                "tests/runtime/test_wp08_attempt4_release_repairs.py",
+                "tests/runtime/test_wp08_attempt5_dependency_authority.py",
             ],
-            cwd=root,
+            cwd=service_root,
             env=env,
             check=True,
         )
