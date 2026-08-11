@@ -15,14 +15,11 @@ import json
 import os
 from pathlib import Path
 import shlex
-import signal
 import secrets
-import subprocess
 import sys
-import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Iterable, Mapping, TextIO
+from typing import Any, Iterable, Mapping
 
 CONTROL_PLANE_DIR = Path(__file__).resolve().parents[1] / "skill-system" / "controller"
 if str(CONTROL_PLANE_DIR) not in sys.path:
@@ -388,13 +385,14 @@ def _run_process(
             stderr_mirror=sys.stderr,
         )
     except ExecutionRuntimeError as exc:
+        cause = exc.__cause__ if isinstance(exc.__cause__, OSError) else exc
         payload = {
             "status": BLOCKED,
             "reason": "batch_executable_unavailable",
-            "error_type": exc.__class__.__name__,
-            "error": str(exc),
+            "error_type": cause.__class__.__name__,
+            "error": str(cause),
         }
-        return 78, json.dumps(payload, ensure_ascii=False) + "\n", str(exc), False
+        return 78, json.dumps(payload, ensure_ascii=False) + "\n", str(cause), False
     return (
         int(raw.get("exit_code") or 0),
         str(raw.get("stdout") or ""),

@@ -5,12 +5,8 @@ import json
 import os
 import re
 import shutil
-import signal
 import socket
-import subprocess
 import sys
-import tempfile
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -107,32 +103,6 @@ def _environment_problem(workspace: Path, step: dict[str, Any]) -> list[str]:
             missing.append(f"probe:unknown:{kind}")
     return missing
 
-def _terminate_process_group(proc: subprocess.Popen[Any], *, grace_seconds: float) -> None:
-    """Stop the gate process and every descendant in its dedicated session."""
-    if os.name != "posix":  # pragma: no cover - Windows fallback
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=grace_seconds)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=grace_seconds)
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        return
-    deadline = time.monotonic() + grace_seconds
-    while time.monotonic() < deadline:
-        try:
-            os.killpg(proc.pid, 0)
-        except (ProcessLookupError, PermissionError):
-            return
-        time.sleep(0.05)
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 def _run_shell(workspace: Path, evidence_dir: Path, mode: str, step: dict[str, Any]) -> dict[str, Any]:
     argv_raw = step.get("argv")

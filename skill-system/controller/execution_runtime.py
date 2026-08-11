@@ -27,6 +27,7 @@ LIVENESS_TIMEOUT = "TIMEOUT"
 LIVENESS_WAITING_EXTERNAL = "RUNNING_WAITING_EXTERNAL"
 LIVENESS_STALL_TIMEOUT = "STALL_TIMEOUT"
 EXTERNAL_WAIT_CONTRACT = "execution-external-wait@1"
+MAX_EXTERNAL_WAIT_LEASE_SECONDS = 300.0
 
 
 class ExecutionRuntimeError(RuntimeError):
@@ -90,7 +91,15 @@ def validate_external_wait_evidence(
     if heartbeat_at is None or expires_at is None:
         return None
     now = datetime.now(timezone.utc)
-    if expires_at <= now or heartbeat_at > now:
+    lease_seconds = (expires_at - heartbeat_at).total_seconds()
+    age_seconds = (now - heartbeat_at).total_seconds()
+    if (
+        expires_at <= now
+        or heartbeat_at > now
+        or lease_seconds <= 0
+        or lease_seconds > MAX_EXTERNAL_WAIT_LEASE_SECONDS
+        or age_seconds > MAX_EXTERNAL_WAIT_LEASE_SECONDS
+    ):
         return None
     return dict(payload)
 
@@ -161,16 +170,33 @@ def _cleanup_process_group(process: subprocess.Popen[str], *, grace_seconds: flo
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
-    _cleanup_process_group(process, grace_seconds=5.0)
-    if process.poll() is None:
+    """Terminate the command group without waiting for every descendant to vanish."""
+    if process.poll() is not None:
+        return
+    if os.name == "posix":
         try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                pass
+            os.killpg(process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            return
+    else:  # pragma: no cover - Windows fallback
+        process.terminate()
+    try:
+        process.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            return
+    else:  # pragma: no cover - Windows fallback
+        process.kill()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+
 
 
 
@@ -282,6 +308,8 @@ def run_streaming_command(
             stderr=subprocess.PIPE,
             start_new_session=(os.name == "posix"),
             bufsize=1,
+            encoding="utf-8",
+            errors="replace",
         )
     except OSError as exc:
         raise ExecutionRuntimeError(f"unable to start command {argv!r}: {exc}") from exc
@@ -339,7 +367,6 @@ def run_streaming_command(
     termination_reason: str | None = None
     timed_out = False
     stall_timed_out = False
-    latest_external_wait: dict[str, Any] | None = None
     while process.poll() is None:
         now = time.monotonic()
         with lock:
@@ -348,8 +375,6 @@ def run_streaming_command(
         last_progress = float(snapshot.get("last_progress_monotonic") or started_monotonic)
         idle = now - last_progress
         external_wait = current_external_wait()
-        if external_wait is not None:
-            latest_external_wait = external_wait
         if (
             stall_timeout_seconds is not None
             and idle >= stall_timeout_seconds
@@ -437,8 +462,9 @@ def run_streaming_command(
     )
     final_payload["child_process_alive"] = False
     final_payload["returncode"] = returncode
-    if latest_external_wait is not None:
-        final_payload["external_wait_evidence"] = latest_external_wait
+    final_external_wait = current_external_wait()
+    if final_external_wait is not None:
+        final_payload["external_wait_evidence"] = final_external_wait
     if on_heartbeat is not None:
         on_heartbeat(final_payload)
     return {
@@ -454,12 +480,13 @@ def run_streaming_command(
         "last_progress_at": str(final_activity.get("last_progress_at") or started_at),
         "progress_event_count": int(final_activity.get("progress_event_count") or 0),
         "termination_reason": termination_reason,
-        "external_wait_evidence": latest_external_wait,
+        "external_wait_evidence": final_external_wait,
     }
 
 
 
 __all__ = [
+    "MAX_EXTERNAL_WAIT_LEASE_SECONDS",
     "validate_external_wait_evidence",
     "external_wait_file_probe",
     "LIVENESS_WAITING_EXTERNAL",
