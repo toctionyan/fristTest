@@ -1,0 +1,80 @@
+name: wp08-attempt4-diagnostic-carrier
+
+"on":
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/wp08-attempt4-diagnostic-carrier.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wp08-attempt4-diagnostic-carrier-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact Attempt 4 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 545ea02d17c4b6b514ebce98570b6875cb242b9c
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify exact source identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "545ea02d17c4b6b514ebce98570b6875cb242b9c"
+          test -z "$(git status --porcelain)"
+
+      - name: Locate duplicate-observation authority and declaration retry path
+        run: |
+          set -euo pipefail
+          echo '=== DUPLICATE_OBSERVATION_SUPPRESSED ==='
+          grep -R -n --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv \
+            'DUPLICATE_OBSERVATION_SUPPRESSED' services/agent-service/src services/agent-service/tests skill-system/tests || true
+          echo '=== MAX_SAME_CALLS / max_same_calls ==='
+          grep -R -n --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv \
+            -E 'MAX_SAME_CALLS|max_same_calls|same_call' services/agent-service/src services/agent-service/tests skill-system/tests || true
+          echo '=== declare_turn_goals execution sites ==='
+          grep -R -n --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv \
+            'declare_turn_goals' services/agent-service/src/agent_core | head -n 120 || true
+          echo '=== bounded production redeclaration ==='
+          grep -R -n --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv \
+            -E '_declare_with_bounded_production_repair|GOAL_ALIGNMENT_UNVERIFIED|GOAL_DECLARATION_INVALID' \
+            services/agent-service/src services/agent-service/scripts services/agent-service/tests skill-system/tests | head -n 180 || true
+
+      - name: Print owning source contexts
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          needles = [
+              'DUPLICATE_OBSERVATION_SUPPRESSED',
+              'max_same_calls(',
+              'MAX_SAME_CALLS_PER_TURN_DEFAULT',
+          ]
+          roots = [Path('services/agent-service/src'), Path('services/agent-service/tests')]
+          seen = set()
+          for root in roots:
+              for path in root.rglob('*.py'):
+                  text = path.read_text(encoding='utf-8', errors='replace')
+                  lines = text.splitlines()
+                  for i, line in enumerate(lines):
+                      if not any(n in line for n in needles):
+                          continue
+                      key = (path.as_posix(), i)
+                      if key in seen:
+                          continue
+                      seen.add(key)
+                      lo = max(0, i - 35)
+                      hi = min(len(lines), i + 55)
+                      print(f'\n=== {path}:{i+1} ===')
+                      for j in range(lo, hi):
+                          print(f'{j+1:5d}: {lines[j]}')
+          PY
