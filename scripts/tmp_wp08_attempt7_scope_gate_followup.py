@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -10,13 +9,6 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     if count != 1:
         raise SystemExit(f"{label} anchor count={count}")
     return text.replace(old, new, 1)
-
-
-def regex_replace_once(text: str, pattern: str, replacement: str, label: str) -> str:
-    next_text, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
-    if count != 1:
-        raise SystemExit(f"{label} anchor count={count}")
-    return next_text
 
 
 def patch_tests(root: Path) -> None:
@@ -107,29 +99,13 @@ def patch_gate(root: Path) -> None:
         "permit rejection scope gate",
     )
 
-    code_pattern = (
-        r'^(?P<i>[ \t]*)else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"\n'
-        r'(?P=i)if contract is not None and not arg_errors and \(not parameterization\.get\("parameterization_complete"\) or not formal_condition_coverage\.get\("complete"\)\)\n'
-    )
-    code_replacement = (
-        r'\g<i>else "CAPABILITY_SCOPE_CONSTRAINT_UNBOUND"\n'
-        r'\g<i>if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")\n'
-        r'\g<i>else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"\n'
-        r'\g<i>if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'
-    )
-    source = regex_replace_once(source, code_pattern, code_replacement, "scope rejection code")
+    code_anchor = '''                    else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"\n                    if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+    code_replacement = '''                    else "CAPABILITY_SCOPE_CONSTRAINT_UNBOUND"\n                    if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")\n                    else "CAPABILITY_PARAMETERIZATION_INCOMPLETE"\n                    if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+    source = replace_once(source, code_anchor, code_replacement, "scope rejection code")
 
-    message_pattern = (
-        r'^(?P<i>[ \t]*)else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"\n'
-        r'(?P=i)if contract is not None and not arg_errors and \(not parameterization\.get\("parameterization_complete"\) or not formal_condition_coverage\.get\("complete"\)\)\n'
-    )
-    message_replacement = (
-        r'\g<i>else "当前请求中冻结的目标范围约束没有绑定到真实查询/目标参数或已验证结果血缘，系统不会用更宽泛查询代替。"\n'
-        r'\g<i>if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")\n'
-        r'\g<i>else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"\n'
-        r'\g<i>if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'
-    )
-    source = regex_replace_once(source, message_pattern, message_replacement, "scope rejection message")
+    message_anchor = '''                    else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"\n                    if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+    message_replacement = '''                    else "当前请求中冻结的目标范围约束没有绑定到真实查询/目标参数或已验证结果血缘，系统不会用更宽泛查询代替。"\n                    if contract is not None and not arg_errors and not formal_scope_coverage.get("complete")\n                    else "当前请求中的决定性条件没有被完整绑定到正式参数，系统不会用更宽泛查询代替。"\n                    if contract is not None and not arg_errors and (not parameterization.get("parameterization_complete") or not formal_condition_coverage.get("complete"))\n'''
+    source = replace_once(source, message_anchor, message_replacement, "scope rejection message")
     path.write_text(source, encoding="utf-8")
 
 
