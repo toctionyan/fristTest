@@ -122,6 +122,7 @@ source.txt 在基线中不是 repaired。
         "fixer_env.py",
         "issue_state.py",
         "task_run.py",
+        "execution_runtime.py",
     ):
         source = root / "skill-system/controller" / controller_name
         destination = workspace / "skill-system/controller" / controller_name
