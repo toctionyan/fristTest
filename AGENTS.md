@@ -99,3 +99,18 @@ python3 -B scripts/local_first_loop.py init --spec <task.json> --state <task-run
 python3 -B scripts/local_first_loop.py run-local --workspace . --spec <task.json> --state <task-run.json>
 python3 -B scripts/local_first_loop.py admit-upload --workspace . --state <task-run.json> --head-sha <sha> --changed-path <path>
 ```
+
+## Long-task execution and checkpoint policy
+
+All hosts must follow `governance/long-task-execution-policy.md` for long-running work, multi-milestone work, external waits, and resumable execution.
+
+The repository-wide hard invariants are:
+
+1. **Time budget follows correctness boundaries; split orchestration, not atomic correctness units.**
+2. Target a user-visible progress checkpoint every **10-15 minutes** at the nearest Safe Checkpoint; this is an observation cadence, not a maximum work-unit duration.
+3. Treat **18-20 minutes** only as a planning threshold for orchestration that can be split safely. Never interrupt an indivisible transaction, merge, migration, state transition, or already-running complete test merely to meet a clock target.
+4. For external work, record durable run identity and current liveness, then use `RUNNING_WAITING_EXTERNAL` instead of holding a conversational turn open only to wait. Do not cancel or duplicate a healthy external run for reporting cadence.
+5. Resume from exact durable authority such as SHA, PR/head SHA, workflow run/job/step, Quality run/evidence identity, ReleaseRun issue/attempt/run ID, or TaskRun/ledger ID. Re-read that authority before the next write.
+6. Failed or nonterminal required Gates block progression. Never weaken, skip, or reinterpret a Gate because a checkpoint target expired.
+7. Never claim completion without terminal validation evidence.
+8. `SAFETY_CHECK_WAIT` and `MODEL_LIMIT` are host/platform classifications, not repository execution states. Do not infer them from GitHub/CI latency, and do not infer a repository stall from UI latency alone.
