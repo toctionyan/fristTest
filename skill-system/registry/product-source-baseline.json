@@ -401,7 +401,7 @@
     "services/agent-service/tests/architecture/test_quality_loop_controller.py": "f0117991f8a36a35593ce20607f548baf8bcf29ece93818cc1df48cacf58d565",
     "services/agent-service/tests/architecture/test_quality_loop_governance.py": "912d85ba1ae393cce65b0f7c2c0994e96d5c5589a8aa4b3c04852bc56f776996",
     "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py": "ce79becc2dae5d6956fbcfb16fb3eb5fdda45f8444bf28a472ed85ca7b3ad325",
-    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": "c83ca593edcb2af8a6b004fd8111ee4322916c199260c05a16070f5a1ad5bddf",
+    "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": "27388198e3a877e3843f5c52c94ad46560d9e4e406db6e890a3dcb886abd88b7",
     "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py": "1fcb435afc2fbbaf267ebd3d487d8d147ac772ff15f09b3026678ad50e097601",
     "services/agent-service/tests/architecture/test_runtime_boundaries.py": "0380d409c626d3cc3ded334c2fb9d14df2b83590a2c584b30a87f721bde6450a",
     "services/agent-service/tests/architecture/test_runtime_contract.py": "ab59e79df49562649a7532cc24a733572f3be7d1e3de89760975077f47a1f356",
@@ -564,8 +564,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-11T01:56:16.628571+00:00",
-  "generated_from": "git:6f08401805a398098d3e760cc17a54220445e1e0",
+  "generated_at": "2026-08-11T03:54:06.609189+00:00",
+  "generated_from": "git:560b215bec7fa8584525b23dbb5d7b02d0774bba",
   "protected_roots": [
     "services",
     "web",

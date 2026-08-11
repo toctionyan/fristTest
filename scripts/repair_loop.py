@@ -30,6 +30,7 @@ REPAIR_RUNTIME_CONTROLLER_FILES = (
     "fixer_env.py",
     "issue_state.py",
     "task_run.py",
+    "execution_runtime.py",
 )
 
 
