@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/tmp-wp08-release-retirement-carrier.yml
       - scripts/tmp_wp08_release_retirement_apply.py
+      - scripts/tmp_wp08_release_retirement_fixture_fix.py
 
 permissions:
   contents: write
@@ -47,10 +48,11 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Apply bounded retirement-authority repair
+      - name: Apply bounded retirement-authority repair and fixture compatibility
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_release_retirement_apply.py source
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_release_retirement_fixture_fix.py source
           git -C source diff --check
 
       - name: Run focused retirement counterexamples
@@ -91,12 +93,15 @@ jobs:
           FORMAL_BRANCH: wp08-release-retirement-authority-20260811
         run: |
           set -euo pipefail
-          git -C source add scripts/wp08_release_recovery.py skill-system/tests/test_wp08_release_retirement.py
+          git -C source add \
+            scripts/wp08_release_recovery.py \
+            skill-system/tests/test_wp08_release_recovery.py \
+            skill-system/tests/test_wp08_release_retirement.py
           git -C source diff --cached --check
           ACTUAL=$(git -C source diff --cached --name-only)
-          EXPECTED=$'scripts/wp08_release_recovery.py\nskill-system/tests/test_wp08_release_retirement.py'
+          EXPECTED=$'scripts/wp08_release_recovery.py\nskill-system/tests/test_wp08_release_recovery.py\nskill-system/tests/test_wp08_release_retirement.py'
           test "$ACTUAL" = "$EXPECTED"
-          test -z "$(git -C source status --porcelain | grep -vE '^(M |A ) (scripts/wp08_release_recovery.py|skill-system/tests/test_wp08_release_retirement.py)$' || true)"
+          test -z "$(git -C source status --porcelain | grep -vE '^(M |A ) (scripts/wp08_release_recovery.py|skill-system/tests/test_wp08_release_recovery.py|skill-system/tests/test_wp08_release_retirement.py)$' || true)"
           git -C source config user.name 'github-actions[bot]'
           git -C source config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git -C source commit -m 'Add governed retirement for exhausted WP08 ReleaseRuns'
