@@ -47,9 +47,12 @@ jobs:
                   raise SystemExit('authoritative repair runtime manifest anchor is ambiguous')
               path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
-          services/agent-service/.venv/bin/python -m pytest \
-            services/agent-service/tests/architecture/test_quality_loop_governance.py::test_repair_orchestrator_builds_stable_issue_records \
-            -q
+          (
+            cd services/agent-service
+            .venv/bin/python -m pytest \
+              tests/architecture/test_quality_loop_governance.py::test_repair_orchestrator_builds_stable_issue_records \
+              -q
+          )
           git diff --check
       - name: Commit only validated runtime closure
         run: |
