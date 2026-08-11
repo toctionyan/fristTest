@@ -60,11 +60,12 @@ jobs:
           -p 'test_wp08_release_retirement.py'
           -v
 
-      - name: Run preserved WP08 recovery and M3 authority tests
-        run: |
-          set -euo pipefail
-          "${pythonLocation}/bin/python" -B -m unittest discover -s source/skill-system/tests -p 'test_wp08_m3_reconciler_authority.py' -v
-          cd source && "${pythonLocation}/bin/python" -B -m pytest -q skill-system/tests/test_wp08_release_recovery.py
+      - name: Run preserved M3 authority tests
+        run: >-
+          "${pythonLocation}/bin/python" -B -m unittest discover
+          -s source/skill-system/tests
+          -p 'test_wp08_m3_reconciler_authority.py'
+          -v
 
       - name: Bootstrap locked uv
         run: >-
@@ -74,6 +75,11 @@ jobs:
 
       - name: Install locked Agent validation environment
         run: cd source/services/agent-service && uv sync --locked --all-groups
+
+      - name: Run preserved WP08 recovery pytest regressions
+        run: >-
+          source/services/agent-service/.venv/bin/python -B -m pytest -q
+          source/skill-system/tests/test_wp08_release_recovery.py
 
       - name: Run complete Skill control plane
         run: >-
