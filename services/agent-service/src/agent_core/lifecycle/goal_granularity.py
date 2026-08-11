@@ -416,12 +416,22 @@ class ModelGoalGranularityVerifier:
             "Never omit an outcome merely because it appears unsupported, unusual, unavailable or outside the current deployment.",
         ]
         verifier_repair: str | None = None
+        first_blind_outcome_spans: tuple[str, ...] = ()
         last_indeterminate = GoalGranularityVerdict(
             "indeterminate", "goal_granularity_inventory_unverified", (),
             "model_blind_inventory", True,
             {"candidate_blind": True, "authority_scope": "outcome_inventory_only"},
         )
         for attempt in range(2):
+            verifier_payload: dict[str, Any] = {
+                "USER_TEXT_UNTRUSTED": user_text,
+                "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+            }
+            if attempt > 0 and first_blind_outcome_spans:
+                # The second call remains candidate-blind. It sees only its own
+                # first-pass hypotheses so it can challenge control/meta spans
+                # instead of anchoring on the candidate Goal inventory.
+                verifier_payload["FIRST_BLIND_OUTCOME_SPANS"] = list(first_blind_outcome_spans)
             try:
                 response, _trace = invoke_model(
                     purpose="turn_goal_granularity_inventory_verifier",
@@ -430,10 +440,7 @@ class ModelGoalGranularityVerifier:
                         role="turn_goal_granularity_inventory_verifier",
                         instruction=instruction,
                         decision_rules=rules,
-                        payload={
-                            "USER_TEXT_UNTRUSTED": user_text,
-                            "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
-                        },
+                        payload=verifier_payload,
                         format_repair=verifier_repair,
                     ),
                 )
@@ -522,10 +529,19 @@ class ModelGoalGranularityVerifier:
             )
             if verdict.exact or attempt > 0:
                 return verdict
+            first_blind_outcome_spans = outcome_spans
             verifier_repair = (
-                "Run one candidate-blind self-audit of USER_TEXT only. Return each independently acceptable business result exactly once. "
-                "Do not duplicate a target phrase and its enclosing business action. Filters, target selectors and form values stay inside the outcome. "
-                "Do not inspect candidate Goals and do not judge dependency edges. Return only verdict, outcome_spans and reason_code."
+                "Adversarially re-audit the first candidate-blind outcome inventory from USER_TEXT only. FIRST_BLIND_OUTCOME_SPANS contains "
+                "only your own first-pass literal hypotheses; it is not authority and contains no candidate Goal plan. Start each hypothesis "
+                "as NOT an independently judgeable business outcome, then retain it only if the customer independently requests business "
+                "information/result/change that can be judged complete or incomplete. A conversational refusal, deferral or suppression of "
+                "execution (for example not proceeding/submitting/handling something for now) is interaction control rather than a second "
+                "business outcome when ACTIVE_STRUCTURED_INTERACTION does not identify the pending interaction and no identified existing "
+                "business object is itself being changed. In contrast, a direct cancel/delete/stop request on an identified existing business "
+                "object remains an outcome, and an explicit cancel/stop of the supplied ACTIVE_STRUCTURED_INTERACTION remains a control outcome. "
+                "Never prune a separately requested unsupported/open business effect merely because it is unusual or unavailable. Preserve a "
+                "separate read-only query. Do not inspect candidate Goals, candidate count, tools, capabilities, oracle data or dependency edges. "
+                "Return only verdict, outcome_spans and reason_code with each retained result exactly once."
             )
         return last_indeterminate
 
