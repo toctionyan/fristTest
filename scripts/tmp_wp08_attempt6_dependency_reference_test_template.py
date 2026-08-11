@@ -120,12 +120,16 @@ def test_positive_dependency_adjudication_uses_minimal_candidate_blind_projectio
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.details["dependency_edges"] == []
-    third_payload = repr(invoke.call_args_list[2].kwargs["payload"])
-    assert "zero-anaphora ellipsis" in third_payload
-    assert "target_candidate" not in third_payload
-    assert "requested_effect" not in third_payload
-    assert "reference_expression" not in third_payload
-    assert "'depends_on'" not in third_payload
+    third_messages = invoke.call_args_list[2].kwargs["payload"]
+    third_request = json.loads(third_messages[-1].content)
+    assert "zero-anaphora ellipsis" in third_request["FORMAT_REPAIR"]
+    projected = third_request["DECLARED_GOALS"]
+    assert len(projected) == 2
+    assert all(set(row) == {"goal_id", "evidence_span"} for row in projected)
+    assert all("target_candidate" not in row for row in projected)
+    assert all("requested_effect" not in row for row in projected)
+    assert all("reference_expression" not in row for row in projected)
+    assert all("depends_on" not in row for row in projected)
 
 
 def test_true_result_dependency_survives_minimal_adjudication() -> None:
