@@ -50,15 +50,28 @@ def test_true_result_reference_is_owned_by_grounded_alignment_dependency_proof()
         }],
         "reason_code": "all_requested_outcomes_and_dependency_preserved",
     })
+    adversarial_confirmation = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "它",
+        }],
+        "reason_code": "adversarial_true_result_reference",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[candidate, blind]
+        "agent_core.model_calls.invoke_model", side_effect=[candidate, blind, adversarial_confirmation]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.exact
     assert verdict.details["dependency_graph_match"] is True
     assert verdict.details["dependency_edges"][0]["basis_span"] == "它"
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_positive_edge_adjudication"
 
 
 def test_shared_scope_ellipsis_remains_independent() -> None:
@@ -112,15 +125,28 @@ def test_exact_contradictory_graph_self_reaudits_candidate_blind() -> None:
             }],
             "reason_code": "blind_dependency_reaudit_exact",
         }),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+            "missing_spans": [],
+            "dependency_decisions": [{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "b_depends_on_a",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
+            "reason_code": "adversarial_dependency_confirmation",
+        }),
     ]
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model", side_effect=calls
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.exact
     assert verdict.details["dependency_graph_match"] is True
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_positive_edge_adjudication"
 
 
 def test_malformed_alignment_basis_fails_closed_after_blind_reaudit() -> None:
