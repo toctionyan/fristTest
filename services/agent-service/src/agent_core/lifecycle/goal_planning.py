@@ -618,6 +618,7 @@ class ModelGoalAlignmentVerifier:
             "requested_effect must preserve the user's business effect even when the current system may not implement it; never rewrite an unsupported effect to a nearby available effect",
             "expected_result_cardinality describes the final verified business population, not the number of sentences in the answer: a singular choice, superlative, one entity detail, one object status/detail follow-up, or one eligibility/policy conclusion is single; a list/set/plural comparison is collection; an existence question over records/orders/items (for example whether any record exists) is collection because the verified population may contain zero, one, or many members even when the answer is one yes/no sentence; narrative or clarification without a business result is none; intermediate sort/filter operations do not change the user's final cardinality",
             "reference_expression.expected_cardinality describes the historical referent being pointed at, not the Goal output: use single when the user refers to one prior visible object/member, and collection when the user refers to a prior visible set that will be filtered/sorted/compared; it may therefore differ from expected_result_cardinality for a single-result selection over a collection",
+            "reference_expression.evidence_span is the smallest literal phrase that performs the historical reference and may be a strict subspan of Goal.evidence_span; surrounding attribute, predicate, comparison or action wording belongs to the Goal effect/scope and must not be required inside the reference span",
             "incomplete when distinct outcomes are collapsed into one goal or at least one literal requested outcome is absent",
             "depends_on is semantic result dependency, not sentence order: require it only when the later goal's target, input, condition, or independently acceptable completion must use the earlier current-turn goal's result",
             "dependency_edges is a complete independent proof graph, not a copy of depends_on: emit [] only when no declared Goal truly needs another current-turn Goal result; every retained edge needs one literal basis_span inside the dependent Goal and a basis_kind of result_reference, result_condition or result_value_input",
@@ -665,6 +666,7 @@ class ModelGoalAlignmentVerifier:
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
             "target-member selection, historical-result/member reference, execution commitment, input/control wording, unprovided form values and current business facts are not scope constraints; if one is explicitly placed in scope_constraints return incomplete instead of letting Runtime bind it as a filter",
+            "a historical reference span is the smallest literal referring phrase and may be shorter than the Goal evidence_span; never demand that surrounding status/detail/filter/action wording be copied into reference_expression.evidence_span",
             "judge semantic result dependency independently from execution-support dataflow",
             "shared object/topic/scope and sequencing words alone never create a result dependency",
             "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",
@@ -685,21 +687,36 @@ class ModelGoalAlignmentVerifier:
         )
         initial_exact_alignment: GoalAlignmentVerdict | None = None
         requested_effect_reaudit_guard: dict[str, Any] | None = None
+        preserved_blind_dependency_details: dict[str, Any] | None = None
         for attempt in range(3):
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
-            effective_instruction = (
-                blind_dependency_instruction
-                + " Dependency absence must also be explicitly proven. Return dependency_decisions with exactly one row "
-                "for every unordered pair of supplied Goal IDs. Each row has goal_a_id, goal_b_id and "
-                "relation=a_depends_on_b|b_depends_on_a|independent. For a dependency relation also include "
-                "basis_kind=result_reference|result_condition|result_value_input and basis_span copied literally from inside "
-                "the dependent Goal evidence_span. Do not omit independent pairs; dependency_decisions=[] is valid only when "
-                "fewer than two Goals are supplied. For requested_effect or target-scope-constraint mismatch, do not alter the "
-                "dependency decisions: set verdict=incomplete, copy the literal mismatched phrase into missing_spans, and use "
-                "a reason_code that identifies requested-effect fidelity or target-scope-constraint coverage. Return JSON only "
-                "with verdict, evidence_spans, missing_spans, dependency_decisions and reason_code."
-                if blind_dependency_audit else instruction
-            )
+            semantic_claim_reaudit = verifier_repair_kind in {
+                "candidate_blind_dependency_requested_effect_reaudit",
+                "candidate_blind_dependency_scope_constraint_reaudit",
+            }
+            if semantic_claim_reaudit:
+                effective_instruction = (
+                    blind_dependency_instruction
+                    + " The previous candidate-blind call already produced a complete structurally grounded dependency proof. "
+                    "This bounded final call must re-audit only the disputed requested-effect or target-scope semantic claim. "
+                    "Do not re-judge, replace or return dependency_decisions; dependency authority remains the preserved prior proof. "
+                    "Return JSON only with verdict, evidence_spans, missing_spans and reason_code."
+                )
+            elif blind_dependency_audit:
+                effective_instruction = (
+                    blind_dependency_instruction
+                    + " Dependency absence must also be explicitly proven. Return dependency_decisions with exactly one row "
+                    "for every unordered pair of supplied Goal IDs. Each row has goal_a_id, goal_b_id and "
+                    "relation=a_depends_on_b|b_depends_on_a|independent. For a dependency relation also include "
+                    "basis_kind=result_reference|result_condition|result_value_input and basis_span copied literally from inside "
+                    "the dependent Goal evidence_span. Do not omit independent pairs; dependency_decisions=[] is valid only when "
+                    "fewer than two Goals are supplied. For requested_effect or target-scope-constraint mismatch, do not alter the "
+                    "dependency decisions: set verdict=incomplete, copy the literal mismatched phrase into missing_spans, and use "
+                    "a reason_code that identifies requested-effect fidelity or target-scope-constraint coverage. Return JSON only "
+                    "with verdict, evidence_spans, missing_spans, dependency_decisions and reason_code."
+                )
+            else:
+                effective_instruction = instruction
             effective_rules = blind_dependency_rules if blind_dependency_audit else decision_rules
             try:
                 response, _trace = invoke_model(
@@ -742,7 +759,14 @@ class ModelGoalAlignmentVerifier:
                 dependency_details: dict[str, Any] = {}
                 dependency_error: str | None = None
                 if raw_verdict in {"exact", "incomplete"}:
-                    if blind_dependency_audit:
+                    if semantic_claim_reaudit and isinstance(preserved_blind_dependency_details, dict):
+                        # The second candidate-blind call already closed graph authority.
+                        # A third call exists only to arbitrate one semantic-field claim;
+                        # letting it emit a fresh graph reopens a proven dimension and can
+                        # turn harmless semantic arbitration into a spurious dependency
+                        # grounding failure. Preserve, do not weaken, the prior proof.
+                        dependency_details = deepcopy(preserved_blind_dependency_details)
+                    elif blind_dependency_audit:
                         dependency_details, dependency_error = _model_alignment_pairwise_dependency_proof(
                             user_text=user_text,
                             goals=goals,
@@ -1002,21 +1026,24 @@ class ModelGoalAlignmentVerifier:
                 requested_effect_reaudit_guard = _requested_effect_reaudit_collision_guard(
                     goals, verdict.missing_spans
                 )
+                preserved_blind_dependency_details = deepcopy(semantic_details)
                 verifier_repair_kind = "candidate_blind_dependency_requested_effect_reaudit"
                 verifier_repair = (
                     "Re-audit only the previous requested-effect fidelity mismatch claim while preserving the complete "
                     "candidate-blind dependency proof. requested_effect is an open semantic identity of the customer's "
                     "user-visible business outcome, not a capability-selection result. Judge domain, operation, object_type "
-                    "and raw_description together against the literal Goal evidence_span. An unsupported/unregistered effect "
-                    "or harmless naming granularity is not itself a mismatch, and capability availability must not be used as "
-                    "evidence. Withdraw the mismatch only when the declared effect still denotes the same user-visible outcome. "
-                    "If it substitutes a different lookup, action, object or business effect, remain incomplete and copy only "
-                    "the smallest literal USER_TEXT span proving that substitution into missing_spans. If the disputed Goal uses "
-                    "the exact same structured domain/operation/object_type as a sibling Goal with a distinct independently requested "
-                    "outcome, do not erase the mismatch merely because raw_description is broad enough to sound compatible; that is a "
-                    "high-risk effect-collapse signal and requires a faithful fresh declaration. Do not choose a tool, "
-                    "consult a capability registry, normalize to a nearby registered effect, or rewrite the declaration. Return "
-                    "the full candidate-blind JSON contract, including one dependency_decisions row for every unordered Goal pair."
+                    "and raw_description together against the literal Goal evidence_span. Do not infer a mismatch merely because "
+                    "an operation identifier is lexically broader or narrower than the literal attribute wording; require an actual "
+                    "different user-visible business effect. An unsupported/unregistered effect or harmless naming granularity is not "
+                    "itself a mismatch, and capability availability must not be used as evidence. Withdraw the mismatch only when the "
+                    "declared effect still denotes the same user-visible outcome. If it substitutes a different lookup, action, object "
+                    "or business effect, remain incomplete and copy only the smallest literal USER_TEXT span proving that substitution "
+                    "into missing_spans. If the disputed Goal uses the exact same structured domain/operation/object_type as a sibling "
+                    "Goal with a distinct independently requested outcome, do not erase the mismatch merely because raw_description is "
+                    "broad enough to sound compatible; that is a high-risk effect-collapse signal and requires a faithful fresh "
+                    "declaration. Do not choose a tool, consult a capability registry, normalize to a nearby registered effect, or "
+                    "rewrite the declaration. Do not re-audit or return dependency_decisions; the prior complete dependency proof "
+                    "remains authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
             normalized_scope_reason = normalized_semantic_reason
@@ -1035,19 +1062,21 @@ class ModelGoalAlignmentVerifier:
                 # current-turn ResultRef with a population-narrowing predicate. Spend
                 # the already-budgeted third call on an independent scope-claim
                 # re-audit; Runtime never interprets the user's language itself.
+                preserved_blind_dependency_details = deepcopy(scope_details)
                 verifier_repair_kind = "candidate_blind_dependency_scope_constraint_reaudit"
                 verifier_repair = (
                     "Re-audit only the previous target-scope-constraint mismatch claim while preserving the complete "
                     "candidate-blind dependency proof. A target_candidate.scope_constraints entry is required only for an "
                     "explicit filter, status predicate, threshold or comparison that narrows which members belong in this "
                     "Goal's requested target/result population. Object identity, member naming, ordinary target selection, "
-                    "and an explicit reference to an earlier current-turn Goal result are not scope constraints; a true "
-                    "current-turn result reference belongs only in dependency_decisions. If the prior missing_spans confused "
-                    "one of those target/reference forms with a narrowing predicate, withdraw that scope mismatch and return "
-                    "exact only when no other semantic mismatch remains. If USER_TEXT really contains an omitted narrowing "
-                    "predicate, remain incomplete and copy only its smallest literal span into missing_spans. Do not choose a "
-                    "tool, target, entity, normalized business value, capability or implementation step. Return the full "
-                    "candidate-blind JSON contract, including one dependency_decisions row for every unordered Goal pair."
+                    "historical-result/member references, and execution/input/control wording are not scope constraints. A historical "
+                    "reference belongs in reference_expression; a true current-turn Goal result reference belongs only in the already "
+                    "preserved dependency proof. If the prior missing_spans confused one of those target/reference forms with a "
+                    "narrowing predicate, withdraw that scope mismatch and return exact only when no other semantic mismatch remains. "
+                    "If USER_TEXT really contains an omitted narrowing predicate, remain incomplete and copy only its smallest literal "
+                    "span into missing_spans. Do not choose a tool, target, entity, normalized business value, capability or implementation "
+                    "step. Do not re-audit or return dependency_decisions; the prior complete dependency proof remains authoritative. "
+                    "Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
             if verdict.verdict in {"exact", "incomplete"}:
