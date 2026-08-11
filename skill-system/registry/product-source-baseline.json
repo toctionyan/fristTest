@@ -158,7 +158,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "658e5d4b5db6257afbd69960c5243536de8c7f772818dd228f3169c3cb027431",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "f2da352b636e0d838e7870caf8e3e96f8a3c9c66511fd39496a22e41e9c10196",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "f6574476874d8eadbba017db35de06a6aea10aa9f3effa259ede018db577d8cd",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "8a6ac4f7fc9bb0c8d861b86721ee893bac636be6a8cafa7f94f2c092eb09882a",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "a487449ed21fb06f56121403cde0d8c1708de2b7b6ae98b10d1ede755336100e",
@@ -507,7 +507,7 @@
     "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "dde89b9812caef698470c1ef6662fb70bc1fdd504cc62f100142a00228339999",
     "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "96d1a418497c057e0e642474afbb2cde6467f9544bddb4d024eada8c96f08a3f",
     "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "3eb435d91170fb67de3f5c9e1a954a9e6e3010ad7f5295ec7ab72f0c2693ef21",
-    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "7de4de532cff05f742ba4e91fa0247d04a17bc03bce5fa362504299fae1b8249",
+    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "1fc34d7eea598d30db159bedfc7a8d0e00caaff81388e110c3049cef79caea8c",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
     "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
     "services/agent-service/tests/support/conversation_case_runner.py": "a9a826277c81f08f16f0bb0e8e2f268f0df588c9c8a19b1695380f7e32e66d31",
@@ -564,8 +564,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-11T11:11:28.733983+00:00",
-  "generated_from": "git:9524e0be6f82cabc26dda2ddbcaadd8ddb99e39f",
+  "generated_at": "2026-08-11T11:49:32.828389+00:00",
+  "generated_from": "git:6ce9102c1aef1a6e0ebf5ad2c137a62cbcaec73d",
   "protected_roots": [
     "services",
     "web",
