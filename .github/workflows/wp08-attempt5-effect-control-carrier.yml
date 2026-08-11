@@ -6,6 +6,7 @@ name: wp08-attempt5-effect-control-carrier
     paths:
       - .github/workflows/wp08-attempt5-effect-control-carrier.yml
       - scripts/tmp_wp08_attempt5_effect_control_repair.py
+      - scripts/tmp_wp08_attempt5_effect_control_followup.py
 
 permissions:
   contents: write
@@ -59,10 +60,14 @@ jobs:
           cd ../business-service && uv sync --locked --all-groups
 
       - name: Apply bounded Attempt 5 semantic repair
-        run: >-
-          "${pythonLocation}/bin/python" -B
-          control/scripts/tmp_wp08_attempt5_effect_control_repair.py
-          patch --workspace source
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt5_effect_control_repair.py \
+            patch --workspace source
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt5_effect_control_followup.py \
+            source
 
       - name: Verify exact pre-baseline repair scope
         run: |
@@ -71,6 +76,7 @@ jobs:
           EXPECTED=$(printf '%s\n' \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_attempt4_followup_repair.py \
             skill-system/tests/test_wp08_attempt5_effect_collision_and_control_reaudit.py | sort)
           ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
           test "$ACTUAL" = "$EXPECTED"
@@ -104,6 +110,7 @@ jobs:
           git add \
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_attempt4_followup_repair.py \
             skill-system/tests/test_wp08_attempt5_effect_collision_and_control_reaudit.py
           git diff --cached --check
           git commit -m 'Harden effect collision and interaction-control semantic audits'
@@ -138,6 +145,7 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/lifecycle/goal_planning.py \
             skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_attempt4_followup_repair.py \
             skill-system/tests/test_wp08_attempt5_effect_collision_and_control_reaudit.py | sort)
           test "$FINAL" = "$EXPECTED"
           git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
