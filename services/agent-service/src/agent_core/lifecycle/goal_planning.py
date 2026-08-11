@@ -470,6 +470,9 @@ def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[
             "target_candidate": deepcopy(goal.get("target_candidate"))
             if isinstance(goal.get("target_candidate"), dict)
             else None,
+            "reference_expression": deepcopy(goal.get("reference_expression"))
+            if isinstance(goal.get("reference_expression"), dict)
+            else None,
             "condition": deepcopy(goal.get("condition"))
             if isinstance(goal.get("condition"), dict)
             else None,
@@ -480,6 +483,26 @@ def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[
         }
         rows.append(row)
     return rows
+
+
+def _has_unique_historical_reference(goals: list[dict[str, Any]]) -> bool:
+    """Return whether Runtime already proved at least one historical reference unique.
+
+    This is structural liveness evidence only. It does not interpret the user's
+    language or pick a target; resolution already happened through the
+    historical ResultRef authority before semantic alignment runs.
+    """
+    for goal in goals:
+        reference = goal.get("reference_expression")
+        proof = goal.get("referent_resolution_proof")
+        if not isinstance(reference, dict) or not isinstance(proof, dict):
+            continue
+        if (
+            str(reference.get("evidence_span") or "").strip()
+            and str(proof.get("resolution_status") or "") == "UNIQUE"
+        ):
+            return True
+    return False
 
 
 def _requested_effect_identity_key(goal: dict[str, Any]) -> tuple[str, str, str]:
@@ -641,11 +664,14 @@ class ModelGoalAlignmentVerifier:
         ]
         blind_dependency_instruction = (
             "Independently re-audit the frozen semantic fields of the supplied Goal IDs without seeing Planner depends_on. "
-            "Audit three things from USER_TEXT: (1) the complete current-turn semantic result-dependency graph; "
+            "Audit four things from USER_TEXT: (1) the complete current-turn semantic result-dependency graph; "
             "(2) whether each DECLARED_GOAL.requested_effect preserves the customer's actual business effect instead of "
-            "coercing an unsupported/open effect into a nearby registered effect; and (3) whether every explicit user-stated "
+            "coercing an unsupported/open effect into a nearby registered effect; (3) whether every explicit user-stated "
             "filter, status predicate, threshold or comparison that narrows the Goal target/result population is preserved as "
-            "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints. A scope constraint stores only the smallest "
+            "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints; and (4) when reference_expression is supplied, "
+            "whether it preserves the smallest literal historical referring phrase and its stated historical relation/cardinality "
+            "against RECENT_PUBLIC_CONTEXT. Do not require surrounding status/detail/filter/action wording inside the historical "
+            "reference evidence_span. A scope constraint stores only the smallest "
             "literal USER_TEXT evidence_span; do not translate it into a normalized business value, tool field or capability. "
             "Mere object/topic/member naming is target identity, not automatically a scope constraint. Goal.condition is a "
             "separate condition/dependency algebra and ordinary target-population filtering must not be forced into it. Audit the "
@@ -667,6 +693,7 @@ class ModelGoalAlignmentVerifier:
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
             "target-member selection, historical-result/member reference, execution commitment, input/control wording, unprovided form values and current business facts are not scope constraints; if one is explicitly placed in scope_constraints return incomplete instead of letting Runtime bind it as a filter",
             "a historical reference span is the smallest literal referring phrase and may be shorter than the Goal evidence_span; never demand that surrounding status/detail/filter/action wording be copied into reference_expression.evidence_span",
+            "when Runtime has already resolved a supplied historical reference uniquely, judge the semantic fidelity of the declared referring phrase against RECENT_PUBLIC_CONTEXT; do not reopen target selection or require non-reference wording inside the reference span",
             "judge semantic result dependency independently from execution-support dataflow",
             "shared object/topic/scope and sequencing words alone never create a result dependency",
             "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",
@@ -996,6 +1023,39 @@ class ModelGoalAlignmentVerifier:
                     "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
                 }
                 continue
+            if (
+                blind_dependency_audit
+                and verifier_repair_kind == "candidate_blind_dependency_reaudit"
+                and verdict.exact
+                and isinstance(verdict.details, dict)
+                and verdict.details.get("dependency_proof_complete") is True
+                and verdict.details.get("dependency_graph_match") is True
+                and bool(list(verdict.details.get("dependency_edges") or []))
+                and attempt < 2
+            ):
+                # Positive same-turn result dependencies are high-impact because a
+                # false edge blocks an otherwise independently reportable sibling.
+                # Spend the existing third verifier slot on an adversarial graph-only
+                # confirmation while still hiding Planner depends_on. Runtime does
+                # not infer language or rewrite the graph; disagreement stays
+                # fail-closed and flows through ordinary redeclaration feedback.
+                verifier_repair_kind = "candidate_blind_dependency_positive_edge_adjudication"
+                verifier_repair = (
+                    "Adversarially re-audit the complete current-turn dependency graph from USER_TEXT only. Start every unordered "
+                    "Goal pair from independent and retain a positive edge only when a literal basis_span inside the dependent Goal "
+                    "proves that the user-visible later outcome itself consumes the earlier current-turn Goal result as a result_reference, "
+                    "result_condition or result_value_input. Sequencing, shared topic/scope, repeated business object, and stable-ID/artifact "
+                    "lookup needed only by execution are not result dependencies. Do not see or reconstruct Planner depends_on from tool "
+                    "needs. Return one dependency_decisions row for every unordered Goal pair together with the normal requested-effect and "
+                    "scope audit fields. A true explicit result reference/condition/value dependency must still be retained."
+                )
+                prompt = {
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                }
+                continue
             normalized_semantic_reason = (
                 str(verdict.reason_code or "").strip().casefold().replace("-", "_").replace(" ", "_")
             )
@@ -1103,7 +1163,24 @@ class ModelGoalAlignmentVerifier:
             )
             if attempt == 0:
                 original_verdict = str(verdict.details.get("original_verdict") or "")
-                if (
+                if verdict.verdict == "indeterminate" and _has_unique_historical_reference(goals):
+                    verifier_repair_kind = "candidate_blind_dependency_historical_reference_reaudit"
+                    verifier_repair = (
+                        "Re-audit this structurally valid historical-reference declaration without seeing Planner depends_on. Runtime has "
+                        "already resolved the supplied historical ResultRef/member reference uniquely; do not reopen target selection. "
+                        "Judge whether each requested outcome is preserved and whether reference_expression.evidence_span is the smallest "
+                        "literal phrase in USER_TEXT that performs the historical reference. It may be a strict subspan of the Goal "
+                        "evidence_span; surrounding status/detail/filter/action wording must not be required inside it. Re-audit every "
+                        "unordered current-turn Goal pair independently and return the strict candidate-blind JSON contract. If a real "
+                        "semantic mismatch exists, remain incomplete with a literal missing span; otherwise return exact."
+                    )
+                    prompt = {
+                        "USER_TEXT_UNTRUSTED": user_text,
+                        "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                        "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                        "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                    }
+                elif (
                     verdict.reason_code == "goal_alignment_missing_span_not_grounded"
                     and original_verdict == "incomplete"
                 ):
