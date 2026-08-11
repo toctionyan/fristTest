@@ -485,6 +485,32 @@ def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[
     return rows
 
 
+def _dependency_adjudication_goal_projection(
+    goals: list[dict[str, Any]],
+    *,
+    include_requested_effect: bool = False,
+) -> list[dict[str, Any]]:
+    """Project only evidence needed for adversarial dependency adjudication.
+
+    The positive-edge adjudicator must decide user-visible result dependency
+    from the complete literal USER_TEXT, not infer execution prerequisites from
+    target candidates, conditions, historical binding proposals or transaction
+    mechanics. requested_effect is included only when the same bounded third
+    call must also arbitrate an independently signaled sibling-effect collision.
+    Runtime never rewrites the dependency graph from this projection.
+    """
+    rows: list[dict[str, Any]] = []
+    for goal in goals:
+        row: dict[str, Any] = {
+            "goal_id": _clean_text(goal.get("goal_id"), limit=80),
+            "evidence_span": _clean_text(goal.get("evidence_span"), limit=240),
+        }
+        if include_requested_effect and isinstance(goal.get("requested_effect"), dict):
+            row["requested_effect"] = deepcopy(goal.get("requested_effect"))
+        rows.append(row)
+    return rows
+
+
 def _has_unique_historical_reference(goals: list[dict[str, Any]]) -> bool:
     """Return whether Runtime already proved at least one historical reference unique.
 
@@ -718,10 +744,12 @@ class ModelGoalAlignmentVerifier:
             "(2) whether each DECLARED_GOAL.requested_effect preserves the customer's actual business effect instead of "
             "coercing an unsupported/open effect into a nearby registered effect; (3) whether every explicit user-stated "
             "filter, status predicate, threshold or comparison that narrows the Goal target/result population is preserved as "
-            "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints; and (4) when reference_expression is supplied, "
-            "whether it preserves the smallest literal historical referring phrase and its stated historical relation/cardinality "
-            "against RECENT_PUBLIC_CONTEXT. Do not require surrounding status/detail/filter/action wording inside the historical "
-            "reference evidence_span. A scope constraint stores only the smallest "
+            "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints; and (4) whether current Goal wording semantically returns "
+            "to or continues an already customer-visible historical result/member represented in RECENT_PUBLIC_CONTEXT. If it does, "
+            "reference_expression is required and, when supplied, must preserve the smallest literal historical referring phrase and its "
+            "stated relation/cardinality. Do not require reference_expression merely because the same literal label appears in history when "
+            "USER_TEXT is instead introducing a genuinely fresh literal target. Do not require surrounding status/detail/filter/action wording "
+            "inside the historical reference evidence_span. A scope constraint stores only the smallest "
             "literal USER_TEXT evidence_span; do not translate it into a normalized business value, tool field or capability. "
             "Mere object/topic/member naming is target identity, not automatically a scope constraint. Goal.condition is a "
             "separate condition/dependency algebra and ordinary target-population filtering must not be forced into it. Audit the "
@@ -742,6 +770,7 @@ class ModelGoalAlignmentVerifier:
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
             "target-member selection, historical-result/member reference, execution commitment, input/control wording, unprovided form values and current business facts are not scope constraints; if one is explicitly placed in scope_constraints return incomplete instead of letting Runtime bind it as a filter",
+            "when USER_TEXT semantically returns to or continues an already customer-visible historical result/member represented in RECENT_PUBLIC_CONTEXT, the corresponding Goal must supply reference_expression; a literal label merely appearing in both current text and history is not sufficient by itself to force a historical relation, so a genuinely fresh literal target remains valid without one",
             "a historical reference span is the smallest literal referring phrase and may be shorter than the Goal evidence_span; never demand that surrounding status/detail/filter/action wording be copied into reference_expression.evidence_span",
             "when Runtime has already resolved a supplied historical reference uniquely, judge the semantic fidelity of the declared referring phrase against RECENT_PUBLIC_CONTEXT; do not reopen target selection or require non-reference wording inside the reference span",
             "judge semantic result dependency independently from execution-support dataflow",
@@ -1095,12 +1124,16 @@ class ModelGoalAlignmentVerifier:
                         verifier_repair_kind = "candidate_blind_dependency_positive_edge_adjudication"
                         verifier_repair = (
                             "Adversarially re-audit the complete current-turn dependency graph from USER_TEXT only. Start every unordered "
-                            "Goal pair from independent and retain a positive edge only when a literal basis_span inside the dependent Goal "
-                            "proves that the user-visible later outcome itself consumes the earlier current-turn Goal result as a result_reference, "
-                            "result_condition or result_value_input. Sequencing, shared topic/scope, repeated business object, and stable-ID/artifact "
-                            "lookup needed only by execution are not result dependencies. Do not see or reconstruct Planner depends_on from tool "
-                            "needs. Return one dependency_decisions row for every unordered Goal pair together with the normal requested-effect and "
-                            "scope audit fields. A true explicit result reference/condition/value dependency must still be retained. When "
+                            "Goal pair from independent after re-reading the whole USER_TEXT, and retain a positive edge only when a literal basis_span "
+                            "inside the dependent Goal proves that the user-visible later outcome itself consumes the earlier current-turn Goal result "
+                            "as a result_reference, result_condition or result_value_input. If the later outcome merely omits a repeated target while "
+                            "an earlier literal phrase in the same USER_TEXT already names the reusable business object or scope, treat that as same-turn "
+                            "zero-anaphora ellipsis and keep the outcomes independent. A lookup, stable-ID/artifact resolution, Draft prerequisite or "
+                            "form/transaction input needed only to execute against that already literal target is support dataflow, not result_value_input. "
+                            "Sequencing, shared topic/scope and repeated business object are not result dependencies. A positive edge requires literal "
+                            "dependent wording that consumes the earlier outcome's result, not merely its business target. "
+                            "Do not see or reconstruct Planner depends_on from tool needs. Return one dependency_decisions row for every unordered Goal pair together with the "
+                            "normal requested-effect and scope audit fields. A true explicit result reference/condition/value dependency must still be retained. When "
                             "REQUESTED_EFFECT_COLLISION_RISK is supplied, also adversarially verify that each sibling's identical structured "
                             "requested_effect still denotes that sibling's own literal user-visible business effect; if one sibling has been "
                             "collapsed into a different lookup/action/object/effect, return incomplete with the smallest literal mismatch span."
@@ -1119,9 +1152,13 @@ class ModelGoalAlignmentVerifier:
                             "dependency_decisions row using only literal result-reference/result-condition/result-value evidence; otherwise mark it "
                             "independent."
                         )
+                    adjudication_goals = _dependency_adjudication_goal_projection(
+                        goals,
+                        include_requested_effect=bool(effect_collision_risk["risk"]),
+                    )
                     prompt = {
                         "USER_TEXT_UNTRUSTED": user_text,
-                        "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                        "DECLARED_GOALS": adjudication_goals,
                         "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
                         "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
                     }
@@ -1362,6 +1399,30 @@ def _recent_public_context(state: dict[str, Any], *, limit: int = 3) -> list[dic
             ))[:8],
             "historical_only": True,
         })
+    if state.get("artifact_ledger"):
+        visible_refs = visible_result_refs_from_ledger(
+            state.get("artifact_ledger") or [],
+            state=state,
+            limit=12,
+        )
+        for ref in visible_refs:
+            rows.append({
+                "context_kind": "visible_result_ref",
+                "turn": int(ref.get("source_turn") or 0),
+                "result_ref": str(ref.get("result_ref") or ""),
+                "shape": str(ref.get("shape") or ""),
+                "member_handles": [
+                    str(value) for value in list(ref.get("member_handles") or []) if str(value)
+                ][:12],
+                "member_labels": [
+                    str(value) for value in list(ref.get("member_labels") or []) if str(value)
+                ][:12],
+                "resource_types": [
+                    str(value) for value in list(ref.get("resource_types") or []) if str(value)
+                ][:6],
+                "historical_only": True,
+                "semantic_target_authority": False,
+            })
     return rows
 
 
