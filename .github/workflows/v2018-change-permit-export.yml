@@ -1,0 +1,81 @@
+name: v2018-change-permit-export
+
+on:
+  pull_request:
+    branches:
+      - architecture/v20.18-semantic-single-writer-output-coverage
+    paths:
+      - skill-system/tests/test_v2018_change-permit-carrier.py
+      - .github/workflows/v2018-change-permit-export.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  export-trusted-permit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout temporary carrier head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Reconstruct exact PR base and generate repository-owned permit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf "${RUNNER_TEMP}/v2018-base"
+          mkdir -p "${RUNNER_TEMP}/v2018-base"
+          git archive --format=tar "${BASE_SHA}" -o "${RUNNER_TEMP}/v2018-base.tar"
+          tar -xf "${RUNNER_TEMP}/v2018-base.tar" -C "${RUNNER_TEMP}/v2018-base"
+          cd "${RUNNER_TEMP}/v2018-base"
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          sys.path.insert(0, str(root / 'skill-system' / 'controller'))
+          from repair_governance import create_permit
+
+          contract = json.loads((root / 'governance' / 'active-change.json').read_text(encoding='utf-8'))
+          path = create_permit(root, contract)
+          print(path.relative_to(root).as_posix())
+          PY
+          "${pythonLocation}/bin/python" -B skill-system/controller/change_contract_cli.py begin
+
+      - name: Copy exact generated governance evidence into carrier branch
+        run: |
+          set -euo pipefail
+          CASE="governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage"
+          BASE="${RUNNER_TEMP}/v2018-base"
+          mkdir -p "${CASE}"
+          cp "${BASE}/${CASE}/baseline-manifest.json" "${CASE}/baseline-manifest.json"
+          cp "${BASE}/${CASE}/change-permit.json" "${CASE}/change-permit.json"
+          cp "${BASE}/governance/active-change.json" governance/active-change.json
+          sha256sum "${CASE}/baseline-manifest.json" "${CASE}/change-permit.json" governance/active-change.json
+
+      - name: Commit generated evidence only to temporary carrier
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          CASE="governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage"
+          git add "${CASE}/baseline-manifest.json" "${CASE}/change-permit.json" governance/active-change.json
+          if git diff --cached --quiet; then
+            echo "Generated evidence already present; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Carrier: export trusted V20.18 ChangePermit evidence"
+          git push origin "HEAD:${HEAD_REF}"
