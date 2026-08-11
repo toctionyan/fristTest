@@ -43,8 +43,11 @@ jobs:
           --require-hashes --only-binary=:all:
           -r source/deployment/ci/uv-requirements-linux-x86_64.txt
 
-      - name: Install locked Agent validation environment
-        run: cd source/services/agent-service && uv sync --locked --all-groups
+      - name: Install locked Python validation environments
+        run: |
+          set -euo pipefail
+          cd source/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
 
       - name: Align legacy dependency-authority regressions with adversarial third-call contract
         run: |
@@ -84,6 +87,8 @@ jobs:
         run: >-
           source/services/agent-service/.venv/bin/python -B
           source/scripts/run_python_test_suites.py source --mode standard
+          --junit-dir "${RUNNER_TEMP}/wp08-attempt4-standard/junit"
+          --coverage-dir "${RUNNER_TEMP}/wp08-attempt4-standard/coverage"
 
       - name: Commit regression alignment
         working-directory: source
