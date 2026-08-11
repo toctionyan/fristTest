@@ -70,6 +70,8 @@ jobs:
           test "$(git -C source diff --name-only)" = "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py"
 
       - name: Run focused Attempt 4 and dependency-authority regressions
+        env:
+          PYTHONPATH: source/services/agent-service/src
         run: >-
           source/services/agent-service/.venv/bin/python -B -m pytest -q
           source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
