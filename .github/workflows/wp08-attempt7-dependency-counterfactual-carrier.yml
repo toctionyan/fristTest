@@ -1,0 +1,188 @@
+name: wp08-attempt7-dependency-counterfactual-carrier
+
+"on":
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/wp08-attempt7-dependency-counterfactual-carrier.yml
+      - scripts/tmp_wp08_attempt7_dependency_counterfactual_repair.py
+      - scripts/tmp_wp08_attempt7_dependency_counterfactual_test_template.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wp08-attempt7-dependency-counterfactual-carrier-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate-live-and-publish-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    environment: production-certification
+    steps:
+      - name: Checkout carrier controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact Attempt 7 candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: c64eb988c3fd7464ccb3ba5cf31efac94791e64f
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify exact source identity
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "c64eb988c3fd7464ccb3ba5cf31efac94791e64f"
+          test -z "$(git -C source status --porcelain)"
+          python3 -B -m py_compile \
+            control/scripts/tmp_wp08_attempt7_dependency_counterfactual_repair.py \
+            control/scripts/tmp_wp08_attempt7_dependency_counterfactual_test_template.py
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r source/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Python validation environments
+        run: |
+          set -euo pipefail
+          cd source/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+
+      - name: Apply bounded Attempt 7 dependency repair
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt7_dependency_counterfactual_repair.py \
+            patch --workspace source
+
+      - name: Verify exact pre-baseline repair scope
+        run: |
+          set -euo pipefail
+          git -C source diff --check
+          EXPECTED=$(printf '%s\n' \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_attempt7_dependency_counterfactual_repair.py | sort)
+          ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Run focused Attempt 7 positive and negative regressions
+        env:
+          PYTHONPATH: source/services/agent-service/src
+        run: >-
+          source/services/agent-service/.venv/bin/python -B -m pytest -q
+          source/skill-system/tests/test_wp08_attempt7_dependency_counterfactual_repair.py
+          source/skill-system/tests/test_wp08_attempt6_dependency_and_historical_reference_repair.py
+          source/skill-system/tests/test_wp08_attempt5_effect_collision_and_control_reaudit.py
+          source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+          source/services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py
+
+      - name: Run complete standard Python suites
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/scripts/run_python_test_suites.py source --mode standard
+          --junit-dir "${RUNNER_TEMP}/wp08-attempt7-standard/junit"
+          --coverage-dir "${RUNNER_TEMP}/wp08-attempt7-standard/coverage"
+
+      - name: Resolve protected model configuration for live semantic proof
+        env:
+          CONFIG_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
+          CONFIG_MODEL_ID: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
+          CONFIG_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+          CONFIG_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          import json, os
+          from pathlib import Path
+          profile = json.loads(Path("source/deployment/ci/wp08-production-profile.json").read_text(encoding="utf-8"))
+          provider = (os.environ.get("CONFIG_MODEL_PROVIDER") or profile.get("model_provider") or "").strip().casefold()
+          model = (os.environ.get("CONFIG_MODEL_ID") or profile.get("model_id") or "").strip()
+          base = (os.environ.get("CONFIG_MODEL_API_BASE") or profile.get("model_api_base") or "").strip().rstrip("/")
+          if provider == "openai":
+              assert base == "https://api.openai.com/v1"
+          elif provider == "deepseek":
+              assert base in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
+          else:
+              raise SystemExit("protected model provider must be openai or deepseek")
+          if not model or not os.environ.get("CONFIG_MODEL_API_KEY"):
+              raise SystemExit("protected live semantic proof is missing model identity or credential")
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"OPENAI_MODEL={model}\n")
+              handle.write(f"OPENAI_API_BASE={base}\n")
+              handle.write(f"REAL_MODEL_CERTIFICATION_PROVIDER={provider}\n")
+          PY
+
+      - name: Run live protected semantic prototypes on repaired source
+        working-directory: source/services/agent-service
+        env:
+          OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+          APP_PROFILE: preprod
+          CAPABILITY_SEMANTIC_VERIFIER_MODE: model
+          GOAL_ALIGNMENT_VERIFIER_MODE: model
+          GOAL_GRANULARITY_VERIFIER_MODE: model
+          ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE: model
+        run: >-
+          .venv/bin/python -B scripts/verify_preprod_conversation_smoke.py
+
+      - name: Commit product repair and regressions
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_attempt7_dependency_counterfactual_repair.py
+          git diff --cached --check
+          git commit -m 'Require counterfactual proof for positive Goal dependencies'
+          git rev-parse HEAD > ../product-sha.txt
+
+      - name: Refresh protected baseline for exact source changes
+        run: |
+          set -euo pipefail
+          PRODUCT_SHA=$(cat product-sha.txt)
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_wp08_attempt7_dependency_counterfactual_repair.py \
+            baseline --workspace source --product-sha "$PRODUCT_SHA"
+
+      - name: Run complete Skill control plane
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Bind baseline and publish formal Attempt 7 repair branch
+        working-directory: source
+        env:
+          FORMAL_BRANCH: wp08-release-31474689970-attempt7-repair
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          test "$(git diff --cached --name-only)" = "skill-system/registry/product-source-baseline.json"
+          git diff --cached --check
+          git commit -m 'Bind Attempt 7 repair to protected source baseline'
+          test -z "$(git status --porcelain)"
+          FINAL=$(git diff --name-only c64eb988c3fd7464ccb3ba5cf31efac94791e64f..HEAD | sort)
+          EXPECTED=$(printf '%s\n' \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_attempt7_dependency_counterfactual_repair.py | sort)
+          test "$FINAL" = "$EXPECTED"
+          git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
