@@ -82,6 +82,7 @@ jobs:
         working-directory: candidate/services/agent-service
         env:
           PYTHONPATH: src
+          APP_PROFILE: local
         run: .venv/bin/python -m pytest -q -ra -p no:cacheprovider -m "not integration and not preprod"
       - name: Run full Skill control plane
         working-directory: candidate
