@@ -1,0 +1,72 @@
+name: wp08-attempt4-completion-reconcile
+
+"on":
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/wp08-attempt4-completion-reconcile.yml
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 545ea02d17c4b6b514ebce98570b6875cb242b9c
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Replay terminal Attempt 4 through repository recovery authority
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B scripts/wp08_release_recovery.py --mode reconcile
+      - name: Assert governed reconciled state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "scripts")
+          from wp08_release_github import GitHubAPI, find_release_issue
+
+          api = GitHubAPI(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
+          found = find_release_issue(api, release_run_id="wp08-release-31474689970")
+          if found is None:
+              raise SystemExit("active ReleaseRun #527 not found")
+          issue_number, state = found
+          checks = {
+              "issue_number": issue_number == 527,
+              "attempt": state.get("attempt") == 4,
+              "status": state.get("status") == "FAILED_NEEDS_CLASSIFICATION",
+              "current_run": state.get("current_wp08_run_id") == 31486652154,
+              "last_run": state.get("last_wp08_run_id") == 31486652154,
+              "last_conclusion": state.get("last_wp08_conclusion") == "failure",
+              "candidate": state.get("current_candidate_sha") == "545ea02d17c4b6b514ebce98570b6875cb242b9c",
+              "production_closed": state.get("production_closed") is False,
+          }
+          bad = [name for name, ok in checks.items() if not ok]
+          if bad:
+              raise SystemExit(f"governed reconciliation assertions failed: {bad}; state={state}")
+          if any(
+              isinstance(row, dict)
+              and row.get("event") == "wp08_dispatched"
+              and int(row.get("attempt") or 0) > 4
+              for row in state.get("history") or []
+          ):
+              raise SystemExit("Attempt 5 was unexpectedly dispatched")
+          print("Attempt 4 terminal failure reconciled through repository authority; no Attempt 5 dispatch.")
+          PY
