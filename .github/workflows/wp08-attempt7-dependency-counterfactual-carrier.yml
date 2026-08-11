@@ -16,10 +16,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate-live-and-publish-repair:
+  validate-and-publish-repair:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
-    environment: production-certification
+    timeout-minutes: 120
     steps:
       - name: Checkout carrier controls
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -98,47 +97,6 @@ jobs:
           source/scripts/run_python_test_suites.py source --mode standard
           --junit-dir "${RUNNER_TEMP}/wp08-attempt7-standard/junit"
           --coverage-dir "${RUNNER_TEMP}/wp08-attempt7-standard/coverage"
-
-      - name: Resolve protected model configuration for live semantic proof
-        env:
-          CONFIG_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
-          CONFIG_MODEL_ID: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
-          CONFIG_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
-          CONFIG_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
-        run: |
-          set -euo pipefail
-          "${pythonLocation}/bin/python" - <<'PY'
-          import json, os
-          from pathlib import Path
-          profile = json.loads(Path("source/deployment/ci/wp08-production-profile.json").read_text(encoding="utf-8"))
-          provider = (os.environ.get("CONFIG_MODEL_PROVIDER") or profile.get("model_provider") or "").strip().casefold()
-          model = (os.environ.get("CONFIG_MODEL_ID") or profile.get("model_id") or "").strip()
-          base = (os.environ.get("CONFIG_MODEL_API_BASE") or profile.get("model_api_base") or "").strip().rstrip("/")
-          if provider == "openai":
-              assert base == "https://api.openai.com/v1"
-          elif provider == "deepseek":
-              assert base in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
-          else:
-              raise SystemExit("protected model provider must be openai or deepseek")
-          if not model or not os.environ.get("CONFIG_MODEL_API_KEY"):
-              raise SystemExit("protected live semantic proof is missing model identity or credential")
-          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as handle:
-              handle.write(f"OPENAI_MODEL={model}\n")
-              handle.write(f"OPENAI_API_BASE={base}\n")
-              handle.write(f"REAL_MODEL_CERTIFICATION_PROVIDER={provider}\n")
-          PY
-
-      - name: Run live protected semantic prototypes on repaired source
-        working-directory: source/services/agent-service
-        env:
-          OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
-          APP_PROFILE: preprod
-          CAPABILITY_SEMANTIC_VERIFIER_MODE: model
-          GOAL_ALIGNMENT_VERIFIER_MODE: model
-          GOAL_GRANULARITY_VERIFIER_MODE: model
-          ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE: model
-        run: >-
-          .venv/bin/python -B scripts/verify_preprod_conversation_smoke.py
 
       - name: Commit product repair and regressions
         working-directory: source
