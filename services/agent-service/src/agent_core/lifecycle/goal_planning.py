@@ -467,6 +467,9 @@ def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[
             "requested_effect": deepcopy(goal.get("requested_effect"))
             if isinstance(goal.get("requested_effect"), dict)
             else None,
+            "condition": deepcopy(goal.get("condition"))
+            if isinstance(goal.get("condition"), dict)
+            else None,
             "expected_result_cardinality": _clean_text(
                 goal.get("expected_result_cardinality"), limit=40
             ) or "unknown",
@@ -535,24 +538,30 @@ class ModelGoalAlignmentVerifier:
             "do not require hidden implementation steps that the user did not request",
         ]
         blind_dependency_instruction = (
-            "Independently audit only the current-turn semantic result-dependency graph among the supplied Goal IDs. "
-            "The Planner's candidate dependency graph has been intentionally withheld, so do not reconstruct one from "
-            "tool order, implementation prerequisites, stable-ID lookup needs, capability availability, or sentence order. "
-            "A dependency exists only when the later user-visible outcome itself must consume an earlier current-turn "
-            "Goal result as its target, value input, or condition. Shared same-turn object/scope ellipsis is not a result "
-            "dependency. An explicit reference in the later literal span to the not-yet-produced earlier result is a "
-            "dependency. Return JSON only with verdict, evidence_spans, missing_spans, dependency_edges and reason_code. "
-            "Use verdict=exact when the supplied outcome inventory is represented; this audit must not invent omitted "
-            "outcomes. dependency_edges must be your complete independent graph. Every edge must contain dependent_goal_id, "
-            "requires_result_of_goal_id, basis_kind and a literal basis_span inside the dependent Goal evidence_span."
+            "Independently re-audit the frozen semantic fields of the supplied Goal IDs without seeing Planner depends_on. "
+            "Audit three things from USER_TEXT: (1) the complete current-turn semantic result-dependency graph; "
+            "(2) whether each DECLARED_GOAL.requested_effect preserves the customer's actual business effect instead of "
+            "coercing an unsupported/open effect into a nearby registered effect; and (3) whether every explicit user-stated "
+            "filter, status predicate, threshold, condition or other result-scope constraint inside a Goal evidence_span is "
+            "actually represented in that Goal's structured condition rather than existing only in description/evidence prose. "
+            "Do not invent a missing target member, slot/form value, current business fact or execution-time cardinality as a "
+            "semantic condition; those remain downstream Runtime concerns. If requested_effect is semantically substituted, or "
+            "an explicit predicate is missing from structured condition, verdict must be incomplete and missing_spans must copy "
+            "the smallest literal USER_TEXT span that proves the mismatch. Do not propose a replacement identity, normalized "
+            "predicate value, tool or capability. A result dependency exists only when the later user-visible outcome itself "
+            "must consume an earlier current-turn Goal result as target, value input or condition; shared topic/scope, sentence "
+            "order, stable-ID lookup and implementation prerequisites are not dependencies."
         )
         blind_dependency_rules = [
+            "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span; nearby registered capability identity is never acceptable merely because it exists",
+            "an explicit user-stated result filter/status/predicate must be structurally preserved in Goal.condition; repeating the words only in description, raw_description or evidence_span is not enough",
+            "target-member selection, unprovided form values and current business facts are downstream Runtime concerns and are not missing semantic conditions",
             "judge semantic result dependency independently from execution-support dataflow",
             "shared object/topic/scope and sequencing words alone never create a result dependency",
             "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",
             "an explicit later reference to an earlier current-turn result, or a condition/value that genuinely consumes that result, does create a dependency",
-            "use only literal USER_TEXT evidence and the supplied Goal IDs; do not use capability, tool, oracle or business-state knowledge",
-            "return the complete graph, including an empty list when the outcomes are independently acceptable",
+            "use only literal USER_TEXT evidence and supplied Goal fields; do not use tool, oracle or business-state knowledge",
+            "when any semantic-field mismatch exists return incomplete with literal missing_spans; otherwise return exact",
         ]
         prompt = {
             "USER_TEXT_UNTRUSTED": user_text,
@@ -570,14 +579,15 @@ class ModelGoalAlignmentVerifier:
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             effective_instruction = (
                 blind_dependency_instruction
-                + " For this candidate-blind audit, dependency absence must also be proven. "
-                "Return dependency_decisions with exactly one row for every unordered pair of supplied Goal IDs. "
-                "Each row has goal_a_id, goal_b_id and relation=a_depends_on_b|b_depends_on_a|independent. "
-                "For a dependency relation also include basis_kind=result_reference|result_condition|result_value_input "
-                "and basis_span copied literally from inside the dependent Goal evidence_span. "
-                "Do not omit a pair merely because you believe it is independent; an empty dependency_decisions list "
-                "is valid only when fewer than two Goals are supplied. Return JSON only with verdict, evidence_spans, "
-                "missing_spans, dependency_decisions and reason_code."
+                + " Dependency absence must also be explicitly proven. Return dependency_decisions with exactly one row "
+                "for every unordered pair of supplied Goal IDs. Each row has goal_a_id, goal_b_id and "
+                "relation=a_depends_on_b|b_depends_on_a|independent. For a dependency relation also include "
+                "basis_kind=result_reference|result_condition|result_value_input and basis_span copied literally from inside "
+                "the dependent Goal evidence_span. Do not omit independent pairs; dependency_decisions=[] is valid only when "
+                "fewer than two Goals are supplied. For requested_effect or structured-condition mismatch, do not alter the "
+                "dependency decisions: set verdict=incomplete, copy the literal mismatched phrase into missing_spans, and use "
+                "a reason_code that identifies requested-effect fidelity or structured-condition coverage. Return JSON only "
+                "with verdict, evidence_spans, missing_spans, dependency_decisions and reason_code."
                 if blind_dependency_audit else instruction
             )
             effective_rules = blind_dependency_rules if blind_dependency_audit else decision_rules
@@ -707,10 +717,11 @@ class ModelGoalAlignmentVerifier:
                         and raw_verdict == "exact"
                         and initial_exact_alignment is not None
                     ):
-                        # This second verifier call is dependency-only authority.
+                        # The second verifier is an independent semantic-contract audit:
+                        # dependency graph plus requested-effect/condition fidelity.
                         # Outcome grounding was already proven by the first exact
                         # call, so preserve that literal evidence while accepting
-                        # only the independently validated pairwise dependency proof.
+                        # only a structurally valid candidate-blind audit result.
                         verdict = GoalAlignmentVerdict(
                             "exact",
                             initial_exact_alignment.evidence_spans,
@@ -775,17 +786,19 @@ class ModelGoalAlignmentVerifier:
                 dependency_mismatch_introduces_new_edge = bool(verified_pairs - declared_pairs)
             if (
                 attempt == 0
-                and len(goals) > 1
-                and (verdict.exact or dependency_mismatch_introduces_new_edge)
+                and (
+                    verdict.exact
+                    or (len(goals) > 1 and dependency_mismatch_introduces_new_edge)
+                )
             ):
                 if verdict.exact:
                     initial_exact_alignment = verdict
-                # The first verifier saw Planner's candidate graph and may have
-                # anchored on the same execution-dataflow mistake. Spend the
-                # existing second-call budget on an independent dependency audit
-                # whose Goal projection deliberately omits that graph. Runtime
-                # still performs only structural comparison; it never infers an
-                # edge itself.
+                # Every first-pass exact declaration receives one independent
+                # semantic-contract re-audit within the existing verifier budget.
+                # The projection hides Planner depends_on but retains the declared
+                # requested_effect and condition so the verifier can detect semantic
+                # substitution or a predicate that exists only in prose. Runtime
+                # still never interprets language or rewrites a field itself.
                 verifier_repair_kind = "candidate_blind_dependency_reaudit"
                 verifier_repair = None
                 prompt = {
@@ -807,13 +820,15 @@ class ModelGoalAlignmentVerifier:
                 # never reveal or adopt Planner's candidate dependency graph.
                 verifier_repair_kind = "candidate_blind_dependency_format_repair"
                 verifier_repair = (
-                    "The previous candidate-blind pairwise dependency proof was rejected by the structural grounding contract: "
-                    f"{verdict.reason_code}. Re-audit every unordered Goal pair from USER_TEXT only. Assert a dependency only "
-                    "when you can copy one literal basis_span from inside the dependent Goal evidence_span and classify it as "
-                    "result_reference, result_condition or result_value_input. Shared scope, sentence order, lookup needs and "
-                    "business execution prerequisites are not result dependencies. If no grounded positive dependency exists "
-                    "for a pair, return relation=independent. Do not fabricate a basis. Return the complete dependency_decisions "
-                    "array and the strict JSON fields only."
+                    "The previous candidate-blind semantic-contract proof was rejected by the structural grounding contract: "
+                    f"{verdict.reason_code}. Re-audit requested_effect fidelity, structured condition coverage, and every unordered "
+                    "Goal pair from USER_TEXT only. A nearby registered effect is not a faithful replacement for an unsupported/open "
+                    "business effect. An explicit filter/status/predicate must be present in Goal.condition, not merely repeated in "
+                    "description/evidence prose. Do not treat target-member selection, missing form values or current business facts as "
+                    "semantic conditions. If a semantic-field mismatch exists, return verdict=incomplete and copy its smallest literal "
+                    "USER_TEXT span into missing_spans without proposing a replacement field/value. For dependencies, assert one only "
+                    "when a literal basis_span inside the dependent Goal proves result_reference, result_condition or result_value_input; "
+                    "otherwise return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only."
                 )
                 prompt = {
                     "USER_TEXT_UNTRUSTED": user_text,
