@@ -1,0 +1,131 @@
+name: wp08-final-product-repair-carrier
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-formal-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout temporary carrier controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact formal repair branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: wp08-final-product-closure-repair-20260811
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Verify formal branch authority
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "82fc42b920f6b1a2b7d82a69afbaaf76b872eba2"
+          test -z "$(git status --porcelain)"
+
+      - name: Bootstrap locked uv
+        working-directory: candidate
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        working-directory: candidate
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Apply reviewed product repair
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_final_product_repair_carrier.py
+          patch --workspace candidate
+
+      - name: Verify exact product repair scope
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            scripts/verify_full_lifecycle_canary.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py
+          EXPECTED=$(printf '%s\n' \
+            scripts/verify_full_lifecycle_canary.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py | sort)
+          ACTUAL=$({ git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)
+          test "$ACTUAL" = "$EXPECTED"
+          git diff --check
+
+      - name: Run focused positive and negative regressions
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -m unittest discover \
+            -s skill-system/tests -p 'test_wp08_final_product_closure_repair.py' -v
+          services/agent-service/.venv/bin/python -m unittest discover \
+            -s skill-system/tests -p 'test_semantic_dependency_repair_feedback.py' -v
+
+      - name: Commit product repair
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            scripts/verify_full_lifecycle_canary.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py
+          EXPECTED=$(printf '%s\n' \
+            scripts/verify_full_lifecycle_canary.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py | sort)
+          ACTUAL=$(git diff --cached --name-only | sort)
+          test "$ACTUAL" = "$EXPECTED"
+          git diff --cached --check
+          git commit -m "Repair final WP08 semantic and browser blockers"
+          git rev-parse HEAD > ../product-sha.txt
+
+      - name: Regenerate protected source baseline from product commit
+        run: |
+          set -euo pipefail
+          PRODUCT_SHA=$(cat product-sha.txt)
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_final_product_repair_carrier.py \
+            baseline --workspace candidate --product-sha "$PRODUCT_SHA"
+
+      - name: Validate complete Skill control plane
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+          git diff --check
+
+      - name: Bind repair to protected source baseline
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          test "$(git diff --cached --name-only)" = "skill-system/registry/product-source-baseline.json"
+          git diff --cached --check
+          git commit -m "Bind final WP08 repair to protected source baseline"
+          test -z "$(git status --porcelain)"
+
+      - name: Publish formal repair branch
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          git push origin HEAD:refs/heads/wp08-final-product-closure-repair-20260811
