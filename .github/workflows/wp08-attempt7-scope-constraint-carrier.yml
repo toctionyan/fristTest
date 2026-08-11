@@ -1,0 +1,93 @@
+name: wp08-attempt7-scope-constraint-carrier
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-focused-repair:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'wp08-attempt7-scope-constraint-carrier-20260811'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout temporary carrier controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout formal Attempt 7 repair branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: wp08-release-31388975089-attempt7-repair
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        working-directory: candidate
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        working-directory: candidate
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Apply domain-neutral scope-constraint authority repair
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt7_scope_constraint_carrier.py
+          patch --workspace candidate
+      - name: Run focused Attempt 7 and preserved authority regressions
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          PYTHONPATH=services/agent-service/src \
+            services/agent-service/.venv/bin/python -m pytest \
+            skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py \
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
+            skill-system/tests/test_wp08_attempt5_followup_repair.py \
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            -q
+      - name: Commit product repair
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            skill-system/tests/test_wp08_attempt6_semantic_fidelity_repair.py \
+            skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py
+          git diff --cached --check
+          git commit -m "Repair WP-08 Attempt 7 scope constraint authority"
+          git rev-parse HEAD > ../product-sha.txt
+      - name: Regenerate protected source baseline
+        run: |
+          set -euo pipefail
+          PRODUCT_SHA=$(cat product-sha.txt)
+          "${pythonLocation}/bin/python" -B control/scripts/tmp_wp08_attempt7_scope_constraint_carrier.py \
+            baseline --workspace candidate --product-sha "$PRODUCT_SHA"
+      - name: Run full Skill control plane
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+          git diff --check
+      - name: Publish formal repair branch
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          git commit -m "Bind WP-08 Attempt 7 repair to protected source baseline"
+          git push origin HEAD:refs/heads/wp08-release-31388975089-attempt7-repair
