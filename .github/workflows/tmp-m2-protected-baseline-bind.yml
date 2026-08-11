@@ -1,0 +1,77 @@
+name: tmp-m2-protected-baseline-bind
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate-validate-commit:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'long-task-execution-control-plane-m2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact M2 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: long-task-execution-control-plane-m2
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Bootstrap locked validation environment
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+      - name: Regenerate protected source baseline from exact product source
+        env:
+          BASE_SOURCE_SHA: 560b215bec7fa8584525b23dbb5d7b02d0774bba
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime as dt
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          root = Path.cwd()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          protected_roots = [str(v) for v in payload.get('protected_roots') or []]
+          if not protected_roots:
+              raise SystemExit('protected source baseline has no protected_roots')
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          files = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          source_sha = os.environ['BASE_SOURCE_SHA'].strip()
+          if subprocess.check_output(['git', 'rev-parse', f'{source_sha}^{{commit}}'], cwd=root, text=True).strip() != source_sha:
+              raise SystemExit('BASE_SOURCE_SHA is not the exact source commit')
+          payload['files'] = files
+          payload['file_count'] = len(files)
+          payload['generated_at'] = dt.datetime.now(dt.timezone.utc).isoformat()
+          payload['generated_from'] = f'git:{source_sha}'
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False) + '\n', encoding='utf-8')
+          PY
+          git diff --check
+      - name: Validate full Skill control plane on regenerated baseline
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+      - name: Commit only validated protected baseline
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-m2-protected-baseline-bind.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json .github/workflows/tmp-m2-protected-baseline-bind.yml
+          git commit -m 'Bind M2 resilient fixture to protected source baseline'
+          git push origin HEAD:long-task-execution-control-plane-m2
