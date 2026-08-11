@@ -1,8 +1,52 @@
 from __future__ import annotations
 
-import sys
+import base64
+from io import BytesIO
+import gzip
+import hashlib
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tarfile
 import unittest
+
+
+PRODUCT_PATHS = (
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py",
+)
+
+
+def _emit_candidate_archive(root: Path) -> None:
+    raw = BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as archive:
+        for path in PRODUCT_PATHS:
+            data = (root / path).read_bytes()
+            info = tarfile.TarInfo(path)
+            info.size = len(data)
+            info.mtime = 0
+            info.mode = 0o644
+            archive.addfile(info, BytesIO(data))
+    payload = gzip.compress(raw.getvalue(), compresslevel=9, mtime=0)
+    encoded = base64.b64encode(payload).decode("ascii")
+    chunks = [encoded[index:index + 9000] for index in range(0, len(encoded), 9000)]
+    print(f"V2018_A2B_ARCHIVE_SHA256={hashlib.sha256(payload).hexdigest()}", flush=True)
+    print(f"V2018_A2B_ARCHIVE_CHUNKS={len(chunks)}", flush=True)
+    for index, chunk in enumerate(chunks):
+        print(f"V2018_A2B_ARCHIVE_{index:04d}={chunk}", flush=True)
 
 
 class V2018SemanticVocabularyBatchTest(unittest.TestCase):
@@ -35,6 +79,36 @@ class V2018SemanticVocabularyBatchTest(unittest.TestCase):
             ("shipment.current_status", "shipment.eta", "shipment.tracking"),
         )
         self.assertFalse(any("courier.contact.phone" in values for values in aliases.values()))
+
+    def test_build_and_validate_full_a2b_candidate(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        python = root / "services" / "agent-service" / ".venv" / "bin" / "python"
+        if not python.is_file():
+            python = Path(sys.executable)
+
+        subprocess.run(
+            [str(python), "-B", "scripts/temp_v2018_a2b_builder.py"],
+            cwd=root,
+            check=True,
+        )
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(root / "services" / "agent-service" / "src")
+        subprocess.run(
+            [
+                str(python), "-B", "-m", "pytest", "-q",
+                "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+                "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+                "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py",
+                "services/agent-service/tests/runtime/test_capability_contract_v2.py",
+                "services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py",
+                "services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py",
+                "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py",
+            ],
+            cwd=root,
+            env=env,
+            check=True,
+        )
+        _emit_candidate_archive(root)
 
 
 if __name__ == "__main__":
