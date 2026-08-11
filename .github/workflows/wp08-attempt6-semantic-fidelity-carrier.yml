@@ -64,7 +64,8 @@ jobs:
           '''.replace("              ", "    ")
           if text.count(old) != 1:
               raise SystemExit(f"carrier assertion anchor count={text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          corrected = text.replace(old, new, 1).rstrip() + "\n"
+          path.write_text(corrected, encoding="utf-8")
           PY
       - name: Run focused Attempt 6 and preserved authority regressions
         working-directory: candidate
