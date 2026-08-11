@@ -52,7 +52,11 @@
     "product-quality-quick"
   ],
   "writer_role": "product-implementer",
-  "review_roles": ["scope-planner", "adversarial-reviewer", "release-judge"],
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
   "review_attestations": [],
   "affected_modules": [
     "agent_core.lifecycle",
@@ -75,6 +79,7 @@
   "repair_governance": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage",
   "repair_governance_consumed_at": null,
   "created_at": "2026-08-11T17:21:00+00:00",
-  "status": "approved",
-  "result": "PENDING"
+  "status": "implementing",
+  "result": "PENDING",
+  "repair_governance_permit_digest": "1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c"
 }
