@@ -1,0 +1,90 @@
+name: temporary-agent-pytest-current-test-diagnostic
+
+on:
+  push:
+    branches:
+      - architecture/v20.18-contract-owner-repair-rule-oracle-20260812
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Run standard Agent suite verbosely until first long stall
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import subprocess
+          from pathlib import Path
+
+          import scripts.run_python_test_suites as runner
+
+          root = Path.cwd()
+          agent = root / "services/agent-service"
+          py = agent / ".venv/bin/python"
+          runtime = Path(os.environ["RUNNER_TEMP"]) / "agent-current-test-diagnostic"
+          runtime.mkdir(parents=True, exist_ok=True)
+
+          env = os.environ.copy()
+          for key in tuple(env):
+              if key.startswith(runner.STANDARD_CONFIG_PREFIXES):
+                  env.pop(key, None)
+          env.update(runner.STANDARD_ENV)
+          env["PYTHONDONTWRITEBYTECODE"] = "1"
+          env["PYTHONPATH"] = "src:." + (f":{env['PYTHONPATH']}" if env.get("PYTHONPATH") else "")
+          env["COVERAGE_CORE"] = "sysmon"
+          env["COVERAGE_FILE"] = str(runtime / ".coverage")
+          env.update({
+              "SQLITE_DB_PATH": str(runtime / "agent.sqlite3"),
+              "AGENT_DATABASE_URL": f"sqlite:///{runtime / 'agent.sqlite3'}",
+              "DATABASE_URL": f"sqlite:///{runtime / 'agent.sqlite3'}",
+              "CHECKPOINT_DB_PATH": str(runtime / "checkpoints.sqlite3"),
+              "VECTOR_DB_PATH": str(runtime / "vector.sqlite3"),
+              "UPLOAD_DIR": str(runtime / "uploads"),
+              "BUSINESS_DB_PATH": str(runtime / "business.sqlite3"),
+          })
+
+          cmd = [
+              str(py), "-B", "-m", "pytest",
+              "-vv", "--no-header", "--tb=no", "-p", "no:cacheprovider",
+              "-m", "not integration and not preprod",
+              f"--junitxml={runtime / 'agent-standard.xml'}",
+              "--cov=agent_core", "--cov=app",
+              f"--cov-report=xml:{runtime / 'agent-standard-coverage.xml'}",
+          ]
+          print("DIAGNOSTIC_COMMAND=" + " ".join(cmd), flush=True)
+          try:
+              completed = subprocess.run(cmd, cwd=agent, env=env, timeout=260)
+              print(f"DIAGNOSTIC_EXIT={completed.returncode}", flush=True)
+              raise SystemExit(completed.returncode)
+          except subprocess.TimeoutExpired:
+              print("DIAGNOSTIC_TIMEOUT_AFTER_260S", flush=True)
+              raise SystemExit(124)
+          PY
