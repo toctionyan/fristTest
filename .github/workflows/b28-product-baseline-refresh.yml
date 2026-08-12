@@ -126,7 +126,7 @@ jobs:
           cd candidate
           services/agent-service/.venv/bin/python -B \
             skill-system/controller/profile_runner.py skill-control-plane
-          "${pythonLocation}/bin/python" -m pytest -q \
+          services/agent-service/.venv/bin/python -m pytest -q \
             skill-system/tests/test_product_source_baseline_binding.py
 
       - name: Publish exact baseline and restore temporary carrier
