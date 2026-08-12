@@ -1311,10 +1311,10 @@ def _explicit_member_scope_proof(
 ) -> dict[str, Any]:
     """Reject any target that contradicts one uniquely named visible member.
 
-    The model remains responsible for selecting an opaque target.  Runtime
-    only checks a contradiction between that proposed target and literal,
-    customer-visible labels: a collection with multiple members cannot stand
-    in for exactly one named member.  It does not choose the replacement.
+    For C1-covered frozen historical references, Execution Runtime has already
+    replaced the model candidate with its deterministic compiled target before
+    this proof runs. Fresh/uncompiled cases may still carry a candidate target;
+    this function checks contradictions and never chooses a replacement.
     """
     target = args.get("target") if isinstance(args.get("target"), dict) else {}
     target_mode = str(target.get("mode") or "")

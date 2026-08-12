@@ -36,6 +36,7 @@ from agent_core.lifecycle.workflow_runtime import (
 )
 from agent_core.lifecycle.plan_execution import begin_step_attempt
 from agent_core.runtime.outcomes import from_tool_result
+from agent_core.runtime.target_compiler import compile_runtime_target_arguments
 from agent_core.runtime.node_support import (
     append_decision as _append_decision,
     latest_human_text as _latest_human_text,
@@ -204,10 +205,39 @@ def execute_agent_loop_calls_node(
         name = str(call.get("name") or "")
         args = call.get("args") if isinstance(call.get("args"), dict) else {}
         category = classify_tool(name, capability_registry).category
+        compiled_runtime_target: dict[str, Any] | None = None
+        if (
+            category in {"observation", "action_draft"}
+            and isinstance(frozen_semantic_contract, dict)
+            and any(str(value) for value in list(call.get("_goal_ids") or []))
+        ):
+            capability_contract = capability_registry.contract_for_tool(name)
+            planning_contract = capability_contract.planning_contract if capability_contract is not None else None
+            target_contract = planning_contract.target if planning_contract is not None else None
+            if target_contract is not None and target_contract.argument_projection is not None:
+                args, compiled_runtime_target = compile_runtime_target_arguments(
+                    frozen_semantic_contract,
+                    goal_ids=[str(value) for value in list(call.get("_goal_ids") or []) if str(value)],
+                    target_contract=target_contract,
+                    arguments=args,
+                )
+                call["args"] = args
         preview_args, _preview_normalization = normalize_tool_arguments(args) if category in {"observation", "action_draft"} else (dict(args), {})
         key = canonical_call_key(name, preview_args)
         active_step_attempt_id: str | None = None
-        if seen.count(key) >= maximum_same:
+        if (
+            isinstance(compiled_runtime_target, dict)
+            and str(compiled_runtime_target.get("status") or "") == "REJECTED"
+        ):
+            result = {
+                "ok": False,
+                "code": "DETERMINISTIC_TARGET_AUTHORITY_REJECTED",
+                "message": "冻结目标证据未通过确定性运行态目标编译，系统不会回退到模型选择的目标。",
+                "data": {"target_authority": deepcopy(compiled_runtime_target)},
+                "match_proof": None,
+                "execution_permit": None,
+            }
+        elif seen.count(key) >= maximum_same:
             result = {"ok": False, "code": "DUPLICATE_OBSERVATION_SUPPRESSED", "message": "同一回合已获得该工具观察，请根据已有结果继续判断或回答。"}
         elif category == "internal":
             if name == "declare_turn_goals":
@@ -566,6 +596,11 @@ def execute_agent_loop_calls_node(
             ],
             "match_proof": (result.get("match_proof") if isinstance(result, dict) else None),
             "execution_permit": (result.get("execution_permit") if isinstance(result, dict) else None),
+            "compiled_runtime_target": (
+                deepcopy(compiled_runtime_target)
+                if isinstance(compiled_runtime_target, dict)
+                else None
+            ),
         })
 
     # Runtime progress is owned by PlanRun. The old grounded/workflow keys are
