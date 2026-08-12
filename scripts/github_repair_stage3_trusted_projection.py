@@ -29,6 +29,7 @@ if str(CONTROL) not in sys.path:
 from trusted_judge import MANIFEST_REL, load_manifest, sha256, verify_candidate, verify_root  # type: ignore  # noqa: E402
 
 SCHEMA = "github-stage3-trusted-judge-projection@1"
+STAGE3_JUDGE_ENV = "STAGE3_TRUSTED_JUDGE_ROOT"
 
 
 class ProjectionError(RuntimeError):
@@ -51,9 +52,15 @@ def _readonly_mode(source: Path) -> int:
     return mode & ~0o222
 
 
+def _effective_judge_root(judge_root: Path) -> Path:
+    """Resolve the workflow-bound exported Judge bundle when Stage-3 provides one."""
+    raw = str(os.getenv(STAGE3_JUDGE_ENV) or "").strip()
+    return Path(raw).expanduser().resolve() if raw else judge_root.resolve()
+
+
 def project(*, candidate_root: Path, judge_root: Path, output_path: Path) -> dict[str, Any]:
     candidate_root = candidate_root.resolve()
-    judge_root = judge_root.resolve()
+    judge_root = _effective_judge_root(judge_root)
     if candidate_root == judge_root or candidate_root in judge_root.parents or judge_root in candidate_root.parents:
         raise ProjectionError("candidate and trusted Judge roots must be independent workspaces")
     if not candidate_root.is_dir() or not judge_root.is_dir():
