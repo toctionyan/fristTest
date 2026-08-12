@@ -45,7 +45,7 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Resolve exact Quality attempt and highest completed assessment profile
+      - name: Resolve exact Quality attempt and cumulative assessment artifacts
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,64 +80,95 @@ jobs:
 
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}/attempts/${quality_run_attempt}/jobs?per_page=100" \
             > incoming/jobs.json
+          quick_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-quick")][0].conclusion // "missing"' incoming/jobs.json)
+          [[ "${quick_conclusion}" != "missing" && "${quick_conclusion}" != "skipped" ]]
           integration_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-integration")][0].conclusion // "missing"' incoming/jobs.json)
           if [[ "${integration_conclusion}" != "missing" && "${integration_conclusion}" != "skipped" ]]; then
-            artifact_name="quality-integration-evidence"
             expected_profile="project-integration"
           else
-            quick_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-quick")][0].conclusion // "missing"' incoming/jobs.json)
-            [[ "${quick_conclusion}" != "missing" && "${quick_conclusion}" != "skipped" ]]
-            artifact_name="quality-quick-evidence"
             expected_profile="project-quick"
           fi
 
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}/artifacts?per_page=100" \
             > incoming/artifacts.json
-          artifact_id=$(jq -r --arg started "${run_started_at}" --arg name "${artifact_name}" '[.artifacts[]
-            | select(.expired == false)
-            | select(.name == $name)
-            | select(.created_at >= $started)]
-            | sort_by(.created_at)
-            | reverse
-            | .[0].id // empty' incoming/artifacts.json)
-          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          select_artifact() {
+            local name="$1"
+            jq -r --arg started "${run_started_at}" --arg name "${name}" '[.artifacts[]
+              | select(.expired == false)
+              | select(.name == $name)
+              | select(.created_at >= $started)]
+              | sort_by(.created_at)
+              | reverse
+              | .[0].id // empty' incoming/artifacts.json
+          }
+
+          quick_artifact_id=$(select_artifact "quality-quick-evidence")
+          [[ "${quick_artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          integration_artifact_id=""
+          if [[ "${expected_profile}" == "project-integration" ]]; then
+            integration_artifact_id=$(select_artifact "quality-integration-evidence")
+            [[ "${integration_artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          fi
 
           echo "quality_run_id=${quality_run_id}" >> "$GITHUB_OUTPUT"
           echo "quality_run_attempt=${quality_run_attempt}" >> "$GITHUB_OUTPUT"
           echo "source_head_sha=${source_head_sha}" >> "$GITHUB_OUTPUT"
-          echo "artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${artifact_name}" >> "$GITHUB_OUTPUT"
+          echo "quick_artifact_id=${quick_artifact_id}" >> "$GITHUB_OUTPUT"
+          echo "integration_artifact_id=${integration_artifact_id}" >> "$GITHUB_OUTPUT"
           echo "expected_profile=${expected_profile}" >> "$GITHUB_OUTPUT"
 
-      - name: Download exact Quality evidence artifact
+      - name: Download exact Quick evidence artifact
         env:
           GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+          ARTIFACT_ID: ${{ steps.source.outputs.quick_artifact_id }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > incoming/quality.zip
-          unzip -q incoming/quality.zip -d incoming/quality
+          mkdir -p incoming/quality/quick
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > incoming/quick.zip
+          unzip -q incoming/quick.zip -d incoming/quality/quick
 
-      - name: Assess project requirements without source mutation
+      - name: Download exact Integration evidence artifact
+        if: steps.source.outputs.integration_artifact_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.source.outputs.integration_artifact_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/quality/integration
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > incoming/integration.zip
+          unzip -q incoming/integration.zip -d incoming/quality/integration
+
+      - name: Assess cumulative project requirements without source mutation
         env:
           EXPECTED_PROFILE: ${{ steps.source.outputs.expected_profile }}
           EXPECTED_REF: ${{ steps.source.outputs.source_head_sha }}
         run: |
           set -euo pipefail
-          summary=$(find incoming/quality -type f -name run-summary.json -print -quit 2>/dev/null || true)
-          requirements=$(find incoming/quality -type f -name requirement-catalog.json -print -quit 2>/dev/null || true)
-          [[ -n "${summary}" && -n "${requirements}" ]]
-          profile=$(jq -r '.requirement_profile // empty' "${summary}")
-          [[ "${profile}" == "${EXPECTED_PROFILE}" ]]
+          quick_summary=$(find incoming/quality/quick -type f -name run-summary.json -print -quit 2>/dev/null || true)
+          requirements=$(find incoming/quality/quick -type f -name requirement-catalog.json -print -quit 2>/dev/null || true)
+          [[ -n "${quick_summary}" && -n "${requirements}" ]]
+          [[ "$(jq -r '.requirement_profile // empty' "${quick_summary}")" == "project-quick" ]]
           [[ "${EXPECTED_REF}" =~ ^[0-9a-f]{40}$ ]]
-          mkdir -p project-convergence-evidence
-          "${pythonLocation}/bin/python" -B control/scripts/project_convergence_controller.py \
-            --summary "${summary}" \
-            --requirements "${requirements}" \
-            --profile "${profile}" \
-            --expected-ref "${EXPECTED_REF}" \
-            --output-dir project-convergence-evidence \
+
+          args=(
+            --summary "${quick_summary}"
+            --requirements "${requirements}"
+            --profile "${EXPECTED_PROFILE}"
+            --expected-ref "${EXPECTED_REF}"
+            --output-dir project-convergence-evidence
             --enforce
+          )
+          if [[ "${EXPECTED_PROFILE}" == "project-integration" ]]; then
+            integration_summary=$(find incoming/quality/integration -type f -name run-summary.json -print -quit 2>/dev/null || true)
+            integration_requirements=$(find incoming/quality/integration -type f -name requirement-catalog.json -print -quit 2>/dev/null || true)
+            [[ -n "${integration_summary}" && -n "${integration_requirements}" ]]
+            [[ "$(jq -r '.requirement_profile // empty' "${integration_summary}")" == "project-integration" ]]
+            cmp -s "${requirements}" "${integration_requirements}"
+            args+=(--summary "${integration_summary}")
+          fi
+
+          mkdir -p project-convergence-evidence
+          "${pythonLocation}/bin/python" -B control/scripts/project_convergence_controller.py "${args[@]}"
 
       - name: Upload project convergence evidence
         if: always()
