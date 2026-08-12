@@ -45,7 +45,7 @@ jobs:
             services/agent-service/src/agent_core/runtime/capability_effects.py \
             services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
             services/agent-service/src/agent_modules/ecommerce/module.py
-          PYTHONPATH="${GITHUB_WORKSPACE}/services/agent-service/src" \
+          PYTHONPATH="${GITHUB_WORKSPACE}/services/agent-service/src:${GITHUB_WORKSPACE}/services/agent-service" \
             services/agent-service/.venv/bin/python -B -m pytest -q \
               services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
               services/agent-service/tests/runtime/test_semantic_output_coverage.py \
