@@ -13,6 +13,10 @@ def test_stage3_is_event_driven_and_independently_validates_before_publication()
     text = STAGE3.read_text(encoding="utf-8")
     assert "governed-ci-repair-stage2" in text
     assert "workflow_run:" in text
+    assert "workflow_dispatch:" in text
+    assert "stage2_run_id:" in text
+    assert "stage2_run_attempt:" in text
+    assert "Resolve exact successful Stage-2 source" in text
     assert "github_repair_stage3.py inspect" in text
     assert "github_repair_stage3.py prepare" in text
     assert "github_repair_stage3_tree.py" in text
@@ -23,6 +27,23 @@ def test_stage3_is_event_driven_and_independently_validates_before_publication()
     assert "github_repair_stage3_complete.py" in text
     assert "gh pr create --draft" in text
     assert "gh workflow run quality.yml" in text
+
+
+def test_stage3_binds_exact_rerun_attempt_and_artifact() -> None:
+    text = STAGE3.read_text(encoding="utf-8")
+    assert '.name == "governed-ci-repair-stage2"' in text
+    assert '.conclusion == "success"' in text
+    assert '((.run_attempt | tostring) == $attempt)' in text
+    assert 'run_started_at=$(jq -r' in text
+    assert 'select(.created_at >= $started)' in text
+    assert 'sort_by(.created_at)' in text
+    assert 'stage2_artifact_id=${stage2_artifact_id}' in text
+    assert 'actions/artifacts/${STAGE2_ARTIFACT_ID}/zip' in text
+    assert '.schema == "github-governed-repair-stage2@1"' in text
+    assert '.status == "REPAIR_CANDIDATE_READY"' in text
+    assert '.stage3_handoff_bound == true' in text
+    assert "merge-multiple: true" not in text
+    assert "run-id: ${{ github.event.workflow_run.id }}" not in text
 
 
 def test_stage3_has_an_explicit_complete_quick_target_contract() -> None:

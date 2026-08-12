@@ -5,24 +5,41 @@ on:
     workflows:
       - governed-ci-repair-stage2
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      stage2_run_id:
+        description: Exact successful governed Stage-2 workflow run ID
+        required: true
+        type: string
+      stage2_run_attempt:
+        description: Exact successful governed Stage-2 run attempt
+        required: false
+        default: '1'
+        type: string
 
 permissions:
   contents: read
   actions: read
 
+env:
+  GH_REPO: ${{ github.repository }}
+
 concurrency:
-  group: governed-ci-repair-stage3-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: governed-ci-repair-stage3-${{ github.event.workflow_run.id || inputs.stage2_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.stage2_run_attempt }}
   cancel-in-progress: false
 
 jobs:
   inspect:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read
     outputs:
       control_sha: ${{ steps.control.outputs.control_sha }}
+      stage2_run_id: ${{ steps.source.outputs.stage2_run_id }}
+      stage2_run_attempt: ${{ steps.source.outputs.stage2_run_attempt }}
+      stage2_artifact_id: ${{ steps.source.outputs.stage2_artifact_id }}
       publish_allowed: ${{ steps.inspect.outputs.publish_allowed }}
       head_sha: ${{ steps.inspect.outputs.head_sha }}
       source_run_id: ${{ steps.inspect.outputs.source_run_id }}
@@ -41,16 +58,71 @@ jobs:
         id: control
         run: echo "control_sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Download Stage-2 repair candidate evidence
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          pattern: governed-ci-repair-stage2-*
-          path: incoming
-          merge-multiple: true
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+      - name: Resolve exact successful Stage-2 source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          DISPATCH_RUN_ID: ${{ inputs.stage2_run_id }}
+          DISPATCH_RUN_ATTEMPT: ${{ inputs.stage2_run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            stage2_run_id="${EVENT_RUN_ID}"
+            stage2_run_attempt="${EVENT_RUN_ATTEMPT}"
+          else
+            stage2_run_id="${DISPATCH_RUN_ID}"
+            stage2_run_attempt="${DISPATCH_RUN_ATTEMPT}"
+          fi
+          [[ "${stage2_run_id}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${stage2_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+
+          mkdir -p stage3-source
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage2_run_id}" > stage3-source/run.json
+          jq -e --arg attempt "${stage2_run_attempt}" '
+            .name == "governed-ci-repair-stage2"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' stage3-source/run.json >/dev/null
+
+          run_started_at=$(jq -r '.run_started_at // empty' stage3-source/run.json)
+          [[ -n "${run_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage2_run_id}/artifacts?per_page=100" \
+            > stage3-source/artifacts.json
+          stage2_artifact_id=$(jq -r --arg started "${run_started_at}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name | startswith("governed-ci-repair-stage2-"))
+            | select(.created_at >= $started)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' stage3-source/artifacts.json)
+          [[ "${stage2_artifact_id}" =~ ^[1-9][0-9]*$ ]]
+
+          echo "stage2_run_id=${stage2_run_id}" >> "$GITHUB_OUTPUT"
+          echo "stage2_run_attempt=${stage2_run_attempt}" >> "$GITHUB_OUTPUT"
+          echo "stage2_artifact_id=${stage2_artifact_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact Stage-2 repair candidate evidence
+        if: steps.source.outputs.stage2_artifact_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE2_ARTIFACT_ID: ${{ steps.source.outputs.stage2_artifact_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${STAGE2_ARTIFACT_ID}/zip" > incoming/stage2.zip
+          unzip -q incoming/stage2.zip -d incoming/stage2
+          result=$(find incoming/stage2 -type f -name repair-result.json -print -quit 2>/dev/null || true)
+          [[ -n "${result}" ]]
+          jq -e --arg repository "${GITHUB_REPOSITORY}" '
+            .schema == "github-governed-repair-stage2@1"
+            and .status == "REPAIR_CANDIDATE_READY"
+            and .stage3_handoff_bound == true
+            and .repository == $repository
+          ' "${result}" >/dev/null
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -81,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: governed-ci-repair-stage3-inspect-${{ github.event.workflow_run.id }}
+          name: governed-ci-repair-stage3-inspect-${{ steps.source.outputs.stage2_run_id }}-${{ steps.source.outputs.stage2_run_attempt }}
           path: stage3-inspect
           retention-days: 30
           if-no-files-found: ignore
@@ -116,15 +188,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Download Stage-2 repair candidate evidence
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          pattern: governed-ci-repair-stage2-*
-          path: incoming
-          merge-multiple: true
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+      - name: Download exact Stage-2 repair candidate evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE2_ARTIFACT_ID: ${{ needs.inspect.outputs.stage2_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "${STAGE2_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${STAGE2_ARTIFACT_ID}/zip" > incoming/stage2.zip
+          unzip -q incoming/stage2.zip -d incoming/stage2
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
