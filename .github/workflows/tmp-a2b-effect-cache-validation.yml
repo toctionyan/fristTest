@@ -1,0 +1,57 @@
+name: temporary-a2b-effect-cache-validation
+
+on:
+  push:
+    branches:
+      - fix/a2b-semantic-effect-cache-20260812
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Run semantic output coverage regressions
+        working-directory: services/agent-service
+        run: >-
+          .venv/bin/python -B -m pytest -q --disable-warnings --tb=short -p no:cacheprovider
+          tests/runtime/test_semantic_output_coverage.py
+
+      - name: Time known slow real-lifecycle scenario
+        working-directory: services/agent-service
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$(date +%s%3N)
+          .venv/bin/python -B -m pytest -q --disable-warnings --tb=short -p no:cacheprovider \
+            'tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[visible_superlative_cheapest]'
+          end=$(date +%s%3N)
+          echo "SLOW_CASE_DURATION_MS=$((end-start))"
+
+      - name: Run full conversation regression suite
+        working-directory: services/agent-service
+        run: >-
+          .venv/bin/python -B -m pytest -q --disable-warnings --tb=short -p no:cacheprovider
+          tests/context/test_conversation_regression_suite_execution.py
