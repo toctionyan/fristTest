@@ -36,13 +36,12 @@ jobs:
 
   v2018-a2b-builder-carrier:
     name: v2018-a2b-builder-carrier
-    if: ${{ github.event_name == 'pull_request' && github.head_ref == 'temp/v20.18-a2b-builder-20260812' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout builder branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.head_ref }}
+          ref: temp/v20.18-a2b-builder-20260812
           fetch-depth: 0
           persist-credentials: true
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -89,8 +88,6 @@ jobs:
             services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py \
             services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
       - name: Commit tested candidate to builder branch
-        env:
-          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
           git add \
@@ -115,4 +112,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Builder: implement V20.18 semantic output coverage"
-          git push origin "HEAD:${HEAD_REF}"
+          git push origin HEAD:temp/v20.18-a2b-builder-20260812
