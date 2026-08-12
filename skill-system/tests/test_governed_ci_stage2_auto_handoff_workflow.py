@@ -21,6 +21,7 @@ def test_auto_handoff_has_primary_event_and_scheduled_recovery() -> None:
         "push:",
         "branches: [main]",
         "workflow_dispatch:",
+        "GH_REPO: ${{ github.repository }}",
         "group: governed-ci-stage2-auto-handoff",
         "Discover newest unprocessed governed Stage-1 failure",
         "scripts/github_stage2_auto_handoff.py",
