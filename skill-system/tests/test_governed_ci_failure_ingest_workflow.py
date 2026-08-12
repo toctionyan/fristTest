@@ -26,6 +26,7 @@ def test_failure_ingest_workflow_is_read_only_and_event_driven() -> None:
         "scripts/github_failure_ingest_control_plane.py",
         "--event incoming/source-event.json",
         "governed-ci-failure-${{ steps.source.outputs.source_run_id }}",
+        "GH_REPO: ${{ github.repository }}",
         "persist-credentials: false",
         "production_closed: false",
     )
