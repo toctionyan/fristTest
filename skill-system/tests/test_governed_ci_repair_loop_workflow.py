@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 COORDINATOR = ROOT / ".github" / "workflows" / "governed-ci-repair-loop-coordinator.yml"
 STAGE2 = ROOT / ".github" / "workflows" / "governed-ci-repair-stage2.yml"
+STAGE3 = ROOT / ".github" / "workflows" / "governed-ci-repair-stage3.yml"
 
 
 def test_outer_loop_is_stage3_feedback_driven_and_owns_product_round_budget() -> None:
@@ -24,6 +25,17 @@ def test_outer_loop_is_stage3_feedback_driven_and_owns_product_round_budget() ->
     assert "HARNESS_REPAIR_REQUIRED" in text
     assert "attempts/${stage3_run_attempt}/jobs" in text
     assert "actions/jobs/${INSPECT_JOB_ID}/rerun" in text
+
+
+def test_stage3_explicitly_dispatches_failed_validation_to_outer_loop() -> None:
+    text = STAGE3.read_text(encoding="utf-8")
+    assert "handoff-failed-validation:" in text
+    assert "always() && needs.inspect.result == 'success' && needs.validate.result == 'failure'" in text
+    assert "actions: write" in text
+    assert "actions/workflows/governed-ci-repair-loop-coordinator.yml/dispatches" in text
+    assert 'inputs[stage3_run_id]=${GITHUB_RUN_ID}' in text
+    assert 'inputs[stage3_run_attempt]=${GITHUB_RUN_ATTEMPT}' in text
+    assert "the outer controller is idempotent on run-id/run-attempt" in text
 
 
 def test_outer_loop_dispatches_stage2_only_for_an_authorized_product_failure() -> None:
