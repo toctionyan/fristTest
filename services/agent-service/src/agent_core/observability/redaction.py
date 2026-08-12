@@ -20,6 +20,19 @@ _PERSONAL_KEYS = {
     "address", "address_detail", "phone", "mobile", "email", "email_address",
     "recipient", "receiver", "invoice_title", "tax_number", "id_card",
 }
+_TOKEN_USAGE_PREFIXES = (
+    "prompt_",
+    "completion_",
+    "input_",
+    "output_",
+    "total_",
+    "cached_",
+    "cache_",
+    "reasoning_",
+    "audio_",
+    "accepted_prediction_",
+    "rejected_prediction_",
+)
 
 
 def redaction_mode() -> str:
@@ -38,6 +51,11 @@ def _mask(value: Any, *, secret: bool) -> str:
     return f"{text[:2]}***{text[-2:]}"
 
 
+def _is_token_usage_telemetry_key(normalized: str) -> bool:
+    """Keep numeric model-usage telemetry observable without exposing credentials."""
+    return normalized.endswith("_tokens") and normalized.startswith(_TOKEN_USAGE_PREFIXES)
+
+
 def redact_for_persistence(value: Any) -> Any:
     """Return a non-mutating redacted projection for trace/audit storage."""
     if redaction_mode() == "off":
@@ -47,7 +65,9 @@ def redact_for_persistence(value: Any) -> Any:
         for raw_key, raw_value in value.items():
             key = str(raw_key)
             normalized = key.lower().replace("-", "_")
-            if normalized in _SECRET_KEYS or any(token in normalized for token in ("password", "secret", "token", "authorization", "api_key", "signature", "cookie")):
+            if _is_token_usage_telemetry_key(normalized):
+                result[key] = redact_for_persistence(raw_value)
+            elif normalized in _SECRET_KEYS or any(token in normalized for token in ("password", "secret", "token", "authorization", "api_key", "signature", "cookie")):
                 result[key] = _mask(raw_value, secret=True)
             elif normalized in _PERSONAL_KEYS or any(token in normalized for token in ("phone", "mobile", "email", "address", "tax_number", "id_card")):
                 result[key] = _mask(raw_value, secret=False)
