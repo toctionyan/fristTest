@@ -130,20 +130,33 @@ jobs:
           source_run_attempt=$(jq -r '.binding.workflow_run_attempt // empty' "${task_run}")
           [[ "${source_run_attempt}" =~ ^[1-9][0-9]*$ ]]
 
-          mkdir -p incoming/stage1
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${source_run_id}/artifacts?per_page=100" \
-            > incoming/source-artifacts.json
-          stage1_artifact_id=$(jq -r --arg name "governed-ci-quality-stage1-${source_run_id}" '[.artifacts[]
-            | select(.expired == false)
-            | select(.name == $name)]
-            | sort_by(.created_at)
-            | reverse
-            | .[0].id // empty' incoming/source-artifacts.json)
-          [[ "${stage1_artifact_id}" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${stage1_artifact_id}/zip" > incoming/stage1.zip
-          unzip -q incoming/stage1.zip -d incoming/stage1
-          original_failure=$(find incoming/stage1 -type f -name failure-case.json -print -quit)
-          [[ -n "${original_failure}" ]]
+          # New Stage-2 candidates carry the exact minimized Stage-1 authority they
+          # consumed. Prefer that self-bound snapshot so a fresh owner-recovery
+          # ingestion cannot be replaced by an older artifact attached to the same
+          # source Quality run. The Python controller validates its digest and all
+          # authority bindings before it is trusted.
+          original_failure=""
+          if jq -e '(.source_failure_authority | type) == "object"' "${stage2_result}" >/dev/null; then
+            original_failure="incoming/stage2-source-authority.json"
+            jq -S '.source_failure_authority' "${stage2_result}" > "${original_failure}"
+          else
+            # Legacy Stage-2 artifacts did not carry a bound authority snapshot.
+            # Preserve their existing fail-closed lookup behavior.
+            mkdir -p incoming/stage1
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${source_run_id}/artifacts?per_page=100" \
+              > incoming/source-artifacts.json
+            stage1_artifact_id=$(jq -r --arg name "governed-ci-quality-stage1-${source_run_id}" '[.artifacts[]
+              | select(.expired == false)
+              | select(.name == $name)]
+              | sort_by(.created_at)
+              | reverse
+              | .[0].id // empty' incoming/source-artifacts.json)
+            [[ "${stage1_artifact_id}" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${stage1_artifact_id}/zip" > incoming/stage1.zip
+            unzip -q incoming/stage1.zip -d incoming/stage1
+            original_failure=$(find incoming/stage1 -type f -name failure-case.json -print -quit)
+          fi
+          [[ -n "${original_failure}" && -s "${original_failure}" ]]
 
           previous_state=""
           gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
