@@ -70,13 +70,26 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}" > incoming/run.json
           jq -e --arg attempt "${quality_run_attempt}" '
             .name == "quality"
+            and .path == ".github/workflows/quality.yml"
             and .status == "completed"
             and ((.run_attempt | tostring) == $attempt)
           ' incoming/run.json >/dev/null
           run_started_at=$(jq -r '.run_started_at // empty' incoming/run.json)
+          source_event=$(jq -r '.event // empty' incoming/run.json)
           source_head_sha=$(jq -r '.head_sha // empty' incoming/run.json)
           [[ -n "${run_started_at}" ]]
           [[ "${source_head_sha}" =~ ^[0-9a-f]{40}$ ]]
+
+          source_base_sha=""
+          source_pr_head_sha=""
+          if [[ "${source_event}" == "pull_request" ]]; then
+            jq -e '(.pull_requests | type == "array") and (.pull_requests | length == 1)' incoming/run.json >/dev/null
+            source_base_sha=$(jq -r '.pull_requests[0].base.sha // empty' incoming/run.json)
+            source_pr_head_sha=$(jq -r '.pull_requests[0].head.sha // empty' incoming/run.json)
+            [[ "${source_base_sha}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${source_pr_head_sha}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${source_head_sha}" == "${source_pr_head_sha}" ]]
+          fi
 
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}/attempts/${quality_run_attempt}/jobs?per_page=100" \
             > incoming/jobs.json
@@ -112,7 +125,10 @@ jobs:
 
           echo "quality_run_id=${quality_run_id}" >> "$GITHUB_OUTPUT"
           echo "quality_run_attempt=${quality_run_attempt}" >> "$GITHUB_OUTPUT"
+          echo "source_event=${source_event}" >> "$GITHUB_OUTPUT"
           echo "source_head_sha=${source_head_sha}" >> "$GITHUB_OUTPUT"
+          echo "source_base_sha=${source_base_sha}" >> "$GITHUB_OUTPUT"
+          echo "source_pr_head_sha=${source_pr_head_sha}" >> "$GITHUB_OUTPUT"
           echo "quick_artifact_id=${quick_artifact_id}" >> "$GITHUB_OUTPUT"
           echo "integration_artifact_id=${integration_artifact_id}" >> "$GITHUB_OUTPUT"
           echo "expected_profile=${expected_profile}" >> "$GITHUB_OUTPUT"
@@ -138,10 +154,42 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > incoming/integration.zip
           unzip -q incoming/integration.zip -d incoming/quality/integration
 
+      - name: Bind convergence to the exact tested Quality snapshot
+        id: tested-ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_EVENT: ${{ steps.source.outputs.source_event }}
+          SOURCE_HEAD_SHA: ${{ steps.source.outputs.source_head_sha }}
+          SOURCE_BASE_SHA: ${{ steps.source.outputs.source_base_sha }}
+          SOURCE_PR_HEAD_SHA: ${{ steps.source.outputs.source_pr_head_sha }}
+        run: |
+          set -euo pipefail
+          quick_summary=$(find incoming/quality/quick -type f -name run-summary.json -print -quit 2>/dev/null || true)
+          [[ -n "${quick_summary}" ]]
+          tested_ref=$(jq -r '.target_identity.change_ref // empty' "${quick_summary}")
+          [[ "${tested_ref}" =~ ^[0-9a-f]{40}$ ]]
+
+          if [[ "${SOURCE_EVENT}" == "pull_request" ]]; then
+            [[ "${SOURCE_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${SOURCE_PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${SOURCE_HEAD_SHA}" == "${SOURCE_PR_HEAD_SHA}" ]]
+            gh api "repos/${GITHUB_REPOSITORY}/git/commits/${tested_ref}" > incoming/tested-commit.json
+            jq -e --arg base "${SOURCE_BASE_SHA}" --arg head "${SOURCE_PR_HEAD_SHA}" '
+              (.parents | type == "array")
+              and (.parents | length == 2)
+              and (.parents[0].sha == $base)
+              and (.parents[1].sha == $head)
+            ' incoming/tested-commit.json >/dev/null
+          else
+            [[ "${tested_ref}" == "${SOURCE_HEAD_SHA}" ]]
+          fi
+
+          echo "expected_ref=${tested_ref}" >> "$GITHUB_OUTPUT"
+
       - name: Assess cumulative project requirements without source mutation
         env:
           EXPECTED_PROFILE: ${{ steps.source.outputs.expected_profile }}
-          EXPECTED_REF: ${{ steps.source.outputs.source_head_sha }}
+          EXPECTED_REF: ${{ steps.tested-ref.outputs.expected_ref }}
         run: |
           set -euo pipefail
           quick_summary=$(find incoming/quality/quick -type f -name run-summary.json -print -quit 2>/dev/null || true)
