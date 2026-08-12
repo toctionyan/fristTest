@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   skill-self-validation:
@@ -16,31 +16,34 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
+      FORMAL_BRANCH: architecture/v20.18-a2b-semantic-output-coverage-compat-20260812
       EXPECTED_HEAD: 55403a01f957257fbbefead32bcde21b7d866001
       EXPECTED_TREE: 1eb4b3d29d46dc3f57fd5a56e239f5694f5341dc
       EXPECTED_PARENT: 22dea7bbedeba4b33196ef472feb15a1c917b80f
     steps:
-      - name: Checkout exact clean corrected A2/B candidate
+      - name: Checkout exact clean A2/B formal candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.EXPECTED_HEAD }}
           path: candidate
           fetch-depth: 2
           clean: true
-          persist-credentials: false
+          persist-credentials: true
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
           check-latest: false
 
-      - name: Guard exact clean candidate identity and scope
+      - name: Guard exact governed candidate identity and remote head
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_HEAD"
           test "$(git -C candidate rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
           test "$(git -C candidate rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          remote_head="$(git -C candidate ls-remote origin "refs/heads/${FORMAL_BRANCH}" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_HEAD"
           cat > /tmp/expected-delta.txt <<'EOF'
           M	services/agent-service/src/agent_core/kernel/semantic_contract.py
           M	services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
@@ -70,7 +73,7 @@ jobs:
       - name: Install locked Agent validation environment
         run: cd candidate/services/agent-service && uv sync --locked --all-groups
 
-      - name: Derive temporary exact protected-source baseline for validation
+      - name: Refresh exact protected source baseline
         shell: bash
         run: |
           set -euo pipefail
@@ -80,6 +83,7 @@ jobs:
           import json
           import os
           import subprocess
+          from datetime import datetime, timezone
           from pathlib import Path
 
           root = Path("candidate").resolve()
@@ -114,8 +118,9 @@ jobs:
           changed = {path for path in set(current) | set(recorded) if current.get(path) != recorded.get(path)}
           if changed != expected_changed:
               raise SystemExit("unexpected_product_source_delta:" + ",".join(sorted(changed)))
-          if int(payload.get("file_count") or 0) != 562:
-              raise SystemExit("unexpected_old_file_count")
+          old_count = int(payload.get("file_count") or 0)
+          if old_count != 562:
+              raise SystemExit(f"unexpected_old_file_count:{old_count}")
           if len(current) != 565:
               raise SystemExit(f"unexpected_new_file_count:{len(current)}")
           expected_added = {
@@ -128,22 +133,49 @@ jobs:
           if set(recorded) - set(current):
               raise SystemExit("unexpected_removed_paths")
           payload["generated_from"] = "git:" + os.environ["EXPECTED_HEAD"]
+          payload["generated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
           payload["file_count"] = len(current)
           payload["files"] = dict(sorted(current.items()))
           baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-          print(json.dumps({"status":"PASS","file_count":len(current),"changed_paths":sorted(changed)}, ensure_ascii=False))
+          print(json.dumps({
+              "status": "PASS",
+              "generated_from": payload["generated_from"],
+              "old_file_count": old_count,
+              "new_file_count": len(current),
+              "changed_paths": sorted(changed),
+              "added_paths": sorted(expected_added),
+          }, ensure_ascii=False))
           PY
 
-      - name: Validate full Skill control plane against clean candidate
+      - name: Validate refreshed Skill control plane
         shell: bash
         run: |
           set -euo pipefail
           cd candidate
           services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+          services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py --workspace-root . --static-only
 
-      - name: Validate quality toolchain authority
+      - name: Publish only governed baseline refresh
         shell: bash
         run: |
           set -euo pipefail
           cd candidate
-          services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py --workspace-root . --static-only
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          remote_head="$(git ls-remote origin "refs/heads/${FORMAL_BRANCH}" | awk '{print $1}')"
+          test "$remote_head" = "$EXPECTED_HEAD"
+          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected-publish-paths.txt
+          git diff --name-only "$EXPECTED_HEAD" -- | sort > /tmp/actual-publish-paths.txt
+          diff -u /tmp/expected-publish-paths.txt /tmp/actual-publish-paths.txt
+          git diff --check
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh V20.18 A2/B protected source baseline'
+          echo "BASELINE_COMMIT=$(git rev-parse HEAD)"
+          echo "BASELINE_TREE=$(git rev-parse HEAD^{tree})"
+          git push origin "HEAD:${FORMAL_BRANCH}"
