@@ -21,6 +21,9 @@ def test_outer_loop_is_stage3_feedback_driven_and_owns_product_round_budget() ->
     assert "PRODUCT_SOURCE_FAILURE" in text
     assert "TEST_CONTRACT_REVIEW_REQUIRED" in text
     assert "RETRY_VALIDATION_SAME_CANDIDATE" in text
+    assert "HARNESS_REPAIR_REQUIRED" in text
+    assert "attempts/${stage3_run_attempt}/jobs" in text
+    assert "actions/jobs/${INSPECT_JOB_ID}/rerun" in text
 
 
 def test_outer_loop_dispatches_stage2_only_for_an_authorized_product_failure() -> None:
@@ -41,6 +44,8 @@ def test_stage2_accepts_seeded_later_rounds_without_counting_fixer_cycles_as_rou
     assert "loop_feedback_run_attempt:" in text
     assert "repair_round:" in text
     assert "governed-repair-loop-feedback-" in text
+    assert "Download exact outer-loop feedback attempt" in text
+    assert "input_artifact_id" in text
     assert "outer-loop feedback is missing seed.patch" in text
     assert "outer-loop state did not authorize another product repair" in text
     assert "--seed-patch" in text
