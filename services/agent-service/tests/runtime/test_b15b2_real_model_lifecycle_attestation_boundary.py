@@ -125,6 +125,48 @@ def test_gateway_records_provider_model_finish_reason_and_usage() -> None:
     assert ledger.records[0]["provider_model"] == "gpt-4o-mini-2024-07-18"
 
 
+def test_persistence_redaction_preserves_attestable_token_usage_and_masks_credentials() -> None:
+    from agent_core.observability.redaction import redact_for_persistence
+
+    script = _load_script()
+    persisted = redact_for_persistence({
+        "model_calls": [{
+            "purpose": "agent_loop",
+            "status": "ok",
+            "provider_model": "gpt-4o-mini-2024-07-18",
+            "finish_reason": "tool_calls",
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+            "prompt_cache_hit_tokens": 4,
+            "prompt_cache_miss_tokens": 6,
+            "access_token": "access-secret",
+            "refresh_token": "refresh-secret",
+            "access_tokens": "plural-access-secret",
+            "token": "opaque-secret",
+        }],
+    })
+    record = persisted["model_calls"][0]
+
+    assert record["prompt_tokens"] == 10
+    assert record["completion_tokens"] == 5
+    assert record["total_tokens"] == 15
+    assert record["prompt_cache_hit_tokens"] == 4
+    assert record["prompt_cache_miss_tokens"] == 6
+    assert record["access_token"] == "[REDACTED]"
+    assert record["refresh_token"] == "[REDACTED]"
+    assert record["access_tokens"] == "[REDACTED]"
+    assert record["token"] == "[REDACTED]"
+
+    attestation = script._attest_lifecycle_model_calls(
+        diagnostics=[persisted],
+        identity={"provider": "openai", "model": "gpt-4o-mini"},
+        turn_index=1,
+    )
+    assert attestation["call_count"] == 1
+    assert attestation["total_tokens"] == 15
+
+
 def test_lifecycle_attests_each_turn_model_call() -> None:
     script = _load_script()
     identity = {
