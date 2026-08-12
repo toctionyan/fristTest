@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
@@ -26,6 +28,55 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Install locked Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Build, verify, and commit governed A2/B carrier candidate
+        run: |
+          set -euo pipefail
+          git checkout temp/v20.18-a2b-builder-20260812
+          "${pythonLocation}/bin/python" -B scripts/temp_v2018_a2b_builder.py
+          services/agent-service/.venv/bin/python -B -m py_compile \
+            services/agent-service/src/agent_core/modules/contracts.py \
+            services/agent-service/src/agent_core/modules/registry.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
+            services/agent-service/src/agent_core/kernel/semantic_contract.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/runtime/capability_effects.py \
+            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
+            services/agent-service/src/agent_modules/ecommerce/module.py
+          PYTHONPATH="${GITHUB_WORKSPACE}/services/agent-service/src" \
+            services/agent-service/.venv/bin/python -B -m pytest -q \
+              services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
+              services/agent-service/tests/runtime/test_semantic_output_coverage.py \
+              services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py \
+              services/agent-service/tests/runtime/test_capability_contract_v2.py \
+              services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py \
+              services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py \
+              services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+          git add \
+            services/agent-service/src/agent_core/modules/contracts.py \
+            services/agent-service/src/agent_core/modules/registry.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
+            services/agent-service/src/agent_core/kernel/semantic_contract.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
+            services/agent-service/src/agent_core/runtime/capability_effects.py \
+            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
+            services/agent-service/src/agent_modules/ecommerce/module.py \
+            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
+            services/agent-service/tests/runtime/test_semantic_output_coverage.py \
+            services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Builder: implement V20.18 semantic output coverage"
+            git push origin HEAD:temp/v20.18-a2b-builder-20260812
+          else
+            echo "Candidate already committed."
+          fi
       - name: Validate Skill control plane
         run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
       - name: Validate quality toolchain authority
