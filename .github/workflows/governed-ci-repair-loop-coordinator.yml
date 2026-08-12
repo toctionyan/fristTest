@@ -1,0 +1,276 @@
+name: governed-ci-repair-loop-coordinator
+
+on:
+  workflow_run:
+    workflows:
+      - governed-ci-repair-stage3
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      stage3_run_id:
+        description: Exact completed governed Stage-3 run ID to reconcile
+        required: true
+        type: string
+      stage3_run_attempt:
+        description: Exact Stage-3 run attempt to reconcile
+        required: false
+        default: '1'
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: governed-ci-repair-loop-${{ github.event.workflow_run.id || inputs.stage3_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.stage3_run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      action: ${{ steps.route.outputs.action }}
+      source_run_id: ${{ steps.route.outputs.source_run_id }}
+      source_run_attempt: ${{ steps.route.outputs.source_run_attempt }}
+      repair_round: ${{ steps.route.outputs.repair_round }}
+      next_repair_round: ${{ steps.route.outputs.next_repair_round }}
+      verification_attempt: ${{ steps.route.outputs.verification_attempt }}
+      failure_class: ${{ steps.route.outputs.failure_class }}
+      repair_budget_remaining: ${{ steps.route.outputs.repair_budget_remaining }}
+    steps:
+      - name: Checkout trusted outer-loop control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve exact failed Stage-3 attempt and validation artifact
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          DISPATCH_RUN_ID: ${{ inputs.stage3_run_id }}
+          DISPATCH_RUN_ATTEMPT: ${{ inputs.stage3_run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/stage3
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            stage3_run_id="${EVENT_RUN_ID}"
+            stage3_run_attempt="${EVENT_RUN_ATTEMPT}"
+          else
+            stage3_run_id="${DISPATCH_RUN_ID}"
+            stage3_run_attempt="${DISPATCH_RUN_ATTEMPT}"
+          fi
+          [[ "${stage3_run_id}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${stage3_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage3_run_id}" > incoming/stage3-run.json
+          jq -e --arg attempt "${stage3_run_attempt}" '
+            .name == "governed-ci-repair-stage3"
+            and .status == "completed"
+            and (.conclusion != "success")
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/stage3-run.json >/dev/null
+          run_started_at=$(jq -r '.run_started_at // empty' incoming/stage3-run.json)
+          [[ -n "${run_started_at}" ]]
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage3_run_id}/artifacts?per_page=100" \
+            > incoming/stage3-artifacts.json
+          artifact_id=$(jq -r --arg started "${run_started_at}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name | startswith("governed-ci-repair-stage3-validated-"))
+            | select(.created_at >= $started)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/stage3-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/stage3.zip
+          unzip -q incoming/stage3.zip -d incoming/stage3
+
+          echo "stage3_run_id=${stage3_run_id}" >> "$GITHUB_OUTPUT"
+          echo "stage3_run_attempt=${stage3_run_attempt}" >> "$GITHUB_OUTPUT"
+          echo "stage3_artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve immutable source failure and previous outer-loop state
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          stage2_result=$(find incoming/stage3 -type f -name stage2-result.json -print -quit)
+          stage3_plan=$(find incoming/stage3 -type f -name stage3-plan.json -print -quit)
+          targeted_result=$(find incoming/stage3 -type f -name targeted-result.json -print -quit)
+          task_run=$(find incoming/stage3 -type f -name task-run.json -print -quit)
+          repair_patch=$(find incoming/stage3 -type f -name repair.patch -print -quit)
+          [[ -n "${stage2_result}" && -n "${stage3_plan}" && -n "${targeted_result}" && -n "${task_run}" && -n "${repair_patch}" ]]
+          source_run_id=$(jq -r '.workflow_run_id // empty' "${stage2_result}")
+          [[ "${source_run_id}" =~ ^[1-9][0-9]*$ ]]
+          source_run_attempt=$(jq -r '.binding.workflow_run_attempt // empty' "${task_run}")
+          [[ "${source_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+
+          mkdir -p incoming/stage1
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${source_run_id}/artifacts?per_page=100" \
+            > incoming/source-artifacts.json
+          stage1_artifact_id=$(jq -r --arg name "governed-ci-quality-stage1-${source_run_id}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name == $name)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/source-artifacts.json)
+          [[ "${stage1_artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${stage1_artifact_id}/zip" > incoming/stage1.zip
+          unzip -q incoming/stage1.zip -d incoming/stage1
+          original_failure=$(find incoming/stage1 -type f -name failure-case.json -print -quit)
+          [[ -n "${original_failure}" ]]
+
+          previous_state=""
+          gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            -f "name=governed-repair-loop-state-${source_run_id}" -f per_page=100 \
+            > incoming/previous-state-artifacts.json
+          previous_artifact_id=$(jq -r '[.artifacts[]
+            | select(.expired == false)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/previous-state-artifacts.json)
+          if [[ "${previous_artifact_id}" =~ ^[1-9][0-9]*$ ]]; then
+            mkdir -p incoming/previous
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${previous_artifact_id}/zip" \
+              > incoming/previous.zip
+            unzip -q incoming/previous.zip -d incoming/previous
+            previous_state=$(find incoming/previous -type f -name loop-state.json -print -quit 2>/dev/null || true)
+          fi
+
+          echo "stage2_result=${stage2_result}" >> "$GITHUB_OUTPUT"
+          echo "stage3_plan=${stage3_plan}" >> "$GITHUB_OUTPUT"
+          echo "targeted_result=${targeted_result}" >> "$GITHUB_OUTPUT"
+          echo "task_run=${task_run}" >> "$GITHUB_OUTPUT"
+          echo "repair_patch=${repair_patch}" >> "$GITHUB_OUTPUT"
+          echo "original_failure=${original_failure}" >> "$GITHUB_OUTPUT"
+          echo "previous_state=${previous_state}" >> "$GITHUB_OUTPUT"
+          echo "source_run_id=${source_run_id}" >> "$GITHUB_OUTPUT"
+          echo "source_run_attempt=${source_run_attempt}" >> "$GITHUB_OUTPUT"
+
+      - name: Route independent validation failure through durable outer loop
+        id: route
+        env:
+          STAGE3_RUN_ID: ${{ steps.source.outputs.stage3_run_id }}
+          STAGE3_RUN_ATTEMPT: ${{ steps.source.outputs.stage3_run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p loop-output
+          args=(
+            --task-run "${{ steps.evidence.outputs.task_run }}"
+            --stage2-result "${{ steps.evidence.outputs.stage2_result }}"
+            --stage3-plan "${{ steps.evidence.outputs.stage3_plan }}"
+            --targeted-result "${{ steps.evidence.outputs.targeted_result }}"
+            --original-failure-case "${{ steps.evidence.outputs.original_failure }}"
+            --seed-patch "${{ steps.evidence.outputs.repair_patch }}"
+            --output-dir loop-output
+            --stage3-run-id "${STAGE3_RUN_ID}"
+            --stage3-run-attempt "${STAGE3_RUN_ATTEMPT}"
+            --github-output "$GITHUB_OUTPUT"
+          )
+          if [[ -n "${{ steps.evidence.outputs.previous_state }}" ]]; then
+            args+=(--previous-state "${{ steps.evidence.outputs.previous_state }}")
+          fi
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_loop_controller.py "${args[@]}"
+
+      - name: Upload durable outer-loop state
+        if: always() && steps.route.outputs.source_run_id != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-repair-loop-state-${{ steps.route.outputs.source_run_id }}
+          path: |
+            loop-output/loop-state.json
+            loop-output/task-run.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload next-round repair feedback
+        if: steps.route.outputs.action == 'DISPATCH_REPAIR'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-repair-loop-feedback-${{ steps.route.outputs.source_run_id }}
+          path: |
+            loop-output/loop-state.json
+            loop-output/task-run.json
+            loop-output/failure-case.json
+            loop-output/seed.patch
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Dispatch next governed product repair round
+        if: steps.route.outputs.action == 'DISPATCH_REPAIR'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.route.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.route.outputs.source_run_attempt }}
+          NEXT_REPAIR_ROUND: ${{ steps.route.outputs.next_repair_round }}
+        run: |
+          set -euo pipefail
+          [[ "${NEXT_REPAIR_ROUND}" =~ ^[1-8]$ ]]
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-ci-repair-stage2.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[source_run_id]=${SOURCE_RUN_ID}" \
+            -f "inputs[source_run_attempt]=${SOURCE_RUN_ATTEMPT}" \
+            -f "inputs[loop_feedback_run_id]=${GITHUB_RUN_ID}" \
+            -f "inputs[loop_feedback_run_attempt]=${GITHUB_RUN_ATTEMPT}" \
+            -f "inputs[repair_round]=${NEXT_REPAIR_ROUND}"
+
+      - name: Publish outer-loop routing receipt
+        if: always() && steps.route.outputs.source_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.route.outputs.source_run_id }}
+          ACTION: ${{ steps.route.outputs.action }}
+          FAILURE_CLASS: ${{ steps.route.outputs.failure_class }}
+          REPAIR_ROUND: ${{ steps.route.outputs.repair_round }}
+          NEXT_REPAIR_ROUND: ${{ steps.route.outputs.next_repair_round }}
+          VERIFICATION_ATTEMPT: ${{ steps.route.outputs.verification_attempt }}
+          REMAINING: ${{ steps.route.outputs.repair_budget_remaining }}
+        run: |
+          set -euo pipefail
+          issue=$(gh issue list --state open --search "[governed-ci-failure] run ${SOURCE_RUN_ID} in:title" \
+            --json number --jq '.[0].number // empty')
+          body=$(cat <<EOF
+          Governed outer repair-loop controller reconciled the independent Stage-3 verdict.
+
+          - Outer controller run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Source Quality run: \`${SOURCE_RUN_ID}\`
+          - Product repair round: \`${REPAIR_ROUND}/8\`
+          - Verification attempt: \`${VERIFICATION_ATTEMPT}\`
+          - Failure class: \`${FAILURE_CLASS}\`
+          - Routing action: \`${ACTION}\`
+          - Next product repair round: \`${NEXT_REPAIR_ROUND:-none}\`
+          - Remaining product repair budget: \`${REMAINING}\`
+          - GitHub workflow attempt counted as product repair round: \`false\`
+          - Stage-2 fixer cycle counted as product repair round: \`false\`
+          - Protected oracle automatically writable: \`false\`
+          - production_closed: false
+
+          \`PRODUCT_SOURCE_FAILURE\` may dispatch the next source repair round. Harness/environment
+          failures keep the same product round. \`TEST_CONTRACT_REVIEW_REQUIRED\` stops automatic
+          source mutation until the contract/oracle is explicitly reviewed.
+          EOF
+          )
+          if [[ -n "${issue}" ]]; then
+            gh issue comment "${issue}" --body "${body}"
+          else
+            gh issue create --title "[governed-ci-repair-loop] run ${SOURCE_RUN_ID}" --body "${body}"
+          fi
