@@ -24,6 +24,7 @@ MAX_FILES = 16
 MAX_PROMPT_BYTES = 500_000
 MAX_FILE_BYTES = 350_000
 MAX_RESPONSE_BYTES = 2_000_000
+MAX_MODEL_FORMAT_ATTEMPTS = 3
 SUPPORTED_SUFFIXES = {
     ".py", ".json", ".toml", ".yml", ".yaml", ".sh", ".bash",
     ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx",
@@ -47,6 +48,10 @@ PROTECTED_EXACT = {
 
 class FixerError(RuntimeError):
     """Fail-closed fixer error."""
+
+
+class ModelOutputError(FixerError):
+    """Model response did not satisfy the bounded structured-output contract."""
 
 
 @dataclass(frozen=True)
@@ -204,25 +209,63 @@ def _request(config: ModelConfig, messages: list[dict[str, str]], *, response_fo
     return data
 
 
-def call_model(config: ModelConfig, messages: list[dict[str, str]]) -> dict[str, Any]:
+def _request_with_compatibility(config: ModelConfig, messages: list[dict[str, str]]) -> bytes:
     try:
-        raw = _request(config, messages, response_format=True)
+        return _request(config, messages, response_format=True)
     except urllib.error.HTTPError as exc:
         if exc.code != 400:
             raise FixerError(f"repair model HTTP failure: {exc.code}") from exc
         try:
-            raw = _request(config, messages, response_format=False)
+            return _request(config, messages, response_format=False)
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as retry:
             code = getattr(retry, "code", "network")
             raise FixerError(f"repair model request failed after compatibility retry: {code}") from retry
     except (urllib.error.URLError, TimeoutError) as exc:
         raise FixerError("repair model request failed due to network or timeout") from exc
+
+
+def _decode_model_payload(raw: bytes) -> dict[str, Any]:
     try:
         envelope = json.loads(raw.decode("utf-8"))
         content = envelope["choices"][0]["message"]["content"]
     except (UnicodeDecodeError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-        raise FixerError("repair model returned an invalid response envelope") from exc
+        raise ModelOutputError("repair model returned an invalid response envelope") from exc
     return parse_change_payload(str(content))
+
+
+def _format_retry_messages(messages: list[dict[str, str]], attempt: int) -> list[dict[str, str]]:
+    retry = [dict(message) for message in messages]
+    reminder = (
+        f" FORMAT RETRY {attempt}/{MAX_MODEL_FORMAT_ATTEMPTS}: the previous response did not satisfy "
+        "the required structured-output contract. Return exactly one JSON object and no prose, "
+        "markdown, comments, or extra top-level values. The object schema remains "
+        "{\"summary\":str,\"changes\":[{\"path\":str,\"content\":str,\"reason\":str}]}. "
+        "This retry does not authorize any new file path or any change to tests, governance, "
+        "workflows, dependencies, secrets, or quality judges."
+    )
+    for index, message in enumerate(retry):
+        if message.get("role") == "system":
+            retry[index] = {**message, "content": message.get("content", "") + reminder}
+            return retry
+    raise FixerError("repair model messages are missing the trusted system instruction")
+
+
+def call_model(config: ModelConfig, messages: list[dict[str, str]]) -> dict[str, Any]:
+    request_messages = [dict(message) for message in messages]
+    last_output_error: ModelOutputError | None = None
+    for attempt in range(1, MAX_MODEL_FORMAT_ATTEMPTS + 1):
+        raw = _request_with_compatibility(config, request_messages)
+        try:
+            return _decode_model_payload(raw)
+        except ModelOutputError as exc:
+            last_output_error = exc
+            if attempt >= MAX_MODEL_FORMAT_ATTEMPTS:
+                break
+            request_messages = _format_retry_messages(messages, attempt + 1)
+    detail = str(last_output_error or "unknown structured-output failure")
+    raise FixerError(
+        f"repair model output contract failed after {MAX_MODEL_FORMAT_ATTEMPTS} bounded attempts: {detail}"
+    )
 
 
 def parse_change_payload(content: str) -> dict[str, Any]:
@@ -233,9 +276,9 @@ def parse_change_payload(content: str) -> dict[str, Any]:
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise FixerError("repair model output is not valid JSON") from exc
+        raise ModelOutputError("repair model output is not valid JSON") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list):
-        raise FixerError("repair model output does not match the required schema")
+        raise ModelOutputError("repair model output does not match the required schema")
     return payload
 
 
