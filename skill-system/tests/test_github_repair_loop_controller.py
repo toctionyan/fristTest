@@ -197,6 +197,8 @@ def test_product_failure_dispatches_round_two_without_counting_workflow_attempt(
         stage2_result_path=inputs["stage2"],
         stage3_plan_path=inputs["plan"],
         targeted_result_path=inputs["targeted"],
+        quick_summary_path=None,
+        validation_result_path=None,
         original_failure_path=inputs["failure"],
         seed_patch_path=inputs["patch"],
         output_dir=output,
@@ -233,6 +235,8 @@ def test_contract_review_blocks_automatic_product_mutation(tmp_path: Path) -> No
         stage2_result_path=inputs["stage2"],
         stage3_plan_path=inputs["plan"],
         targeted_result_path=inputs["targeted"],
+        quick_summary_path=None,
+        validation_result_path=None,
         original_failure_path=inputs["failure"],
         seed_patch_path=inputs["patch"],
         output_dir=output,
@@ -246,3 +250,45 @@ def test_contract_review_blocks_automatic_product_mutation(tmp_path: Path) -> No
     persisted_task = json.loads((output / "task-run.json").read_text(encoding="utf-8"))
     assert persisted_task["status"] == "BLOCKED"
     assert persisted_task["phase"] == "TEST_CONTRACT_REVIEW_REQUIRED"
+
+
+def test_quick_product_failure_routes_back_to_governed_source() -> None:
+    source_path = "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+    failure = _failure(source_path)
+    targeted = {
+        "schema": "github-governed-repair-stage3@1",
+        "status": "TARGETED_VALIDATION_PASSED",
+        "candidate_sha": "c" * 40,
+        "results": [],
+    }
+    quick = {
+        "mode": "quick",
+        "run_kind": "verification",
+        "decision": "FAIL",
+        "loop_status": "CI_FAILED",
+        "completion_eligible": False,
+        "results": [
+            {
+                "id": "python-test-suites",
+                "status": "FAIL",
+                "exit_code": 1,
+                "stdout": f'File "{source_path}", line 99\nRuntimeError: invalid state',
+                "stderr": "",
+            }
+        ],
+    }
+    failure_class, paths, _ = loop.classify_independent_failure(
+        targeted, original_failure=failure, quick_summary=quick
+    )
+    assert failure_class == "PRODUCT_SOURCE_FAILURE"
+    assert paths == [source_path]
+
+
+def test_harness_failure_requires_control_plane_repair_not_product_round() -> None:
+    failure = _failure("services/agent-service/src/agent_core/lifecycle/goal_planning.py")
+    failure_class, paths, _ = loop.classify_targeted_failure(
+        _targeted("ModuleNotFoundError: No module named 'agent_core'"),
+        original_failure=failure,
+    )
+    assert failure_class == "HARNESS_FAILURE"
+    assert paths == []
