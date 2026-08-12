@@ -15,6 +15,7 @@ used as formal capability identity.
 """
 
 from copy import deepcopy
+from functools import lru_cache
 from itertools import combinations
 from typing import Any, Iterable
 
@@ -98,6 +99,18 @@ def _legacy_semantic_aliases() -> dict[str, tuple[str, ...]]:
         return {}
 
 
+@lru_cache(maxsize=256)
+def _semantic_identities_for_output_ids(output_ids: tuple[str, ...]) -> tuple[str, ...]:
+    """Expand one exact output set once; alias/provider changes remain outside the cache."""
+    identities: list[str] = []
+    for size in range(1, len(output_ids) + 1):
+        for subset in combinations(output_ids, size):
+            identity = _semantic_output_identity(subset)
+            if identity and identity not in identities:
+                identities.append(identity)
+    return tuple(identities)
+
+
 def _semantic_identities_for_legacy_effects(values: Iterable[str]) -> tuple[str, ...]:
     aliases = _legacy_semantic_aliases()
     output_ids: list[str] = []
@@ -108,14 +121,9 @@ def _semantic_identities_for_legacy_effects(values: Iterable[str]) -> tuple[str,
     # ModuleRegistry bounds one legacy alias to at most eight output IDs, so
     # exact subset identities remain finite and deterministic. This lets one
     # legacy broad logistics contract prove status, ETA, tracking, or an exact
-    # requested combination without a model mapper.
-    identities: list[str] = []
-    for size in range(1, len(output_ids) + 1):
-        for subset in combinations(sorted(output_ids), size):
-            identity = _semantic_output_identity(subset)
-            if identity and identity not in identities:
-                identities.append(identity)
-    return tuple(identities)
+    # requested combination without a model mapper. The expansion itself is
+    # pure for one exact output set, so cache only that combinatorial step.
+    return _semantic_identities_for_output_ids(tuple(sorted(output_ids)))
 
 
 def completion_effects_for_contract(contract: Any) -> tuple[str, ...]:
