@@ -469,3 +469,27 @@ jobs:
           path: validated/stage3-evidence
           retention-days: 30
           if-no-files-found: error
+
+  handoff-failed-validation:
+    needs: [inspect, validate]
+    if: ${{ always() && needs.inspect.result == 'success' && needs.validate.result == 'failure' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Dispatch exact failed Stage-3 attempt to outer repair loop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          # workflow_run chains are bounded by GitHub and rerun delivery can be a
+          # weak handoff boundary. Dispatch the exact Stage-3 attempt explicitly;
+          # the outer controller is idempotent on run-id/run-attempt.
+          gh api -X POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-ci-repair-loop-coordinator.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[stage3_run_id]=${GITHUB_RUN_ID}" \
+            -f "inputs[stage3_run_attempt]=${GITHUB_RUN_ATTEMPT}"
