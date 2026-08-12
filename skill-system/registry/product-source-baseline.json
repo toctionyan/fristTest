@@ -477,7 +477,7 @@
     "services/agent-service/tests/runtime/test_global_goal_capability_coverage.py": "b975ced41e01886148fcfba2e61104ec4bc39984d369c283fc403342743f9ea0",
     "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py": "fe55e43b29b69157462467dac13a0f62cfd615f06ad226aa1896475fa534ce4f",
     "services/agent-service/tests/runtime/test_goal_change_evidence_contract.py": "e731942f7bb6b649f39110c4c007bd635c3f957652cdc9fb2b668ea191959967",
-    "services/agent-service/tests/runtime/test_goal_coverage_runtime.py": "14d22a59c0be5ccd2e2807dfd0eeaae6bcf8e3c6dd6e13659f71ef95a2f7155f",
+    "services/agent-service/tests/runtime/test_goal_coverage_runtime.py": "f644f9e442bec4945a142e00427d7b8d5fbb9ade6dd071c748af9c553c3402a9",
     "services/agent-service/tests/runtime/test_goal_evidence_satisfaction.py": "b467bad0c58a77bbb0a728f082f62f01d277864fab7063937122971b73c1c4f7",
     "services/agent-service/tests/runtime/test_goal_granularity_and_conditions.py": "c73a85f2b21b88e8e771e9f2cbe2cb6fffe60a60be5d93e6b85c4ee9f9a4efa5",
     "services/agent-service/tests/runtime/test_multi_intent_runtime.py": "729e708a273fbce3b7f5acd6c7a2f4522bf9cde4ad5704a6aa2aafaf092dd068",
@@ -567,8 +567,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-12T14:03:29+00:00",
-  "generated_from": "git:7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8",
+  "generated_at": "2026-08-12T14:21:35+00:00",
+  "generated_from": "git:b6f43b3819057a8c180653fe1ac39103981f63b5",
   "protected_roots": [
     "services",
     "web",
