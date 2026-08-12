@@ -5,8 +5,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
+from github_repair_stage3_trusted_projection import project as project_stage3_trusted_judge
+
+
+CONTROL_ROOT = Path(__file__).resolve().parents[1]
 
 WORKFLOW_MINIMUM_MODE = {
     "quality-static": "static",
@@ -115,6 +120,33 @@ def _source_claims(
     return [dict(item) for item in claims], metadata
 
 
+def _project_bound_stage3_judge(workspace: Path, target: Path) -> dict:
+    """Overlay only current trusted-Judge inputs into the disposable Stage-3 workspace."""
+    github_workspace = str(os.getenv("GITHUB_WORKSPACE") or "").strip()
+    if github_workspace:
+        evidence_path = (
+            Path(github_workspace).expanduser().resolve()
+            / "stage3-evidence"
+            / "trusted-judge-projection.json"
+        )
+    else:
+        evidence_path = target.with_suffix(".trusted-judge-projection.json")
+    payload = project_stage3_trusted_judge(
+        candidate_root=workspace,
+        judge_root=CONTROL_ROOT,
+        output_path=evidence_path,
+    )
+    return {
+        "schema": payload["schema"],
+        "judge_manifest_sha256": payload["judge_manifest_sha256"],
+        "projected_file_count": payload["projected_file_count"],
+        "repair_patch_changed": False,
+        "candidate_commit_changed": False,
+        "publication_authority_changed": False,
+        "production_closed": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
@@ -169,6 +201,14 @@ def main() -> int:
                 "closure_requirement": "current-pass",
             }
         ]
+
+    trusted_judge_projection: dict | None = None
+    if args.workflow == "governed-ci-repair-stage3":
+        try:
+            trusted_judge_projection = _project_bound_stage3_judge(workspace, target)
+        except (OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
+            parser.error(f"Stage-3 trusted Judge projection failed: {exc}")
+
     generated_manifest = {
         "schema_version": 1,
         "target_id": f"ci:{args.workflow}:{args.ref}",
@@ -179,6 +219,8 @@ def main() -> int:
         for key in ("requirement_catalog", "requirement_profile"):
             if key in source_metadata:
                 generated_manifest[key] = source_metadata[key]
+    if trusted_judge_projection is not None:
+        generated_manifest["trusted_judge_projection"] = trusted_judge_projection
     claims.write_text(
         json.dumps(
             generated_manifest,
