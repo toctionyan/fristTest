@@ -1,0 +1,92 @@
+name: temporary-c1-focused-baseline-refresh
+
+on:
+  push:
+    branches:
+      - architecture/v20.18-c1-deterministic-target-contract-20260812
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Run C1 focused and adjacent reference tests
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_deterministic_target_compiler.py \
+            tests/context/test_reference_resolution_contract.py \
+            tests/context/test_runtime_result_ref_pipeline.py
+      - name: Refresh exact protected product-source baseline
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(item) for item in payload['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          previous = {str(k): str(v) for k, v in payload['files'].items()}
+          changed = sorted(path for path in set(current) | set(previous) if current.get(path) != previous.get(path))
+          expected = [
+              'services/agent-service/src/agent_core/runtime/target_compiler.py',
+              'services/agent-service/tests/runtime/test_deterministic_target_compiler.py',
+          ]
+          if changed != expected:
+              raise SystemExit('unexpected_product_source_delta:' + ','.join(changed))
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          payload['generated_from'] = 'git:' + os.environ['SOURCE_SHA']
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'status': 'PASS', 'file_count': len(current), 'changed': changed, 'generated_from': payload['generated_from']}, ensure_ascii=False, indent=2))
+          PY
+      - name: Validate refreshed baseline binding
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B -m unittest \
+            skill-system.tests.test_product_source_baseline_binding
+      - name: Publish baseline refresh and remove temporary workflow
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git rm .github/workflows/tmp-c1-focused-baseline-refresh.yml
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh C1 product-source baseline after focused validation'
+          git push origin HEAD:architecture/v20.18-c1-deterministic-target-contract-20260812
