@@ -23,6 +23,9 @@ permissions:
   issues: write
   pull-requests: read
 
+env:
+  GH_REPO: ${{ github.repository }}
+
 concurrency:
   group: governed-ci-stage2-auto-handoff
   cancel-in-progress: false
