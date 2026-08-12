@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from typing import Any
 
 try:
@@ -498,7 +499,7 @@ def _loop_static_system_prompt() -> str:
 工作规则：
 - 先选择当前最有价值的一次观察、澄清、软任务更新或动作草稿；读取结果后再回答。
 - 一句话有多个目标、查询后再查询、查询后再动作、多个动作或长流程时，先按用户可以独立判断是否完成的业务效果拆 Goal；不要按接口或 Tool 数量拆 Goal。筛选、排序、数量、原因、权限检查、政策读取、Draft 与展示步骤都不是独立 Goal，除非用户明确把它们作为可单独验收的业务结果。一个 Goal 可以由多个 Tool 完成，多个 Goal 也可由一个综合 Tool 完成；每个 Goal 用开放 requested_effect 表达，系统没有能力时仍保留原 Goal。
-- requested_effect 必须填写 effect_kind、subject_type、requested_outputs、raw_description。requested_outputs 只能选择能力无关语义输出词汇中的 canonical output_id；词汇没有该用户概念时使用 open 并保留原始描述。语义词汇不包含能力可用性，禁止因为某个能力存在、缺失或名称相近而改变用户业务效果。
+- requested_effect 的 domain、operation、object_type 只是旧协议兼容形状，必须按当前用户原话填写开放语义，不能作为 Capability 身份；正式完成语义由 requested_outputs 的能力无关 canonical output_id 冻结。对语义词汇有精确对应时必须使用对应 output_id，不存在精确对应时才保留开放身份；禁止用 query/action 等泛化类别替代真实业务含义。语义词汇不包含能力可用性，禁止因为某个能力存在、缺失或名称相近而改变用户业务效果。
 - 任何业务事实、状态、金额、资格、政策或执行结果必须来自工具观察或 ContextBundle 中的真实 handle；不能编造。
 - Goal 是用户业务效果，不是 query/consult/action 分类。goal_type 仅为旧执行合同兼容提示，不得覆盖 requested_effect；咨询、资格预检与产生外部效果的能力不得因名称相近而互相替代。
 - 只有用户明确要求产生外部效果时，才可选择模块注册的动作草稿能力；模型不能先承诺“可以办理、已提交或已成功”。
@@ -607,7 +608,7 @@ def _loop_runtime_prompt(
         )
     elif planning_phase:
         planning_rule = (
-            "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出能力无关 requested_effect(effect_kind/subject_type/requested_outputs/raw_description)、字面 evidence_span、对象/输入候选、封闭 condition 和依赖。requested_outputs 从当前语义输出词汇选择；没有对应概念时使用 open，绝不能按已安装能力改写。depends_on 只表示真实结果依赖：只有后一个 Goal 的目标、输入、条件或完成含义必须使用前一个 Goal 的结果才依赖；并列、再/然后/另外、共享业务对象或共享主题只是话语顺序/共同范围，不得据此制造依赖。同一用户原话中前文已明确业务对象或范围、后文真正省略重复对象（零指代）时，应继承这个已明示范围作为省略语义，不得因此依赖前一个 Goal 的执行结果；即使后续执行需要先做一次读取把这个已明示对象解析成稳定 ID/artifact handle，那也是执行支持数据流，不是 Goal 语义依赖。若后一个 Goal 使用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，或条件显式依赖前一个结果，则应声明 depends_on；这种显式结果指代不是普通零指代省略，并且优先于上一条省略规则。显式引用历史结果、历史轮次或展示顺序成员时必须给出 reference_expression，由 Runtime 解析并只接受 UNIQUE 证明。对于没有明确要求回到更早结果的承接式历史引用，由你根据对话语义判断是否承接最近一次客户可见结果；若是，应提出 temporal_visible_result/latest 关系。更早的可见结果仍保留给显式回看，但它们仅仅存在并不会自动让最近结果的承接变成歧义；Runtime 仍不会自动选择目标。系统没有对应能力时仍保留原 Goal且保持原本的独立/依赖关系，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力或因 unsupported 状态附加依赖。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
+            "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出能力无关 requested_effect(domain/operation/object_type + requested_outputs)、字面 evidence_span、对象/输入候选、封闭 condition 和依赖。domain/operation/object_type 仅保持开放语义兼容形状；requested_outputs 从当前能力无关语义输出词汇选择并作为冻结后的精确输出合同，没有对应概念时使用 open，绝不能按已安装能力改写。depends_on 只表示真实结果依赖：只有后一个 Goal 的目标、输入、条件或完成含义必须使用前一个 Goal 的结果才依赖；并列、再/然后/另外、共享业务对象或共享主题只是话语顺序/共同范围，不得据此制造依赖。同一用户原话中前文已明确业务对象或范围、后文真正省略重复对象（零指代）时，应继承这个已明示范围作为省略语义，不得因此依赖前一个 Goal 的执行结果；即使后续执行需要先做一次读取把这个已明示对象解析成稳定 ID/artifact handle，那也是执行支持数据流，不是 Goal 语义依赖。若后一个 Goal 使用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，或条件显式依赖前一个结果，则应声明 depends_on；这种显式结果指代不是普通零指代省略，并且优先于上一条省略规则。显式引用历史结果、历史轮次或展示顺序成员时必须给出 reference_expression，由 Runtime 解析并只接受 UNIQUE 证明。对于没有明确要求回到更早结果的承接式历史引用，由你根据对话语义判断是否承接最近一次客户可见结果；若是，应提出 temporal_visible_result/latest 关系。更早的可见结果仍保留给显式回看，但它们仅仅存在并不会自动让最近结果的承接变成歧义；Runtime 仍不会自动选择目标。系统没有对应能力时仍保留原 Goal且保持原本的独立/依赖关系，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力或因 unsupported 状态附加依赖。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
             + (
                 " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮采用一个全局 disposition；只提交 goal_changes 和 blocker_resolutions。"
                 if blocker_context is not None else ""
@@ -684,13 +685,131 @@ def _loop_system_prompt(
     ))
 
 
+def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> dict[str, Any]:
+    """Project rejected declaration diagnostics to violation-only writer input.
+
+    Trace/audit may retain the independent verifier's complete proof, including
+    candidate-blind dependency graphs.  That proof is never semantic write
+    authority.  Before the next model declaration, this boundary retains only
+    current-user text, structural errors, reason codes, constraints and literal
+    violation spans; replacement edges, requested effects, roles and targets are
+    deliberately dropped.
+    """
+    payload = deepcopy(result) if isinstance(result, dict) else {}
+    if payload.get("ok") is True:
+        return payload
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    projected_data: dict[str, Any] = {}
+    for key in ("errors", "current_user_input", "repair_contract"):
+        if key in data:
+            projected_data[key] = deepcopy(data[key])
+
+    spans: list[str] = []
+    reason_code = ""
+    field = "semantic_declaration"
+
+    alignment = data.get("alignment_proof") if isinstance(data.get("alignment_proof"), dict) else {}
+    if alignment and str(alignment.get("verdict") or "") != "exact":
+        reason_code = str(alignment.get("reason_code") or "")
+        if reason_code == "goal_alignment_dependency_graph_mismatch":
+            field = "depends_on"
+        for value in list(alignment.get("missing_spans") or []):
+            span = str(value or "").strip()
+            if span and span not in spans:
+                spans.append(span)
+
+    granularity = data.get("granularity_proof") if isinstance(data.get("granularity_proof"), dict) else {}
+    if granularity and str(granularity.get("verdict") or "") != "exact":
+        reason_code = str(granularity.get("reason_code") or reason_code)
+        field = "goal_inventory"
+        for finding in list(granularity.get("findings") or []):
+            if not isinstance(finding, dict):
+                continue
+            span = str(finding.get("evidence_span") or "").strip()
+            if span and span not in spans:
+                spans.append(span)
+
+    feedback = data.get("independent_verifier_feedback") if isinstance(data.get("independent_verifier_feedback"), dict) else {}
+    authority = str(feedback.get("authority") or "")
+    if authority == "candidate_blind_goal_inventory":
+        field = "goal_inventory"
+    elif authority == "independent_goal_alignment":
+        field = "depends_on"
+    for key in ("uncovered_outcome_spans",):
+        for value in list(feedback.get(key) or []):
+            span = str(value or "").strip()
+            if span and span not in spans:
+                spans.append(span)
+    for edge in list(feedback.get("dependency_edges") or []):
+        if not isinstance(edge, dict):
+            continue
+        for key in ("basis_span", "dependent_span", "requires_result_of_span"):
+            span = str(edge.get(key) or "").strip()
+            if span and span not in spans:
+                spans.append(span)
+
+    if feedback or reason_code or spans:
+        projected_data["independent_verifier_feedback"] = {
+            "authority": "read_only_violation_evidence",
+            "required_action": "redeclaration_from_current_user_input",
+            "violation": {
+                "field": field,
+                "reason_code": reason_code or str(payload.get("code") or "semantic_declaration_rejected"),
+                "evidence_spans": spans,
+            },
+            "constraints": [
+                "rederive_semantics_from_current_user_input",
+                "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",
+                "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",
+                "runtime_does_not_auto_rewrite_the_candidate",
+            ],
+        }
+
+    return {
+        "ok": bool(payload.get("ok")),
+        "code": str(payload.get("code") or ""),
+        "message": str(payload.get("message") or ""),
+        "data": projected_data,
+    }
+
+
+def _semantic_writer_tool_message_projection(message: Any) -> Any:
+    if str(getattr(message, "name", "") or "") != "declare_turn_goals":
+        return message
+    content = getattr(message, "content", None)
+    if not isinstance(content, str):
+        return message
+    try:
+        payload = json.loads(content)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return message
+    if not isinstance(payload, dict) or payload.get("ok") is True:
+        return message
+    projected_content = json.dumps(
+        _semantic_writer_declaration_result_projection(payload),
+        ensure_ascii=False,
+        default=str,
+    )
+    if hasattr(message, "model_copy"):
+        return message.model_copy(update={"content": projected_content})
+    clone = deepcopy(message)
+    try:
+        clone.content = projected_content
+    except Exception:
+        return message
+    return clone
+
+
 def _loop_messages(
     state: dict[str, Any],
     *,
     context_bundle_builder: ContextBundleBuilder,
     capability_registry: CapabilityRegistry | None = None,
 ) -> list[Any]:
-    messages = list(state.get("messages") or [])
+    messages = [
+        _semantic_writer_tool_message_projection(message)
+        for message in list(state.get("messages") or [])
+    ]
     current_text = _latest_human_text(state)
     # Recent raw dialogue is the primary semantic context.  The Bundle gives
     # verified references and observations, but it must not replace the exact

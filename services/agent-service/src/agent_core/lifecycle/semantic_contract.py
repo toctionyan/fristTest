@@ -36,23 +36,19 @@ def _text(value: Any, *, limit: int = 2000) -> str:
 
 
 def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, Any]:
-    """Normalize capability-independent requested outputs or a legacy checkpoint.
+    """Normalize one capability-blind effect without consulting installed Tools.
 
-    New provider declarations use ``effect_kind/subject_type/requested_outputs``.
-    The legacy three-field identity remains readable only for historical/direct
-    migration callers; provider schema no longer exposes it.
+    Historical/direct callers may still provide only the open
+    ``domain/operation/object_type`` triple. New provider declarations also
+    carry ``requested_outputs``; those canonical semantic output IDs become the
+    exact post-freeze capability-coverage identity. The compatibility triple is
+    preserved for old readers but never grants execution authority.
     """
     source = raw if isinstance(raw, dict) else {}
-    if "requested_outputs" in source:
-        effect_kind = _text(source.get("effect_kind"), limit=80).casefold()
-        subject_type = _text(source.get("subject_type"), limit=160).casefold()
-        raw_description = _text(source.get("raw_description") or description)
-        values = source.get("requested_outputs")
-        if not effect_kind:
-            raise ValueError("requested_effect.effect_kind_required")
-        if not subject_type:
-            raise ValueError("requested_effect.subject_type_required")
-        if not isinstance(values, list) or not values or len(values) > 8:
+    raw_description = _text(source.get("raw_description") or description)
+    values = source.get("requested_outputs")
+    if isinstance(values, list):
+        if not values or len(values) > 8:
             raise ValueError("requested_effect.requested_outputs_required")
         outputs: list[dict[str, str]] = []
         seen: set[str] = set()
@@ -75,21 +71,38 @@ def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, 
             if open_description:
                 row["open_description"] = open_description
             outputs.append(row)
-        return {
-            "effect_kind": effect_kind,
-            "subject_type": subject_type,
+
+        first_semantic = next((row["output_id"] for row in outputs if row["output_id"] != "open"), "")
+        semantic_domain, semantic_operation = (
+            first_semantic.split(".", 1) if "." in first_semantic else ("", "")
+        )
+        domain = _text(source.get("domain"), limit=120) or semantic_domain or "open"
+        operation = _text(source.get("operation"), limit=160) or (
+            semantic_operation if len(outputs) == 1 and semantic_operation else "semantic_output_set"
+        )
+        object_type = _text(
+            source.get("object_type") or source.get("subject_type"), limit=160
+        ) or "unspecified"
+        result: dict[str, Any] = {
+            "domain": domain,
+            "operation": operation,
+            "object_type": object_type,
             "requested_outputs": outputs,
             "raw_description": raw_description,
         }
+        effect_kind = _text(source.get("effect_kind"), limit=80).casefold()
+        subject_type = _text(source.get("subject_type"), limit=160).casefold()
+        if effect_kind:
+            result["effect_kind"] = effect_kind
+        if subject_type:
+            result["subject_type"] = subject_type
+        return result
 
-    # Compatibility-only historical representation. New provider schemas do
-    # not expose these fields, so this branch cannot become a second writer
-    # authority for newly declared turns.
     effect = {
         "domain": _text(source.get("domain"), limit=120),
         "operation": _text(source.get("operation"), limit=160),
         "object_type": _text(source.get("object_type"), limit=160),
-        "raw_description": _text(source.get("raw_description") or description),
+        "raw_description": raw_description,
     }
     if not effect["operation"]:
         raise ValueError("requested_effect.operation_required")

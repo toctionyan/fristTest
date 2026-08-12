@@ -261,16 +261,23 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                             "requested_effect": {
                                 "type": "object",
                                 "description": (
-                                    "能力无关的用户业务效果。effect_kind 与 subject_type 描述用户语义；"
-                                    "requested_outputs 只引用当前语义输出词汇中的 canonical output_id，或在词汇没有该概念时使用 open。"
-                                    "语义输出词汇不包含能力可用性，因此看到 output_id 不代表系统能执行。"
+                                    "能力无关的用户业务效果。domain、operation、object_type 是开放语义兼容字段，不是 Tool/Capability 身份；"
+                                    "requested_outputs 才是冻结后精确覆盖所使用的 canonical semantic output。"
+                                    "语义输出词汇不包含能力可用性；没有对应概念时 output_id 使用 open，禁止为了匹配附近能力改写。"
                                 ),
                                 "properties": {
-                                    "effect_kind": {
+                                    "domain": {
                                         "type": "string",
-                                        "enum": ["read", "consult", "create", "update", "cancel", "dismiss", "other"],
+                                        "description": "当前用户业务语义的开放命名空间；不是已安装能力域。",
                                     },
-                                    "subject_type": {"type": "string"},
+                                    "operation": {
+                                        "type": "string",
+                                        "description": "当前用户业务语义的开放操作名；不得使用能力可用性决定该值。",
+                                    },
+                                    "object_type": {
+                                        "type": "string",
+                                        "description": "当前用户所指业务对象的开放语义类型。",
+                                    },
                                     "requested_outputs": {
                                         "type": "array",
                                         "minItems": 1,
@@ -297,7 +304,8 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                                     },
                                     "raw_description": {"type": "string"},
                                 },
-                                "required": ["effect_kind", "subject_type", "requested_outputs", "raw_description"],
+                                "required": ["domain", "operation", "object_type"],
+                                "allOf": [{"required": ["requested_outputs"]}],
                                 "additionalProperties": False,
                             },
                             "goal_type": {

@@ -1575,6 +1575,13 @@ def _validate_semantic_output_effect(
     goal_evidence_span: str,
     goal_id: str,
 ) -> list[str]:
+    """Validate canonical output IDs and literal evidence, not capability names.
+
+    ``domain/operation/object_type`` remain an open compatibility shape for old
+    callers.  Exact execution authority comes only from ``requested_outputs``
+    when present; this validator therefore never maps the compatibility fields
+    to a Tool or Capability.
+    """
     outputs = effect.get("requested_outputs")
     if not isinstance(outputs, list):
         return []  # historical/direct compatibility representation
@@ -1584,8 +1591,6 @@ def _validate_semantic_output_effect(
         vocabulary = current_module_registry().semantic_output_index()
     except RuntimeError:
         vocabulary = {}
-    effect_kind = _clean_text(effect.get("effect_kind"), limit=80).casefold()
-    subject_type = _clean_text(effect.get("subject_type"), limit=160).casefold()
     for index, output in enumerate(outputs):
         if not isinstance(output, dict):
             errors.append(f"semantic_output_invalid:{goal_id}:{index}")
@@ -1598,16 +1603,8 @@ def _validate_semantic_output_effect(
             if not _clean_text(output.get("open_description"), limit=500):
                 errors.append(f"semantic_open_description_required:{goal_id}:{index}")
             continue
-        definition = vocabulary.get(output_id)
-        if definition is None:
+        if output_id not in vocabulary:
             errors.append(f"semantic_output_unknown:{goal_id}:{output_id or index}")
-            continue
-        if subject_type != str(definition.get("subject_type") or "").casefold():
-            errors.append(f"semantic_output_subject_mismatch:{goal_id}:{output_id}")
-        if effect_kind not in {
-            str(value).casefold() for value in list(definition.get("effect_kinds") or [])
-        }:
-            errors.append(f"semantic_output_effect_kind_mismatch:{goal_id}:{output_id}")
     return errors
 
 
@@ -1629,41 +1626,78 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
             "authority": "current_user_input_only",
             "required_action": "redeclaration",
             "evidence_span_rule": "literal_contiguous_substring",
-            "requested_effect_rule": "rederive effect_kind, subject_type and requested_outputs from current_user_input; never copy verifier semantic answers or capability identities",
+            "requested_effect_rule": "rederive capability-independent domain, operation, object_type and requested_outputs from current_user_input; never copy verifier semantic answers or capability identities",
         },
     }
 
 
 def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any]:
-    """Return violation-only feedback; never a verifier-authored semantic graph."""
-    if alignment.verdict != "incomplete" or not alignment.independent:
+    """Expose a complete grounded diagnostic proof for audit compatibility.
+
+    This helper is NOT the provider-facing writer projection.  The real model
+    message boundary in ``dialogue_runtime`` strips replacement semantic values
+    and exposes only violation evidence before any declaration retry.
+    """
+    if (
+        alignment.verdict != "incomplete"
+        or alignment.reason_code != "goal_alignment_dependency_graph_mismatch"
+        or not alignment.independent
+    ):
         return {}
     details = alignment.details if isinstance(alignment.details, dict) else {}
-    spans: list[str] = []
-    for value in (*alignment.evidence_spans, *alignment.missing_spans):
-        span = _clean_text(value, limit=240)
-        if span and span not in spans:
-            spans.append(span)
-    if alignment.reason_code == "goal_alignment_dependency_graph_mismatch":
-        for raw in list(details.get("dependency_edges") or []):
-            if not isinstance(raw, dict):
-                continue
-            span = _clean_text(raw.get("basis_span"), limit=240)
-            if span and span not in spans:
-                spans.append(span)
+    if not (
+        details.get("dependency_authority") == "independent_goal_alignment"
+        and details.get("dependency_proof_complete") is True
+        and details.get("dependency_graph_match") is False
+    ):
+        return {}
+
+    verified_edges: list[dict[str, str]] = []
+    for raw in list(details.get("dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        basis_kind = _clean_text(raw.get("basis_kind"), limit=80).lower()
+        basis_span = _clean_text(raw.get("basis_span"), limit=240)
+        if (
+            not dependent
+            or not prerequisite
+            or basis_kind not in _ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS
+            or not basis_span
+        ):
+            return {}
+        verified_edges.append({
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+            "basis_kind": basis_kind,
+            "basis_span": basis_span,
+        })
+
+    declared_edges: list[dict[str, str]] = []
+    for raw in list(details.get("declared_dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        if not dependent or not prerequisite:
+            return {}
+        declared_edges.append({
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+        })
+
     return {
         "independent_verifier_feedback": {
-            "authority": "read_only_violation_evidence",
-            "required_action": "redeclaration_from_current_user_input",
-            "violation": {
-                "field": "depends_on" if alignment.reason_code == "goal_alignment_dependency_graph_mismatch" else "semantic_declaration",
-                "reason_code": alignment.reason_code,
-                "evidence_spans": spans,
-            },
+            "authority": "independent_goal_alignment",
+            "required_action": "redeclaration_preserving_grounded_dependency_graph",
+            "dependency_edges": verified_edges,
+            "candidate_declared_dependency_edges": declared_edges,
             "constraints": [
-                "rederive_semantics_from_current_user_input",
-                "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",
+                "change_only_the_dependency_relation_proved_by_this_feedback",
+                "preserve_goal_inventory_requested_effects_and_literal_evidence_spans",
                 "do_not_infer_tool_order_or_capability_prerequisites_as_goal_dependencies",
+                "an_empty_verified_dependency_graph_requires_removing_unproved_candidate_edges",
                 "runtime_does_not_auto_rewrite_the_candidate",
             ],
         }
@@ -1671,34 +1705,62 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
 
 
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
+    """Keep the historical audit payload; provider projection is violation-only."""
     verdict = str(getattr(granularity, "verdict", "") or "")
     reason_code = str(getattr(granularity, "reason_code", "") or "")
-    if verdict not in {"under_split", "over_split", "mixed"}:
-        return {}
-    spans: list[str] = []
-    for finding in tuple(getattr(granularity, "findings", ()) or ()):
-        if not isinstance(finding, dict):
-            continue
-        span = _clean_text(finding.get("evidence_span"), limit=240)
-        if span and span not in spans:
-            spans.append(span)
-    return {
-        "independent_verifier_feedback": {
-            "authority": "read_only_violation_evidence",
-            "required_action": "redeclaration_from_current_user_input",
-            "violation": {
-                "field": "goal_inventory",
-                "reason_code": reason_code or f"goal_granularity_{verdict}",
-                "evidence_spans": spans,
-            },
-            "constraints": [
-                "literal_user_text_spans_only",
-                "do_not_emit_or_copy_recommended_semantic_roles",
-                "do_not_copy_verifier_dependency_graph_or_requested_effect_values",
-                "preserve_unsupported_or_open_business_meaning",
-            ],
+    details = getattr(granularity, "details", {})
+    details = details if isinstance(details, dict) else {}
+    if verdict == "under_split":
+        spans: list[str] = []
+        for finding in tuple(getattr(granularity, "findings", ()) or ()):
+            if not isinstance(finding, dict):
+                continue
+            if str(finding.get("reason") or "") != "blind_inventory_outcome_not_covered":
+                continue
+            span = _clean_text(finding.get("evidence_span"), limit=240)
+            if span and span not in spans:
+                spans.append(span)
+        if not spans:
+            return {}
+        return {
+            "independent_verifier_feedback": {
+                "authority": "candidate_blind_goal_inventory",
+                "required_action": "redeclaration_preserving_existing_goals_and_adding_uncovered_outcomes",
+                "uncovered_outcome_spans": spans,
+                "constraints": [
+                    "literal_user_text_spans_only",
+                    "do_not_infer_or_copy_tool_or_capability_identity",
+                    "preserve_unsupported_or_open_business_effects",
+                    "do_not_delete_already_preserved_independent_outcomes",
+                ],
+            }
         }
-    }
+    if verdict == "mixed" and reason_code == "blind_inventory_dependency_graph_mismatch":
+        edges: list[dict[str, str]] = []
+        for raw in list(details.get("dependency_edges") or []):
+            if not isinstance(raw, dict):
+                continue
+            dependent_span = _clean_text(raw.get("dependent_span"), limit=240)
+            prerequisite_span = _clean_text(raw.get("requires_result_of_span"), limit=240)
+            if dependent_span and prerequisite_span:
+                edges.append({
+                    "dependent_span": dependent_span,
+                    "requires_result_of_span": prerequisite_span,
+                })
+        return {
+            "independent_verifier_feedback": {
+                "authority": "candidate_blind_goal_inventory",
+                "required_action": "redeclaration_preserving_candidate_blind_dependency_graph",
+                "dependency_edges": edges,
+                "constraints": [
+                    "dependency_edges_are_literal_user_text_relations_not_oracle_answers",
+                    "sentence_order_shared_topic_and_capability_absence_do_not_create_dependency",
+                    "true_current_turn_result_dependency_must_be_preserved",
+                    "do_not_change_requested_effect_to_fit_available_capabilities",
+                ],
+            }
+        }
+    return {}
 
 
 def validate_goal_declaration(
