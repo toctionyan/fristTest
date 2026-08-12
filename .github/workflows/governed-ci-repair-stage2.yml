@@ -60,6 +60,7 @@ jobs:
       input_artifact_pattern: ${{ steps.source.outputs.input_artifact_pattern }}
       input_run_id: ${{ steps.source.outputs.input_run_id }}
       input_kind: ${{ steps.source.outputs.input_kind }}
+      input_artifact_id: ${{ steps.loop_artifact.outputs.input_artifact_id }}
       repair_round: ${{ steps.source.outputs.repair_round }}
     steps:
       - name: Checkout trusted Stage-2 control plane
@@ -111,7 +112,8 @@ jobs:
             echo "repair_round=1" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Download approved governed evidence when present
+      - name: Download approved Stage-1 governed evidence when present
+        if: steps.source.outputs.input_kind == 'stage1'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -121,6 +123,39 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.source.outputs.input_run_id }}
+
+      - name: Download exact outer-loop feedback attempt
+        if: steps.source.outputs.input_kind == 'loop_feedback'
+        id: loop_artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RUN_ID: ${{ steps.source.outputs.input_run_id }}
+          INPUT_RUN_ATTEMPT: ${{ inputs.loop_feedback_run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}" > incoming/loop-run.json
+          jq -e --arg attempt "${INPUT_RUN_ATTEMPT}" '
+            .name == "governed-ci-repair-loop-coordinator"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/loop-run.json >/dev/null
+          run_started_at=$(jq -r '.run_started_at // empty' incoming/loop-run.json)
+          [[ -n "${run_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}/artifacts?per_page=100" > incoming/loop-artifacts.json
+          artifact_id=$(jq -r --arg started "${run_started_at}" --arg name "governed-repair-loop-feedback-${SOURCE_RUN_ID}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name == $name)
+            | select(.created_at >= $started)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/loop-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/loop-feedback.zip
+          unzip -q incoming/loop-feedback.zip -d incoming
+          echo "input_artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -239,7 +274,8 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download governed repair input
+      - name: Download Stage-1 governed repair input
+        if: needs.inspect.outputs.input_kind == 'stage1'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: ${{ needs.inspect.outputs.input_artifact_pattern }}
@@ -248,6 +284,18 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ needs.inspect.outputs.input_run_id }}
+
+      - name: Download exact outer-loop repair feedback artifact
+        if: needs.inspect.outputs.input_kind == 'loop_feedback'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_ARTIFACT_ID: ${{ needs.inspect.outputs.input_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "${INPUT_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${INPUT_ARTIFACT_ID}/zip" > incoming/loop-feedback.zip
+          unzip -q incoming/loop-feedback.zip -d incoming
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
