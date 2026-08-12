@@ -20,11 +20,17 @@ def test_project_convergence_is_a_post_quality_read_only_assessment() -> None:
     assert "PRODUCTION_MODEL_API_KEY" not in text
 
 
-def test_project_convergence_binds_exact_quality_attempt_and_artifact() -> None:
+def test_project_convergence_binds_exact_quality_attempt_head_and_artifact() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert '.name == "quality"' in text
     assert '((.run_attempt | tostring) == $attempt)' in text
     assert 'run_started_at=$(jq -r' in text
+    assert "source_head_sha=$(jq -r '.head_sha // empty' incoming/run.json)" in text
+    assert '[[ "${source_head_sha}" =~ ^[0-9a-f]{40}$ ]]' in text
+    assert 'echo "source_head_sha=${source_head_sha}" >> "$GITHUB_OUTPUT"' in text
+    assert 'EXPECTED_REF: ${{ steps.source.outputs.source_head_sha }}' in text
+    assert '--expected-ref "${EXPECTED_REF}"' in text
+    assert "source_ref=$(jq -r '.target_identity.change_ref // empty'" not in text
     assert 'actions/runs/${quality_run_id}/attempts/${quality_run_attempt}/jobs' in text
     assert 'select(.created_at >= $started)' in text
     assert 'actions/artifacts/${ARTIFACT_ID}/zip' in text
