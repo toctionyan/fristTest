@@ -259,6 +259,7 @@ jobs:
       - name: Create full Quick validation target
         env:
           CANDIDATE_SHA: ${{ steps.prepare.outputs.candidate_sha }}
+          STAGE3_TRUSTED_JUDGE_ROOT: ${{ runner.temp }}/governed-repair-stage3-judge
         run: |
           set -euo pipefail
           mkdir -p candidate/.quality/targets
@@ -272,7 +273,7 @@ jobs:
       - name: Run independent complete Quick Quality Loop
         env:
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/governed-repair-stage3-quick
-          SKILL_JUDGE_ROOT: ${{ github.workspace }}/control
+          SKILL_JUDGE_ROOT: ${{ runner.temp }}/governed-repair-stage3-judge
           SKILL_JUDGE_TRUST_MODE: external-readonly
         run: >-
           candidate/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py
