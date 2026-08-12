@@ -3,3 +3,4 @@ services/agent-service/.venv/
 services/business-service/.venv/
 __pycache__/
 *.py[cod]
+# retrigger native contract-owner checks
