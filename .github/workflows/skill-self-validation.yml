@@ -33,6 +33,60 @@ jobs:
           set -euo pipefail
           git checkout temp/v20.18-a2b-builder-20260812
           "${pythonLocation}/bin/python" -B scripts/temp_v2018_a2b_builder.py
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          path = Path("services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py")
+          text = path.read_text(encoding="utf-8")
+          marker = "def test_alignment_and_granularity_feedback_are_violation_only() -> None:\n"
+          helper = '''def _mapping_keys(value: object) -> set[str]:
+              keys: set[str] = set()
+              if isinstance(value, dict):
+                  for key, nested in value.items():
+                      keys.add(str(key))
+                      keys.update(_mapping_keys(nested))
+              elif isinstance(value, (list, tuple)):
+                  for nested in value:
+                      keys.update(_mapping_keys(nested))
+              return keys
+
+
+          def test_alignment_and_granularity_feedback_are_violation_only() -> None:
+          '''
+          if marker not in text:
+              raise SystemExit("alignment/granularity invariant marker missing")
+          text = text.replace(marker, helper, 1)
+          text = text.replace(
+              '''    alignment_feedback = _alignment_repair_feedback(alignment)
+              encoded = json.dumps(alignment_feedback, ensure_ascii=False)
+              assert "dependency_edges" not in encoded
+              assert "requires_result_of_goal_id" not in encoded
+          ''',
+              '''    alignment_feedback = _alignment_repair_feedback(alignment)
+              alignment_keys = _mapping_keys(alignment_feedback)
+              assert "dependency_edges" not in alignment_keys
+              assert "requires_result_of_goal_id" not in alignment_keys
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''    granularity_feedback = _granularity_repair_feedback(granularity)
+              encoded = json.dumps(granularity_feedback, ensure_ascii=False)
+              assert "recommended_role" not in encoded
+              assert "dependency_edges" not in encoded
+              assert "快递员手机号" in encoded
+          ''',
+              '''    granularity_feedback = _granularity_repair_feedback(granularity)
+              granularity_keys = _mapping_keys(granularity_feedback)
+              encoded = json.dumps(granularity_feedback, ensure_ascii=False)
+              assert "recommended_role" not in granularity_keys
+              assert "dependency_edges" not in granularity_keys
+              assert "快递员手机号" in encoded
+          ''',
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+          PY
           services/agent-service/.venv/bin/python -B -m py_compile \
             services/agent-service/src/agent_core/modules/contracts.py \
             services/agent-service/src/agent_core/modules/registry.py \
@@ -44,7 +98,8 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/goal_granularity.py \
             services/agent-service/src/agent_core/runtime/capability_effects.py \
             services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
-            services/agent-service/src/agent_modules/ecommerce/module.py
+            services/agent-service/src/agent_modules/ecommerce/module.py \
+            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py
           PYTHONPATH="${GITHUB_WORKSPACE}/services/agent-service/src:${GITHUB_WORKSPACE}/services/agent-service" \
             services/agent-service/.venv/bin/python -B -m pytest -q \
               services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
