@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@1"
+
 
 class HandoffError(RuntimeError):
     pass
@@ -24,6 +26,66 @@ def _load(path: Path) -> dict[str, Any]:
 def _sanitize_branch(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._/-]+", "-", value).strip("-./")
     return cleaned[:180]
+
+
+def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
+    candidate_paths = failure.get("candidate_paths")
+    if not isinstance(candidate_paths, list) or not candidate_paths:
+        raise HandoffError("Stage-1 source authority is missing candidate_paths")
+    normalized_paths: list[str] = []
+    for raw in candidate_paths:
+        path = str(raw or "").strip().replace("\\", "/")
+        if not path or path.startswith("/") or ".." in Path(path).parts:
+            raise HandoffError(f"invalid Stage-1 source authority path: {raw!r}")
+        if path not in normalized_paths:
+            normalized_paths.append(path)
+
+    authority = {
+        "authority_schema": SOURCE_AUTHORITY_SCHEMA,
+        "schema": str(failure.get("schema") or ""),
+        "status": str(failure.get("status") or ""),
+        "repository": str(failure.get("repository") or ""),
+        "workflow_name": str(failure.get("workflow_name") or ""),
+        "workflow_run_id": str(failure.get("workflow_run_id") or ""),
+        "workflow_run_attempt": str(failure.get("workflow_run_attempt") or ""),
+        "head_sha": str(failure.get("head_sha") or ""),
+        "head_branch": str(failure.get("head_branch") or ""),
+        "source_pr_number": int(failure.get("source_pr_number") or 0),
+        "failure_signature": str(failure.get("failure_signature") or ""),
+        "classification": str(failure.get("classification") or ""),
+        "repair_allowed": failure.get("repair_allowed") is True,
+        "same_repository": failure.get("same_repository") is True,
+        "candidate_paths": normalized_paths,
+        "repair_branch": _sanitize_branch(str(failure.get("repair_branch") or "")),
+        "repair_base_branch": _sanitize_branch(str(failure.get("repair_base_branch") or "")),
+    }
+    if authority["schema"] != "github-failure-ingest@1" or authority["status"] != "INGESTED":
+        raise HandoffError("invalid Stage-1 source authority contract")
+    if not authority["repository"] or not authority["workflow_run_id"]:
+        raise HandoffError("Stage-1 source authority binding is incomplete")
+    if not re.fullmatch(r"[0-9a-f]{40}", authority["head_sha"]):
+        raise HandoffError("Stage-1 source authority head SHA is invalid")
+    if not re.fullmatch(r"[0-9a-f]{64}", authority["failure_signature"]):
+        raise HandoffError("Stage-1 source authority failure signature is invalid")
+    if authority["classification"] != "code_or_contract":
+        raise HandoffError("Stage-1 source authority classification is not repairable")
+    if not authority["repair_allowed"] or not authority["same_repository"]:
+        raise HandoffError("Stage-1 source authority did not authorize same-repository repair")
+    if not authority["repair_branch"].startswith("governed-repair/"):
+        raise HandoffError("Stage-1 source authority repair branch is invalid")
+    if not authority["repair_base_branch"] or authority["repair_base_branch"].startswith("governed-repair/"):
+        raise HandoffError("Stage-1 source authority repair base is invalid")
+    return authority
+
+
+def _authority_digest(authority: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        authority,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def bind_handoff(*, failure_path: Path, result_path: Path, patch_path: Path) -> dict[str, Any]:
@@ -49,6 +111,7 @@ def bind_handoff(*, failure_path: Path, result_path: Path, patch_path: Path) -> 
         raise HandoffError("repair branch is outside governed-repair namespace")
     if not repair_base or repair_base.startswith("governed-repair/") or repair_base == repair_branch:
         raise HandoffError("invalid repair base branch")
+    source_authority = _source_failure_authority(failure)
     bound = dict(result)
     bound.update(
         {
@@ -58,6 +121,8 @@ def bind_handoff(*, failure_path: Path, result_path: Path, patch_path: Path) -> 
             "repair_branch": repair_branch,
             "repair_base_branch": repair_base,
             "patch_sha256": hashlib.sha256(data).hexdigest(),
+            "source_failure_authority": source_authority,
+            "source_failure_authority_sha256": _authority_digest(source_authority),
             "stage3_handoff_bound": True,
             "full_validation_passed": False,
             "draft_pr_published": False,

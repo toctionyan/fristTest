@@ -31,6 +31,7 @@ FEEDBACK_SCHEMA = "github-governed-repair-feedback@1"
 STAGE2_SCHEMA = "github-governed-repair-stage2@1"
 STAGE3_SCHEMA = "github-governed-repair-stage3@1"
 FAILURE_SCHEMA = "github-failure-ingest@1"
+SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@1"
 MAX_REPAIR_ROUNDS = 8
 STAGNATION_LIMIT = 2
 MAX_VALIDATION_RETRIES_PER_CANDIDATE = 3
@@ -283,6 +284,68 @@ def classify_independent_failure(
     return _classify_rows(rows, original_failure=original_failure, context="complete Quick validation")
 
 
+def _authority_digest(authority: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            authority,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _resolve_original_failure(
+    *,
+    stage2: dict[str, Any],
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    """Prefer the exact Stage-1 authority snapshot that Stage 2 actually consumed.
+
+    Older Stage-2 artifacts do not carry this snapshot and retain the legacy
+    coordinator-provided failure-case path. New candidates are self-bound so a
+    later coordinator cannot accidentally substitute a stale artifact that has
+    the same source run ID but a different normalized failure signature/scope.
+    """
+    raw = stage2.get("source_failure_authority")
+    if raw is None:
+        return fallback
+    if not isinstance(raw, dict):
+        raise RepairLoopError("Stage-2 source failure authority must be an object")
+    authority = dict(raw)
+    if authority.get("authority_schema") != SOURCE_AUTHORITY_SCHEMA:
+        raise RepairLoopError("Stage-2 source failure authority schema is invalid")
+    expected_digest = str(stage2.get("source_failure_authority_sha256") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+        raise RepairLoopError("Stage-2 source failure authority digest is missing or invalid")
+    if _authority_digest(authority) != expected_digest:
+        raise RepairLoopError("Stage-2 source failure authority digest mismatch")
+    if authority.get("schema") != FAILURE_SCHEMA or authority.get("status") != "INGESTED":
+        raise RepairLoopError("Stage-2 source failure authority contract is invalid")
+    if authority.get("classification") != "code_or_contract":
+        raise RepairLoopError("Stage-2 source failure authority classification is not repairable")
+    if authority.get("repair_allowed") is not True or authority.get("same_repository") is not True:
+        raise RepairLoopError("Stage-2 source failure authority did not authorize repair")
+
+    paths = authority.get("candidate_paths")
+    if not isinstance(paths, list) or not paths:
+        raise RepairLoopError("Stage-2 source failure authority has no candidate paths")
+    normalized = [_normalize_path(item) for item in paths]
+    if any(not path for path in normalized) or normalized != _unique(normalized):
+        raise RepairLoopError("Stage-2 source failure authority candidate paths are invalid")
+
+    expected = {
+        "repository": stage2.get("repository"),
+        "workflow_run_id": str(stage2.get("workflow_run_id")),
+        "head_sha": stage2.get("head_sha"),
+        "failure_signature": stage2.get("failure_signature"),
+    }
+    for key, value in expected.items():
+        if not value or str(authority.get(key)) != str(value):
+            raise RepairLoopError(f"Stage-2 source failure authority binding mismatch: {key}")
+    return authority
+
+
 def _validate_bindings(
     *,
     task: TaskRunStore,
@@ -308,6 +371,9 @@ def _validate_bindings(
             raise RepairLoopError(f"TaskRun/Stage-2 binding mismatch: {key}")
         if str(original_failure.get(key)) != str(value):
             raise RepairLoopError(f"original failure/Stage-2 binding mismatch: {key}")
+    for key in ("workflow_name", "workflow_run_attempt"):
+        if str(original_failure.get(key)) != str(binding.get(key)):
+            raise RepairLoopError(f"original failure/TaskRun binding mismatch: {key}")
     if str(plan.get("source_run_id")) != str(stage2.get("workflow_run_id")):
         raise RepairLoopError("Stage-3 plan source run does not match Stage-2")
     if str(plan.get("head_sha")) != str(stage2.get("head_sha")):
@@ -332,6 +398,7 @@ def _safe_feedback_failure(
     failure_fingerprint: str,
 ) -> dict[str, Any]:
     feedback = dict(original)
+    feedback.pop("authority_schema", None)
     feedback["classification"] = "code_or_contract"
     feedback["repair_allowed"] = True
     feedback["candidate_paths"] = list(repair_paths)
@@ -388,7 +455,8 @@ def route_failure(
         if validation_result_path and validation_result_path.is_file()
         else None
     )
-    original_failure = _load(original_failure_path)
+    fallback_failure = _load(original_failure_path)
+    original_failure = _resolve_original_failure(stage2=stage2, fallback=fallback_failure)
     binding = _validate_bindings(
         task=task,
         stage2=stage2,
