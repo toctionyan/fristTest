@@ -63,6 +63,19 @@ def test_stage3_has_an_explicit_complete_quick_target_contract() -> None:
         assert gate in factory
 
 
+def test_stage3_uses_one_runtime_exported_judge_bundle_for_projection_and_quick() -> None:
+    text = STAGE3.read_text(encoding="utf-8")
+    runtime_root = "${{ runner.temp }}/governed-repair-stage3-judge"
+    assert f"STAGE3_TRUSTED_JUDGE_ROOT: {runtime_root}" in text
+    assert f"SKILL_JUDGE_ROOT: {runtime_root}" in text
+    assert "SKILL_JUDGE_ROOT: ${{ github.workspace }}/control" not in text
+    create_start = text.index("      - name: Create full Quick validation target\n")
+    quick_start = text.index("      - name: Run independent complete Quick Quality Loop\n")
+    record_start = text.index("      - name: Record independent validation evidence\n")
+    assert runtime_root in text[create_start:quick_start]
+    assert runtime_root in text[quick_start:record_start]
+
+
 def test_validation_job_is_read_only_and_publisher_does_not_run_candidate_code() -> None:
     text = STAGE3.read_text(encoding="utf-8")
     validate_start = text.index("  validate:\n")
