@@ -1,0 +1,146 @@
+name: project-convergence
+
+on:
+  workflow_run:
+    workflows:
+      - quality
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      quality_run_id:
+        description: Exact completed Quality run ID to assess
+        required: true
+        type: string
+      quality_run_attempt:
+        description: Exact Quality run attempt
+        required: false
+        default: '1'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: project-convergence-${{ github.event.workflow_run.id || inputs.quality_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.quality_run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  assess:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout trusted project convergence control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve exact Quality attempt and highest completed assessment profile
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          DISPATCH_RUN_ID: ${{ inputs.quality_run_id }}
+          DISPATCH_RUN_ATTEMPT: ${{ inputs.quality_run_attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            quality_run_id="${EVENT_RUN_ID}"
+            quality_run_attempt="${EVENT_RUN_ATTEMPT}"
+          else
+            quality_run_id="${DISPATCH_RUN_ID}"
+            quality_run_attempt="${DISPATCH_RUN_ATTEMPT}"
+          fi
+          [[ "${quality_run_id}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${quality_run_attempt}" =~ ^[1-9][0-9]*$ ]]
+
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}" > incoming/run.json
+          jq -e --arg attempt "${quality_run_attempt}" '
+            .name == "quality"
+            and .status == "completed"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/run.json >/dev/null
+          run_started_at=$(jq -r '.run_started_at // empty' incoming/run.json)
+          [[ -n "${run_started_at}" ]]
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}/attempts/${quality_run_attempt}/jobs?per_page=100" \
+            > incoming/jobs.json
+          integration_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-integration")][0].conclusion // "missing"' incoming/jobs.json)
+          if [[ "${integration_conclusion}" != "missing" && "${integration_conclusion}" != "skipped" ]]; then
+            artifact_name="quality-integration-evidence"
+            expected_profile="project-integration"
+          else
+            quick_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-quick")][0].conclusion // "missing"' incoming/jobs.json)
+            [[ "${quick_conclusion}" != "missing" && "${quick_conclusion}" != "skipped" ]]
+            artifact_name="quality-quick-evidence"
+            expected_profile="project-quick"
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}/artifacts?per_page=100" \
+            > incoming/artifacts.json
+          artifact_id=$(jq -r --arg started "${run_started_at}" --arg name "${artifact_name}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name == $name)
+            | select(.created_at >= $started)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+
+          echo "quality_run_id=${quality_run_id}" >> "$GITHUB_OUTPUT"
+          echo "quality_run_attempt=${quality_run_attempt}" >> "$GITHUB_OUTPUT"
+          echo "artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${artifact_name}" >> "$GITHUB_OUTPUT"
+          echo "expected_profile=${expected_profile}" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact Quality evidence artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.source.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > incoming/quality.zip
+          unzip -q incoming/quality.zip -d incoming/quality
+
+      - name: Assess project requirements without source mutation
+        env:
+          EXPECTED_PROFILE: ${{ steps.source.outputs.expected_profile }}
+        run: |
+          set -euo pipefail
+          summary=$(find incoming/quality -type f -name run-summary.json -print -quit 2>/dev/null || true)
+          requirements=$(find incoming/quality -type f -name requirement-catalog.json -print -quit 2>/dev/null || true)
+          [[ -n "${summary}" && -n "${requirements}" ]]
+          profile=$(jq -r '.requirement_profile // empty' "${summary}")
+          source_ref=$(jq -r '.target_identity.change_ref // empty' "${summary}")
+          [[ "${profile}" == "${EXPECTED_PROFILE}" ]]
+          [[ -n "${source_ref}" ]]
+          mkdir -p project-convergence-evidence
+          "${pythonLocation}/bin/python" -B control/scripts/project_convergence_controller.py \
+            --summary "${summary}" \
+            --requirements "${requirements}" \
+            --profile "${profile}" \
+            --expected-ref "${source_ref}" \
+            --output-dir project-convergence-evidence \
+            --enforce
+
+      - name: Upload project convergence evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: project-convergence-${{ steps.source.outputs.quality_run_id }}-${{ steps.source.outputs.quality_run_attempt }}
+          path: project-convergence-evidence
+          retention-days: 30
+          if-no-files-found: warn
