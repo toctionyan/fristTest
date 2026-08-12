@@ -1568,6 +1568,46 @@ def _normalize_target_candidate_scope_constraints(
     return candidate, errors
 
 
+def _validate_semantic_output_effect(
+    effect: dict[str, Any],
+    *,
+    user_text: str,
+    goal_evidence_span: str,
+    goal_id: str,
+) -> list[str]:
+    """Validate canonical output IDs and literal evidence, not capability names.
+
+    ``domain/operation/object_type`` remain an open compatibility shape for old
+    callers.  Exact execution authority comes only from ``requested_outputs``
+    when present; this validator therefore never maps the compatibility fields
+    to a Tool or Capability.
+    """
+    outputs = effect.get("requested_outputs")
+    if not isinstance(outputs, list):
+        return []  # historical/direct compatibility representation
+    errors: list[str] = []
+    try:
+        from agent_core.modules.registry import current_module_registry
+        vocabulary = current_module_registry().semantic_output_index()
+    except RuntimeError:
+        vocabulary = {}
+    for index, output in enumerate(outputs):
+        if not isinstance(output, dict):
+            errors.append(f"semantic_output_invalid:{goal_id}:{index}")
+            continue
+        output_id = _clean_text(output.get("output_id"), limit=240).casefold()
+        span = _clean_text(output.get("evidence_span"), limit=240)
+        if not span or span not in user_text or not goal_evidence_span or span not in goal_evidence_span:
+            errors.append(f"semantic_output_evidence_not_in_goal:{goal_id}:{index}")
+        if output_id == "open":
+            if not _clean_text(output.get("open_description"), limit=500):
+                errors.append(f"semantic_open_description_required:{goal_id}:{index}")
+            continue
+        if output_id not in vocabulary:
+            errors.append(f"semantic_output_unknown:{goal_id}:{output_id or index}")
+    return errors
+
+
 def _known_tool_names(capability_registry: CapabilityRegistry) -> set[str]:
     return {
         *capability_registry.tool_names(),
@@ -1586,18 +1626,17 @@ def _goal_declaration_repair_context(user_text: str) -> dict[str, Any]:
             "authority": "current_user_input_only",
             "required_action": "redeclaration",
             "evidence_span_rule": "literal_contiguous_substring",
-            "requested_effect_rule": "preserve the user's open business effect; do not coerce it into a nearby registered capability",
+            "requested_effect_rule": "rederive capability-independent domain, operation, object_type and requested_outputs from current_user_input; never copy verifier semantic answers or capability identities",
         },
     }
 
 
 def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any]:
-    """Expose only a complete independent dependency-graph mismatch proof.
+    """Expose a complete grounded diagnostic proof for audit compatibility.
 
-    The verifier has already grounded each retained edge to literal current-turn
-    evidence. Runtime does not rewrite the Goal graph; it only returns this
-    bounded proof to the next model redeclaration so semantic ownership remains
-    with the model and capability/execution order cannot leak into depends_on.
+    This helper is NOT the provider-facing writer projection.  The real model
+    message boundary in ``dialogue_runtime`` strips replacement semantic values
+    and exposes only violation evidence before any declaration retry.
     """
     if (
         alignment.verdict != "incomplete"
@@ -1666,6 +1705,7 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
 
 
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
+    """Keep the historical audit payload; provider projection is violation-only."""
     verdict = str(getattr(granularity, "verdict", "") or "")
     reason_code = str(getattr(granularity, "reason_code", "") or "")
     details = getattr(granularity, "details", {})
@@ -1781,7 +1821,17 @@ def validate_goal_declaration(
             if not isinstance(raw_effect, dict):
                 raise ValueError("requested_effect.required_for_new_turn")
             requested_effect = normalize_requested_effect(raw_effect, description=description)
-            effect_source = "model_open_effect"
+            errors.extend(_validate_semantic_output_effect(
+                requested_effect,
+                user_text=user_text,
+                goal_evidence_span=evidence_span,
+                goal_id=goal_id,
+            ))
+            effect_source = (
+                "model_semantic_output_effect"
+                if "requested_outputs" in requested_effect
+                else "legacy_direct_compatibility_effect"
+            )
         except ValueError as exc:
             errors.append(f"invalid_requested_effect:{goal_id}:{exc}")
             requested_effect = {
@@ -1861,7 +1911,11 @@ def validate_goal_declaration(
                 expression = normalize_reference_expression(
                     raw_reference,
                     user_text=user_text,
-                    expected_object_type=str((row.get("requested_effect") or {}).get("object_type") or ""),
+                    expected_object_type=str(
+                        (row.get("requested_effect") or {}).get("subject_type")
+                        or (row.get("requested_effect") or {}).get("object_type")
+                        or ""
+                    ),
                     expected_cardinality=str(row.get("expected_result_cardinality") or "unknown"),
                 )
                 proof = resolve_reference_expression(expression, visible_result_refs=visible_refs)
