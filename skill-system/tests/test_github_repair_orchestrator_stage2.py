@@ -96,6 +96,13 @@ def _config():
     return MODULE.ModelConfig("openai", "model", "https://api.openai.com/v1", "not-used")
 
 
+def test_changed_paths_preserves_first_character_for_unstaged_tracked_change(tmp_path: Path) -> None:
+    workspace, source, _failure_path, _task_path = _fixture(tmp_path)
+    source.write_text("x = 1\n", encoding="utf-8")
+
+    assert MODULE._changed_paths(workspace) == ("services/a.py",)
+
+
 def test_stage2_creates_local_patch_but_never_completes_full_task(tmp_path: Path, monkeypatch) -> None:
     workspace, source, failure_path, task_path = _fixture(tmp_path)
 
