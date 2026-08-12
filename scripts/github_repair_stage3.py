@@ -82,7 +82,15 @@ def _git(workspace: Path, *args: str, timeout: int = 180) -> str:
 
 
 def _changed_paths(workspace: Path) -> tuple[str, ...]:
-    rows = _git(workspace, "status", "--porcelain=v1", "--untracked-files=all").splitlines()
+    completed = _run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=workspace,
+        timeout=180,
+    )
+    if completed.returncode:
+        message = (completed.stderr or completed.stdout or "git status failed").strip()
+        raise Stage3Error(message[:MAX_OUTPUT_CHARS])
+    rows = completed.stdout.splitlines()
     result: list[str] = []
     for row in rows:
         raw = row[3:] if len(row) > 3 else ""
