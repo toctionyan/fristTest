@@ -33,7 +33,7 @@ jobs:
       - name: Install locked Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
 
-      - name: Run standard Agent suite verbosely until first long stall
+      - name: Profile one known slow real-lifecycle scenario
         shell: bash
         run: |
           set -euo pipefail
@@ -49,7 +49,7 @@ jobs:
           root = Path.cwd()
           agent = root / "services/agent-service"
           py = agent / ".venv/bin/python"
-          runtime = Path(os.environ["RUNNER_TEMP"]) / "agent-current-test-diagnostic"
+          runtime = Path(os.environ["RUNNER_TEMP"]) / "agent-profile-diagnostic"
           runtime.mkdir(parents=True, exist_ok=True)
 
           env = os.environ.copy()
@@ -59,8 +59,6 @@ jobs:
           env.update(runner.STANDARD_ENV)
           env["PYTHONDONTWRITEBYTECODE"] = "1"
           env["PYTHONPATH"] = "src:." + (f":{env['PYTHONPATH']}" if env.get("PYTHONPATH") else "")
-          env["COVERAGE_CORE"] = "sysmon"
-          env["COVERAGE_FILE"] = str(runtime / ".coverage")
           env.update({
               "SQLITE_DB_PATH": str(runtime / "agent.sqlite3"),
               "AGENT_DATABASE_URL": f"sqlite:///{runtime / 'agent.sqlite3'}",
@@ -71,20 +69,13 @@ jobs:
               "BUSINESS_DB_PATH": str(runtime / "business.sqlite3"),
           })
 
+          node = "tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[visible_superlative_cheapest]"
           cmd = [
-              str(py), "-B", "-m", "pytest",
-              "-vv", "--no-header", "--tb=no", "-p", "no:cacheprovider",
-              "-m", "not integration and not preprod",
-              f"--junitxml={runtime / 'agent-standard.xml'}",
-              "--cov=agent_core", "--cov=app",
-              f"--cov-report=xml:{runtime / 'agent-standard-coverage.xml'}",
+              str(py), "-B", "-m", "cProfile", "-s", "cumulative", "-m", "pytest",
+              "-q", "--disable-warnings", "--tb=short", "-p", "no:cacheprovider", node,
           ]
-          print("DIAGNOSTIC_COMMAND=" + " ".join(cmd), flush=True)
-          try:
-              completed = subprocess.run(cmd, cwd=agent, env=env, timeout=260)
-              print(f"DIAGNOSTIC_EXIT={completed.returncode}", flush=True)
-              raise SystemExit(completed.returncode)
-          except subprocess.TimeoutExpired:
-              print("DIAGNOSTIC_TIMEOUT_AFTER_260S", flush=True)
-              raise SystemExit(124)
+          print("PROFILE_COMMAND=" + " ".join(cmd), flush=True)
+          completed = subprocess.run(cmd, cwd=agent, env=env, timeout=240)
+          print(f"PROFILE_EXIT={completed.returncode}", flush=True)
+          raise SystemExit(completed.returncode)
           PY
