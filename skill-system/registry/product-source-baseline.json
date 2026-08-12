@@ -257,7 +257,7 @@
     "services/agent-service/src/agent_core/resources/targets.py": "55588b7cd511bca003e01e17427361b2a111749ce657fa879e757a900a22e98b",
     "services/agent-service/src/agent_core/runtime/__init__.py": "a89ccf2feed2281675242ccf4ab9123765b6858bc997ccc5f2c16876404207cf",
     "services/agent-service/src/agent_core/runtime/answer_release_alignment.py": "fc661808ff93c3142262b51cbb3a7eb651ea53b15221d7b8572a25a75dc2da12",
-    "services/agent-service/src/agent_core/runtime/capability_effects.py": "2ffd9a5d059fa6fef78743b80c55a51768e143f8da0c011e4b213cbb7eb37029",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py": "f739f745bc292ba9521d33338b90f77e9a5798c2d8925bdf47c20926ef125f9a",
     "services/agent-service/src/agent_core/runtime/capability_gate.py": "ee0c2e417d3ffe89d2bf858831bbd23b3395bb1c5e93da90d1b7e684c49fbd7f",
     "services/agent-service/src/agent_core/runtime/deps.py": "132f5093501d66facb6116681f3782feee09636f21cd085aee6fd5433d3c8a7f",
     "services/agent-service/src/agent_core/runtime/migrations.py": "d71793fcd1179afbe509ccf5670b452c9c84a9557c39efcbedc63b9dbe75d5a6",
@@ -567,8 +567,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-12T12:40:34Z",
-  "generated_from": "git:02803813a4a5f2ca40d4b9614f98f9fd3f7f99e9",
+  "generated_at": "2026-08-12T14:21:35+00:00",
+  "generated_from": "git:b6f43b3819057a8c180653fe1ac39103981f63b5",
   "protected_roots": [
     "services",
     "web",
