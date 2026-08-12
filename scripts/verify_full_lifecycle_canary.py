@@ -54,10 +54,28 @@ AGENT_PYTHON = _resolve_python("QUALITY_AGENT_PYTHON", AGENT_ROOT / ".venv/bin/p
 BUSINESS_PYTHON = _resolve_python("QUALITY_BUSINESS_PYTHON", BUSINESS_ROOT / ".venv/bin/python")
 
 
+def find_free_ports(count: int) -> tuple[int, ...]:
+    """Allocate a set of distinct ephemeral loopback ports in one reservation window."""
+    if count < 1:
+        raise ValueError("free-port count must be positive")
+    listeners: list[socket.socket] = []
+    ports: list[int] = []
+    try:
+        for _ in range(count):
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.bind(("127.0.0.1", 0))
+            listeners.append(listener)
+            ports.append(int(listener.getsockname()[1]))
+        if len(set(ports)) != count:
+            raise RuntimeError("operating system returned duplicate reserved runtime ports")
+        return tuple(ports)
+    finally:
+        for listener in listeners:
+            listener.close()
+
+
 def find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
+    return find_free_ports(1)[0]
 
 
 def wait_http(url: str, *, timeout: float = 45.0) -> None:
@@ -151,10 +169,12 @@ class ProductRuntimeHarness:
         self.document_object_root = self.runtime_dir / "document-objects"
         self.document_object_root.mkdir(parents=True, exist_ok=True)
         self.deterministic_model = deterministic_model
-        self.model_port = find_free_port()
-        self.business_port = find_free_port()
-        self.agent_port = find_free_port()
-        self.secondary_agent_port = find_free_port()
+        (
+            self.model_port,
+            self.business_port,
+            self.agent_port,
+            self.secondary_agent_port,
+        ) = find_free_ports(4)
         self.model_url = f"http://127.0.0.1:{self.model_port}"
         self.business_url = f"http://127.0.0.1:{self.business_port}"
         self.agent_url = f"http://127.0.0.1:{self.agent_port}"
