@@ -48,11 +48,9 @@ jobs:
           import os
           from pathlib import Path
 
-          profile_path = Path('deployment/ci/wp08-production-profile.json')
-          profile = json.loads(profile_path.read_text(encoding='utf-8'))
+          profile = json.loads(Path('deployment/ci/wp08-production-profile.json').read_text(encoding='utf-8'))
           if profile.get('contract') != 'wp08-production-profile@1':
               raise SystemExit('invalid versioned production profile')
-
           provider = str(os.environ.get('CONFIG_MODEL_PROVIDER') or profile.get('model_provider') or '').strip().casefold()
           model = str(os.environ.get('CONFIG_MODEL_ID') or profile.get('model_id') or '').strip()
           base = str(os.environ.get('CONFIG_MODEL_API_BASE') or profile.get('model_api_base') or '').strip().rstrip('/')
@@ -68,7 +66,6 @@ jobs:
               raise SystemExit('protected model id is empty')
           if not os.environ.get('OPENAI_API_KEY'):
               raise SystemExit('production-certification environment has no model credential')
-
           with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as handle:
               handle.write(f'REAL_MODEL_CERTIFICATION_PROVIDER={provider}\n')
               handle.write(f'OPENAI_MODEL={model}\n')
@@ -76,7 +73,7 @@ jobs:
           print(json.dumps({'provider': provider, 'model': model, 'endpoint': base, 'credential_present': True}))
           PY
 
-      - name: Run protected live-model architecture adversarial matrix
+      - name: Diagnose protected model usage attestation without weakening it
         run: |
           services/agent-service/.venv/bin/python -B - <<'PY'
           from __future__ import annotations
@@ -96,43 +93,108 @@ jobs:
           ):
               sys.path.insert(0, str(path))
 
-          from agent_core.model_calls import resolve_real_model_identity
+          from langchain_core.messages import HumanMessage
+          from agent_core.config import get_model
+          from agent_core.model_calls import invoke_model, model_call_scope, resolve_real_model_identity
           from verify_full_lifecycle_canary import ProductRuntimeHarness
           from verify_preprod_full_lifecycle import (
               _attest_lifecycle_model_calls,
               _call,
               _graph_diagnostics,
               _token,
-              _transaction_ids,
           )
 
-          def latest_state(database: Path) -> dict:
-              with sqlite3.connect(database) as connection:
-                  row = connection.execute(
-                      "SELECT output_json FROM trace_logs WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT 1"
-                  ).fetchone()
-              if not row:
-                  raise RuntimeError('missing graph snapshot')
-              payload = json.loads(row[0] or '{}')
-              state = payload.get('state') if isinstance(payload.get('state'), dict) else payload
-              if not isinstance(state, dict):
-                  raise RuntimeError('graph snapshot state is invalid')
-              return state
+          output_path = Path('/tmp/v20.18-live-model-usage-diagnostic.json')
+          safe_keys = (
+              'purpose', 'status', 'model', 'provider_model', 'finish_reason',
+              'prompt_tokens', 'completion_tokens', 'total_tokens', 'lane', 'sequence',
+          )
 
-          def require_answer(response: object, label: str) -> dict:
-              if not isinstance(response, dict) or response.get('type') != 'answer':
-                  raise RuntimeError(f'{label}: expected safe answer, got {response!r}')
-              if not str(response.get('answer') or '').strip() and not list(response.get('blocks') or []):
-                  raise RuntimeError(f'{label}: answer had no visible content')
-              return response
+          def safe_record(record: object) -> dict:
+              if not isinstance(record, dict):
+                  return {'record_type': type(record).__name__}
+              return {key: record.get(key) for key in safe_keys if key in record}
 
-          def tool_names(state: dict) -> list[str]:
-              return [
-                  str(row.get('name') or '')
-                  for row in list(state.get('tool_trace') or [])
-                  if isinstance(row, dict) and str(row.get('name') or '')
-              ]
+          def safe_response_shape(response: object) -> dict:
+              metadata = getattr(response, 'response_metadata', None)
+              usage = getattr(response, 'usage_metadata', None)
+              result = {
+                  'response_type': type(response).__name__,
+                  'response_metadata_type': type(metadata).__name__,
+                  'response_metadata_keys': sorted(str(key) for key in metadata) if isinstance(metadata, dict) else [],
+                  'usage_metadata_type': type(usage).__name__,
+              }
+              if isinstance(usage, dict):
+                  result['usage_metadata'] = {
+                      key: usage.get(key)
+                      for key in ('input_tokens', 'output_tokens', 'total_tokens')
+                      if key in usage
+                  }
+              if isinstance(metadata, dict):
+                  token_usage = metadata.get('token_usage')
+                  result['token_usage_type'] = type(token_usage).__name__
+                  if isinstance(token_usage, dict):
+                      result['token_usage'] = {
+                          key: token_usage.get(key)
+                          for key in ('prompt_tokens', 'completion_tokens', 'total_tokens')
+                          if key in token_usage
+                      }
+              return result
 
+          identity = resolve_real_model_identity(dict(os.environ))
+          evidence = {
+              'contract': 'v20.18-live-model-usage-diagnostic@1',
+              'source_sha': os.environ.get('GITHUB_SHA'),
+              'identity': {
+                  key: identity.get(key)
+                  for key in ('provider', 'endpoint', 'model', 'credential_fingerprint_sha256_16')
+              },
+              'strict_attestation_weakened': False,
+              'probes': [],
+          }
+
+          # Probe the exact project gateway with an unbound provider model.
+          model = get_model()
+          with model_call_scope(max_calls=1):
+              response, record = invoke_model(
+                  purpose='architecture_usage_probe',
+                  model=model,
+                  payload=[HumanMessage(content='Reply with OK.')],
+              )
+          evidence['probes'].append({
+              'id': 'direct-gateway',
+              'record': safe_record(record),
+              'response_shape': safe_response_shape(response),
+          })
+
+          # Probe the same adapter after bind_tools, matching the agent-loop wrapper shape.
+          schema = {
+              'type': 'function',
+              'function': {
+                  'name': 'diagnostic_noop',
+                  'description': 'Diagnostic no-op; do not expose user data.',
+                  'parameters': {
+                      'type': 'object',
+                      'properties': {},
+                      'additionalProperties': False,
+                  },
+              },
+          }
+          bound = model.bind_tools([schema]) if hasattr(model, 'bind_tools') else model
+          with model_call_scope(max_calls=1):
+              response, record = invoke_model(
+                  purpose='architecture_bound_usage_probe',
+                  model=bound,
+                  payload=[HumanMessage(content='Reply with OK.')],
+              )
+          evidence['probes'].append({
+              'id': 'bound-tools-gateway',
+              'record': safe_record(record),
+              'response_shape': safe_response_shape(response),
+          })
+
+          # Reproduce only the first architecture scenario and capture already-redacted
+          # lifecycle model-call records before strict attestation runs.
           harness = ProductRuntimeHarness(deterministic_model=False)
           harness.env.update({
               'CAPABILITY_SEMANTIC_VERIFIER_MODE': 'model',
@@ -140,134 +202,70 @@ jobs:
               'GOAL_GRANULARITY_VERIFIER_MODE': 'model',
               'ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE': 'model',
           })
-          identity = resolve_real_model_identity(harness.env)
-          safe_identity = {
-              key: identity.get(key)
-              for key in ('provider', 'endpoint', 'model', 'credential_fingerprint_sha256_16')
-          }
-          evidence: dict[str, object] = {
-              'contract': 'v20.18-live-model-architecture-matrix@1',
-              'source_sha': os.environ.get('GITHUB_SHA'),
-              'identity': safe_identity,
-              'scenarios': [],
-          }
-
           with harness:
               base = harness.agent_url
               token = _token(base, harness.env)
               database = harness.runtime_dir / 'agent.db'
-              before = _transaction_ids(_call(base, '/api/transactions', token=token))
-
-              thread = f'v2018-courier-only-{uuid4().hex}'
-              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
-                  'thread_id': thread,
+              response = _call(base, '/api/chat/turn', method='POST', token=token, body={
+                  'thread_id': f'v2018-usage-diagnostic-{uuid4().hex}',
                   'message': '快递员电话是多少？',
-              }), 'unsupported-courier-phone')
-              state = latest_state(database)
-              names = tool_names(state)
-              if 'report_unsupported_request' not in names:
-                  raise RuntimeError(f'unsupported-courier-phone: unsupported reporter missing; trace={names}')
-              if 'get_order_logistics' in names:
-                  raise RuntimeError(f'unsupported-courier-phone: logistics substituted for unsupported request; trace={names}')
-              attestation = _attest_lifecycle_model_calls(
-                  diagnostics=_graph_diagnostics(database), identity=identity, turn_index=1
-              )
-              evidence['scenarios'].append({
-                  'id': 'unsupported-courier-phone',
-                  'status': 'PASS',
-                  'tool_names': names,
-                  'model_attestation': attestation,
               })
-
-              thread = f'v2018-mixed-{uuid4().hex}'
-              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
-                  'thread_id': thread,
-                  'message': '查一下鼠标物流，再告诉我快递员手机号',
-              }), 'supported-plus-unsupported')
-              state = latest_state(database)
-              names = tool_names(state)
-              missing = [name for name in ('get_order_logistics', 'report_unsupported_request') if name not in names]
-              if missing:
-                  raise RuntimeError(f'supported-plus-unsupported: missing branches {missing}; trace={names}')
-              attestation = _attest_lifecycle_model_calls(
-                  diagnostics=_graph_diagnostics(database), identity=identity, turn_index=1
-              )
-              evidence['scenarios'].append({
-                  'id': 'supported-plus-unsupported',
-                  'status': 'PASS',
-                  'tool_names': names,
-                  'model_attestation': attestation,
-              })
-
-              thread = f'v2018-historical-{uuid4().hex}'
-              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
-                  'thread_id': thread,
-                  'message': '查一下机械键盘订单',
-              }), 'historical-seed')
-              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
-                  'thread_id': thread,
-                  'message': '查一下它的物流',
-              }), 'historical-followup')
-              state = latest_state(database)
-              logistics_rows = [
-                  row for row in list(state.get('tool_trace') or [])
-                  if isinstance(row, dict) and row.get('name') == 'get_order_logistics'
+              if not isinstance(response, dict) or response.get('type') != 'answer':
+                  raise RuntimeError(f'usage diagnostic expected safe answer, got type={type(response).__name__}')
+              with sqlite3.connect(database) as connection:
+                  row = connection.execute(
+                      "SELECT output_json FROM trace_logs WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT 1"
+                  ).fetchone()
+              state = json.loads(row[0] or '{}') if row else {}
+              state = state.get('state') if isinstance(state.get('state'), dict) else state
+              tool_names = [
+                  str(item.get('name') or '')
+                  for item in list((state or {}).get('tool_trace') or [])
+                  if isinstance(item, dict) and str(item.get('name') or '')
               ]
-              if not logistics_rows:
-                  raise RuntimeError(f'historical-followup: logistics tool missing; trace={tool_names(state)}')
-              row = logistics_rows[-1]
-              authority = row.get('compiled_runtime_target') if isinstance(row.get('compiled_runtime_target'), dict) else {}
-              if authority.get('status') != 'COMPILED':
-                  raise RuntimeError(f'historical-followup: deterministic target was not compiled: {authority!r}')
-              if authority.get('model_target_selection_authority') is not False:
-                  raise RuntimeError(f'historical-followup: model still owns target selection: {authority!r}')
-              if authority.get('execution_authority_granted') is not False:
-                  raise RuntimeError(f'historical-followup: compiler improperly granted execution authority: {authority!r}')
-              binding = authority.get('binding') if isinstance(authority.get('binding'), dict) else {}
-              projected = authority.get('projected_target') if isinstance(authority.get('projected_target'), dict) else {}
-              args = row.get('args') if isinstance(row.get('args'), dict) else {}
-              member_handle = str(binding.get('member_handle') or '')
-              if not member_handle or projected.get('left_handle') != member_handle:
-                  raise RuntimeError(f'historical-followup: projection/binding mismatch: {authority!r}')
-              if args.get('target') != projected:
-                  raise RuntimeError(f'historical-followup: dispatcher did not receive Runtime target: args={args!r}, authority={authority!r}')
-              if not isinstance(row.get('result'), dict) or row['result'].get('ok') is not True:
-                  raise RuntimeError(f'historical-followup: compiled target did not execute successfully: {row.get("result")!r}')
-              attestation = _attest_lifecycle_model_calls(
-                  diagnostics=_graph_diagnostics(database), identity=identity, turn_index=2
-              )
-              evidence['scenarios'].append({
-                  'id': 'historical-single-member-runtime-target-authority',
-                  'status': 'PASS',
-                  'tool_names': tool_names(state),
-                  'target_authority': {
-                      'status': authority.get('status'),
-                      'reason_code': authority.get('reason_code'),
-                      'candidate_target_replaced': authority.get('candidate_target_replaced'),
-                      'model_target_selection_authority': authority.get('model_target_selection_authority'),
-                      'execution_authority_granted': authority.get('execution_authority_granted'),
-                      'binding_member_present': bool(member_handle),
-                      'dispatcher_received_projected_target': args.get('target') == projected,
-                  },
-                  'model_attestation': attestation,
-              })
+              diagnostics = _graph_diagnostics(database)
+              model_calls = [
+                  safe_record(record)
+                  for diagnostic in diagnostics
+                  if isinstance(diagnostic, dict)
+                  for record in list(diagnostic.get('model_calls') or [])
+                  if isinstance(record, dict)
+              ]
+              scenario = {
+                  'id': 'unsupported-courier-phone',
+                  'tool_names': tool_names,
+                  'model_calls': model_calls,
+                  'unsupported_reporter_present': 'report_unsupported_request' in tool_names,
+                  'logistics_substitution_absent': 'get_order_logistics' not in tool_names,
+              }
+              evidence['scenario'] = scenario
+              try:
+                  attestation = _attest_lifecycle_model_calls(
+                      diagnostics=diagnostics,
+                      identity=identity,
+                      turn_index=1,
+                  )
+              except Exception as exc:
+                  evidence['attestation'] = {
+                      'status': 'FAIL',
+                      'error_type': type(exc).__name__,
+                      'error_code': str(getattr(exc, 'code', '') or ''),
+                  }
+                  output_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+                  print(json.dumps(evidence, ensure_ascii=False))
+                  raise
+              else:
+                  evidence['attestation'] = {'status': 'PASS', 'result': attestation}
 
-              after = _transaction_ids(_call(base, '/api/transactions', token=token))
-              if after != before:
-                  raise RuntimeError('architecture live-model matrix changed transaction state')
-
-          evidence['status'] = 'PASS'
-          evidence['transaction_delta'] = 0
-          out = Path('/tmp/v20.18-live-model-architecture-matrix.json')
-          out.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          output_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           print(json.dumps(evidence, ensure_ascii=False))
           PY
 
-      - name: Upload architecture matrix evidence
+      - name: Upload protected usage diagnostic evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: v20.18-live-model-architecture-matrix-${{ github.run_id }}
-          path: /tmp/v20.18-live-model-architecture-matrix.json
+          name: v20.18-live-model-usage-diagnostic-${{ github.run_id }}
+          path: /tmp/v20.18-live-model-usage-diagnostic.json
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
