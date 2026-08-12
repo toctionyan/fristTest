@@ -1,11 +1,9 @@
 name: temporary-v20.18-redaction-telemetry-repair
 
 on:
-  push:
+  pull_request:
     branches:
-      - repair/v20.18-preserve-token-usage-telemetry-20260813
-    paths:
-      - .github/workflows/tmp-v20.18-redaction-telemetry-repair.yml
+      - main
 
 permissions:
   contents: write
@@ -17,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: repair/v20.18-preserve-token-usage-telemetry-20260813
           fetch-depth: 1
           persist-credentials: true
 
