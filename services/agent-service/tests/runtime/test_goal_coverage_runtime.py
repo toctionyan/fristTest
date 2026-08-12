@@ -1416,7 +1416,7 @@ def test_invalid_goal_declaration_returns_authoritative_current_user_text():
         "authority": "current_user_input_only",
         "required_action": "redeclaration",
         "evidence_span_rule": "literal_contiguous_substring",
-        "requested_effect_rule": "preserve the user's open business effect; do not coerce it into a nearby registered capability",
+        "requested_effect_rule": "rederive capability-independent domain, operation, object_type and requested_outputs from current_user_input; never copy verifier semantic answers or capability identities",
     }
 
 
