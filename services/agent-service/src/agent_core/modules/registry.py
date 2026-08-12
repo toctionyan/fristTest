@@ -9,7 +9,7 @@ from agent_core.kernel.registry import RuntimeRegistry
 from agent_core.operations.registry import OperationPluginRegistry
 from agent_core.resources.registry import ResourcePluginRegistry
 from .business_router import CompositeBusinessPort
-from .contracts import AgentModule, ModuleContribution, PresentationAdapter
+from .contracts import AgentModule, ModuleContribution, PresentationAdapter, SemanticOutputDefinition
 
 
 _runtime_registry_provider: Callable[[], RuntimeRegistry] | None = None
@@ -48,6 +48,7 @@ class ModuleRegistry:
         self._modules = tuple(modules)
         self._contributions = tuple(module.contribution() for module in self._modules)
         self._validate_module_identity()
+        self._validate_semantic_outputs()
 
     def _validate_module_identity(self) -> None:
         seen: set[str] = set()
@@ -58,8 +59,122 @@ class ModuleRegistry:
                 raise ValueError(f"duplicate AgentModule module_id: {contribution.module_id}")
             seen.add(contribution.module_id)
 
+    def _validate_semantic_outputs(self) -> None:
+        seen: set[str] = set()
+        aliases: dict[str, list[str]] = {}
+        for contribution in self._contributions:
+            for definition in contribution.semantic_outputs:
+                if definition.output_id in seen:
+                    raise ValueError(f"duplicate semantic output_id: {definition.output_id}")
+                seen.add(definition.output_id)
+                for alias in definition.legacy_effect_aliases:
+                    aliases.setdefault(alias, []).append(definition.output_id)
+        oversized = {alias: values for alias, values in aliases.items() if len(values) > 8}
+        if oversized:
+            raise ValueError(
+                f"legacy semantic alias expands to more than 8 outputs: {sorted(oversized)}"
+            )
+
+    def _validate_semantic_outputs(self) -> None:
+        seen: set[str] = set()
+        aliases: dict[str, list[str]] = {}
+        for contribution in self._contributions:
+            for definition in contribution.semantic_outputs:
+                if definition.output_id in seen:
+                    raise ValueError(f"duplicate semantic output_id: {definition.output_id}")
+                seen.add(definition.output_id)
+                for alias in definition.legacy_effect_aliases:
+                    aliases.setdefault(alias, []).append(definition.output_id)
+        oversized = {alias: values for alias, values in aliases.items() if len(values) > 8}
+        if oversized:
+            raise ValueError(f"legacy semantic alias expands to more than 8 outputs: {sorted(oversized)}")
+
     def module_ids(self) -> frozenset[str]:
         return frozenset(row.module_id for row in self._contributions)
+
+    def semantic_output_definitions(self) -> tuple[SemanticOutputDefinition, ...]:
+        return tuple(
+            definition
+            for contribution in self._contributions
+            for definition in contribution.semantic_outputs
+        )
+
+    def semantic_output_index(self) -> dict[str, dict[str, object]]:
+        return {
+            definition.output_id: definition.public_snapshot()
+            for definition in self.semantic_output_definitions()
+        }
+
+    def semantic_output_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self.semantic_output_index()))
+
+    def semantic_vocabulary_snapshot(self) -> dict[str, object]:
+        """Public pre-freeze vocabulary. Never expose capability availability."""
+        return {
+            "version": "semantic-output-vocabulary@1",
+            "authority": "domain_semantics_only_capability_independent",
+            "availability_exposed": False,
+            "tool_names_exposed": False,
+            "outputs": [
+                definition.public_snapshot()
+                for definition in sorted(
+                    self.semantic_output_definitions(), key=lambda row: row.output_id
+                )
+            ],
+        }
+
+    def legacy_semantic_output_aliases(self) -> dict[str, tuple[str, ...]]:
+        """Internal post-freeze migration compiler from legacy effect identity."""
+        aliases: dict[str, list[str]] = {}
+        for definition in self.semantic_output_definitions():
+            for alias in definition.legacy_effect_aliases:
+                aliases.setdefault(alias, []).append(definition.output_id)
+        return {
+            alias: tuple(sorted(dict.fromkeys(output_ids)))
+            for alias, output_ids in aliases.items()
+        }
+
+    def semantic_output_definitions(self) -> tuple[SemanticOutputDefinition, ...]:
+        return tuple(
+            definition
+            for contribution in self._contributions
+            for definition in contribution.semantic_outputs
+        )
+
+    def semantic_output_index(self) -> dict[str, dict[str, object]]:
+        return {
+            definition.output_id: definition.public_snapshot()
+            for definition in self.semantic_output_definitions()
+        }
+
+    def semantic_output_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self.semantic_output_index()))
+
+    def semantic_vocabulary_snapshot(self) -> dict[str, object]:
+        """Public pre-freeze vocabulary. Never expose capability availability."""
+        return {
+            "version": "semantic-output-vocabulary@1",
+            "authority": "domain_semantics_only_capability_independent",
+            "availability_exposed": False,
+            "tool_names_exposed": False,
+            "outputs": [
+                definition.public_snapshot()
+                for definition in sorted(
+                    self.semantic_output_definitions(), key=lambda row: row.output_id
+                )
+            ],
+        }
+
+    def legacy_semantic_output_aliases(self) -> dict[str, tuple[str, ...]]:
+        """Internal post-freeze migration compiler from legacy effect identity."""
+        aliases: dict[str, list[str]] = {}
+        for definition in self.semantic_output_definitions():
+            for alias in definition.legacy_effect_aliases:
+                aliases.setdefault(alias, []).append(definition.output_id)
+        return {
+            alias: tuple(sorted(dict.fromkeys(output_ids)))
+            for alias, output_ids in aliases.items()
+        }
 
     def build_runtime_registry(self) -> RuntimeRegistry:
         capabilities = tuple(binding for row in self._contributions for binding in row.capabilities)
@@ -70,7 +185,9 @@ class ModuleRegistry:
             resources=ResourcePluginRegistry(resources, allow_empty=not resources),
             operations=OperationPluginRegistry(operations),
             assessments=OperationAssessmentRegistry(assessments),
-            capabilities=CapabilityRegistry(capabilities, version="module-registry@3.8", allow_empty=not capabilities),
+            capabilities=CapabilityRegistry(
+                capabilities, version="module-registry@3.8", allow_empty=not capabilities
+            ),
         )
         registry.validate_integrity()
         return registry
