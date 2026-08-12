@@ -67,6 +67,19 @@ def test_stage2_accepts_seeded_later_rounds_without_counting_fixer_cycles_as_rou
     assert "Fixer cycles are internal to this repair round" in text
 
 
+def test_stage2_public_summary_reads_job_metadata_from_environment() -> None:
+    text = STAGE2.read_text(encoding="utf-8")
+    assert 'import os' in text
+    assert 'stage2_run_id = os.environ["STAGE2_RUN_ID"]' in text
+    assert 'stage2_run_attempt = os.environ["STAGE2_RUN_ATTEMPT"]' in text
+    assert 'repair_round = int(os.environ["REPAIR_ROUND"])' in text
+    assert 'input_kind = os.environ["INPUT_KIND"]' in text
+    assert '"repair_round": int("${REPAIR_ROUND}")' not in text
+    assert '"stage2_run_id": "${STAGE2_RUN_ID}"' not in text
+    assert '"stage2_run_attempt": "${STAGE2_RUN_ATTEMPT}"' not in text
+    assert '"input_kind": "${INPUT_KIND}"' not in text
+
+
 def test_later_round_feedback_must_preserve_original_binding_and_cannot_expand_authority() -> None:
     stage2 = STAGE2.read_text(encoding="utf-8")
     assert "Stage-1 TaskRun binding mismatch" in stage2
