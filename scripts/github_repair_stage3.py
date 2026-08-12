@@ -61,6 +61,7 @@ def _run(
     *,
     cwd: Path,
     timeout: int = 1800,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -69,7 +70,7 @@ def _run(
         capture_output=True,
         check=False,
         timeout=timeout,
-        env=os.environ.copy(),
+        env=dict(env) if env is not None else os.environ.copy(),
     )
 
 
@@ -334,26 +335,26 @@ def prepare_candidate(
 
 
 def _component_command(component: str, workspace: Path) -> tuple[list[str], Path]:
+    python_test_args = [
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not integration and not preprod",
+        "tests",
+    ]
     if component == "agent-python":
         return (
-            [
-                str(workspace / "services/agent-service/.venv/bin/python"),
-                "-m",
-                "pytest",
-                "tests",
-                "-q",
-            ],
+            [str(workspace / "services/agent-service/.venv/bin/python"), *python_test_args],
             workspace / "services/agent-service",
         )
     if component == "business-python":
         return (
-            [
-                str(workspace / "services/business-service/.venv/bin/python"),
-                "-m",
-                "pytest",
-                "tests",
-                "-q",
-            ],
+            [str(workspace / "services/business-service/.venv/bin/python"), *python_test_args],
             workspace / "services/business-service",
         )
     if component == "agent-frontend":
@@ -361,6 +362,17 @@ def _component_command(component: str, workspace: Path) -> tuple[list[str], Path
     if component == "web-node":
         return (["npm", "test"], workspace / "web")
     raise Stage3Error(f"unknown targeted component: {component}")
+
+
+def _targeted_env(component: str) -> dict[str, str]:
+    env = os.environ.copy()
+    if component not in {"agent-python", "business-python"}:
+        return env
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if component == "agent-python":
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = "src:." + (os.pathsep + existing if existing else "")
+    return env
 
 
 def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
@@ -373,11 +385,17 @@ def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
     rows: list[dict[str, Any]] = []
     passed = True
     for component in plan.get("targeted_components") or []:
-        command, cwd = _component_command(str(component), workspace)
+        component_name = str(component)
+        command, cwd = _component_command(component_name, workspace)
         if not cwd.is_dir():
             raise Stage3Error(f"targeted component directory is missing: {cwd}")
         try:
-            completed = _run(command, cwd=cwd, timeout=3600)
+            completed = _run(
+                command,
+                cwd=cwd,
+                timeout=3600,
+                env=_targeted_env(component_name),
+            )
             row = {
                 "component": component,
                 "command": command,
@@ -470,8 +488,7 @@ def record_validation(
     task.mark_condition(
         "validation_passed",
         evidence_refs=[
-            str(targeted_result_path),
-            str(quick_summary_path),
+            str(targeted_result_path), str(quick_summary_path),
             f"candidate-sha:{candidate_sha}",
             f"quick-snapshot:{snapshot}",
         ],
