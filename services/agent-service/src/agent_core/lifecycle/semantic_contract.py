@@ -35,15 +35,74 @@ def _text(value: Any, *, limit: int = 2000) -> str:
     return str(value or "").strip()[:limit]
 
 
-def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, str]:
-    """Normalize an open business-effect identity without language classification."""
+def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, Any]:
+    """Normalize one capability-blind effect without consulting installed Tools.
 
+    Historical/direct callers may still provide only the open
+    ``domain/operation/object_type`` triple. New provider declarations also
+    carry ``requested_outputs``; those canonical semantic output IDs become the
+    exact post-freeze capability-coverage identity. The compatibility triple is
+    preserved for old readers but never grants execution authority.
+    """
     source = raw if isinstance(raw, dict) else {}
+    raw_description = _text(source.get("raw_description") or description)
+    values = source.get("requested_outputs")
+    if isinstance(values, list):
+        if not values or len(values) > 8:
+            raise ValueError("requested_effect.requested_outputs_required")
+        outputs: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for index, raw_output in enumerate(values):
+            if not isinstance(raw_output, dict):
+                raise ValueError(f"requested_effect.output_invalid:{index}")
+            output_id = _text(raw_output.get("output_id"), limit=240).casefold()
+            evidence_span = _text(raw_output.get("evidence_span"), limit=240)
+            open_description = _text(raw_output.get("open_description"), limit=500)
+            if not output_id or not evidence_span:
+                raise ValueError(f"requested_effect.output_incomplete:{index}")
+            if output_id in seen:
+                raise ValueError(f"requested_effect.output_duplicate:{output_id}")
+            if output_id == "open" and not open_description:
+                raise ValueError("requested_effect.open_description_required")
+            if output_id != "open" and open_description:
+                raise ValueError("requested_effect.open_description_only_for_open")
+            seen.add(output_id)
+            row = {"output_id": output_id, "evidence_span": evidence_span}
+            if open_description:
+                row["open_description"] = open_description
+            outputs.append(row)
+
+        first_semantic = next((row["output_id"] for row in outputs if row["output_id"] != "open"), "")
+        semantic_domain, semantic_operation = (
+            first_semantic.split(".", 1) if "." in first_semantic else ("", "")
+        )
+        domain = _text(source.get("domain"), limit=120) or semantic_domain or "open"
+        operation = _text(source.get("operation"), limit=160) or (
+            semantic_operation if len(outputs) == 1 and semantic_operation else "semantic_output_set"
+        )
+        object_type = _text(
+            source.get("object_type") or source.get("subject_type"), limit=160
+        ) or "unspecified"
+        result: dict[str, Any] = {
+            "domain": domain,
+            "operation": operation,
+            "object_type": object_type,
+            "requested_outputs": outputs,
+            "raw_description": raw_description,
+        }
+        effect_kind = _text(source.get("effect_kind"), limit=80).casefold()
+        subject_type = _text(source.get("subject_type"), limit=160).casefold()
+        if effect_kind:
+            result["effect_kind"] = effect_kind
+        if subject_type:
+            result["subject_type"] = subject_type
+        return result
+
     effect = {
         "domain": _text(source.get("domain"), limit=120),
         "operation": _text(source.get("operation"), limit=160),
         "object_type": _text(source.get("object_type"), limit=160),
-        "raw_description": _text(source.get("raw_description") or description),
+        "raw_description": raw_description,
     }
     if not effect["operation"]:
         raise ValueError("requested_effect.operation_required")
@@ -109,7 +168,11 @@ def _normalize_reference_fields(goal: dict[str, Any], *, user_text: str) -> None
         goal["reference_expression"] = normalize_reference_expression(
             expression,
             user_text=user_text,
-            expected_object_type=str((goal.get("requested_effect") or {}).get("object_type") or ""),
+            expected_object_type=str(
+                (goal.get("requested_effect") or {}).get("subject_type")
+                or (goal.get("requested_effect") or {}).get("object_type")
+                or ""
+            ),
             expected_cardinality=str(goal.get("expected_result_cardinality") or "unknown"),
         )
     integrity = referent_resolution_proof_integrity(

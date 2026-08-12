@@ -785,3 +785,42 @@ def test_new_goal_declaration_rejects_goal_type_only_semantics():
     assert result["ok"] is False
     assert plan is None
     assert "invalid_requested_effect:refund-keyboard:requested_effect.required_for_new_turn" in result["data"]["errors"]
+
+
+def test_v2018_requested_outputs_freeze_as_digest_bound_semantics() -> None:
+    from agent_core.modules.registry import ModuleRegistry, configure_registry_providers
+    from agent_modules.ecommerce.module import EcommerceModule
+    from agent_core.lifecycle.semantic_contract import freeze_semantic_contract, semantic_contract_integrity
+
+    modules = ModuleRegistry([EcommerceModule()])
+    configure_registry_providers(
+        runtime_registry=modules.build_runtime_registry,
+        module_registry=lambda: modules,
+    )
+    goal = {
+        "goal_id": "g1",
+        "description": "查物流状态和预计送达时间",
+        "evidence_span": "物流状态和预计送达时间",
+        "requested_effect": {
+            "effect_kind": "read",
+            "subject_type": "shipment",
+            "requested_outputs": [
+                {"output_id": "shipment.current_status", "evidence_span": "物流状态"},
+                {"output_id": "shipment.eta", "evidence_span": "预计送达时间"},
+            ],
+            "raw_description": "查物流状态和预计送达时间",
+        },
+        "expected_result_cardinality": "single",
+        "required": True,
+        "depends_on": [],
+    }
+    contract = freeze_semantic_contract(
+        turn=3,
+        user_text="查物流状态和预计送达时间",
+        summary="物流查询",
+        goals=[goal],
+        alignment_proof={"verdict": "exact"},
+    )
+    assert contract["authority"] == "sole_formal_turn_semantics"
+    assert contract["goals"][0]["requested_effect"]["requested_outputs"][1]["output_id"] == "shipment.eta"
+    assert semantic_contract_integrity(contract)["ok"] is True

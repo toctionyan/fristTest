@@ -122,7 +122,6 @@ def _normalize(
                 "reason": (
                     _text(item.get("reason"), limit=240) or "unclassified"
                 ),
-                "recommended_role": role or None,
                 "evidence_span": evidence_span or None,
             }
         )
@@ -337,7 +336,6 @@ def _evaluate_blind_inventory(
             findings.append({
                 "goal_id": None,
                 "reason": "blind_inventory_outcome_not_covered",
-                "recommended_role": "goal",
                 "evidence_span": span,
             })
     for goal_index, goal in enumerate(goals):
@@ -345,7 +343,6 @@ def _evaluate_blind_inventory(
             findings.append({
                 "goal_id": str(goal.get("goal_id") or "") or None,
                 "reason": "declared_goal_not_uniquely_mapped_to_blind_outcome",
-                "recommended_role": "support_step",
                 "evidence_span": (
                     str(goal.get("evidence_span") or "")
                     if str(goal.get("evidence_span") or "") in user_text

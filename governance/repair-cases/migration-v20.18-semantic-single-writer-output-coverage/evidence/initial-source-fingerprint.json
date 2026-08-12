@@ -1,0 +1,52 @@
+{
+  "absent_allowed_paths": [
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py"
+  ],
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/get_order_logistics.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py"
+  ],
+  "base_candidate_sha": "ffd29dde28c87e86e3f59f2bca88a0134a86273d",
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "existing_allowed_files": {
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py": "08ac1c0b199b9b1347414cf2c959b12085e5162d2e96bb794e2e558915f4ee9d",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "211269a86379601ac061daa9c83c3cc1a05cfa357c970a851c536ac5bfb1a707",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py": "c0e5fe02acb49b272e7d83d1c558dcf0af4d1ed40c41a65f05ed7c8bf734a26d",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "bcdd844219357cfd55706a5275dd3a617c4161ac6cf415d73a8af1f552ef03ba",
+    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "b9e077a1ab5d18cfcfe1cd3bf66f6d7b9112bc7fd50cdae07e50089de5b18bd9",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py": "312712edc27c97089cc986342b55110783a9802b1c88696985a93b9724c6ed9f",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py": "f5c7beb454b705ccd44d4b0fc5f3003ea8036638fdace79a927899dc5cf80b58",
+    "services/agent-service/src/agent_core/modules/contracts.py": "d8634ae54892a821654d7ca320db412296d1beb934ed910f6f4c6bb12009af84",
+    "services/agent-service/src/agent_core/modules/registry.py": "88a636d29b55cd897d31f30def1ce998d47260842738af3f935aafa69910da66",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py": "8196a0b5692740dd839ab2dc601cc37f086da4944a29d404d31debf1b63e48f9",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/get_order_logistics.py": "4474734a5d30b3b4669a2d35886a93319aaa19f8a2836f2e97e01dfca7467a11",
+    "services/agent-service/src/agent_modules/ecommerce/module.py": "41c915d3b25b091fe7dd59061e6b52cd135ea0e8bf47cccb687005acbc5397eb",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py": "71b3191cddbc8a1f90974f494b5a492731fe64a40fc86866fdada9ca61e6781e"
+  },
+  "fingerprint_algorithm": "sha256(sorted(path_utf8 + NUL + file_sha256_bytes + NUL)); absent files contribute no record",
+  "initial_source_file_count": 14,
+  "initial_source_fingerprint": "18323ce037401c2e523fcd2b614865a307bd1deea12ce609da5e3ae5f787f108",
+  "product_writes_performed": false,
+  "protected_manifest": "skill-system/registry/product-source-baseline.json",
+  "protected_manifest_file_count": 562,
+  "record_type": "initial-product-source-fingerprint-evidence",
+  "schema_version": 1
+}

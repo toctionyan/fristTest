@@ -1,12 +1,25 @@
 """Single-source capability definition contract for the ecommerce module."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
-from agent_core.kernel.capability import CapabilityPlanningContract, ToolCapabilityContract
+from agent_core.kernel.capability import (
+    CapabilityPlanningContract,
+    CapabilityTargetArgumentProjection,
+    ToolCapabilityContract,
+)
 
 Executor = Callable[..., dict[str, Any]]
+
+# The ecommerce module owns the mapping from an opaque compiled binding into
+# its target DSL.  Core Runtime consumes this declaration without learning
+# vertical field names or values.
+ECOMMERCE_TARGET_ARGUMENT_PROJECTION = CapabilityTargetArgumentProjection(
+    argument_name="target",
+    constant_fields=(("mode", "artifact"),),
+    binding_fields=(("left_handle", "member_handle"),),
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +46,21 @@ class EcommerceCapabilityDefinition:
 
     @property
     def contract(self) -> ToolCapabilityContract:
+        planning_contract = self.planning_contract
+        if planning_contract is not None:
+            target = planning_contract.target
+            if (
+                target.cardinality != "none"
+                and "target_resolver" in set(target.binding_sources)
+                and target.argument_projection is None
+            ):
+                planning_contract = replace(
+                    planning_contract,
+                    target=replace(
+                        target,
+                        argument_projection=ECOMMERCE_TARGET_ARGUMENT_PROJECTION,
+                    ),
+                )
         return ToolCapabilityContract(
             key=self.key,
             tool_name=self.tool_name,
@@ -49,5 +77,5 @@ class EcommerceCapabilityDefinition:
             discovery_examples=self.discovery_examples,
             exclusion_examples=self.exclusion_examples,
             contract_version=self.contract_version,
-            planning_contract=self.planning_contract,
+            planning_contract=planning_contract,
         )

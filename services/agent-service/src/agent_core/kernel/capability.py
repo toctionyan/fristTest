@@ -28,10 +28,57 @@ def _unique(values: tuple[str, ...], *, field: str) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True)
+class CapabilityTargetArgumentProjection:
+    """Module-owned structural projection for a compiled opaque target binding."""
+
+    argument_name: str
+    constant_fields: tuple[tuple[str, str], ...] = ()
+    binding_fields: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "argument_name", _clean(self.argument_name, field="target projection argument"))
+        constants = tuple(
+            (
+                _clean(name, field="target projection constant field"),
+                _clean(value, field="target projection constant value"),
+            )
+            for name, value in self.constant_fields
+        )
+        bindings = tuple(
+            (
+                _clean(name, field="target projection binding field"),
+                _clean(source, field="compiled target binding source field"),
+            )
+            for name, source in self.binding_fields
+        )
+        projected_fields = [name for name, _ in (*constants, *bindings)]
+        if len(set(projected_fields)) != len(projected_fields):
+            raise ValueError("duplicate target projection field")
+        if not bindings:
+            raise ValueError("target projection requires at least one compiled binding field")
+        object.__setattr__(self, "constant_fields", constants)
+        object.__setattr__(self, "binding_fields", bindings)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "argument_name": self.argument_name,
+            "constant_fields": [
+                {"argument_field": name, "value": value}
+                for name, value in self.constant_fields
+            ],
+            "binding_fields": [
+                {"argument_field": name, "binding_field": source}
+                for name, source in self.binding_fields
+            ],
+        }
+
+
+@dataclass(frozen=True)
 class CapabilityTargetContract:
     resource_types: tuple[str, ...]
     cardinality: str
     binding_sources: tuple[str, ...] = ("target_resolver",)
+    argument_projection: CapabilityTargetArgumentProjection | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "resource_types", _unique(self.resource_types, field="target resource type"))
@@ -46,6 +93,11 @@ class CapabilityTargetContract:
             "resource_types": list(self.resource_types),
             "cardinality": self.cardinality,
             "binding_sources": list(self.binding_sources),
+            "argument_projection": (
+                self.argument_projection.as_dict()
+                if self.argument_projection is not None
+                else None
+            ),
         }
 
 
