@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           cd services/agent-service
-          .venv/bin/python -B -m pytest -q \
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
             tests/runtime/test_deterministic_target_compiler.py \
             tests/context/test_reference_resolution_contract.py \
             tests/context/test_runtime_result_ref_pipeline.py
@@ -78,8 +78,8 @@ jobs:
       - name: Validate refreshed baseline binding
         run: |
           set -euo pipefail
-          services/agent-service/.venv/bin/python -B -m unittest \
-            skill-system.tests.test_product_source_baseline_binding
+          services/agent-service/.venv/bin/python -B \
+            skill-system/tests/test_product_source_baseline_binding.py
       - name: Publish baseline refresh and remove temporary workflow
         run: |
           set -euo pipefail
