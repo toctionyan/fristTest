@@ -1,0 +1,86 @@
+name: temporary-v20.18-redaction-telemetry-repair
+
+on:
+  push:
+    branches:
+      - repair/v20.18-preserve-token-usage-telemetry-20260813
+    paths:
+      - .github/workflows/tmp-v20.18-redaction-telemetry-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Run focused redaction and lifecycle attestation tests
+        run: services/agent-service/.venv/bin/python -m pytest -q services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py
+
+      - name: Inspect source-release digest ownership
+        run: grep -R "source_release_sha256" -n skill-system scripts architecture-skill governance 2>/dev/null || true
+
+      - name: Refresh protected product-source baseline mechanically
+        run: |
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', 'services', 'web', 'contracts'], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          source_sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+          baseline['file_count'] = len(current)
+          baseline['files'] = current
+          baseline['generated_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+          baseline['generated_from'] = f'git:{source_sha}'
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2, sort_keys=False) + '\n', encoding='utf-8')
+          print(json.dumps({
+              'protected_file_count': len(current),
+              'generated_from': baseline['generated_from'],
+              'redaction_sha256': current['services/agent-service/src/agent_core/observability/redaction.py'],
+              'attestation_test_sha256': current['services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py'],
+              'source_release_sha256_preserved': baseline.get('source_release_sha256'),
+          }, indent=2))
+          PY
+
+      - name: Validate refreshed baseline binding
+        run: "${pythonLocation}/bin/python" -m pytest -q skill-system/tests/test_product_source_baseline_binding.py
+
+      - name: Commit baseline and retire temporary workflow
+        run: |
+          rm .github/workflows/tmp-v20.18-redaction-telemetry-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add skill-system/registry/product-source-baseline.json .github/workflows/tmp-v20.18-redaction-telemetry-repair.yml
+          git commit -m "Refresh baseline for token-usage redaction repair"
+          git push origin HEAD:repair/v20.18-preserve-token-usage-telemetry-20260813
