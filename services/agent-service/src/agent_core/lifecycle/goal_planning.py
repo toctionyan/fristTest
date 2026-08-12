@@ -412,6 +412,15 @@ def _model_alignment_pairwise_dependency_proof(
                 or basis_span not in dependent_span
             ):
                 return base_details, f"goal_alignment_dependency_basis_not_in_dependent_goal:{index}"
+            dependent_requested_effect = goal_by_id[dependent].get("requested_effect")
+            dependent_requested_outputs = (dependent_requested_effect.get("requested_outputs") if isinstance(dependent_requested_effect, dict) else [])
+            requested_output_spans = {
+                _clean_text(row.get("evidence_span"), limit=240)
+                for row in list(dependent_requested_outputs or [])
+                if isinstance(row, dict) and _clean_text(row.get("evidence_span"), limit=240)
+            }
+            if any(basis_span in output_span for output_span in requested_output_spans):
+                return base_details, f"goal_alignment_dependency_basis_is_requested_output:{index}"
             edge = (dependent, prerequisite)
             proof_edges.add(edge)
             proof_rows.append({
@@ -766,6 +775,8 @@ class ModelGoalAlignmentVerifier:
             "order, stable-ID lookup and implementation prerequisites are not dependencies."
         )
         blind_dependency_rules = [
+            "dependency basis evidence must identify the result-reference, result-condition or result-value-input relation itself; "
+            "if a proposed basis_span is only or wholly inside the dependent Goal requested_outputs evidence_span, that phrase proves only the requested output and the pair must be independent",
             "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span; nearby registered capability identity is never acceptable merely because it exists",
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
