@@ -1,0 +1,188 @@
+name: temporary-c2-target-authority-cutover-v2
+
+on:
+  push:
+    branches:
+      - architecture/v20.18-c2-execution-target-authority-cutover-20260812
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: |
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Apply C2 deterministic target authority cutover
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one replacement in {path}, found {count}")
+              file.write_text(text.replace(old, new), encoding="utf-8")
+
+          capability = "services/agent-service/src/agent_core/kernel/capability.py"
+          replace_once(
+              capability,
+              '''@dataclass(frozen=True)\nclass CapabilityTargetContract:\n    resource_types: tuple[str, ...]\n    cardinality: str\n    binding_sources: tuple[str, ...] = ("target_resolver",)\n\n    def __post_init__(self) -> None:\n        object.__setattr__(self, "resource_types", _unique(self.resource_types, field="target resource type"))\n        object.__setattr__(self, "binding_sources", _unique(self.binding_sources, field="target binding source"))\n        if self.cardinality not in {"none", "exactly_one", "one_or_collection", "collection"}:\n            raise ValueError(f"invalid target cardinality: {self.cardinality!r}")\n        if self.cardinality != "none" and not self.resource_types:\n            raise ValueError("target resource_types are required")\n\n    def as_dict(self) -> dict[str, Any]:\n        return {\n            "resource_types": list(self.resource_types),\n            "cardinality": self.cardinality,\n            "binding_sources": list(self.binding_sources),\n        }\n''',
+              '''@dataclass(frozen=True)\nclass CapabilityTargetArgumentProjection:\n    """Module-owned structural projection for a compiled opaque target binding."""\n\n    argument_name: str\n    constant_fields: tuple[tuple[str, str], ...] = ()\n    binding_fields: tuple[tuple[str, str], ...] = ()\n\n    def __post_init__(self) -> None:\n        object.__setattr__(self, "argument_name", _clean(self.argument_name, field="target projection argument"))\n        constants = tuple(\n            (\n                _clean(name, field="target projection constant field"),\n                _clean(value, field="target projection constant value"),\n            )\n            for name, value in self.constant_fields\n        )\n        bindings = tuple(\n            (\n                _clean(name, field="target projection binding field"),\n                _clean(source, field="compiled target binding source field"),\n            )\n            for name, source in self.binding_fields\n        )\n        projected_fields = [name for name, _ in (*constants, *bindings)]\n        if len(set(projected_fields)) != len(projected_fields):\n            raise ValueError("duplicate target projection field")\n        if not bindings:\n            raise ValueError("target projection requires at least one compiled binding field")\n        object.__setattr__(self, "constant_fields", constants)\n        object.__setattr__(self, "binding_fields", bindings)\n\n    def as_dict(self) -> dict[str, Any]:\n        return {\n            "argument_name": self.argument_name,\n            "constant_fields": [\n                {"argument_field": name, "value": value}\n                for name, value in self.constant_fields\n            ],\n            "binding_fields": [\n                {"argument_field": name, "binding_field": source}\n                for name, source in self.binding_fields\n            ],\n        }\n\n\n@dataclass(frozen=True)\nclass CapabilityTargetContract:\n    resource_types: tuple[str, ...]\n    cardinality: str\n    binding_sources: tuple[str, ...] = ("target_resolver",)\n    argument_projection: CapabilityTargetArgumentProjection | None = None\n\n    def __post_init__(self) -> None:\n        object.__setattr__(self, "resource_types", _unique(self.resource_types, field="target resource type"))\n        object.__setattr__(self, "binding_sources", _unique(self.binding_sources, field="target binding source"))\n        if self.cardinality not in {"none", "exactly_one", "one_or_collection", "collection"}:\n            raise ValueError(f"invalid target cardinality: {self.cardinality!r}")\n        if self.cardinality != "none" and not self.resource_types:\n            raise ValueError("target resource_types are required")\n\n    def as_dict(self) -> dict[str, Any]:\n        return {\n            "resource_types": list(self.resource_types),\n            "cardinality": self.cardinality,\n            "binding_sources": list(self.binding_sources),\n            "argument_projection": (\n                self.argument_projection.as_dict()\n                if self.argument_projection is not None\n                else None\n            ),\n        }\n''',
+          )
+
+          spec = "services/agent-service/src/agent_modules/ecommerce/capabilities/spec.py"
+          replace_once(spec, "from dataclasses import dataclass\n", "from dataclasses import dataclass, replace\n")
+          replace_once(
+              spec,
+              "from agent_core.kernel.capability import CapabilityPlanningContract, ToolCapabilityContract\n\nExecutor = Callable[..., dict[str, Any]]\n",
+              '''from agent_core.kernel.capability import (\n    CapabilityPlanningContract,\n    CapabilityTargetArgumentProjection,\n    ToolCapabilityContract,\n)\n\nExecutor = Callable[..., dict[str, Any]]\n\n# The ecommerce module owns the mapping from an opaque compiled binding into\n# its target DSL.  Core Runtime consumes this declaration without learning\n# vertical field names or values.\nECOMMERCE_TARGET_ARGUMENT_PROJECTION = CapabilityTargetArgumentProjection(\n    argument_name="target",\n    constant_fields=(("mode", "artifact"),),\n    binding_fields=(("left_handle", "member_handle"),),\n)\n''',
+          )
+          replace_once(
+              spec,
+              '''    @property\n    def contract(self) -> ToolCapabilityContract:\n        return ToolCapabilityContract(\n''',
+              '''    @property\n    def contract(self) -> ToolCapabilityContract:\n        planning_contract = self.planning_contract\n        if planning_contract is not None:\n            target = planning_contract.target\n            if (\n                target.cardinality != "none"\n                and "target_resolver" in set(target.binding_sources)\n                and target.argument_projection is None\n            ):\n                planning_contract = replace(\n                    planning_contract,\n                    target=replace(\n                        target,\n                        argument_projection=ECOMMERCE_TARGET_ARGUMENT_PROJECTION,\n                    ),\n                )\n        return ToolCapabilityContract(\n''',
+          )
+          replace_once(
+              spec,
+              "            planning_contract=self.planning_contract,\n",
+              "            planning_contract=planning_contract,\n",
+          )
+
+          compiler = "services/agent-service/src/agent_core/runtime/target_compiler.py"
+          replace_once(
+              compiler,
+              'COMPILED_RUNTIME_TARGET_VERSION = "compiled-runtime-target@1"\n',
+              'COMPILED_RUNTIME_TARGET_VERSION = "compiled-runtime-target@1"\nEXECUTION_TARGET_AUTHORITY_VERSION = "execution-target-authority@1"\n',
+          )
+          replace_once(
+              compiler,
+              '''\n\n__all__ = [\n    "COMPILED_RUNTIME_TARGET_VERSION",\n    "compile_frozen_reference_target",\n]\n''',
+              '''\n\ndef _authority_evidence(\n    *,\n    status: str,\n    reason_code: str,\n    target_contract: CapabilityTargetContract,\n    goal_ids: list[str],\n    per_goal: list[dict[str, Any]],\n    candidate_target_replaced: bool = False,\n    binding: dict[str, Any] | None = None,\n    projected_target: dict[str, Any] | None = None,\n) -> dict[str, Any]:\n    payload: dict[str, Any] = {\n        "version": EXECUTION_TARGET_AUTHORITY_VERSION,\n        "status": status,\n        "reason_code": reason_code,\n        "authority": "runtime_deterministic_target_authority",\n        "goal_ids": list(goal_ids),\n        "target_contract": target_contract.as_dict(),\n        "per_goal": deepcopy(per_goal),\n        "binding": deepcopy(binding) if isinstance(binding, dict) else None,\n        "projected_target": deepcopy(projected_target) if isinstance(projected_target, dict) else None,\n        "candidate_target_replaced": bool(candidate_target_replaced),\n        "model_target_selection_authority": False if status == "COMPILED" else None,\n        "execution_authority_granted": False,\n    }\n    payload["authority_digest"] = _digest(deepcopy(payload))\n    return payload\n\n\ndef compile_runtime_target_arguments(\n    frozen_contract: dict[str, Any] | None,\n    *,\n    goal_ids: list[str] | tuple[str, ...],\n    target_contract: CapabilityTargetContract,\n    arguments: dict[str, Any] | None,\n) -> tuple[dict[str, Any], dict[str, Any]]:\n    """Project frozen deterministic target authority into module-declared args."""\n\n    original = deepcopy(dict(arguments or {}))\n    projection = target_contract.argument_projection\n    normalized_goal_ids = list(dict.fromkeys(str(value) for value in goal_ids if str(value)))\n    if projection is None or "target_resolver" not in set(target_contract.binding_sources) or not normalized_goal_ids:\n        return original, _authority_evidence(\n            status="NOT_APPLICABLE",\n            reason_code="DETERMINISTIC_TARGET_PROJECTION_NOT_CONFIGURED",\n            target_contract=target_contract,\n            goal_ids=normalized_goal_ids,\n            per_goal=[],\n        )\n\n    per_goal = [\n        compile_frozen_reference_target(\n            frozen_contract,\n            goal_id=goal_id,\n            target_contract=target_contract,\n        )\n        for goal_id in normalized_goal_ids\n    ]\n    if any(str(row.get("status") or "") == "REJECTED" for row in per_goal):\n        return original, _authority_evidence(\n            status="REJECTED",\n            reason_code="FROZEN_TARGET_COMPILATION_REJECTED",\n            target_contract=target_contract,\n            goal_ids=normalized_goal_ids,\n            per_goal=per_goal,\n        )\n\n    compiled = [row for row in per_goal if str(row.get("status") or "") == "COMPILED"]\n    if not compiled:\n        status = (\n            "NOT_REQUIRED"\n            if per_goal and all(str(row.get("status") or "") == "NOT_REQUIRED" for row in per_goal)\n            else "NOT_APPLICABLE"\n        )\n        return original, _authority_evidence(\n            status=status,\n            reason_code=(\n                "CAPABILITY_TARGET_NOT_REQUIRED"\n                if status == "NOT_REQUIRED"\n                else "NO_FROZEN_HISTORICAL_TARGET_TO_COMPILE"\n            ),\n            target_contract=target_contract,\n            goal_ids=normalized_goal_ids,\n            per_goal=per_goal,\n        )\n    if len(compiled) != len(per_goal):\n        return original, _authority_evidence(\n            status="REJECTED",\n            reason_code="MIXED_COMPILED_AND_UNCOMPILED_GOAL_TARGETS",\n            target_contract=target_contract,\n            goal_ids=normalized_goal_ids,\n            per_goal=per_goal,\n        )\n\n    identities = {\n        (\n            str((row.get("binding") or {}).get("resource_type") or ""),\n            str((row.get("binding") or {}).get("member_handle") or ""),\n        )\n        for row in compiled\n        if isinstance(row.get("binding"), dict)\n    }\n    if len(identities) != 1:\n        return original, _authority_evidence(\n            status="REJECTED",\n            reason_code="MULTI_GOAL_COMPILED_TARGET_CONFLICT",\n            target_contract=target_contract,\n            goal_ids=normalized_goal_ids,\n            per_goal=per_goal,\n        )\n\n    binding = dict(compiled[0].get("binding") or {})\n    projected_target: dict[str, Any] = {field: value for field, value in projection.constant_fields}\n    for argument_field, binding_field in projection.binding_fields:\n        value = binding.get(binding_field)\n        if value in (None, ""):\n            return original, _authority_evidence(\n                status="REJECTED",\n                reason_code="TARGET_ARGUMENT_PROJECTION_SOURCE_MISSING",\n                target_contract=target_contract,\n                goal_ids=normalized_goal_ids,\n                per_goal=per_goal,\n                binding=binding,\n            )\n        projected_target[argument_field] = deepcopy(value)\n\n    projected = deepcopy(original)\n    previous_target = original.get(projection.argument_name)\n    projected[projection.argument_name] = projected_target\n    return projected, _authority_evidence(\n        status="COMPILED",\n        reason_code="FROZEN_TARGET_ARGUMENTS_PROJECTED",\n        target_contract=target_contract,\n        goal_ids=normalized_goal_ids,\n        per_goal=per_goal,\n        candidate_target_replaced=previous_target != projected_target,\n        binding=binding,\n        projected_target=projected_target,\n    )\n\n\n__all__ = [\n    "COMPILED_RUNTIME_TARGET_VERSION",\n    "EXECUTION_TARGET_AUTHORITY_VERSION",\n    "compile_frozen_reference_target",\n    "compile_runtime_target_arguments",\n]\n''',
+          )
+
+          runtime = "services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py"
+          replace_once(
+              runtime,
+              'from agent_core.runtime.outcomes import from_tool_result\n',
+              'from agent_core.runtime.outcomes import from_tool_result\nfrom agent_core.runtime.target_compiler import compile_runtime_target_arguments\n',
+          )
+          replace_once(
+              runtime,
+              '''        category = classify_tool(name, capability_registry).category\n        preview_args, _preview_normalization = normalize_tool_arguments(args) if category in {"observation", "action_draft"} else (dict(args), {})\n        key = canonical_call_key(name, preview_args)\n        active_step_attempt_id: str | None = None\n        if seen.count(key) >= maximum_same:\n            result = {"ok": False, "code": "DUPLICATE_OBSERVATION_SUPPRESSED", "message": "同一回合已获得该工具观察，请根据已有结果继续判断或回答。"}\n''',
+              '''        category = classify_tool(name, capability_registry).category\n        compiled_runtime_target: dict[str, Any] | None = None\n        if (\n            category in {"observation", "action_draft"}\n            and isinstance(frozen_semantic_contract, dict)\n            and any(str(value) for value in list(call.get("_goal_ids") or []))\n        ):\n            capability_contract = capability_registry.contract_for_tool(name)\n            planning_contract = capability_contract.planning_contract if capability_contract is not None else None\n            target_contract = planning_contract.target if planning_contract is not None else None\n            if target_contract is not None and target_contract.argument_projection is not None:\n                args, compiled_runtime_target = compile_runtime_target_arguments(\n                    frozen_semantic_contract,\n                    goal_ids=[str(value) for value in list(call.get("_goal_ids") or []) if str(value)],\n                    target_contract=target_contract,\n                    arguments=args,\n                )\n                call["args"] = args\n        preview_args, _preview_normalization = normalize_tool_arguments(args) if category in {"observation", "action_draft"} else (dict(args), {})\n        key = canonical_call_key(name, preview_args)\n        active_step_attempt_id: str | None = None\n        if (\n            isinstance(compiled_runtime_target, dict)\n            and str(compiled_runtime_target.get("status") or "") == "REJECTED"\n        ):\n            result = {\n                "ok": False,\n                "code": "DETERMINISTIC_TARGET_AUTHORITY_REJECTED",\n                "message": "冻结目标证据未通过确定性运行态目标编译，系统不会回退到模型选择的目标。",\n                "data": {"target_authority": deepcopy(compiled_runtime_target)},\n                "match_proof": None,\n                "execution_permit": None,\n            }\n        elif seen.count(key) >= maximum_same:\n            result = {"ok": False, "code": "DUPLICATE_OBSERVATION_SUPPRESSED", "message": "同一回合已获得该工具观察，请根据已有结果继续判断或回答。"}\n''',
+          )
+          replace_once(
+              runtime,
+              '''            "match_proof": (result.get("match_proof") if isinstance(result, dict) else None),\n            "execution_permit": (result.get("execution_permit") if isinstance(result, dict) else None),\n        })\n''',
+              '''            "match_proof": (result.get("match_proof") if isinstance(result, dict) else None),\n            "execution_permit": (result.get("execution_permit") if isinstance(result, dict) else None),\n            "compiled_runtime_target": (\n                deepcopy(compiled_runtime_target)\n                if isinstance(compiled_runtime_target, dict)\n                else None\n            ),\n        })\n''',
+          )
+
+          gate = "services/agent-service/src/agent_core/runtime/capability_gate.py"
+          replace_once(
+              gate,
+              '''    """Reject any target that contradicts one uniquely named visible member.\n\n    The model remains responsible for selecting an opaque target.  Runtime\n    only checks a contradiction between that proposed target and literal,\n    customer-visible labels: a collection with multiple members cannot stand\n    in for exactly one named member.  It does not choose the replacement.\n    """\n''',
+              '''    """Reject any target that contradicts one uniquely named visible member.\n\n    For C1-covered frozen historical references, Execution Runtime has already\n    replaced the model candidate with its deterministic compiled target before\n    this proof runs. Fresh/uncompiled cases may still carry a candidate target;\n    this function checks contradictions and never chooses a replacement.\n    """\n''',
+          )
+
+          test_path = Path("services/agent-service/tests/runtime/test_execution_target_authority_cutover.py")
+          if test_path.exists():
+              raise SystemExit(f"unexpected existing test file: {test_path}")
+          test_path.write_text('''from __future__ import annotations\n\nfrom copy import deepcopy\n\nfrom agent_core.composition import get_runtime_registry\nfrom agent_core.context.reference_resolution import normalize_reference_expression, resolve_reference_expression\nfrom agent_core.lifecycle.semantic_contract import freeze_semantic_contract\nfrom agent_core.runtime.target_compiler import compile_runtime_target_arguments\n\n\ndef _frozen_contract(*, members: list[str] | None = None, include_reference: bool = True) -> dict:\n    user_text = "查它的物流"\n    members = list(members or ["artifact:order:10002"])\n    goal = {\n        "goal_id": "goal-logistics",\n        "description": "查询它的物流",\n        "evidence_span": "物流",\n        "requested_effect": {\n            "domain": "ecommerce",\n            "operation": "lookup_logistics",\n            "object_type": "order",\n            "raw_description": user_text,\n        },\n        "expected_result_cardinality": "collection" if len(members) > 1 else "single",\n        "required": True,\n        "depends_on": [],\n    }\n    if include_reference:\n        expected_cardinality = "collection" if len(members) > 1 else "single"\n        expression = normalize_reference_expression(\n            {\n                "reference_type": "temporal_visible_result",\n                "evidence_span": "它",\n                "object_type": "order",\n                "expected_cardinality": expected_cardinality,\n                "temporal_relation": "latest",\n            },\n            user_text=user_text,\n            expected_object_type="order",\n            expected_cardinality=expected_cardinality,\n        )\n        proof = resolve_reference_expression(\n            expression,\n            visible_result_refs=[{\n                "result_ref": "result:orders:turn-1",\n                "source_turn": 1,\n                "shape": "collection" if len(members) > 1 else "one",\n                "member_handles": members,\n                "canonical_order": members,\n                "resource_types": ["order"],\n                "member_resource_types": ["order"],\n                "discourse_recency_rank": 1,\n                "is_latest_visible_turn": True,\n            }],\n        )\n        assert proof["resolution_status"] == "UNIQUE"\n        goal.update({\n            "reference_expression": expression,\n            "referent_resolution_proof": proof,\n            "resolved_reference": {\n                "result_ref": proof["resolved_result_ref"],\n                "member_handles": list(proof["resolved_member_handles"]),\n                "proof_digest": proof["proof_digest"],\n            },\n        })\n    else:\n        goal["target_candidate"] = {"mode": "entity_match", "entity_type": "order", "entity_id": "10002"}\n    return freeze_semantic_contract(\n        turn=2,\n        user_text=user_text,\n        summary="查询历史订单的物流",\n        goals=[goal],\n        alignment_proof={"verdict": "pass", "authority": "test"},\n    )\n\n\ndef _logistics_target_contract():\n    contract = get_runtime_registry().capabilities.contract_for_tool("get_order_logistics")\n    assert contract is not None and contract.planning_contract is not None\n    return contract.planning_contract.target\n\n\ndef test_registered_target_resolver_capabilities_publish_deterministic_projection() -> None:\n    registry = get_runtime_registry().capabilities\n    governed = []\n    for tool_name in sorted(registry.tool_names()):\n        contract = registry.contract_for_tool(tool_name)\n        planning = contract.planning_contract if contract is not None else None\n        if planning is None or planning.target.cardinality == "none" or "target_resolver" not in set(planning.target.binding_sources):\n            continue\n        governed.append(tool_name)\n        projection = planning.target.argument_projection\n        assert projection is not None, tool_name\n        assert projection.argument_name == "target"\n        assert projection.constant_fields == (("mode", "artifact"),)\n        assert projection.binding_fields == (("left_handle", "member_handle"),)\n    assert governed\n\n\ndef test_runtime_replaces_wrong_model_target_with_frozen_member() -> None:\n    candidate = {\n        "target": {"mode": "artifact", "left_handle": "artifact:order:WRONG"},\n        "expected_shape": "one",\n        "reference_span": "它",\n    }\n    projected, evidence = compile_runtime_target_arguments(\n        _frozen_contract(),\n        goal_ids=["goal-logistics"],\n        target_contract=_logistics_target_contract(),\n        arguments=candidate,\n    )\n    assert evidence["status"] == "COMPILED"\n    assert evidence["candidate_target_replaced"] is True\n    assert evidence["model_target_selection_authority"] is False\n    assert evidence["execution_authority_granted"] is False\n    assert projected["target"] == {"mode": "artifact", "left_handle": "artifact:order:10002"}\n    assert candidate["target"]["left_handle"] == "artifact:order:WRONG"\n\n\ndef test_fresh_uncompiled_target_remains_on_existing_candidate_path() -> None:\n    candidate = {\n        "target": {"mode": "entity_match", "attribute_span": "机械键盘"},\n        "expected_shape": "one",\n        "reference_span": "机械键盘",\n    }\n    projected, evidence = compile_runtime_target_arguments(\n        _frozen_contract(include_reference=False),\n        goal_ids=["goal-logistics"],\n        target_contract=_logistics_target_contract(),\n        arguments=candidate,\n    )\n    assert evidence["status"] == "NOT_APPLICABLE"\n    assert projected == candidate\n\n\ndef test_corrupted_frozen_reference_fails_closed_without_candidate_fallback() -> None:\n    contract = _frozen_contract()\n    contract["summary"] = "mutated after freeze"\n    candidate = {\n        "target": {"mode": "artifact", "left_handle": "artifact:order:WRONG"},\n        "expected_shape": "one",\n        "reference_span": "它",\n    }\n    projected, evidence = compile_runtime_target_arguments(\n        contract,\n        goal_ids=["goal-logistics"],\n        target_contract=_logistics_target_contract(),\n        arguments=candidate,\n    )\n    assert evidence["status"] == "REJECTED"\n    assert evidence["reason_code"] == "FROZEN_TARGET_COMPILATION_REJECTED"\n    assert projected == candidate\n    assert evidence["per_goal"][0]["reason_code"] == "SEMANTIC_CONTRACT_DIGEST_INVALID"\n\n\ndef test_multi_member_frozen_reference_cannot_be_salvaged_by_model_candidate() -> None:\n    candidate = {\n        "target": {"mode": "artifact", "left_handle": "artifact:order:10002"},\n        "expected_shape": "one",\n        "reference_span": "它们",\n    }\n    projected, evidence = compile_runtime_target_arguments(\n        _frozen_contract(members=["artifact:order:10002", "artifact:order:10004"]),\n        goal_ids=["goal-logistics"],\n        target_contract=_logistics_target_contract(),\n        arguments=candidate,\n    )\n    assert evidence["status"] == "REJECTED"\n    assert projected == candidate\n    assert evidence["per_goal"][0]["reason_code"] == "SINGLE_MEMBER_REFERENCE_REQUIRED"\n\n\ndef test_projection_is_deterministic_and_does_not_mutate_candidate() -> None:\n    candidate = {\n        "target": {"mode": "artifact", "left_handle": "artifact:order:WRONG"},\n        "expected_shape": "one",\n        "reference_span": "它",\n    }\n    frozen = _frozen_contract()\n    target_contract = _logistics_target_contract()\n    first_args, first = compile_runtime_target_arguments(\n        frozen, goal_ids=["goal-logistics"], target_contract=target_contract, arguments=candidate\n    )\n    second_args, second = compile_runtime_target_arguments(\n        deepcopy(frozen), goal_ids=["goal-logistics"], target_contract=target_contract, arguments=deepcopy(candidate)\n    )\n    assert first_args == second_args\n    assert first == second\n    assert candidate["target"]["left_handle"] == "artifact:order:WRONG"\n''', encoding="utf-8")
+          PY
+
+      - name: Run C2 focused and adjacent regressions
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_execution_target_authority_cutover.py \
+            tests/runtime/test_deterministic_target_compiler.py \
+            tests/runtime/test_semantic_output_coverage.py \
+            tests/context/test_reference_resolution_contract.py \
+            tests/context/test_runtime_result_ref_pipeline.py
+
+      - name: Commit exact tested C2 source snapshot
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/kernel/capability.py \
+            services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py \
+            services/agent-service/src/agent_core/runtime/capability_gate.py \
+            services/agent-service/src/agent_core/runtime/target_compiler.py \
+            services/agent-service/src/agent_modules/ecommerce/capabilities/spec.py \
+            services/agent-service/tests/runtime/test_execution_target_authority_cutover.py
+          git diff --cached --check
+          git commit -m 'Cut over deterministic frozen target authority at execution runtime'
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Refresh exact protected product-source baseline
+        run: |
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(item) for item in payload['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          previous = {str(k): str(v) for k, v in payload['files'].items()}
+          changed = sorted(path for path in set(current) | set(previous) if current.get(path) != previous.get(path))
+          expected = sorted([
+              'services/agent-service/src/agent_core/kernel/capability.py',
+              'services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py',
+              'services/agent-service/src/agent_core/runtime/capability_gate.py',
+              'services/agent-service/src/agent_core/runtime/target_compiler.py',
+              'services/agent-service/src/agent_modules/ecommerce/capabilities/spec.py',
+              'services/agent-service/tests/runtime/test_execution_target_authority_cutover.py',
+          ])
+          if changed != expected:
+              raise SystemExit('unexpected_product_source_delta:' + ','.join(changed))
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          payload['generated_from'] = 'git:' + os.environ['SOURCE_SHA']
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'status': 'PASS', 'file_count': len(current), 'changed': changed, 'generated_from': payload['generated_from']}, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Validate refreshed baseline binding
+        run: services/agent-service/.venv/bin/python -B skill-system/tests/test_product_source_baseline_binding.py
+
+      - name: Publish C2 source, baseline and remove temporary workflow
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/tmp-c2-target-authority-cutover-v2.yml
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh C2 product-source baseline after focused validation'
+          git push origin HEAD:architecture/v20.18-c2-execution-target-authority-cutover-20260812
