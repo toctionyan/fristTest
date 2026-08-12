@@ -8,90 +8,142 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   skill-self-validation:
     name: skill-self-validation
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      EXPECTED_HEAD: 55403a01f957257fbbefead32bcde21b7d866001
+      EXPECTED_TREE: 1eb4b3d29d46dc3f57fd5a56e239f5694f5341dc
+      EXPECTED_PARENT: 22dea7bbedeba4b33196ef472feb15a1c917b80f
     steps:
-      - name: Checkout temporary governed carrier
+      - name: Checkout exact clean corrected A2/B candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: temp/v20.18-a2b-builder-20260812
-          fetch-depth: 0
-          persist-credentials: true
+          ref: ${{ env.EXPECTED_HEAD }}
+          path: candidate
+          fetch-depth: 2
+          clean: true
+          persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
           check-latest: false
 
+      - name: Guard exact clean candidate identity and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git -C candidate rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git -C candidate rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          cat > /tmp/expected-delta.txt <<'EOF'
+          M	services/agent-service/src/agent_core/kernel/semantic_contract.py
+          M	services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+          M	services/agent-service/src/agent_core/lifecycle/goal_granularity.py
+          M	services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          M	services/agent-service/src/agent_core/lifecycle/protocol.py
+          M	services/agent-service/src/agent_core/lifecycle/semantic_contract.py
+          M	services/agent-service/src/agent_core/modules/contracts.py
+          M	services/agent-service/src/agent_core/modules/registry.py
+          M	services/agent-service/src/agent_core/runtime/capability_effects.py
+          M	services/agent-service/src/agent_modules/ecommerce/module.py
+          A	services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py
+          A	services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py
+          A	services/agent-service/tests/runtime/test_semantic_output_coverage.py
+          M	services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py
+          EOF
+          sort /tmp/expected-delta.txt -o /tmp/expected-delta.txt
+          git -C candidate diff --name-status "$EXPECTED_PARENT" "$EXPECTED_HEAD" -- services web contracts | sort > /tmp/actual-delta.txt
+          diff -u /tmp/expected-delta.txt /tmp/actual-delta.txt
+
       - name: Bootstrap locked uv
         run: >-
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
           --require-hashes --only-binary=:all:
-          -r deployment/ci/uv-requirements-linux-x86_64.txt
+          -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
 
       - name: Install locked Agent validation environment
-        run: cd services/agent-service && uv sync --locked --all-groups
+        run: cd candidate/services/agent-service && uv sync --locked --all-groups
 
-      - name: Apply architecture-compatible legacy-contract correction
+      - name: Derive temporary exact protected-source baseline for validation
         shell: bash
         run: |
           set -euo pipefail
-          if grep -q "def _semantic_writer_declaration_result_projection" \
-            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py; then
-            echo "Compatibility correction already present; validating existing candidate."
-          else
-            "${pythonLocation}/bin/python" -B scripts/temp_v2018_a2b_compat_fix.py
-          fi
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
 
-      - name: Compile corrected product sources
-        run: |
-          services/agent-service/.venv/bin/python -B -m py_compile \
-            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
-            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
-            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py
+          root = Path("candidate").resolve()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          protected_roots = tuple(str(item) for item in payload.get("protected_roots") or ())
+          if protected_roots != ("services", "web", "contracts"):
+              raise SystemExit(f"unexpected_protected_roots:{protected_roots!r}")
+          raw = subprocess.check_output(["git", "ls-files", "-z", "--", *protected_roots], cwd=root)
+          tracked = sorted(item.decode("utf-8") for item in raw.split(b"\0") if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          recorded = {str(k): str(v) for k, v in (payload.get("files") or {}).items()}
+          expected_changed = {
+              "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+              "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+              "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+              "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+              "services/agent-service/src/agent_core/lifecycle/protocol.py",
+              "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+              "services/agent-service/src/agent_core/modules/contracts.py",
+              "services/agent-service/src/agent_core/modules/registry.py",
+              "services/agent-service/src/agent_core/runtime/capability_effects.py",
+              "services/agent-service/src/agent_modules/ecommerce/module.py",
+              "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+              "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+              "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+              "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py",
+          }
+          changed = {path for path in set(current) | set(recorded) if current.get(path) != recorded.get(path)}
+          if changed != expected_changed:
+              raise SystemExit("unexpected_product_source_delta:" + ",".join(sorted(changed)))
+          if int(payload.get("file_count") or 0) != 562:
+              raise SystemExit("unexpected_old_file_count")
+          if len(current) != 565:
+              raise SystemExit(f"unexpected_new_file_count:{len(current)}")
+          expected_added = {
+              "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+              "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+              "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+          }
+          if set(current) - set(recorded) != expected_added:
+              raise SystemExit("unexpected_added_paths")
+          if set(recorded) - set(current):
+              raise SystemExit("unexpected_removed_paths")
+          payload["generated_from"] = "git:" + os.environ["EXPECTED_HEAD"]
+          payload["file_count"] = len(current)
+          payload["files"] = dict(sorted(current.items()))
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps({"status":"PASS","file_count":len(current),"changed_paths":sorted(changed)}, ensure_ascii=False))
+          PY
 
-      - name: Run focused A2/B Agent regressions
-        env:
-          PYTHONPATH: ${{ github.workspace }}/services/agent-service/src:${{ github.workspace }}/services/agent-service
-        run: |
-          services/agent-service/.venv/bin/python -B -m pytest -q \
-            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py \
-            services/agent-service/tests/runtime/test_semantic_output_coverage.py \
-            services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py \
-            services/agent-service/tests/runtime/test_capability_contract_v2.py \
-            services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py \
-            services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py \
-            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
-
-      - name: Run affected legacy Skill semantic contracts
-        run: |
-          services/agent-service/.venv/bin/python -B skill-system/tests/test_semantic_dependency_repair_feedback.py
-          services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_attempt7_final_repair.py
-          services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
-
-      - name: Commit only corrected governed product paths
+      - name: Validate full Skill control plane against clean candidate
         shell: bash
         run: |
           set -euo pipefail
-          git add \
-            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
-            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/src/agent_core/lifecycle/protocol.py \
-            services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
-            services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py
-          if git diff --cached --quiet; then
-            echo "Corrected candidate already committed."
-            exit 0
-          fi
-          git diff --cached --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Builder: reconcile A2/B with legacy semantic contracts"
-          git push origin HEAD:temp/v20.18-a2b-builder-20260812
+          cd candidate
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Validate quality toolchain authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -B scripts/quality_toolchain_contract.py --workspace-root . --static-only
