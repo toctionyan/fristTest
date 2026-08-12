@@ -12,7 +12,22 @@ on:
         required: true
         type: string
       source_run_attempt:
-        description: Exact source run attempt
+        description: Exact source Quality run attempt
+        required: false
+        default: '1'
+        type: string
+      loop_feedback_run_id:
+        description: Optional outer-loop coordinator run carrying a later-round feedback artifact
+        required: false
+        default: ''
+        type: string
+      loop_feedback_run_attempt:
+        description: Exact outer-loop coordinator run attempt when loop_feedback_run_id is supplied
+        required: false
+        default: '1'
+        type: string
+      repair_round:
+        description: Governed product repair round; workflow attempts and fixer cycles do not count
         required: false
         default: '1'
         type: string
@@ -25,7 +40,7 @@ env:
   GH_REPO: ${{ github.repository }}
 
 concurrency:
-  group: governed-ci-repair-stage2-${{ github.event.workflow_run.id || inputs.source_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.source_run_attempt }}
+  group: governed-ci-repair-stage2-${{ github.event.workflow_run.id || inputs.loop_feedback_run_id || inputs.source_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.loop_feedback_run_attempt || inputs.source_run_attempt }}
   cancel-in-progress: false
 
 jobs:
@@ -42,8 +57,11 @@ jobs:
       source_run_id: ${{ steps.inspect.outputs.source_run_id }}
       source_run_attempt: ${{ steps.inspect.outputs.source_run_attempt }}
       failure_signature: ${{ steps.inspect.outputs.failure_signature }}
-      stage1_artifact_pattern: ${{ steps.source.outputs.stage1_artifact_pattern }}
-      stage1_run_id: ${{ steps.source.outputs.stage1_run_id }}
+      input_artifact_pattern: ${{ steps.source.outputs.input_artifact_pattern }}
+      input_run_id: ${{ steps.source.outputs.input_run_id }}
+      input_kind: ${{ steps.source.outputs.input_kind }}
+      input_artifact_id: ${{ steps.loop_artifact.outputs.input_artifact_id }}
+      repair_round: ${{ steps.source.outputs.repair_round }}
     steps:
       - name: Checkout trusted Stage-2 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -57,52 +75,107 @@ jobs:
         id: control
         run: echo "control_sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve approved Stage-1 source
+      - name: Resolve governed Stage-2 input
         id: source
         env:
           EVENT_NAME: ${{ github.event_name }}
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
           DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          LOOP_FEEDBACK_RUN_ID: ${{ inputs.loop_feedback_run_id }}
+          LOOP_FEEDBACK_RUN_ATTEMPT: ${{ inputs.loop_feedback_run_attempt }}
+          REPAIR_ROUND: ${{ inputs.repair_round }}
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
             [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
-            echo "stage1_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
-            echo "stage1_artifact_pattern=governed-ci-failure-*" >> "$GITHUB_OUTPUT"
+            echo "input_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_artifact_pattern=governed-ci-failure-*" >> "$GITHUB_OUTPUT"
+            echo "input_kind=stage1" >> "$GITHUB_OUTPUT"
+            echo "repair_round=1" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${LOOP_FEEDBACK_RUN_ID}" ]]; then
+            [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${LOOP_FEEDBACK_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${LOOP_FEEDBACK_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${REPAIR_ROUND}" =~ ^[1-8]$ ]]
+            echo "input_run_id=${LOOP_FEEDBACK_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_artifact_pattern=governed-repair-loop-feedback-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_kind=loop_feedback" >> "$GITHUB_OUTPUT"
+            echo "repair_round=${REPAIR_ROUND}" >> "$GITHUB_OUTPUT"
           else
             [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
             [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
-            echo "stage1_run_id=${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
-            echo "stage1_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_run_id=${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_kind=stage1" >> "$GITHUB_OUTPUT"
+            echo "repair_round=1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download approved Stage-1 governed evidence when present
+        if: steps.source.outputs.input_kind == 'stage1'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: ${{ steps.source.outputs.stage1_artifact_pattern }}
+          pattern: ${{ steps.source.outputs.input_artifact_pattern }}
           path: incoming
           merge-multiple: true
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ steps.source.outputs.stage1_run_id }}
+          run-id: ${{ steps.source.outputs.input_run_id }}
+
+      - name: Download exact outer-loop feedback attempt
+        if: steps.source.outputs.input_kind == 'loop_feedback'
+        id: loop_artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RUN_ID: ${{ steps.source.outputs.input_run_id }}
+          INPUT_RUN_ATTEMPT: ${{ inputs.loop_feedback_run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}" > incoming/loop-run.json
+          jq -e --arg attempt "${INPUT_RUN_ATTEMPT}" '
+            .name == "governed-ci-repair-loop-coordinator"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/loop-run.json >/dev/null
+          run_started_at=$(jq -r '.run_started_at // empty' incoming/loop-run.json)
+          [[ -n "${run_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}/artifacts?per_page=100" > incoming/loop-artifacts.json
+          artifact_id=$(jq -r --arg started "${run_started_at}" --arg name "governed-repair-loop-feedback-${SOURCE_RUN_ID}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name == $name)
+            | select(.created_at >= $started)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/loop-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/loop-feedback.zip
+          unzip -q incoming/loop-feedback.zip -d incoming
+          echo "input_artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
 
-      - name: Verify Stage-1 handoff
+      - name: Verify Stage-1 or outer-loop handoff
         id: inspect
         env:
           EVENT_NAME: ${{ github.event_name }}
           DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          INPUT_KIND: ${{ steps.source.outputs.input_kind }}
+          REPAIR_ROUND: ${{ steps.source.outputs.repair_round }}
         run: |
           set -euo pipefail
           failure_case=$(find incoming -type f -name failure-case.json -print -quit 2>/dev/null || true)
           task_run=$(find incoming -type f -name task-run.json -print -quit 2>/dev/null || true)
+          seed_patch=$(find incoming -type f -name seed.patch -print -quit 2>/dev/null || true)
+          loop_state=$(find incoming -type f -name loop-state.json -print -quit 2>/dev/null || true)
           if [[ -z "${failure_case}" || -z "${task_run}" ]]; then
             echo "repair_allowed=false" >> "$GITHUB_OUTPUT"
             echo "head_sha=" >> "$GITHUB_OUTPUT"
@@ -112,13 +185,14 @@ jobs:
             echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" "${EVENT_NAME}" "${DISPATCH_SOURCE_RUN_ID}" "${DISPATCH_SOURCE_RUN_ATTEMPT}" <<'PY'
+          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" "${EVENT_NAME}" "${DISPATCH_SOURCE_RUN_ID}" "${DISPATCH_SOURCE_RUN_ATTEMPT}" "${INPUT_KIND}" "${REPAIR_ROUND}" "${seed_patch}" "${loop_state}" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           failure_path, task_path, output_path = map(Path, sys.argv[1:4])
-          event_name, dispatch_run_id, dispatch_run_attempt = sys.argv[4:7]
+          event_name, dispatch_run_id, dispatch_run_attempt, input_kind, repair_round = sys.argv[4:9]
+          seed_patch_raw, loop_state_raw = sys.argv[9:11]
           failure = json.loads(failure_path.read_text(encoding="utf-8"))
           task = json.loads(task_path.read_text(encoding="utf-8"))
           if failure.get("schema") != "github-failure-ingest@1" or failure.get("status") != "INGESTED":
@@ -136,9 +210,28 @@ jobs:
                   raise SystemExit(f"Stage-1 TaskRun binding mismatch: {key}")
           if event_name == "workflow_dispatch":
               if str(failure.get("workflow_run_id")) != dispatch_run_id:
-                  raise SystemExit("approved source Run ID does not match Stage-1 evidence")
+                  raise SystemExit("approved source Run ID does not match governed evidence")
               if str(failure.get("workflow_run_attempt")) != dispatch_run_attempt:
-                  raise SystemExit("approved source run attempt does not match Stage-1 evidence")
+                  raise SystemExit("approved source run attempt does not match governed evidence")
+          if input_kind == "loop_feedback":
+              if not seed_patch_raw or not Path(seed_patch_raw).is_file():
+                  raise SystemExit("outer-loop feedback is missing seed.patch")
+              if not loop_state_raw or not Path(loop_state_raw).is_file():
+                  raise SystemExit("outer-loop feedback is missing loop-state.json")
+              loop = json.loads(Path(loop_state_raw).read_text(encoding="utf-8"))
+              feedback = failure.get("loop_feedback") if isinstance(failure.get("loop_feedback"), dict) else {}
+              if loop.get("schema") != "github-governed-repair-loop@1":
+                  raise SystemExit("invalid outer-loop state schema")
+              if feedback.get("schema") != "github-governed-repair-feedback@1":
+                  raise SystemExit("invalid outer-loop feedback schema")
+              if loop.get("action") != "DISPATCH_REPAIR":
+                  raise SystemExit("outer-loop state did not authorize another product repair")
+              if str(loop.get("source_run_id")) != dispatch_run_id:
+                  raise SystemExit("outer-loop state source run mismatch")
+              if int(feedback.get("next_repair_round") or 0) != int(repair_round):
+                  raise SystemExit("outer-loop next repair round mismatch")
+              if int(loop.get("next_repair_round") or 0) != int(repair_round):
+                  raise SystemExit("outer-loop dispatch round mismatch")
           repair_allowed = bool(
               failure.get("repair_allowed") is True
               and failure.get("same_repository") is True
@@ -181,15 +274,28 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download Stage-1 governed evidence
+      - name: Download Stage-1 governed repair input
+        if: needs.inspect.outputs.input_kind == 'stage1'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: ${{ needs.inspect.outputs.stage1_artifact_pattern }}
+          pattern: ${{ needs.inspect.outputs.input_artifact_pattern }}
           path: incoming
           merge-multiple: true
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ needs.inspect.outputs.stage1_run_id }}
+          run-id: ${{ needs.inspect.outputs.input_run_id }}
+
+      - name: Download exact outer-loop repair feedback artifact
+        if: needs.inspect.outputs.input_kind == 'loop_feedback'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_ARTIFACT_ID: ${{ needs.inspect.outputs.input_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "${INPUT_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${INPUT_ARTIFACT_ID}/zip" > incoming/loop-feedback.zip
+          unzip -q incoming/loop-feedback.zip -d incoming
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -209,20 +315,29 @@ jobs:
           GOVERNED_REPAIR_MODEL: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID || 'deepseek-v4-flash' }}
           GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE || 'https://api.deepseek.com' }}
           GOVERNED_REPAIR_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+          REPAIR_ROUND: ${{ needs.inspect.outputs.repair_round }}
         run: |
           set -euo pipefail
           failure_case=$(find incoming -type f -name failure-case.json -print -quit)
           task_run=$(find incoming -type f -name task-run.json -print -quit)
+          seed_patch=$(find incoming -type f -name seed.patch -print -quit 2>/dev/null || true)
           [[ -n "${failure_case}" && -n "${task_run}" ]]
           mkdir -p stage2-evidence
           cp "${task_run}" stage2-evidence/task-run.json
           echo "task_run=stage2-evidence/task-run.json" >> "$GITHUB_OUTPUT"
-          "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator_control_plane.py \
-            --workspace candidate \
-            --failure-case "${failure_case}" \
-            --task-run stage2-evidence/task-run.json \
-            --evidence-root stage2-evidence \
+          args=(
+            --workspace candidate
+            --failure-case "${failure_case}"
+            --task-run stage2-evidence/task-run.json
+            --evidence-root stage2-evidence
             --max-cycles 8
+            --repair-round "${REPAIR_ROUND}"
+            --max-repair-rounds 8
+          )
+          if [[ -n "${seed_patch}" ]]; then
+            args+=(--seed-patch "${seed_patch}")
+          fi
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator_control_plane.py "${args[@]}"
           "${pythonLocation}/bin/python" -B control/scripts/github_stage2_handoff.py \
             --failure-case "${failure_case}" \
             --result stage2-evidence/repair-result.json \
@@ -233,6 +348,8 @@ jobs:
         env:
           STAGE2_RUN_ID: ${{ github.run_id }}
           STAGE2_RUN_ATTEMPT: ${{ github.run_attempt }}
+          REPAIR_ROUND: ${{ needs.inspect.outputs.repair_round }}
+          INPUT_KIND: ${{ needs.inspect.outputs.input_kind }}
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B - <<'PY'
@@ -260,6 +377,8 @@ jobs:
               "schema": "github-stage2-public-summary@1",
               "stage2_run_id": "${STAGE2_RUN_ID}",
               "stage2_run_attempt": "${STAGE2_RUN_ATTEMPT}",
+              "repair_round": int("${REPAIR_ROUND}"),
+              "input_kind": "${INPUT_KIND}",
               "status": str(payload.get("status") or "BLOCKED")[:80],
               "code": code,
               "reason": reason,
@@ -288,6 +407,8 @@ jobs:
           SOURCE_RUN_ID: ${{ needs.inspect.outputs.source_run_id }}
           STAGE2_RUN_ID: ${{ github.run_id }}
           STAGE2_RUN_ATTEMPT: ${{ github.run_attempt }}
+          REPAIR_ROUND: ${{ needs.inspect.outputs.repair_round }}
+          INPUT_KIND: ${{ needs.inspect.outputs.input_kind }}
         run: |
           set -euo pipefail
           issue=$(gh issue list --state open --search "[governed-ci-failure] run ${SOURCE_RUN_ID} in:title" \
@@ -309,6 +430,8 @@ jobs:
 
           - Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}
           - Stage-2 Run ID / attempt: \`${STAGE2_RUN_ID}/${STAGE2_RUN_ATTEMPT}\`
+          - Governed repair round: \`${REPAIR_ROUND}/8\`
+          - Input kind: \`${INPUT_KIND}\`
           - Status: \`${status}\`
           - Code: \`${code}\`
           - Redacted reason: \`${reason}\`
@@ -321,6 +444,7 @@ jobs:
           - production_closed: false
 
           A \`REPAIR_CANDIDATE_READY\` result is only a local candidate for Stage 3 independent validation.
+          Fixer cycles are internal to this repair round and do not consume additional global repair rounds.
           EOF
           )
           if [[ -n "${issue}" ]]; then

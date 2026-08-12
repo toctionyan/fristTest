@@ -8,6 +8,10 @@ the Stage-2 fixer. Evidence can therefore remain visible to governance without
 granting write authority to tests, CI, governance, dependency manifests, or other
 protected files. Changed-file metadata and scope compilation can only remove
 repair authority, never add it.
+
+For outer-loop repair rounds, an optional cumulative seed patch may be replayed
+only after the same immutable writable scope has been compiled. The seed cannot
+expand authority and the repair actor still cannot write protected oracles.
 """
 from __future__ import annotations
 
@@ -147,6 +151,9 @@ def run(
     task_run_path: Path,
     evidence_root: Path,
     max_cycles: int,
+    seed_patch_path: Path | None = None,
+    repair_round: int = 1,
+    max_repair_rounds: int = base.MAX_REPAIR_ROUNDS,
 ) -> int:
     workspace = workspace.resolve()
     evidence_root = evidence_root.resolve()
@@ -163,6 +170,9 @@ def run(
         task_run_path=task_run_path,
         evidence_root=evidence_root,
         max_cycles=max_cycles,
+        seed_patch_path=seed_patch_path,
+        repair_round_number=repair_round,
+        max_repair_rounds=max_repair_rounds,
     )
 
 
@@ -173,15 +183,27 @@ def main() -> int:
     parser.add_argument("--task-run", required=True)
     parser.add_argument("--evidence-root", required=True)
     parser.add_argument("--max-cycles", type=int, default=8)
+    parser.add_argument("--seed-patch")
+    parser.add_argument("--repair-round", type=int, default=1)
+    parser.add_argument("--max-repair-rounds", type=int, default=base.MAX_REPAIR_ROUNDS)
     args = parser.parse_args()
     if args.max_cycles < 1 or args.max_cycles > base.MAX_CYCLES:
         parser.error(f"--max-cycles must be between 1 and {base.MAX_CYCLES}")
+    if args.max_repair_rounds < 1 or args.max_repair_rounds > base.MAX_REPAIR_ROUNDS:
+        parser.error(
+            f"--max-repair-rounds must be between 1 and {base.MAX_REPAIR_ROUNDS}"
+        )
+    if args.repair_round < 1 or args.repair_round > args.max_repair_rounds:
+        parser.error("--repair-round must be within --max-repair-rounds")
     return run(
         workspace=Path(args.workspace),
         failure_case_path=Path(args.failure_case).resolve(),
         task_run_path=Path(args.task_run).resolve(),
         evidence_root=Path(args.evidence_root),
         max_cycles=args.max_cycles,
+        seed_patch_path=Path(args.seed_patch).resolve() if args.seed_patch else None,
+        repair_round=args.repair_round,
+        max_repair_rounds=args.max_repair_rounds,
     )
 
 
