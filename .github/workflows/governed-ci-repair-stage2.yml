@@ -354,12 +354,18 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B - <<'PY'
           import json
+          import os
           import re
           import sys
           from pathlib import Path
 
           sys.path.insert(0, str(Path("control/scripts").resolve()))
           from github_failure_ingest import redact
+
+          stage2_run_id = os.environ["STAGE2_RUN_ID"]
+          stage2_run_attempt = os.environ["STAGE2_RUN_ATTEMPT"]
+          repair_round = int(os.environ["REPAIR_ROUND"])
+          input_kind = os.environ["INPUT_KIND"]
 
           result_path = Path("stage2-evidence/repair-result.json")
           payload = {}
@@ -375,10 +381,10 @@ jobs:
           reason = " ".join(reason.replace("\r", " ").replace("\n", " ").split())[:1000] or "not_provided"
           summary = {
               "schema": "github-stage2-public-summary@1",
-              "stage2_run_id": "${STAGE2_RUN_ID}",
-              "stage2_run_attempt": "${STAGE2_RUN_ATTEMPT}",
-              "repair_round": int("${REPAIR_ROUND}"),
-              "input_kind": "${INPUT_KIND}",
+              "stage2_run_id": stage2_run_id,
+              "stage2_run_attempt": stage2_run_attempt,
+              "repair_round": repair_round,
+              "input_kind": input_kind,
               "status": str(payload.get("status") or "BLOCKED")[:80],
               "code": code,
               "reason": reason,
