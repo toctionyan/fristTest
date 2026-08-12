@@ -30,6 +30,7 @@ from github_agent_fixer import (  # noqa: E402
     validate_allowed_paths,
     verify_changed_files,
 )
+from run_python_test_suites import STANDARD_CONFIG_PREFIXES, STANDARD_ENV  # noqa: E402
 
 STAGE2_SCHEMA = "github-governed-repair-stage2@1"
 STAGE3_SCHEMA = "github-governed-repair-stage3@1"
@@ -364,11 +365,32 @@ def _component_command(component: str, workspace: Path) -> tuple[list[str], Path
     raise Stage3Error(f"unknown targeted component: {component}")
 
 
-def _targeted_env(component: str) -> dict[str, str]:
+def _targeted_env(component: str, *, runtime_dir: Path | None = None) -> dict[str, str]:
     env = os.environ.copy()
     if component not in {"agent-python", "business-python"}:
         return env
+    if runtime_dir is None:
+        raise Stage3Error("targeted Python runtime directory is required")
+
+    for key in tuple(env):
+        if key.startswith(STANDARD_CONFIG_PREFIXES):
+            env.pop(key, None)
+    env.update(STANDARD_ENV)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+    runtime_dir = runtime_dir.resolve()
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    env.update(
+        {
+            "SQLITE_DB_PATH": str(runtime_dir / "agent.sqlite3"),
+            "AGENT_DATABASE_URL": f"sqlite:///{runtime_dir / 'agent.sqlite3'}",
+            "DATABASE_URL": f"sqlite:///{runtime_dir / 'agent.sqlite3'}",
+            "CHECKPOINT_DB_PATH": str(runtime_dir / "checkpoints.sqlite3"),
+            "VECTOR_DB_PATH": str(runtime_dir / "vector.sqlite3"),
+            "UPLOAD_DIR": str(runtime_dir / "uploads"),
+            "BUSINESS_DB_PATH": str(runtime_dir / "business.sqlite3"),
+        }
+    )
     if component == "agent-python":
         existing = env.get("PYTHONPATH")
         env["PYTHONPATH"] = "src:." + (os.pathsep + existing if existing else "")
@@ -389,12 +411,13 @@ def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
         command, cwd = _component_command(component_name, workspace)
         if not cwd.is_dir():
             raise Stage3Error(f"targeted component directory is missing: {cwd}")
+        runtime_dir = output_path.resolve().parent / "runtime" / component_name
         try:
             completed = _run(
                 command,
                 cwd=cwd,
                 timeout=3600,
-                env=_targeted_env(component_name),
+                env=_targeted_env(component_name, runtime_dir=runtime_dir),
             )
             row = {
                 "component": component,
