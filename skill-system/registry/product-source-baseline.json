@@ -191,7 +191,7 @@
     "services/agent-service/src/agent_core/observability/failure_replay.py": "0b2fe6f73f7543bdce68214953f49909476c987fe3e76e1ff1417f4eb98432d8",
     "services/agent-service/src/agent_core/observability/flow_debug.py": "5d2877e19fe03e46fe470890d3d579d101e181ce68f9a51ed9cecc2cca4f9080",
     "services/agent-service/src/agent_core/observability/metrics.py": "b80bb3de2f2505989f44c2c6a9019af23ee800962badd69966c6d42b70aff087",
-    "services/agent-service/src/agent_core/observability/redaction.py": "b6a72fd66a5adebf848b271b62282aa9ee13f2469b7536c939b73abfa9aa977e",
+    "services/agent-service/src/agent_core/observability/redaction.py": "5868e35b0b17112e3afd83cb1b35f71510ad210b88fbff7ba5493ddbcb2f01c7",
     "services/agent-service/src/agent_core/observability/retention.py": "7343160860eacce6aa63e4814b4ac0b3483af86d3c0390c12b41bc647ebfbc7f",
     "services/agent-service/src/agent_core/observability/trace_logger.py": "a3fd95b5a95f8cbbeb70abda442528c3feec4c00239f921c64d594518c84f298",
     "services/agent-service/src/agent_core/operations/__init__.py": "153c562368cf958a81960b51647ba910ddd169e0cf8a14a7896f4ea9fd3d869e",
@@ -457,7 +457,7 @@
     "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py": "a6b113a55064976cb8934e40fdf18fc4f0d32397a07fa030d3ad21736a069b06",
     "services/agent-service/tests/runtime/test_b15a_real_model_identity_boundary.py": "96961b0c17ce64c4d595e500f4b5526cc1adfa58ae5178f043127a0b554ad4ba",
     "services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py": "37bc01e68aef157a60edd932b20ce1bea81073ea41df077a46cddd22dd0801d7",
-    "services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py": "a834200971f8d92339449f6d55abb7c60e46ac85534403c660816ce210b0fec7",
+    "services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py": "3c0627583ed19dc01b2c187798f5cbfb181171ca9eec83e3f195aa3a6fb5ac83",
     "services/agent-service/tests/runtime/test_b15c3_real_model_release_bundle_authority.py": "45e123383070f95ca5d9a3ecb2a85dff481b6a976188561ac107ec6cd180b71e",
     "services/agent-service/tests/runtime/test_b15c_real_model_certification_bundle_boundary.py": "a8635d5ccdf75c17854294ddd3230d8cc40af53b8cf2c857b14d6db6882fa262",
     "services/agent-service/tests/runtime/test_b15c_real_model_certification_dimension.py": "83a1ce559a3cb7de3099b82aac82b5c0f0b1f9cd9fae34b2792699cc018bf67b",
@@ -570,8 +570,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-12T16:05:37+00:00",
-  "generated_from": "git:6252a8a4eee44a61bdc309dbf1a1f4b6a2ae1088",
+  "generated_at": "2026-08-12T22:32:04Z",
+  "generated_from": "git:dcafc27a1bce15b3273da97f06aa4501144d6706",
   "protected_roots": [
     "services",
     "web",
