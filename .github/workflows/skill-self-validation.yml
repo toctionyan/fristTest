@@ -57,7 +57,7 @@ jobs:
             services/agent-service/src/agent_core/lifecycle/semantic_contract.py \
             services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py
 
-      - name: Run focused A2/B and legacy semantic contracts
+      - name: Run focused A2/B Agent regressions
         env:
           PYTHONPATH: ${{ github.workspace }}/services/agent-service/src:${{ github.workspace }}/services/agent-service
         run: |
@@ -68,10 +68,13 @@ jobs:
             services/agent-service/tests/runtime/test_capability_contract_v2.py \
             services/agent-service/tests/runtime/test_unsupported_capability_surface_binding.py \
             services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py \
-            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
-            skill-system/tests/test_semantic_dependency_repair_feedback.py \
-            skill-system/tests/test_wp08_attempt7_final_repair.py \
-            skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+
+      - name: Run affected legacy Skill semantic contracts
+        run: |
+          services/agent-service/.venv/bin/python -B skill-system/tests/test_semantic_dependency_repair_feedback.py
+          services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_attempt7_final_repair.py
+          services/agent-service/.venv/bin/python -B skill-system/tests/test_wp08_new_release_attempt5_semantic_boundary.py
 
       - name: Commit only corrected governed product paths
         shell: bash
