@@ -15,6 +15,7 @@ used as formal capability identity.
 """
 
 from copy import deepcopy
+from itertools import combinations
 from typing import Any, Iterable
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
@@ -24,16 +25,47 @@ CAPABILITY_EFFECT_INDEX_VERSION = "capability-effect-index@2"
 
 
 def _clean(value: Any) -> str:
-    return str(value or "").strip().lower()
+    return str(value or "").strip().casefold()
+
+
+_SEMANTIC_OUTPUT_PREFIX = "semantic-output:"
+_SEMANTIC_OUTPUT_SET_PREFIX = "semantic-output-set:"
+
+
+def requested_semantic_output_ids(raw: Any) -> tuple[str, ...]:
+    row = raw if isinstance(raw, dict) else {}
+    values = row.get("requested_outputs")
+    if not isinstance(values, list):
+        return ()
+    result: list[str] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        output_id = _clean(item.get("output_id"))
+        if output_id and output_id not in result:
+            result.append(output_id)
+    return tuple(sorted(result))
+
+
+def _semantic_output_identity(output_ids: Iterable[str]) -> str:
+    values = tuple(sorted(dict.fromkeys(_clean(value) for value in output_ids if _clean(value))))
+    if not values:
+        return ""
+    if len(values) == 1:
+        return f"{_SEMANTIC_OUTPUT_PREFIX}{values[0]}"
+    return f"{_SEMANTIC_OUTPUT_SET_PREFIX}{'|'.join(values)}"
 
 
 def canonical_effect_identity(raw: Any) -> str:
-    """Return a stable identity from structured fields only.
+    """Return one exact identity without language inference or similarity.
 
-    No synonyms, keywords, fuzzy similarity or ontology fallback are applied.
-    An absent operation is not a matchable business effect.
+    New turns are keyed by the frozen requested semantic-output set. Legacy
+    ``domain.operation:object_type`` identities remain readable only as a
+    migration compatibility representation.
     """
-
+    outputs = requested_semantic_output_ids(raw)
+    if outputs:
+        return _semantic_output_identity(outputs)
     row = raw if isinstance(raw, dict) else {}
     domain = _clean(row.get("domain")) or "open"
     operation = _clean(row.get("operation"))
@@ -48,15 +80,9 @@ def effect_identity(domain: str, operation: str, object_type: str) -> str:
 
 
 def _contract_effects(values: Iterable[str]) -> tuple[str, ...]:
-    """Return unique canonical identities declared by the module contract.
-
-    Invalid identities are ignored here and rejected by registry validation;
-    Runtime never repairs or guesses them.
-    """
-
     result: list[str] = []
     for value in values:
-        raw = str(value or "").strip().lower()
+        raw = str(value or "").strip().casefold()
         if not raw or ":" not in raw or "." not in raw.split(":", 1)[0]:
             continue
         if raw not in result:
@@ -64,12 +90,44 @@ def _contract_effects(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _legacy_semantic_aliases() -> dict[str, tuple[str, ...]]:
+    try:
+        from agent_core.modules.registry import current_module_registry
+        return current_module_registry().legacy_semantic_output_aliases()
+    except RuntimeError:
+        return {}
+
+
+def _semantic_identities_for_legacy_effects(values: Iterable[str]) -> tuple[str, ...]:
+    aliases = _legacy_semantic_aliases()
+    output_ids: list[str] = []
+    for legacy in _contract_effects(values):
+        for output_id in aliases.get(legacy, ()):
+            if output_id not in output_ids:
+                output_ids.append(output_id)
+    # ModuleRegistry bounds one legacy alias to at most eight output IDs, so
+    # exact subset identities remain finite and deterministic. This lets one
+    # legacy broad logistics contract prove status, ETA, tracking, or an exact
+    # requested combination without a model mapper.
+    identities: list[str] = []
+    for size in range(1, len(output_ids) + 1):
+        for subset in combinations(sorted(output_ids), size):
+            identity = _semantic_output_identity(subset)
+            if identity and identity not in identities:
+                identities.append(identity)
+    return tuple(identities)
+
+
 def completion_effects_for_contract(contract: Any) -> tuple[str, ...]:
-    return _contract_effects(getattr(contract, "completion_effects", ()) or ())
+    legacy = _contract_effects(getattr(contract, "completion_effects", ()) or ())
+    semantic = _semantic_identities_for_legacy_effects(legacy)
+    return tuple(dict.fromkeys((*legacy, *semantic)))
 
 
 def support_effects_for_contract(contract: Any) -> tuple[str, ...]:
-    return _contract_effects(getattr(contract, "support_effects", ()) or ())
+    legacy = _contract_effects(getattr(contract, "support_effects", ()) or ())
+    semantic = _semantic_identities_for_legacy_effects(legacy)
+    return tuple(dict.fromkeys((*legacy, *semantic)))
 
 
 def _effect_semantic_guidance(contract: Any) -> dict[str, Any]:

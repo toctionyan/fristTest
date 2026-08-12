@@ -260,16 +260,52 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                             },
                             "requested_effect": {
                                 "type": "object",
-                                "description": ("开放业务效果身份；domain、operation、object_type 三字段必须完整。"
-                                                "若当前部署登记的业务效果身份与用户请求精确对应，必须逐字段使用该身份；"
-                                                "没有精确对应时保留开放身份，禁止改写成相近能力或泛化类别。"),
+                                "description": (
+                                    "能力无关的用户业务效果。domain、operation、object_type 是开放语义兼容字段，不是 Tool/Capability 身份；"
+                                    "requested_outputs 才是冻结后精确覆盖所使用的 canonical semantic output。"
+                                    "语义输出词汇不包含能力可用性；没有对应概念时 output_id 使用 open，禁止为了匹配附近能力改写。"
+                                ),
                                 "properties": {
-                                    "domain": {"type": "string"},
-                                    "operation": {"type": "string"},
-                                    "object_type": {"type": "string"},
+                                    "domain": {
+                                        "type": "string",
+                                        "description": "当前用户业务语义的开放命名空间；不是已安装能力域。",
+                                    },
+                                    "operation": {
+                                        "type": "string",
+                                        "description": "当前用户业务语义的开放操作名；不得使用能力可用性决定该值。",
+                                    },
+                                    "object_type": {
+                                        "type": "string",
+                                        "description": "当前用户所指业务对象的开放语义类型。",
+                                    },
+                                    "requested_outputs": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 8,
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "output_id": {
+                                                    "type": "string",
+                                                    "description": "canonical semantic output ID；词汇不存在时只能使用 open。",
+                                                },
+                                                "evidence_span": {
+                                                    "type": "string",
+                                                    "description": "必须是当前 Goal evidence_span 内、直接证明该输出需求的连续原文。",
+                                                },
+                                                "open_description": {
+                                                    "type": "string",
+                                                    "description": "仅 output_id=open 时填写，原样描述词汇中不存在的用户可见结果。",
+                                                },
+                                            },
+                                            "required": ["output_id", "evidence_span"],
+                                            "additionalProperties": False,
+                                        },
+                                    },
                                     "raw_description": {"type": "string"},
                                 },
                                 "required": ["domain", "operation", "object_type"],
+                                "allOf": [{"required": ["requested_outputs"]}],
                                 "additionalProperties": False,
                             },
                             "goal_type": {
@@ -417,9 +453,31 @@ INTERNAL_TOOL_NAMES = {"declare_turn_goals", "update_task_board", "inspect_audit
 DISALLOWED_PLANNER_TOOL_NAMES: set[str] = set()
 
 
-def planning_schemas() -> list[dict[str, Any]]:
-    """Expose the sole semantic declaration protocol before capability discovery."""
-    return [deepcopy(DECLARE_TURN_GOALS_SCHEMA)]
+def planning_schemas(*, semantic_output_ids: list[str] | tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+    """Expose the sole semantic declaration protocol before capability discovery.
+
+    ``semantic_output_ids`` come from the capability-independent module
+    vocabulary. They are not Tool/capability identities and do not encode
+    availability. The reserved ``open`` value preserves meanings not present in
+    that vocabulary instead of nearest-matching them.
+    """
+    schema = deepcopy(DECLARE_TURN_GOALS_SCHEMA)
+    ids = list(dict.fromkeys(
+        str(value or "").strip().casefold()
+        for value in list(semantic_output_ids or [])
+        if str(value or "").strip() and str(value or "").strip().casefold() != "open"
+    ))
+    if ids:
+        item = (
+            schema["function"]["parameters"]["properties"]["goals"]["items"]
+            ["properties"]["requested_effect"]["properties"]["requested_outputs"]["items"]
+        )
+        item["properties"]["output_id"] = {
+            "type": "string",
+            "enum": [*ids, "open"],
+            "description": "能力无关 canonical semantic output ID；没有对应概念时使用 open。",
+        }
+    return [schema]
 
 
 def _unique_provider_values(values: list[Any]) -> list[Any]:
