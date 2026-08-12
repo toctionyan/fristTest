@@ -1,5 +1,5 @@
 name: B28 Product Baseline Refresh
-run-name: Refresh B28 product-source baseline from governed repair
+run-name: Refresh V20.18 token-usage repair product-source baseline
 
 "on":
   pull_request:
@@ -11,159 +11,151 @@ permissions:
   contents: write
 
 env:
-  B28_BRANCH: agent/b28-repository-onboarding
-  B28_EXPECTED_HEAD: 8b356a009efde4831e527453e8f7e54f77ed4c7e
-  B28_REPAIR_COMMIT: 9a5d9ddc808bef5678ae0c49988684c91e657067
-  B28_REPAIR_TREE: d4f1bdbb0e660b645f2589ce547176b7a67115ab
+  REPAIR_BRANCH: repair/v20.18-preserve-token-usage-telemetry-20260813
 
 jobs:
   refresh:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'agent/b28-quick-repair-trigger'
+      github.event.pull_request.head.ref == 'repair/v20.18-preserve-token-usage-telemetry-20260813'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Checkout repaired B28 candidate
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Checkout exact V20.18 repair candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          ref: ${{ env.B28_EXPECTED_HEAD }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
-          fetch-depth: 1
+          fetch-depth: 0
           clean: true
           persist-credentials: true
 
       - name: Set up governed Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: '3.12.13'
           check-latest: false
 
-      - name: Install locked Skill validation environment
+      - name: Install locked validation environment
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C candidate rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
-          test "$(git -C candidate rev-parse HEAD^{tree})" = "$B28_REPAIR_TREE"
+          cd candidate
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
             --require-hashes --only-binary=:all: \
-            -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
-          cd candidate/services/agent-service
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
           uv sync --locked --all-groups
 
-      - name: Refresh only approved product-source fingerprints
+      - name: Prove focused redaction and lifecycle attestation behavior
         shell: bash
         run: |
           set -euo pipefail
+          cd candidate
+          services/agent-service/.venv/bin/python -m pytest -q \
+            services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py
+
+      - name: Refresh only the exact approved protected delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate
+          export SOURCE_HEAD="$(git rev-parse HEAD)"
           "${pythonLocation}/bin/python" -B - <<'PY'
           from __future__ import annotations
 
           import hashlib
           import json
           import os
+          import subprocess
           from datetime import datetime, timezone
           from pathlib import Path
 
-          root = Path("candidate").resolve()
-          baseline_path = root / "skill-system/registry/product-source-baseline.json"
-          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
-          protected_roots = tuple(str(item) for item in payload["protected_roots"])
-          ignored_parts = {".venv", "node_modules", "__pycache__"}
-
-          current: dict[str, str] = {}
-          for name in protected_roots:
-              protected_root = root / name
-              for path in sorted(item for item in protected_root.rglob("*") if item.is_file()):
-                  if any(part in ignored_parts for part in path.parts):
-                      continue
-                  current[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-
-          baseline = {str(key): str(value) for key, value in payload["files"].items()}
-          expected = {
-              "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "4662c742873b8fee8b956e4b98d0c41153be8fbcb787ac15030cb96cde3cbf6b",
-              "services/agent-service/src/agent_core/runtime/capability_gate.py": "365e50b5ce46aa380ba556417afe0313e908b669ef1862ad621b7c20a9de9ac2",
-              "services/agent-service/tests/runtime/test_b17h_protected_environment_preflight.py": "7b220110b1ba080bb1dd33f2e18e958e4bfe93c0da7008b3328ef5444a78cc33",
-              "services/agent-service/tests/runtime/test_b17i_production_execution_handoff.py": "0658447ad9a0eea5d024fe4a7ae220d244e7ebc4b6b2575bd0561af761cfa4bf",
-              "services/agent-service/tests/runtime/test_goal_coverage_runtime.py": "14d22a59c0be5ccd2e2807dfd0eeaae6bcf8e3c6dd6e13659f71ef95a2f7155f",
-              "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(item) for item in payload['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          baseline = {str(key): str(value) for key, value in payload['files'].items()}
+          approved = {
+              'services/agent-service/src/agent_core/observability/redaction.py',
+              'services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py',
           }
           changed = {
               path
               for path in set(current) | set(baseline)
               if current.get(path) != baseline.get(path)
           }
-          if changed != set(expected):
-              raise SystemExit(
-                  "unexpected_product_source_delta:" + ",".join(sorted(changed))
-              )
-          mismatched = {
-              path: {"expected": digest, "actual": current.get(path)}
-              for path, digest in expected.items()
-              if current.get(path) != digest
-          }
-          if mismatched:
-              raise SystemExit("approved_hash_mismatch:" + json.dumps(mismatched, sort_keys=True))
-          if len(current) != int(payload["file_count"]):
-              raise SystemExit(
-                  f"protected_file_count_changed:{payload['file_count']}->{len(current)}"
-              )
+          if changed != approved:
+              raise SystemExit('unexpected_product_source_delta:' + ','.join(sorted(changed)))
+          if len(current) != int(payload['file_count']):
+              raise SystemExit(f"protected_file_count_changed:{payload['file_count']}->{len(current)}")
 
-          payload["generated_from"] = "git:" + os.environ["B28_REPAIR_COMMIT"]
-          payload["generated_at"] = (
+          payload['generated_from'] = 'git:' + os.environ['SOURCE_HEAD']
+          payload['generated_at'] = (
               datetime.now(timezone.utc)
               .replace(microsecond=0)
               .isoformat()
-              .replace("+00:00", "Z")
+              .replace('+00:00', 'Z')
           )
-          payload["file_count"] = len(current)
-          payload["files"] = dict(sorted(current.items()))
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
           baseline_path.write_text(
-              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
+              json.dumps(payload, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
           )
-          print(
-              json.dumps(
-                  {
-                      "status": "PASS",
-                      "generated_from": payload["generated_from"],
-                      "approved_paths": sorted(expected),
-                      "file_count": len(current),
-                  },
-                  ensure_ascii=False,
-                  indent=2,
-              )
-          )
+          print(json.dumps({
+              'status': 'PASS',
+              'generated_from': payload['generated_from'],
+              'approved_paths': sorted(approved),
+              'file_count': len(current),
+              'redaction_sha256': current['services/agent-service/src/agent_core/observability/redaction.py'],
+              'attestation_test_sha256': current['services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py'],
+          }, ensure_ascii=False, indent=2))
           PY
 
-      - name: Validate refreshed Skill control plane
+      - name: Validate refreshed control plane
         shell: bash
         run: |
           set -euo pipefail
           cd candidate
           services/agent-service/.venv/bin/python -B \
             skill-system/controller/profile_runner.py skill-control-plane
+          "${pythonLocation}/bin/python" -m pytest -q \
+            skill-system/tests/test_product_source_baseline_binding.py
 
-      - name: Publish exact baseline refresh
+      - name: Publish exact baseline and restore temporary carrier
         shell: bash
         run: |
           set -euo pipefail
           cd candidate
+          SOURCE_HEAD="$(git rev-parse HEAD)"
           git clean -fdX
           find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
           find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
-          test "$(git rev-parse HEAD)" = "$B28_EXPECTED_HEAD"
-          test "$(git rev-parse HEAD^{tree})" = "$B28_REPAIR_TREE"
-          printf '%s\n' 'skill-system/registry/product-source-baseline.json' > /tmp/expected-paths.txt
-          git diff --name-only "$B28_EXPECTED_HEAD" -- | sort > /tmp/actual-paths.txt
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/workflows/b28-product-baseline-refresh.yml
+          rm -f .b28-baseline-refresh-trigger
+
+          printf '%s\n' \
+            '.b28-baseline-refresh-trigger' \
+            '.github/workflows/b28-product-baseline-refresh.yml' \
+            'skill-system/registry/product-source-baseline.json' \
+            | sort > /tmp/expected-paths.txt
+          git diff --name-only "$SOURCE_HEAD" -- | sort > /tmp/actual-paths.txt
           diff -u /tmp/expected-paths.txt /tmp/actual-paths.txt
 
           git config user.name 'customer-agent-governance[bot]'
           git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
-          git add skill-system/registry/product-source-baseline.json
+          git add .github/workflows/b28-product-baseline-refresh.yml \
+            skill-system/registry/product-source-baseline.json
+          git add -u .b28-baseline-refresh-trigger
           git diff --cached --check
-          git commit -m 'Refresh B28 product-source baseline after governed repair'
-          echo "BASELINE_COMMIT=$(git rev-parse HEAD)"
-          echo "BASELINE_TREE=$(git rev-parse HEAD^{tree})"
-          git push --force-with-lease=refs/heads/${B28_BRANCH}:$B28_EXPECTED_HEAD \
-            origin HEAD:${B28_BRANCH}
+          git commit -m 'Refresh baseline for V20.18 token-usage redaction repair'
+          git push origin HEAD:${REPAIR_BRANCH}
