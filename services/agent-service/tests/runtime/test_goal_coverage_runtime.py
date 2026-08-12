@@ -1006,6 +1006,9 @@ def test_unique_latest_visible_scope_rejects_invented_clarification() -> None:
         },
     }
 
+    # Runtime no longer infers pronouns or implicit reference from raw text.
+    # Without a model-declared target/scope gap there is no program semantic
+    # decision to reject.
     assert _unnecessary_unique_scope_clarification(state) is None
 
     conflict = _unnecessary_unique_scope_clarification(
@@ -1359,6 +1362,8 @@ def test_workflow_repair_rejects_provider_call_to_unexposed_terminal_tool():
             }],
         })
     model = ScriptedChatModel([{
+        # Simulate a provider repeating a historical function that is no
+        # longer present in the dynamically narrowed repair tool surface.
         "tool_calls": [{
             "id": "stale-terminal",
             "name": "respond_to_user",
@@ -1430,6 +1435,8 @@ def test_requested_effect_overrides_legacy_goal_type_without_program_reclassific
                     "operation": "consult_policy",
                     "object_type": "order",
                 },
+                # Deliberately stale compatibility metadata. Runtime must not
+                # use it to rewrite the formal requested effect.
                 "goal_type": "query",
                 "required": True,
                 "depends_on": [],
