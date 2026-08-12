@@ -33,6 +33,7 @@ STAGE3_SCHEMA = "github-governed-repair-stage3@1"
 FAILURE_SCHEMA = "github-failure-ingest@1"
 MAX_REPAIR_ROUNDS = 8
 STAGNATION_LIMIT = 2
+MAX_VALIDATION_RETRIES_PER_CANDIDATE = 3
 MAX_TEXT = 80_000
 
 _SOURCE_PATH_RE = re.compile(
@@ -125,9 +126,9 @@ def _task(path: Path) -> TaskRunStore:
     return TaskRunStore(path.resolve(), _load(path))
 
 
-def _combined_targeted_text(targeted: dict[str, Any]) -> str:
+def _combined_result_text(rows: Iterable[dict[str, Any]]) -> str:
     chunks: list[str] = []
-    for row in targeted.get("results") or []:
+    for row in rows:
         if not isinstance(row, dict):
             continue
         for key in ("stdout", "stderr"):
@@ -137,12 +138,19 @@ def _combined_targeted_text(targeted: dict[str, Any]) -> str:
     return "\n".join(chunks)[-MAX_TEXT:]
 
 
-def _failed_components(targeted: dict[str, Any]) -> list[str]:
-    return _unique(
+def _failed_components(targeted: dict[str, Any], quick_summary: dict[str, Any] | None = None) -> list[str]:
+    values = [
         str(row.get("component") or "unknown")
         for row in targeted.get("results") or []
         if isinstance(row, dict) and row.get("passed") is not True
-    )
+    ]
+    if quick_summary is not None:
+        values.extend(
+            str(row.get("id") or "unknown")
+            for row in quick_summary.get("results") or []
+            if isinstance(row, dict) and str(row.get("status") or "") != "PASS"
+        )
+    return _unique(values)
 
 
 def _extract_source_paths(text: str, allowed: set[str]) -> list[str]:
@@ -155,18 +163,25 @@ def _failure_fingerprint(
     failure_class: str,
     repair_paths: list[str],
     targeted: dict[str, Any],
+    quick_summary: dict[str, Any] | None = None,
 ) -> str:
     rows: list[dict[str, Any]] = []
-    for row in targeted.get("results") or []:
-        if not isinstance(row, dict) or row.get("passed") is True:
-            continue
+    evidence_rows: list[dict[str, Any]] = [
+        row for row in targeted.get("results") or [] if isinstance(row, dict) and row.get("passed") is not True
+    ]
+    if quick_summary is not None:
+        evidence_rows.extend(
+            row
+            for row in quick_summary.get("results") or []
+            if isinstance(row, dict) and str(row.get("status") or "") != "PASS"
+        )
+    for row in evidence_rows:
         text = (str(row.get("stdout") or "") + "\n" + str(row.get("stderr") or ""))[-12_000:]
-        # Fingerprint evidence, but do not persist protected-oracle text in loop state.
         rows.append(
             {
-                "component": str(row.get("component") or "unknown"),
+                "component": str(row.get("component") or row.get("id") or "unknown"),
                 "exit_code": row.get("exit_code"),
-                "timed_out": row.get("timed_out") is True,
+                "timed_out": row.get("timed_out") is True or row.get("exit_code") == 124,
                 "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             }
         )
@@ -180,28 +195,21 @@ def _failure_fingerprint(
     ).hexdigest()
 
 
-def classify_targeted_failure(
-    targeted: dict[str, Any],
+def _classify_rows(
+    rows: list[dict[str, Any]],
     *,
     original_failure: dict[str, Any],
+    context: str,
 ) -> tuple[str, list[str], str]:
-    if targeted.get("schema") != STAGE3_SCHEMA:
-        raise RepairLoopError("unsupported Stage-3 targeted result schema")
-    if targeted.get("status") == "TARGETED_VALIDATION_PASSED":
-        return "PASS", [], "targeted validation passed"
-    if targeted.get("status") != "TARGETED_VALIDATION_FAILED":
-        return "HARNESS_FAILURE", [], "Stage-3 did not produce a complete targeted verdict"
+    if any(row.get("timed_out") is True or row.get("exit_code") == 124 for row in rows):
+        return "TRANSIENT_INFRA_FAILURE", [], f"{context} timed out"
 
-    rows = [row for row in targeted.get("results") or [] if isinstance(row, dict)]
-    if any(row.get("timed_out") is True for row in rows):
-        return "TRANSIENT_INFRA_FAILURE", [], "targeted validation timed out"
-
-    text = _combined_targeted_text(targeted)
+    text = _combined_result_text(rows)
     low = text.casefold()
     if any(term in low for term in ENVIRONMENT_TERMS):
-        return "ENVIRONMENT_FAILURE", [], "targeted validation hit an external environment failure"
+        return "ENVIRONMENT_FAILURE", [], f"{context} hit an external environment failure"
     if any(term in low for term in HARNESS_TERMS):
-        return "HARNESS_FAILURE", [], "targeted validation harness/runtime contract failed"
+        return "HARNESS_FAILURE", [], f"{context} harness/runtime contract failed"
 
     allowed = {
         path
@@ -213,7 +221,7 @@ def classify_targeted_failure(
         return (
             "PRODUCT_SOURCE_FAILURE",
             source_paths,
-            "independent validation implicated governed writable product source",
+            f"{context} implicated governed writable product source",
         )
 
     has_test_evidence = bool(_TEST_PATH_RE.search(text))
@@ -222,9 +230,57 @@ def classify_targeted_failure(
         return (
             "TEST_CONTRACT_REVIEW_REQUIRED",
             [],
-            "independent validation found an oracle/semantic assertion mismatch without a governed source stack path",
+            f"{context} found an oracle/semantic assertion mismatch without a governed source stack path",
         )
-    return "UNKNOWN_FAILURE", [], "independent validation failed without a safe repair-path classification"
+    return "UNKNOWN_FAILURE", [], f"{context} failed without a safe repair-path classification"
+
+
+def classify_targeted_failure(
+    targeted: dict[str, Any],
+    *,
+    original_failure: dict[str, Any],
+) -> tuple[str, list[str], str]:
+    if targeted.get("schema") != STAGE3_SCHEMA:
+        raise RepairLoopError("unsupported Stage-3 targeted result schema")
+    if targeted.get("status") == "TARGETED_VALIDATION_PASSED":
+        return "PASS", [], "targeted validation passed"
+    if targeted.get("status") != "TARGETED_VALIDATION_FAILED":
+        return "HARNESS_FAILURE", [], "Stage-3 did not produce a complete targeted verdict"
+    rows = [row for row in targeted.get("results") or [] if isinstance(row, dict)]
+    return _classify_rows(rows, original_failure=original_failure, context="targeted validation")
+
+
+def classify_independent_failure(
+    targeted: dict[str, Any],
+    *,
+    original_failure: dict[str, Any],
+    quick_summary: dict[str, Any] | None = None,
+) -> tuple[str, list[str], str]:
+    targeted_class, paths, reason = classify_targeted_failure(
+        targeted, original_failure=original_failure
+    )
+    if targeted_class != "PASS":
+        return targeted_class, paths, reason
+    if quick_summary is None:
+        return "HARNESS_FAILURE", [], "targeted validation passed but complete Quick evidence is missing"
+    if (
+        quick_summary.get("mode") == "quick"
+        and quick_summary.get("run_kind") == "verification"
+        and quick_summary.get("decision") == "PASS"
+        and quick_summary.get("loop_status") == "CI_VERIFIED"
+        and quick_summary.get("completion_eligible") is True
+    ):
+        return "PASS", [], "targeted and complete Quick validation passed"
+    if quick_summary.get("decision") == "BLOCKED_BY_ENVIRONMENT" or quick_summary.get("loop_status") == "BLOCKED_BY_ENVIRONMENT":
+        return "ENVIRONMENT_FAILURE", [], "complete Quick validation was blocked by environment"
+    rows = [
+        row
+        for row in quick_summary.get("results") or []
+        if isinstance(row, dict) and str(row.get("status") or "") != "PASS"
+    ]
+    if not rows:
+        return "HARNESS_FAILURE", [], "Quick evidence did not pass but exposed no failed gate rows"
+    return _classify_rows(rows, original_failure=original_failure, context="complete Quick validation")
 
 
 def _validate_bindings(
@@ -313,6 +369,8 @@ def route_failure(
     stage2_result_path: Path,
     stage3_plan_path: Path,
     targeted_result_path: Path,
+    quick_summary_path: Path | None,
+    validation_result_path: Path | None,
     original_failure_path: Path,
     seed_patch_path: Path,
     output_dir: Path,
@@ -324,6 +382,12 @@ def route_failure(
     stage2 = _load(stage2_result_path)
     plan = _load(stage3_plan_path)
     targeted = _load(targeted_result_path)
+    quick_summary = _load(quick_summary_path) if quick_summary_path and quick_summary_path.is_file() else None
+    validation_result = (
+        _load(validation_result_path)
+        if validation_result_path and validation_result_path.is_file()
+        else None
+    )
     original_failure = _load(original_failure_path)
     binding = _validate_bindings(
         task=task,
@@ -369,14 +433,16 @@ def route_failure(
     )
     verification_attempt = max(prior_verifications + 1, stage3_run_attempt)
 
-    failure_class, repair_paths, classification_reason = classify_targeted_failure(
+    failure_class, repair_paths, classification_reason = classify_independent_failure(
         targeted,
         original_failure=original_failure,
+        quick_summary=quick_summary,
     )
     failure_fp = _failure_fingerprint(
         failure_class=failure_class,
         repair_paths=repair_paths,
         targeted=targeted,
+        quick_summary=quick_summary,
     )
     stagnant_rounds = _int(previous.get("stagnant_rounds"), 0)
     if (
@@ -389,14 +455,33 @@ def route_failure(
     elif failure_class == "PRODUCT_SOURCE_FAILURE":
         stagnant_rounds = 0
 
+    same_candidate = bool(
+        previous
+        and previous.get("candidate_sha") == str(plan.get("candidate_sha") or "")
+    )
+    previous_same_candidate_retries = (
+        _int(previous.get("same_candidate_retry_count"), 0) if same_candidate else 0
+    )
+    retryable_validation_failure = failure_class in {
+        "ENVIRONMENT_FAILURE",
+        "TRANSIENT_INFRA_FAILURE",
+    }
+    same_candidate_retry_count = (
+        previous_same_candidate_retries + 1 if retryable_validation_failure else 0
+    )
+
     action = "STOP_UNKNOWN_FAILURE"
     next_repair_round: int | None = None
     stop_reason: str | None = None
     status = "BLOCKED"
 
     if failure_class == "PASS":
-        action = "CONTINUE_STAGE3"
-        status = "VALIDATING"
+        if validation_result and validation_result.get("status") == "VALIDATED_FOR_DRAFT_PR":
+            action = "PUBLISHER_REPAIR_REQUIRED"
+            stop_reason = "independent validation passed but the Stage-3 workflow failed after the validation receipt"
+        else:
+            action = "HARNESS_REPAIR_REQUIRED"
+            stop_reason = "independent validation passed but Stage-3 did not persist a publishable validation receipt"
     elif failure_class == "PRODUCT_SOURCE_FAILURE":
         if repair_round >= max_rounds:
             action = "STOP_MAX_REPAIR_ROUNDS"
@@ -414,9 +499,16 @@ def route_failure(
     elif failure_class == "TEST_CONTRACT_REVIEW_REQUIRED":
         action = "TEST_CONTRACT_REVIEW_REQUIRED"
         stop_reason = classification_reason
-    elif failure_class in {"HARNESS_FAILURE", "ENVIRONMENT_FAILURE", "TRANSIENT_INFRA_FAILURE"}:
-        action = "RETRY_VALIDATION_SAME_CANDIDATE"
-        status = "FAILED_RECOVERABLE"
+    elif failure_class == "HARNESS_FAILURE":
+        action = "HARNESS_REPAIR_REQUIRED"
+        stop_reason = classification_reason
+    elif retryable_validation_failure:
+        if same_candidate_retry_count > MAX_VALIDATION_RETRIES_PER_CANDIDATE:
+            action = "VALIDATION_RETRY_EXHAUSTED"
+            stop_reason = "same-candidate transient/environment validation retry budget exhausted"
+        else:
+            action = "RETRY_VALIDATION_SAME_CANDIDATE"
+            status = "FAILED_RECOVERABLE"
     else:
         action = "STOP_UNKNOWN_FAILURE"
         stop_reason = classification_reason
@@ -439,8 +531,10 @@ def route_failure(
         "failure_fingerprint": failure_fp,
         "classification_reason": classification_reason,
         "repair_paths": repair_paths,
-        "failed_components": _failed_components(targeted),
+        "failed_components": _failed_components(targeted, quick_summary),
         "stagnant_rounds": stagnant_rounds,
+        "same_candidate_retry_count": same_candidate_retry_count,
+        "max_validation_retries_per_candidate": MAX_VALIDATION_RETRIES_PER_CANDIDATE,
         "action": action,
         "stop_reason": stop_reason,
         "repair_budget_consumed": repair_round,
@@ -450,6 +544,10 @@ def route_failure(
 
     task.set_metadata(repair_loop=state)
     evidence_refs = [str(stage3_plan_path), str(targeted_result_path), f"loop-state:{failure_fp}"]
+    if quick_summary_path and quick_summary_path.is_file():
+        evidence_refs.append(str(quick_summary_path))
+    if validation_result_path and validation_result_path.is_file():
+        evidence_refs.append(str(validation_result_path))
     if action == "DISPATCH_REPAIR":
         task.checkpoint(
             status="FAILED_RECOVERABLE",
@@ -462,14 +560,6 @@ def route_failure(
         task.checkpoint(
             status="FAILED_RECOVERABLE",
             phase=failure_class,
-            workspace_fingerprint=str(plan.get("validated_tree_sha") or ""),
-            evidence_refs=evidence_refs,
-            metadata={"repair_loop": state},
-        )
-    elif action == "CONTINUE_STAGE3":
-        task.checkpoint(
-            status="VALIDATING",
-            phase="TARGETED_VALIDATION_PASSED",
             workspace_fingerprint=str(plan.get("validated_tree_sha") or ""),
             evidence_refs=evidence_refs,
             metadata={"repair_loop": state},
@@ -535,6 +625,8 @@ def main() -> int:
     parser.add_argument("--stage2-result", required=True)
     parser.add_argument("--stage3-plan", required=True)
     parser.add_argument("--targeted-result", required=True)
+    parser.add_argument("--quick-summary")
+    parser.add_argument("--validation-result")
     parser.add_argument("--original-failure-case", required=True)
     parser.add_argument("--seed-patch", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -549,6 +641,8 @@ def main() -> int:
             stage2_result_path=Path(args.stage2_result),
             stage3_plan_path=Path(args.stage3_plan),
             targeted_result_path=Path(args.targeted_result),
+            quick_summary_path=Path(args.quick_summary) if args.quick_summary else None,
+            validation_result_path=Path(args.validation_result) if args.validation_result else None,
             original_failure_path=Path(args.original_failure_case),
             seed_patch_path=Path(args.seed_patch),
             output_dir=Path(args.output_dir),
