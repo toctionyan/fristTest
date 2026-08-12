@@ -19,6 +19,7 @@ def test_stage3_recovery_has_scheduled_push_and_manual_recovery() -> None:
         "GH_REPO: ${{ github.repository }}",
         "Discover newest candidate-ready Stage-2 run missing Stage 3",
         "governed-ci-repair-stage2",
+        "actions/workflows/governed-ci-repair-stage2.yml/runs",
         "REPAIR_CANDIDATE_READY",
         "stage3_handoff_bound == true",
         "governed-ci-repair-stage3-inspect-${run_id}-${run_attempt}",
@@ -31,6 +32,7 @@ def test_stage3_recovery_has_scheduled_push_and_manual_recovery() -> None:
     )
     missing = [fragment for fragment in required if fragment not in text]
     assert not missing, f"missing Stage-3 recovery fragments: {missing}"
+    assert '"repos/${GITHUB_REPOSITORY}/actions/runs"' not in text
 
 
 def test_stage3_recovery_can_only_dispatch_and_comment() -> None:

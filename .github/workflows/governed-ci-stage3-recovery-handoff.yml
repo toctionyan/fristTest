@@ -45,10 +45,10 @@ jobs:
           mkdir -p incoming
           echo "found=false" >> "$GITHUB_OUTPUT"
 
-          gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+          gh api -X GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-ci-repair-stage2.yml/runs" \
             -f status=completed -f per_page=100 \
             --jq '.workflow_runs[]
-              | select(.name == "governed-ci-repair-stage2")
               | select(.conclusion == "success")
               | .id' > incoming/candidate-stage2-run-ids.txt
 
