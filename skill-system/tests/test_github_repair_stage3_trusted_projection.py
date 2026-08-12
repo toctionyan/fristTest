@@ -35,8 +35,12 @@ def _judge(root: Path) -> Path:
     return root
 
 
-def test_projection_replaces_only_manifest_owned_inputs_and_preserves_product_source(tmp_path: Path) -> None:
+def test_projection_exports_runtime_bundle_and_preserves_product_source(
+    tmp_path: Path, monkeypatch
+) -> None:
     judge = _judge(tmp_path / "judge")
+    bundle = tmp_path / "runtime-judge"
+    monkeypatch.setenv(projection.BUNDLE_ENV, str(bundle))
     candidate = tmp_path / "candidate"
     product = _write(candidate, "services/agent-service/src/product.py", "PRODUCT = 'candidate'\n")
     _write(candidate, "scripts/quality_loop.py", "print('historical judge')\n", mode=0o755)
@@ -47,26 +51,57 @@ def test_projection_replaces_only_manifest_owned_inputs_and_preserves_product_so
     payload = projection.project(candidate_root=candidate, judge_root=judge, output_path=output)
 
     assert payload["status"] == "PROJECTED"
+    assert payload["manifest_source"] == "runtime-export-from-bound-control"
+    assert payload["control_root"] == str(judge.resolve())
+    assert payload["judge_root"] == str(bundle.resolve())
     assert payload["projected_file_count"] == 3
     assert payload["repair_patch_changed"] is False
     assert payload["candidate_commit_changed"] is False
     assert payload["publication_authority_changed"] is False
     assert payload["production_closed"] is False
-    assert trusted_judge.verify_candidate(candidate, judge) == []
+    assert trusted_judge.verify_root(bundle) == []
+    assert trusted_judge.verify_candidate(candidate, bundle) == []
     assert product.read_text(encoding="utf-8") == "PRODUCT = 'candidate'\n"
     assert json.loads(output.read_text(encoding="utf-8"))["judge_manifest_sha256"] == payload["judge_manifest_sha256"]
     for row in payload["projected_files"]:
         mode = stat.S_IMODE((candidate / row["path"]).stat().st_mode)
         assert mode & 0o222 == 0
+        bundle_mode = stat.S_IMODE((bundle / row["path"]).stat().st_mode)
+        assert bundle_mode & 0o222 == 0
 
 
-def test_projection_fails_closed_if_bound_judge_changes_after_manifest(tmp_path: Path) -> None:
+def test_projection_rebuilds_runtime_manifest_when_checked_in_manifest_is_stale(
+    tmp_path: Path, monkeypatch
+) -> None:
     judge = _judge(tmp_path / "judge")
     candidate = tmp_path / "candidate"
     candidate.mkdir()
-    (judge / "scripts/quality_loop.py").write_text("tampered\n", encoding="utf-8")
+    bundle = tmp_path / "runtime-judge"
+    monkeypatch.setenv(projection.BUNDLE_ENV, str(bundle))
+    current = judge / "scripts/quality_loop.py"
+    current.chmod(0o755)
+    current.write_text("print('new bound control')\n", encoding="utf-8")
+    current.chmod(0o755)
 
-    with pytest.raises(projection.ProjectionError, match="invalid trusted Judge root"):
+    assert "fingerprint_mismatch:scripts/quality_loop.py" in trusted_judge.verify_root(judge)
+    payload = projection.project(
+        candidate_root=candidate,
+        judge_root=judge,
+        output_path=tmp_path / "projection.json",
+    )
+
+    assert payload["status"] == "PROJECTED"
+    assert trusted_judge.verify_root(bundle) == []
+    assert trusted_judge.verify_candidate(candidate, bundle) == []
+    assert (candidate / "scripts/quality_loop.py").read_text(encoding="utf-8") == "print('new bound control')\n"
+
+
+def test_projection_requires_independent_candidate_and_judge_roots(tmp_path: Path) -> None:
+    judge = _judge(tmp_path / "judge")
+    candidate = judge / "nested-candidate"
+    candidate.mkdir()
+
+    with pytest.raises(projection.ProjectionError, match="independent workspaces"):
         projection.project(
             candidate_root=candidate,
             judge_root=judge,
@@ -74,10 +109,11 @@ def test_projection_fails_closed_if_bound_judge_changes_after_manifest(tmp_path:
         )
 
 
-def test_projection_requires_independent_candidate_and_judge_roots(tmp_path: Path) -> None:
+def test_projection_rejects_bundle_inside_bound_control(tmp_path: Path, monkeypatch) -> None:
     judge = _judge(tmp_path / "judge")
-    candidate = judge / "nested-candidate"
+    candidate = tmp_path / "candidate"
     candidate.mkdir()
+    monkeypatch.setenv(projection.BUNDLE_ENV, str(judge / "runtime-bundle"))
 
     with pytest.raises(projection.ProjectionError, match="independent workspaces"):
         projection.project(
