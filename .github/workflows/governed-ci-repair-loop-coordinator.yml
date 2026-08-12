@@ -88,6 +88,10 @@ jobs:
           ' incoming/stage3-run.json >/dev/null
           run_started_at=$(jq -r '.run_started_at // empty' incoming/stage3-run.json)
           [[ -n "${run_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage3_run_id}/attempts/${stage3_run_attempt}/jobs?per_page=100" \
+            > incoming/stage3-jobs.json
+          inspect_job_id=$(jq -r '[.jobs[] | select(.name == "inspect")][0].id // empty' incoming/stage3-jobs.json)
+          [[ "${inspect_job_id}" =~ ^[1-9][0-9]*$ ]]
 
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage3_run_id}/artifacts?per_page=100" \
             > incoming/stage3-artifacts.json
@@ -105,6 +109,7 @@ jobs:
           echo "stage3_run_id=${stage3_run_id}" >> "$GITHUB_OUTPUT"
           echo "stage3_run_attempt=${stage3_run_attempt}" >> "$GITHUB_OUTPUT"
           echo "stage3_artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
+          echo "inspect_job_id=${inspect_job_id}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve immutable source failure and previous outer-loop state
         id: evidence
@@ -115,6 +120,8 @@ jobs:
           stage2_result=$(find incoming/stage3 -type f -name stage2-result.json -print -quit)
           stage3_plan=$(find incoming/stage3 -type f -name stage3-plan.json -print -quit)
           targeted_result=$(find incoming/stage3 -type f -name targeted-result.json -print -quit)
+          quick_summary=$(find incoming/stage3 -type f -path '*governed-repair-stage3-quick*/run-summary.json' -print -quit 2>/dev/null || true)
+          validation_result=$(find incoming/stage3 -type f -name validation-result.json -print -quit 2>/dev/null || true)
           task_run=$(find incoming/stage3 -type f -name task-run.json -print -quit)
           repair_patch=$(find incoming/stage3 -type f -name repair.patch -print -quit)
           [[ -n "${stage2_result}" && -n "${stage3_plan}" && -n "${targeted_result}" && -n "${task_run}" && -n "${repair_patch}" ]]
@@ -158,6 +165,8 @@ jobs:
           echo "stage2_result=${stage2_result}" >> "$GITHUB_OUTPUT"
           echo "stage3_plan=${stage3_plan}" >> "$GITHUB_OUTPUT"
           echo "targeted_result=${targeted_result}" >> "$GITHUB_OUTPUT"
+          echo "quick_summary=${quick_summary}" >> "$GITHUB_OUTPUT"
+          echo "validation_result=${validation_result}" >> "$GITHUB_OUTPUT"
           echo "task_run=${task_run}" >> "$GITHUB_OUTPUT"
           echo "repair_patch=${repair_patch}" >> "$GITHUB_OUTPUT"
           echo "original_failure=${original_failure}" >> "$GITHUB_OUTPUT"
@@ -185,6 +194,12 @@ jobs:
             --stage3-run-attempt "${STAGE3_RUN_ATTEMPT}"
             --github-output "$GITHUB_OUTPUT"
           )
+          if [[ -n "${{ steps.evidence.outputs.quick_summary }}" ]]; then
+            args+=(--quick-summary "${{ steps.evidence.outputs.quick_summary }}")
+          fi
+          if [[ -n "${{ steps.evidence.outputs.validation_result }}" ]]; then
+            args+=(--validation-result "${{ steps.evidence.outputs.validation_result }}")
+          fi
           if [[ -n "${{ steps.evidence.outputs.previous_state }}" ]]; then
             args+=(--previous-state "${{ steps.evidence.outputs.previous_state }}")
           fi
@@ -213,6 +228,18 @@ jobs:
             loop-output/seed.patch
           retention-days: 30
           if-no-files-found: error
+
+      - name: Re-run Stage-3 validation for transient or environment failure
+        if: steps.route.outputs.action == 'RETRY_VALIDATION_SAME_CANDIDATE'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSPECT_JOB_ID: ${{ steps.source.outputs.inspect_job_id }}
+        run: |
+          set -euo pipefail
+          [[ "${INSPECT_JOB_ID}" =~ ^[1-9][0-9]*$ ]]
+          # Re-run Inspect itself so a later control-plane repair is rebound; do not
+          # rerun only Validate, which would reuse stale successful Inspect outputs.
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/jobs/${INSPECT_JOB_ID}/rerun"
 
       - name: Dispatch next governed product repair round
         if: steps.route.outputs.action == 'DISPATCH_REPAIR'
@@ -265,8 +292,10 @@ jobs:
           - production_closed: false
 
           \`PRODUCT_SOURCE_FAILURE\` may dispatch the next source repair round. Harness/environment
-          failures keep the same product round. \`TEST_CONTRACT_REVIEW_REQUIRED\` stops automatic
-          source mutation until the contract/oracle is explicitly reviewed.
+          transient/environment failures keep the same product round and may rerun Stage-3 Inspect.
+          \`HARNESS_REPAIR_REQUIRED\` also keeps the same product round but requires a trusted
+          control-plane repair before validation is resumed. \`TEST_CONTRACT_REVIEW_REQUIRED\` stops
+          automatic source mutation until the contract/oracle is explicitly reviewed.
           EOF
           )
           if [[ -n "${issue}" ]]; then
