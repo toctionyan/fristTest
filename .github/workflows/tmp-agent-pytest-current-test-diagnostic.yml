@@ -51,6 +51,8 @@ jobs:
           py = agent / ".venv/bin/python"
           runtime = Path(os.environ["RUNNER_TEMP"]) / "agent-profile-diagnostic"
           runtime.mkdir(parents=True, exist_ok=True)
+          profile_path = runtime / "profile.pstats"
+          report_path = runtime / "profile.txt"
 
           env = os.environ.copy()
           for key in tuple(env):
@@ -71,11 +73,31 @@ jobs:
 
           node = "tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[visible_superlative_cheapest]"
           cmd = [
-              str(py), "-B", "-m", "cProfile", "-s", "cumulative", "-m", "pytest",
+              str(py), "-B", "-m", "cProfile", "-o", str(profile_path), "-m", "pytest",
               "-q", "--disable-warnings", "--tb=short", "-p", "no:cacheprovider", node,
           ]
           print("PROFILE_COMMAND=" + " ".join(cmd), flush=True)
           completed = subprocess.run(cmd, cwd=agent, env=env, timeout=240)
+
+          import pstats
+          with report_path.open("w", encoding="utf-8") as handle:
+              stats = pstats.Stats(str(profile_path), stream=handle)
+              stats.strip_dirs().sort_stats("cumulative").print_stats(120)
+              handle.write("\n\n=== INTERNAL EFFECT / REGISTRY HOTSPOTS ===\n")
+              stats.sort_stats("cumulative").print_stats(
+                  "capability_effects|goal_capability_coverage|goal_outputs|registry.py"
+              )
+          print(report_path.read_text(encoding="utf-8")[:30000], flush=True)
           print(f"PROFILE_EXIT={completed.returncode}", flush=True)
           raise SystemExit(completed.returncode)
           PY
+
+      - name: Upload profile evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: temporary-agent-profile-evidence
+          path: |
+            ${{ runner.temp }}/agent-profile-diagnostic/profile.txt
+            ${{ runner.temp }}/agent-profile-diagnostic/profile.pstats
+          if-no-files-found: error
