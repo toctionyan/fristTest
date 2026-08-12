@@ -55,7 +55,10 @@ def derive_goal_target_identity(goal: dict[str, Any] | None) -> dict[str, Any]:
     """
 
     row = goal if isinstance(goal, dict) else {}
-    object_type = _text((row.get("requested_effect") or {}).get("object_type"), limit=160)
+    requested_effect = row.get("requested_effect") if isinstance(row.get("requested_effect"), dict) else {}
+    object_type = _text(
+        requested_effect.get("subject_type") or requested_effect.get("object_type"), limit=160
+    )
     resolved = row.get("resolved_reference") if isinstance(row.get("resolved_reference"), dict) else {}
     result_ref = _text(resolved.get("result_ref"), limit=500)
     members = [str(value) for value in list(resolved.get("member_handles") or []) if str(value)]

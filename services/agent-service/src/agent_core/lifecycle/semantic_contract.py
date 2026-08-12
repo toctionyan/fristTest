@@ -35,10 +35,56 @@ def _text(value: Any, *, limit: int = 2000) -> str:
     return str(value or "").strip()[:limit]
 
 
-def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, str]:
-    """Normalize an open business-effect identity without language classification."""
+def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, Any]:
+    """Normalize capability-independent requested outputs or a legacy checkpoint.
 
+    New provider declarations use ``effect_kind/subject_type/requested_outputs``.
+    The legacy three-field identity remains readable only for historical/direct
+    migration callers; provider schema no longer exposes it.
+    """
     source = raw if isinstance(raw, dict) else {}
+    if "requested_outputs" in source:
+        effect_kind = _text(source.get("effect_kind"), limit=80).casefold()
+        subject_type = _text(source.get("subject_type"), limit=160).casefold()
+        raw_description = _text(source.get("raw_description") or description)
+        values = source.get("requested_outputs")
+        if not effect_kind:
+            raise ValueError("requested_effect.effect_kind_required")
+        if not subject_type:
+            raise ValueError("requested_effect.subject_type_required")
+        if not isinstance(values, list) or not values or len(values) > 8:
+            raise ValueError("requested_effect.requested_outputs_required")
+        outputs: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for index, raw_output in enumerate(values):
+            if not isinstance(raw_output, dict):
+                raise ValueError(f"requested_effect.output_invalid:{index}")
+            output_id = _text(raw_output.get("output_id"), limit=240).casefold()
+            evidence_span = _text(raw_output.get("evidence_span"), limit=240)
+            open_description = _text(raw_output.get("open_description"), limit=500)
+            if not output_id or not evidence_span:
+                raise ValueError(f"requested_effect.output_incomplete:{index}")
+            if output_id in seen:
+                raise ValueError(f"requested_effect.output_duplicate:{output_id}")
+            if output_id == "open" and not open_description:
+                raise ValueError("requested_effect.open_description_required")
+            if output_id != "open" and open_description:
+                raise ValueError("requested_effect.open_description_only_for_open")
+            seen.add(output_id)
+            row = {"output_id": output_id, "evidence_span": evidence_span}
+            if open_description:
+                row["open_description"] = open_description
+            outputs.append(row)
+        return {
+            "effect_kind": effect_kind,
+            "subject_type": subject_type,
+            "requested_outputs": outputs,
+            "raw_description": raw_description,
+        }
+
+    # Compatibility-only historical representation. New provider schemas do
+    # not expose these fields, so this branch cannot become a second writer
+    # authority for newly declared turns.
     effect = {
         "domain": _text(source.get("domain"), limit=120),
         "operation": _text(source.get("operation"), limit=160),
@@ -109,7 +155,11 @@ def _normalize_reference_fields(goal: dict[str, Any], *, user_text: str) -> None
         goal["reference_expression"] = normalize_reference_expression(
             expression,
             user_text=user_text,
-            expected_object_type=str((goal.get("requested_effect") or {}).get("object_type") or ""),
+            expected_object_type=str(
+                (goal.get("requested_effect") or {}).get("subject_type")
+                or (goal.get("requested_effect") or {}).get("object_type")
+                or ""
+            ),
             expected_cardinality=str(goal.get("expected_result_cardinality") or "unknown"),
         )
     integrity = referent_resolution_proof_integrity(

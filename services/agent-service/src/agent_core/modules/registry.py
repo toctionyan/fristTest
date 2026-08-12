@@ -75,8 +75,64 @@ class ModuleRegistry:
                 f"legacy semantic alias expands to more than 8 outputs: {sorted(oversized)}"
             )
 
+    def _validate_semantic_outputs(self) -> None:
+        seen: set[str] = set()
+        aliases: dict[str, list[str]] = {}
+        for contribution in self._contributions:
+            for definition in contribution.semantic_outputs:
+                if definition.output_id in seen:
+                    raise ValueError(f"duplicate semantic output_id: {definition.output_id}")
+                seen.add(definition.output_id)
+                for alias in definition.legacy_effect_aliases:
+                    aliases.setdefault(alias, []).append(definition.output_id)
+        oversized = {alias: values for alias, values in aliases.items() if len(values) > 8}
+        if oversized:
+            raise ValueError(f"legacy semantic alias expands to more than 8 outputs: {sorted(oversized)}")
+
     def module_ids(self) -> frozenset[str]:
         return frozenset(row.module_id for row in self._contributions)
+
+    def semantic_output_definitions(self) -> tuple[SemanticOutputDefinition, ...]:
+        return tuple(
+            definition
+            for contribution in self._contributions
+            for definition in contribution.semantic_outputs
+        )
+
+    def semantic_output_index(self) -> dict[str, dict[str, object]]:
+        return {
+            definition.output_id: definition.public_snapshot()
+            for definition in self.semantic_output_definitions()
+        }
+
+    def semantic_output_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self.semantic_output_index()))
+
+    def semantic_vocabulary_snapshot(self) -> dict[str, object]:
+        """Public pre-freeze vocabulary. Never expose capability availability."""
+        return {
+            "version": "semantic-output-vocabulary@1",
+            "authority": "domain_semantics_only_capability_independent",
+            "availability_exposed": False,
+            "tool_names_exposed": False,
+            "outputs": [
+                definition.public_snapshot()
+                for definition in sorted(
+                    self.semantic_output_definitions(), key=lambda row: row.output_id
+                )
+            ],
+        }
+
+    def legacy_semantic_output_aliases(self) -> dict[str, tuple[str, ...]]:
+        """Internal post-freeze migration compiler from legacy effect identity."""
+        aliases: dict[str, list[str]] = {}
+        for definition in self.semantic_output_definitions():
+            for alias in definition.legacy_effect_aliases:
+                aliases.setdefault(alias, []).append(definition.output_id)
+        return {
+            alias: tuple(sorted(dict.fromkeys(output_ids)))
+            for alias, output_ids in aliases.items()
+        }
 
     def semantic_output_definitions(self) -> tuple[SemanticOutputDefinition, ...]:
         return tuple(

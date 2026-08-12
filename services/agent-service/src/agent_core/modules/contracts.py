@@ -25,10 +25,10 @@ class PresentationAdapter(Protocol):
 class SemanticOutputDefinition:
     """Capability-independent user-meaning type contributed by a domain module.
 
-    ``legacy_effect_aliases`` are internal migration metadata consumed only
-    after semantic freeze. They are deliberately excluded from the public
-    writer vocabulary so installed capability availability cannot leak back
-    into language understanding.
+    ``legacy_effect_aliases`` are migration metadata consumed only after the
+    semantic contract is frozen. They are deliberately excluded from the
+    public writer vocabulary so installed capability availability cannot leak
+    back into language understanding.
     """
 
     output_id: str
@@ -40,17 +40,9 @@ class SemanticOutputDefinition:
     def __post_init__(self) -> None:
         output_id = str(self.output_id or "").strip().casefold()
         subject_type = str(self.subject_type or "").strip().casefold()
-        effect_kinds = tuple(dict.fromkeys(
-            str(value or "").strip().casefold()
-            for value in self.effect_kinds
-            if str(value or "").strip()
-        ))
+        effect_kinds = tuple(dict.fromkeys(str(value or "").strip().casefold() for value in self.effect_kinds if str(value or "").strip()))
         description = str(self.description or "").strip()
-        aliases = tuple(dict.fromkeys(
-            str(value or "").strip().casefold()
-            for value in self.legacy_effect_aliases
-            if str(value or "").strip()
-        ))
+        aliases = tuple(dict.fromkeys(str(value or "").strip().casefold() for value in self.legacy_effect_aliases if str(value or "").strip()))
         if not output_id or output_id == "open":
             raise ValueError("semantic output_id must be non-empty and cannot use reserved 'open'")
         if not subject_type:

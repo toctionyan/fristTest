@@ -1,7 +1,7 @@
 """Capability-independent ecommerce semantic output vocabulary.
 
-The semantic writer may see these domain meanings before semantic freeze. This
-file contains no Tool name, capability key, availability flag, planner rule,
+The writer may see these domain meanings before semantic freeze. This file
+contains no tool name, capability key, availability flag, planner rule,
 discovery example or exclusion example. Legacy aliases are internal migration
 metadata used only by the deterministic post-freeze compatibility compiler.
 """
@@ -50,8 +50,8 @@ SEMANTIC_OUTPUTS = (
     _output("transaction.draft.dismissal", "transaction_draft", ("cancel", "dismiss"), "撤销或关闭一个仍有效的办理草稿。", "transaction.cancel_draft:transaction_draft"),
     _output("refund.eligibility.dismissal", "refund_eligibility", ("dismiss",), "关闭一个仍有效的退款资格结论。", "refund.dismiss_eligibility:refund_eligibility"),
     # Intentionally has zero installed capability coverage. Keeping this valid
-    # semantic meaning in the same vocabulary proves vocabulary presence does
-    # not reveal or imply executability.
+    # semantic meaning in the same vocabulary proves that vocabulary presence
+    # does not reveal or imply executability.
     _output("courier.contact.phone", "courier", ("read",), "配送人员的联系电话。"),
 )
 
