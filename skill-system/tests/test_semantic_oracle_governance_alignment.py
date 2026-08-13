@@ -40,14 +40,13 @@ class SemanticOracleGovernanceAlignmentTests(unittest.TestCase):
         )
         segment = source[start:end]
 
-        # These older synthetic fixtures still exercise literal span extension,
-        # fuzzy rejection, ambiguity and duplicate IDs. Canonical semantic
-        # authority is now asserted against the smoke itself above; these tests
-        # must not become an alternate effect-identity oracle.
+        # This source segment owns the historical span/fuzzy/ambiguity fixtures.
+        # Duplicate-goal coverage lives later in the same architecture test file
+        # and is intentionally not pulled into this segment assertion.
         self.assertGreaterEqual(segment.count("_match_oracle("), 4)
+        self.assertIn("literal-span-extension", segment)
         self.assertIn("fuzzy-is-forbidden", segment)
         self.assertIn("ambiguous_effect =", segment)
-        self.assertIn("duplicate-goal-id", segment)
 
 
 if __name__ == "__main__":
