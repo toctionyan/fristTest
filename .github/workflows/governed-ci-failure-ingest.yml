@@ -297,9 +297,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${REPAIR_ALLOWED}" == "true" ]]; then
-            NEXT_ACTION="READY_FOR_REPAIR_STAGE_2"
+            NEXT_ACTION="RETURN_TO_LOCAL_PATCH_OWNER"
+            REMOTE_FALLBACK_ELIGIBLE="true"
           else
             NEXT_ACTION="BLOCKED_FOR_DIAGNOSIS"
+            REMOTE_FALLBACK_ELIGIBLE="false"
           fi
           BODY=$(cat <<EOF
           Stage-1 ingestion completed.
@@ -310,14 +312,19 @@ jobs:
           - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
           - Classification: \`${CLASSIFICATION}\`
           - Failure signature: \`${FAILURE_SIGNATURE}\`
-          - Automatic source repair authorized by ingestion: \`${REPAIR_ALLOWED}\`
+          - Product-code failure eligible for repair: \`${REPAIR_ALLOWED}\`
+          - Default repair authority: \`local Patch Owner / local-first TaskRun\`
           - Next action: \`${NEXT_ACTION}\`
+          - Explicit remote Stage-2 fallback structurally eligible: \`${REMOTE_FALLBACK_ELIGIBLE}\`
+          - Automatic remote Stage-2 dispatch: \`false\`
           - Evidence artifact: \`governed-ci-failure-${SOURCE_RUN_ID}\`
           - production_closed: false
 
-          Stage 1 only receives, redacts, classifies, and records evidence. It does not read
-          production Environment secrets, modify source, push a branch, create a pull request,
-          merge main, or claim production closure.
+          Stage 1 only receives, redacts, classifies, and records evidence. It does not authorize
+          automatic remote source repair, read production Environment secrets, modify source, push a
+          branch, create a pull request, merge main, or claim production closure. A code/contract
+          failure returns to the original local Patch Owner by default. Remote Stage 2 requires a
+          separate explicit fallback invocation.
           EOF
           )
           gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
@@ -363,7 +370,9 @@ jobs:
             echo "- Trigger mode: \`${TRIGGER_MODE}\`"
             echo "- Receipt issue: \`#${ISSUE_NUMBER}\`"
             echo "- Classification: \`${CLASSIFICATION:-not-produced}\`"
-            echo "- Ready for Stage 2 repair: \`${REPAIR_ALLOWED:-false}\`"
+            echo "- Product-code repair eligibility: \`${REPAIR_ALLOWED:-false}\`"
+            echo "- Default next repair lane: \`local Patch Owner\`"
+            echo "- Automatic remote Stage 2 dispatch: \`false\`"
             echo "- Source changes: none"
             echo "- production_closed: false"
           } >> "$GITHUB_STEP_SUMMARY"

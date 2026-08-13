@@ -16,6 +16,24 @@ python3 -B skillctl.py contract-close --result CONVERGED
 
 Do not recreate these rules in a host-specific prompt.
 
+## Single-authority cutover rule
+
+Every live decision has exactly one authoritative owner and one live writer. This applies to semantic identity, execution targets, repair-lane state, transaction state, validation verdicts, completion state, release state, and any other fact that can change control flow.
+
+A replacement is a **cutover**, never a permanent old/new coexistence:
+
+1. name the successor authority before enabling it;
+2. route all new live decisions through the successor;
+3. keep legacy code only as a bounded read-only compatibility adapter when an external historical shape must still be consumed;
+4. compatibility code may translate representation, but it must not reinterpret semantics, authorize writes, start another controller, backfill the successor, override a verdict, or declare completion;
+5. delete superseded writers, triggers, controllers, state machines, fallback judges, and tests that still assert the retired behavior as soon as the successor is live;
+6. tests must prove both sides of the cutover: the successor can make the live decision and the retired path cannot make the same transition;
+7. if two paths can independently initiate or finalize the same live state transition, the system must fail closed until one authority is removed.
+
+Do not preserve a second production path merely for compatibility. Historical data compatibility is allowed; historical **decision authority** is not. No old/new dual writers, dual repair controllers, parallel completion authorities, mutual backfill, or nearest-match fallback may remain after cutover.
+
+For repair orchestration, `skill-system/controller/local_first_governance.py` is the default writable repair-lane authority. The Patch Owner performs the local repair/test loop and `admit-upload` is the only normal transition into GitHub CI. GitHub CI is a clean-room verifier. `governed-ci-repair-stage2` is a separate, explicitly invoked remote fallback and must never be automatically entered by a normal CI failure. Once that fallback is explicitly entered, its bounded Stage-2/Stage-3 continuation may remain internally automated under the same bound source failure and repair budget; it is not a peer default repair authority.
+
 ## Classify before editing
 
 Choose one target kind first:

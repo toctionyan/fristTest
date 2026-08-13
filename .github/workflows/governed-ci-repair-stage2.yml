@@ -1,20 +1,21 @@
 name: governed-ci-repair-stage2
 
 on:
-  workflow_run:
-    workflows:
-      - governed-ci-failure-ingest
-    types: [completed]
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: Exact failed Quality run ID already accepted by Stage 4A
+        description: Exact failed Quality run ID already accepted by Stage 1
         required: true
         type: string
       source_run_attempt:
         description: Exact source Quality run attempt
         required: false
         default: '1'
+        type: string
+      remote_repair_approval:
+        description: Initial remote fallback only; must be exactly explicitly-approved
+        required: false
+        default: ''
         type: string
       loop_feedback_run_id:
         description: Optional outer-loop coordinator run carrying a later-round feedback artifact
@@ -27,7 +28,7 @@ on:
         default: '1'
         type: string
       repair_round:
-        description: Governed product repair round; workflow attempts and fixer cycles do not count
+        description: Governed remote fallback repair round; workflow attempts and fixer cycles do not count
         required: false
         default: '1'
         type: string
@@ -40,12 +41,11 @@ env:
   GH_REPO: ${{ github.repository }}
 
 concurrency:
-  group: governed-ci-repair-stage2-${{ github.event.workflow_run.id || inputs.loop_feedback_run_id || inputs.source_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.loop_feedback_run_attempt || inputs.source_run_attempt }}
+  group: governed-ci-repair-stage2-${{ inputs.loop_feedback_run_id || inputs.source_run_id }}-${{ inputs.loop_feedback_run_attempt || inputs.source_run_attempt }}
   cancel-in-progress: false
 
 jobs:
   inspect:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -75,37 +75,37 @@ jobs:
         id: control
         run: echo "control_sha=$(git -C control rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve governed Stage-2 input
+      - name: Resolve explicitly authorized Stage-2 input
         id: source
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
           DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          REMOTE_REPAIR_APPROVAL: ${{ inputs.remote_repair_approval }}
           LOOP_FEEDBACK_RUN_ID: ${{ inputs.loop_feedback_run_id }}
           LOOP_FEEDBACK_RUN_ATTEMPT: ${{ inputs.loop_feedback_run_attempt }}
           REPAIR_ROUND: ${{ inputs.repair_round }}
         run: |
           set -euo pipefail
-          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
-            [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
-            echo "input_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
-            echo "input_artifact_pattern=governed-ci-failure-*" >> "$GITHUB_OUTPUT"
-            echo "input_kind=stage1" >> "$GITHUB_OUTPUT"
-            echo "repair_round=1" >> "$GITHUB_OUTPUT"
-          elif [[ -n "${LOOP_FEEDBACK_RUN_ID}" ]]; then
-            [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
-            [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          if [[ -n "${LOOP_FEEDBACK_RUN_ID}" ]]; then
             [[ "${LOOP_FEEDBACK_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
             [[ "${LOOP_FEEDBACK_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
-            [[ "${REPAIR_ROUND}" =~ ^[1-8]$ ]]
+            [[ "${REPAIR_ROUND}" =~ ^[2-8]$ ]]
             echo "input_run_id=${LOOP_FEEDBACK_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_artifact_pattern=governed-repair-loop-feedback-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_kind=loop_feedback" >> "$GITHUB_OUTPUT"
             echo "repair_round=${REPAIR_ROUND}" >> "$GITHUB_OUTPUT"
           else
-            [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
-            [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+            if [[ "${REMOTE_REPAIR_APPROVAL}" != "explicitly-approved" ]]; then
+              echo "Initial remote repair fallback requires remote_repair_approval=explicitly-approved." >&2
+              echo "Normal CI code failures must return to the local Patch Owner instead." >&2
+              exit 1
+            fi
+            if [[ "${REPAIR_ROUND}" != "1" ]]; then
+              echo "Initial remote fallback must start at repair_round=1." >&2
+              exit 1
+            fi
             echo "input_run_id=${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_kind=stage1" >> "$GITHUB_OUTPUT"
@@ -114,7 +114,6 @@ jobs:
 
       - name: Download approved Stage-1 governed evidence when present
         if: steps.source.outputs.input_kind == 'stage1'
-        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: ${{ steps.source.outputs.input_artifact_pattern }}
@@ -162,12 +161,12 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Verify Stage-1 or outer-loop handoff
+      - name: Verify explicit Stage-1 fallback or bounded outer-loop handoff
         id: inspect
         env:
-          EVENT_NAME: ${{ github.event_name }}
           DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          REMOTE_REPAIR_APPROVAL: ${{ inputs.remote_repair_approval }}
           INPUT_KIND: ${{ steps.source.outputs.input_kind }}
           REPAIR_ROUND: ${{ steps.source.outputs.repair_round }}
         run: |
@@ -185,14 +184,14 @@ jobs:
             echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" "${EVENT_NAME}" "${DISPATCH_SOURCE_RUN_ID}" "${DISPATCH_SOURCE_RUN_ATTEMPT}" "${INPUT_KIND}" "${REPAIR_ROUND}" "${seed_patch}" "${loop_state}" <<'PY'
+          "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" "${DISPATCH_SOURCE_RUN_ID}" "${DISPATCH_SOURCE_RUN_ATTEMPT}" "${INPUT_KIND}" "${REPAIR_ROUND}" "${seed_patch}" "${loop_state}" "${REMOTE_REPAIR_APPROVAL}" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           failure_path, task_path, output_path = map(Path, sys.argv[1:4])
-          event_name, dispatch_run_id, dispatch_run_attempt, input_kind, repair_round = sys.argv[4:9]
-          seed_patch_raw, loop_state_raw = sys.argv[9:11]
+          dispatch_run_id, dispatch_run_attempt, input_kind, repair_round = sys.argv[4:8]
+          seed_patch_raw, loop_state_raw, remote_approval = sys.argv[8:11]
           failure = json.loads(failure_path.read_text(encoding="utf-8"))
           task = json.loads(task_path.read_text(encoding="utf-8"))
           if failure.get("schema") != "github-failure-ingest@1" or failure.get("status") != "INGESTED":
@@ -208,12 +207,16 @@ jobs:
           for key, value in expected.items():
               if str(binding.get(key)) != str(value):
                   raise SystemExit(f"Stage-1 TaskRun binding mismatch: {key}")
-          if event_name == "workflow_dispatch":
-              if str(failure.get("workflow_run_id")) != dispatch_run_id:
-                  raise SystemExit("approved source Run ID does not match governed evidence")
-              if str(failure.get("workflow_run_attempt")) != dispatch_run_attempt:
-                  raise SystemExit("approved source run attempt does not match governed evidence")
-          if input_kind == "loop_feedback":
+          if str(failure.get("workflow_run_id")) != dispatch_run_id:
+              raise SystemExit("approved source Run ID does not match governed evidence")
+          if str(failure.get("workflow_run_attempt")) != dispatch_run_attempt:
+              raise SystemExit("approved source run attempt does not match governed evidence")
+          if input_kind == "stage1":
+              if remote_approval != "explicitly-approved":
+                  raise SystemExit("initial remote fallback lacks explicit approval")
+              if int(repair_round) != 1:
+                  raise SystemExit("initial remote fallback must be repair round 1")
+          elif input_kind == "loop_feedback":
               if not seed_patch_raw or not Path(seed_patch_raw).is_file():
                   raise SystemExit("outer-loop feedback is missing seed.patch")
               if not loop_state_raw or not Path(loop_state_raw).is_file():
@@ -232,6 +235,8 @@ jobs:
                   raise SystemExit("outer-loop next repair round mismatch")
               if int(loop.get("next_repair_round") or 0) != int(repair_round):
                   raise SystemExit("outer-loop dispatch round mismatch")
+          else:
+              raise SystemExit("unsupported Stage-2 input kind")
           repair_allowed = bool(
               failure.get("repair_allowed") is True
               and failure.get("same_repository") is True
@@ -308,7 +313,7 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Run bounded restricted repair controller
+      - name: Run bounded restricted remote fallback repair controller
         id: repair
         env:
           GOVERNED_REPAIR_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER || 'deepseek' }}
@@ -432,11 +437,11 @@ jobs:
             handoff_bound=$(jq -r '.stage3_handoff_bound // false' stage2-evidence/public-summary.json)
           fi
           body=$(cat <<EOF
-          Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
+          Explicit remote fallback Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
 
           - Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}
           - Stage-2 Run ID / attempt: \`${STAGE2_RUN_ID}/${STAGE2_RUN_ATTEMPT}\`
-          - Governed repair round: \`${REPAIR_ROUND}/8\`
+          - Governed remote fallback round: \`${REPAIR_ROUND}/8\`
           - Input kind: \`${INPUT_KIND}\`
           - Status: \`${status}\`
           - Code: \`${code}\`
@@ -449,8 +454,9 @@ jobs:
           - Draft PR created: no
           - production_closed: false
 
-          A \`REPAIR_CANDIDATE_READY\` result is only a local candidate for Stage 3 independent validation.
-          Fixer cycles are internal to this repair round and do not consume additional global repair rounds.
+          This workflow is a manually entered fallback, not the default CI repair lane.
+          A \`REPAIR_CANDIDATE_READY\` result is only a candidate for Stage 3 independent validation.
+          Fixer cycles are internal to this fallback round and do not consume additional global repair rounds.
           EOF
           )
           if [[ -n "${issue}" ]]; then

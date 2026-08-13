@@ -78,9 +78,12 @@ def test_direct_handoff_has_no_model_or_source_write_authority() -> None:
 
 def test_direct_handoff_cannot_trigger_stage2_by_workflow_name() -> None:
     stage2 = STAGE2.read_text(encoding="utf-8")
-    assert "- governed-ci-failure-ingest" in stage2
+    assert "workflow_run:" not in stage2
     assert "- quality" not in stage2
+    assert "- governed-ci-failure-ingest" not in stage2
     assert "governed-failure-stage1" not in stage2
+    assert "workflow_dispatch:" in stage2
+    assert "remote_repair_approval:" in stage2
 
 
 def test_completed_job_logs_are_fetched_by_immutable_current_run_id() -> None:

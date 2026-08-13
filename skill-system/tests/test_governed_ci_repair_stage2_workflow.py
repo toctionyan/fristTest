@@ -6,20 +6,52 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "governed-ci-repair-stage2.yml"
 
 
-def test_stage2_consumes_only_bound_stage1_evidence() -> None:
+def test_stage2_initial_entry_is_manual_explicit_fallback_only() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "name: governed-ci-repair-stage2" in text
-    assert "workflow_run:" in text
-    assert "- governed-ci-failure-ingest" in text
     assert "workflow_dispatch:" in text
+    assert "workflow_run:" not in text
+    assert "- governed-ci-failure-ingest" not in text
     assert "source_run_id:" in text
     assert "source_run_attempt:" in text
-    assert "stage1_artifact_pattern=governed-ci-failure-*" in text
-    assert "stage1_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" in text
-    assert "github.event.workflow_run.conclusion == 'success'" in text
-    assert "Stage-1 TaskRun binding mismatch" in text
-    assert "approved source Run ID does not match Stage-1 evidence" in text
-    assert "approved source run attempt does not match Stage-1 evidence" in text
+    assert "remote_repair_approval:" in text
+    assert "must be exactly explicitly-approved" in text
+    assert '"${REMOTE_REPAIR_APPROVAL}" != "explicitly-approved"' in text
+    assert "Normal CI code failures must return to the local Patch Owner instead." in text
+    assert "Initial remote fallback must start at repair_round=1." in text
+
+
+def test_stage2_later_rounds_require_bound_outer_loop_feedback() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    required = (
+        "loop_feedback_run_id:",
+        "loop_feedback_run_attempt:",
+        '[[ "${REPAIR_ROUND}" =~ ^[2-8]$ ]]',
+        "governed-repair-loop-feedback-${DISPATCH_SOURCE_RUN_ID}",
+        '.name == "governed-ci-repair-loop-coordinator"',
+        '.conclusion == "success"',
+        "outer-loop feedback is missing seed.patch",
+        "outer-loop feedback is missing loop-state.json",
+        'loop.get("action") != "DISPATCH_REPAIR"',
+        "outer-loop next repair round mismatch",
+    )
+    missing = [fragment for fragment in required if fragment not in text]
+    assert not missing, f"missing bounded fallback continuation fragments: {missing}"
+
+
+def test_stage2_exact_source_and_task_binding_remain_fail_closed() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    required = (
+        '[[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]',
+        '[[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]',
+        "Stage-1 TaskRun binding mismatch",
+        "approved source Run ID does not match governed evidence",
+        "approved source run attempt does not match governed evidence",
+        "initial remote fallback lacks explicit approval",
+        "unsupported Stage-2 input kind",
+    )
+    missing = [fragment for fragment in required if fragment not in text]
+    assert not missing, f"missing Stage-2 binding fragments: {missing}"
 
 
 def test_stage2_secrets_are_gated_behind_read_only_inspection() -> None:
@@ -46,26 +78,12 @@ def test_stage2_uses_low_cost_deepseek_defaults_without_overriding_environment()
         "GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || "
         "vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE || 'https://api.deepseek.com' }}"
     ) in text
-    assert text.index("vars.REAL_MODEL_CERTIFICATION_PROVIDER") < text.index("'deepseek'")
-    assert text.index("vars.OPENAI_MODEL") < text.index("'deepseek-v4-flash'")
-    assert text.index("vars.OPENAI_API_BASE") < text.index("'https://api.deepseek.com'")
-
-
-def test_stage2_manual_handoff_remains_fail_closed() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert '[[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]' in text
-    assert '[[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]' in text
-    assert "run-id: ${{ steps.source.outputs.stage1_run_id }}" in text
-    assert "run-id: ${{ needs.inspect.outputs.stage1_run_id }}" in text
-    assert "pattern: ${{ steps.source.outputs.stage1_artifact_pattern }}" in text
-    assert "pattern: ${{ needs.inspect.outputs.stage1_artifact_pattern }}" in text
 
 
 def test_stage2_uses_trusted_scope_normalizer() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "control/scripts/github_repair_orchestrator_control_plane.py" in text
     assert "control/scripts/github_repair_orchestrator.py" not in text
-    assert "normalized-failure-case.json" not in text
 
 
 def test_stage2_publishes_redacted_machine_readable_blocker() -> None:
@@ -76,9 +94,8 @@ def test_stage2_publishes_redacted_machine_readable_blocker() -> None:
         "from github_failure_ingest import redact",
         "stage2-evidence/public-summary.json",
         "Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}",
-        "Stage-2 Run ID / attempt:",
-        "Code:",
-        "Redacted reason:",
+        "Explicit remote fallback Stage 2 completed",
+        "This workflow is a manually entered fallback, not the default CI repair lane.",
     )
     missing = [fragment for fragment in required if fragment not in text]
     assert not missing, f"missing Stage-2 observability fragments: {missing}"

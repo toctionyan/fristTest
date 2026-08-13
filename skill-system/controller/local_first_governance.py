@@ -23,13 +23,12 @@ LOCAL_GATE_ORDER = (
 LOCAL_COMPLETION_CONDITIONS = tuple(f"local_{gate}_green" for gate in LOCAL_GATE_ORDER)
 CI_COMPLETION_CONDITION = "ci_certification_green"
 DEFAULT_BUDGETS = {
-    "local_repair_rounds": 4,
-    "local_verification_rounds": 2,
+    "local_repair_rounds": 8,
+    "local_verification_rounds": 8,
     "ci_feedback_rounds": 2,
     "no_progress_limit": 2,
     "flaky_retries": 2,
 }
-REMOTE_REPAIR_APPROVAL_VALUES = {"approved", "explicitly-approved"}
 PROTECTED_PREFIXES = (
     ".github/workflows/",
     "deployment/",
@@ -57,7 +56,7 @@ class CIFailureDecision:
     owner: str
     product_code_write_allowed: bool
     automatic_retry_allowed: bool
-    remote_repair_allowed: bool
+    remote_fallback_eligible: bool
     reason: str
 
 
@@ -171,7 +170,6 @@ def create_local_first_task(
                 "upload_admission": None,
                 "ci_binding": None,
                 "ci_feedback": [],
-                "remote_repair": {"status": "not-approved", "evidence_refs": []},
                 "patch_owner": str(patch_owner),
                 "created_at": _now(),
             }
@@ -456,33 +454,15 @@ def classify_ci_failure(*, job_name: str, log_text: str, conclusion: str = "fail
     if any(token in text for token in ("test definition", "invalid fixture", "collection error", "duplicate test")):
         return CIFailureDecision("test_defect", "test-maintainer-agent", False, False, False, "test-authority changes require independent review")
     if any(token in text for token in ("assertionerror", "expected", "test failed", "pytest", "syntaxerror", "type error", "mypy", "contract")):
-        return CIFailureDecision("code_or_contract", "patch-owner", True, False, True, "return the failure packet to the original patch owner")
+        return CIFailureDecision(
+            "code_or_contract",
+            "patch-owner",
+            True,
+            False,
+            True,
+            "return the failure packet to the original patch owner; remote Stage 2 is only a separately invoked fallback",
+        )
     return CIFailureDecision("unknown", "human-triage", False, False, False, "unknown failures block automatic source changes")
-
-
-def approve_remote_repair(
-    store: TaskRunStore,
-    *,
-    approval: str,
-    evidence_refs: Iterable[str],
-) -> None:
-    if approval not in REMOTE_REPAIR_APPROVAL_VALUES:
-        raise LocalFirstGovernanceError("remote repair requires explicit approval")
-    refs = [str(item) for item in evidence_refs if str(item).strip()]
-    if not refs:
-        raise LocalFirstGovernanceError("remote repair approval requires evidence")
-    local = local_metadata(store)
-    local["remote_repair"] = {
-        "status": approval,
-        "evidence_refs": refs,
-        "approved_at": _now(),
-    }
-    _persist_local_metadata(store, local)
-
-
-def _remote_repair_is_approved(local: dict[str, Any]) -> bool:
-    remote = local.get("remote_repair") if isinstance(local.get("remote_repair"), dict) else {}
-    return str(remote.get("status")) in REMOTE_REPAIR_APPROVAL_VALUES
 
 
 def record_ci_result(
@@ -543,7 +523,8 @@ def record_ci_result(
         "owner": decision.owner,
         "product_code_write_allowed": decision.product_code_write_allowed,
         "automatic_retry_allowed": decision.automatic_retry_allowed,
-        "remote_repair_allowed": decision.remote_repair_allowed and _remote_repair_is_approved(local),
+        "remote_fallback_eligible": decision.remote_fallback_eligible,
+        "remote_fallback_activation": "manual-workflow-dispatch-only",
         "reason": decision.reason,
         "evidence_refs": refs,
         "feedback_round": feedback_round,
@@ -604,6 +585,5 @@ def export_status(store: TaskRunStore) -> dict[str, Any]:
         "upload_admission": local.get("upload_admission"),
         "ci_binding": local.get("ci_binding"),
         "ci_feedback": local.get("ci_feedback") or [],
-        "remote_repair": local.get("remote_repair"),
         "production_closed": False,
     }
