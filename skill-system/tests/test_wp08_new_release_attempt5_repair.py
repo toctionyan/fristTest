@@ -94,10 +94,13 @@ class Attempt5EffectGuidanceRepairTests(unittest.TestCase):
         self.assertEqual(list_call["args"]["target"], {"mode": "entity_match", "attribute_span": "鼠标"})
         self.assertEqual(list_call["args"]["expected_shape"], "collection")
 
-    def test_certification_oracle_exact_match_is_not_weakened(self) -> None:
+    def test_certification_oracle_exact_canonical_match_is_not_weakened(self) -> None:
         smoke = (ROOT / "services/agent-service/scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
-        self.assertIn('_effect_identity(row.get("requested_effect")) == expected_effect', smoke)
-        self.assertIn('match_mode == "unregistered_open"', smoke)
+        self.assertIn("_requested_output_identity(row) in accepted_outputs", smoke)
+        self.assertIn("require_canonical_output_identity=True", smoke)
+        self.assertIn("planning_schemas(semantic_output_ids=semantic_output_ids)", smoke)
+        self.assertNotIn('_effect_identity(row.get("requested_effect")) == expected_effect', smoke)
+        self.assertNotIn('match_mode == "unregistered_open"', smoke)
 
 
 if __name__ == "__main__":
