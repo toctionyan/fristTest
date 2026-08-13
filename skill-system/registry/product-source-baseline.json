@@ -1,5 +1,5 @@
 {
-  "file_count": 571,
+  "file_count": 572,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -106,7 +106,7 @@
     "services/agent-service/scripts/validate_presentation_contracts.py": "417fd0350ea83d091ca8dfada390afe1c507607d934d36ca93c955ff2044ab52",
     "services/agent-service/scripts/verify_external_business_service.py": "a5db8e7c6fdb5e4e30b4a788afe96003835ae2ed79ce12bc00bf36f7ee1edef9",
     "services/agent-service/scripts/verify_model_smoke.py": "5caf6bdbaf33c7608cb0a51ba41101a595928aa0bdef909db607396b891ea947",
-    "services/agent-service/scripts/verify_preprod_conversation_smoke.py": "134f1df6e17199297f57c501004fe6706161c83616877661bc19e73ffb0a4d55",
+    "services/agent-service/scripts/verify_preprod_conversation_smoke.py": "0262d80037fecb7b006482a87a1925cd3fd03223c4e0a35341174c96bd1f90c2",
     "services/agent-service/scripts/verify_preprod_full_lifecycle.py": "e3b347581f307165c193abc3b8377c1c99e92e70e802518253510e64a726c101",
     "services/agent-service/scripts/verify_real_model_certification_bundle.py": "9440ef16bb04b9fe8e66977f6bd5edbf2ebfb5fd26f81899b220278df9f4e9dc",
     "services/agent-service/src/agent_core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -511,6 +511,7 @@
     "services/agent-service/tests/runtime/test_workflow_runtime.py": "35716e2b2270ce1f30cbc57511836ed3d6288f69e0495a61e70b2570d73f7fcf",
     "services/agent-service/tests/runtime/test_wp08_attempt3_single_authority_repairs.py": "97419e0043b6140df61e11ac19db7207266f1bd6c060ee384b698d32adaaba5c",
     "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py": "72d3713979979e3517cd160c0fabffd1836ac56158f418e83e7c2265c50a56d2",
+    "services/agent-service/tests/runtime/test_wp08_attempt4_literal_evidence_retry.py": "0708d4497ce765a4d065ec8588df70f93b724d03fc273c0987bd2da763ccd73d",
     "services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py": "8591d0871ad510b362defa7a2ab4149af5813079b91390bd30315aa8fbb2a2fd",
     "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "1778e423eb75d05db3258b6a46b5c5e56e99468404ab405e8cb4caf2d20cff1f",
     "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "96d1a418497c057e0e642474afbb2cde6467f9544bddb4d024eada8c96f08a3f",
@@ -573,8 +574,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T15:37:41+08:00",
-  "generated_from": "git:58edd03d50d8f814078e097d502534b41a37f9a6",
+  "generated_at": "2026-08-13T18:50:15+08:00",
+  "generated_from": "git:ae0b2084443a4949001f8960ba24451eb6eb8845",
   "protected_roots": [
     "services",
     "web",
