@@ -1,0 +1,108 @@
+name: wp08-attempt5-fixture-migrate-once
+
+on:
+  push:
+    branches:
+      - fix/wp08-attempt5-canonical-semantic-certification-20260813
+    paths:
+      - .github/workflows/wp08-attempt5-fixture-migrate-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Migrate synthetic semantic fixtures
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('services/agent-service/tests/architecture/test_quality_loop_governance.py')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '''                "requested_effect": {\n                    "domain": "order",\n                    "operation": "list",\n                    "object_type": "order",\n                },\n                "required_tools": ["list_orders"],''',
+                  '''                "accepted_output_sets": [["order.collection"]],\n                "required_tools": ["list_orders"],''',
+                  1,
+              ),
+              (
+                  '''                "requested_effect": {\n                    "domain": "order",\n                    "operation": "list",\n                    "object_type": "order",\n                },''',
+                  '''                "requested_effect": {\n                    "requested_outputs": [{"output_id": "order.collection"}],\n                },''',
+                  1,
+              ),
+              (
+                  '''                "requested_effect": {\n                    "domain": "refund",\n                    "operation": "query_status",\n                    "object_type": "refund",\n                },''',
+                  '''                "accepted_output_sets": [["refund.status"]],''',
+                  2,
+              ),
+              (
+                  '''                "requested_effect": {\n                    "domain": "refund",\n                    "operation": "query_status",\n                    "object_type": "refund",\n                },''',
+                  '''                "requested_effect": {\n                    "requested_outputs": [{"output_id": "refund.status"}],\n                },''',
+                  2,
+              ),
+          ]
+
+          for old, new, expected_count in replacements:
+              actual = text.count(old)
+              if actual < expected_count:
+                  raise SystemExit(f'expected at least {expected_count} matches, found {actual}: {old[:80]!r}')
+              text = text.replace(old, new, expected_count)
+
+          old_ambiguous = '''    ambiguous_effect = {\n        "domain": "order",\n        "operation": "update",\n        "object_type": "order",\n    }'''
+          new_ambiguous = '''    ambiguous_effect = {\n        "requested_outputs": [{"output_id": "open"}],\n    }'''
+          if text.count(old_ambiguous) != 1:
+              raise SystemExit('ambiguous synthetic effect fixture drifted')
+          text = text.replace(old_ambiguous, new_ambiguous, 1)
+
+          marker = '''                    "depends_on": [],\n                    "requested_effect": ambiguous_effect,'''
+          replacement = '''                    "depends_on": [],\n                    "accepted_output_sets": [["open"]],'''
+          if text.count(marker) != 2:
+              raise SystemExit(f'expected 2 ambiguous oracle markers, found {text.count(marker)}')
+          text = text.replace(marker, replacement, 2)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Refresh protected product-source baseline
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(v) for v in payload.get('protected_roots') or ('services', 'web', 'contracts'))
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          payload['file_count'] = len(tracked)
+          payload['files'] = {rel: hashlib.sha256((root / rel).read_bytes()).hexdigest() for rel in tracked}
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['generated_from'] = f'git:{head}'
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Commit migration and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git rm .github/workflows/wp08-attempt5-fixture-migrate-once.yml
+          git add services/agent-service/tests/architecture/test_quality_loop_governance.py skill-system/registry/product-source-baseline.json
+          git commit -m 'Migrate WP08 semantic smoke governance fixtures'
+          git push origin HEAD:fix/wp08-attempt5-canonical-semantic-certification-20260813
