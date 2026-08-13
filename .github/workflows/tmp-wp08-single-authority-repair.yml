@@ -32,7 +32,7 @@ jobs:
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Run focused authority regressions
         run: >-
-          cd services/agent-service && .venv/bin/python -m pytest
+          cd services/agent-service && PYTHONPATH=src .venv/bin/python -m pytest
           tests/runtime/test_wp08_attempt3_single_authority_repairs.py
           tests/runtime/test_semantic_reference_binding.py
           tests/runtime/test_semantic_output_coverage.py
