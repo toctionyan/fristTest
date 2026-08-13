@@ -62,15 +62,6 @@ def _result(
     return payload
 
 
-def _reference_expected_cardinality(goal: dict[str, Any]) -> str:
-    expression = goal.get("reference_expression") if isinstance(goal.get("reference_expression"), dict) else {}
-    value = str(expression.get("expected_cardinality") or "").strip().casefold()
-    if value:
-        return value
-    value = str(goal.get("expected_result_cardinality") or "").strip().casefold()
-    return value
-
-
 def compile_frozen_reference_target(
     frozen_contract: dict[str, Any] | None,
     *,
@@ -83,9 +74,9 @@ def compile_frozen_reference_target(
     historical member whose capability target shape permits a singleton binding.
     Collection pipelines and fresh literal targets remain outside this compiler
     until their own deterministic contracts are defined.  A valid collection
-    reference therefore returns NOT_APPLICABLE rather than being rejected merely
-    because this singleton compiler does not own its target shape.  Every case
-    that *does* require a singleton but cannot prove one still fails closed.
+    target therefore returns NOT_APPLICABLE rather than being rejected merely
+    because this singleton compiler observed it first.  Every case that *does*
+    require a singleton but cannot prove one still fails closed.
     """
 
     integrity = semantic_contract_integrity(frozen_contract)
@@ -148,22 +139,11 @@ def compile_frozen_reference_target(
             target_contract=target_contract,
         )
 
-    expected_cardinality = _reference_expected_cardinality(goal)
-    reference_is_collection = expected_cardinality in {"collection", "many"} or len(member_handles) > 1
-
-    # This compiler owns only singleton projection.  Collection-shaped capability
+    # This compiler owns singleton projection only.  Collection-shaped capability
     # targets continue through the existing candidate + CapabilityGate path; they
     # must not be converted into artifact singletons or rejected simply because a
     # singleton-only compiler observed them first.
     if target_contract.cardinality == "collection":
-        return _result(
-            status="NOT_APPLICABLE",
-            reason_code="COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER",
-            contract=frozen_contract,
-            goal_id=goal_id,
-            target_contract=target_contract,
-        )
-    if target_contract.cardinality == "one_or_collection" and reference_is_collection:
         return _result(
             status="NOT_APPLICABLE",
             reason_code="COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER",
