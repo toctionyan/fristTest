@@ -432,7 +432,7 @@
     "services/agent-service/tests/context/test_parameterized_capability_alignment.py": "0c64463c8e323367b47b8df713747440f4e88dea42e50bc63702c97f5f70750b",
     "services/agent-service/tests/context/test_reference_resolution_contract.py": "845b253e1c1411518f63d712919ba8dd3430489fae1c151ec52a9c5c88badf2c",
     "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py": "0402ab93beeccfa712eb9015dfdf67a11f44cbfe41030098aaa9e25c22d1a07c",
-    "services/agent-service/tests/context/test_scenario_topology.py": "22014b8aa22a4d8204032169d97c5ee21a63c89dc664993b8897efff4c23935f",
+    "services/agent-service/tests/context/test_scenario_topology.py": "1c4885dbe2eed9b32664ceae5060d13cf477c64c06b5ed424b3bfa66549d5478",
     "services/agent-service/tests/context/test_semantic_goal_coverage_suite_execution.py": "74d87e2865af89fc48a69d6de5eebcd728bc12dc1608eeab6e00eca0d4ebe15a",
     "services/agent-service/tests/context/test_stage3_referent_sets.py": "813401db4d2c8b905fe839082f926fadc77f148809ba5bd9efc6aa425d5c3a2f",
     "services/agent-service/tests/context/test_stage3_semantic_campaign.py": "5a032b710bfc99bf5cf594eb1cc0b13c85742f9dfcde3443f358c00195e22911",
