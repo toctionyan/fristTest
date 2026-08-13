@@ -296,6 +296,68 @@ def _validate_with_production_goal_contract(
     return declared
 
 
+_LITERAL_GROUNDING_ERROR_PREFIX = "evidence_not_in_current_turn:"
+_SEMANTIC_VERIFIER_DATA_KEYS = (
+    "alignment_proof",
+    "granularity_proof",
+    "independent_verifier_feedback",
+)
+
+
+def _is_pure_literal_grounding_rejection(result: dict[str, Any] | None) -> bool:
+    """Admit a final declaration-only retry only for pre-verifier literal failures."""
+    if not isinstance(result, dict) or str(result.get("code") or "") != "GOAL_DECLARATION_INVALID":
+        return False
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    if any(key in data for key in _SEMANTIC_VERIFIER_DATA_KEYS):
+        return False
+    raw_errors = data.get("errors")
+    if not isinstance(raw_errors, list):
+        return False
+    errors = [str(value) for value in raw_errors if str(value)]
+    return bool(errors) and all(
+        error.startswith(_LITERAL_GROUNDING_ERROR_PREFIX)
+        for error in errors
+    )
+
+
+def _literal_grounding_retry_result(
+    *,
+    user_text: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    errors = [
+        str(value)
+        for value in list(data.get("errors") or [])
+        if str(value)
+    ]
+    return {
+        "ok": False,
+        "code": "GOAL_DECLARATION_LITERAL_GROUNDING_RETRY",
+        "message": "Final declaration-only retry: repair literal evidence copying only.",
+        "data": {
+            "errors": errors,
+            "current_user_input": user_text,
+            "repair_contract": {
+                "authority": "current_user_input_only",
+                "required_action": "redeclaration",
+                "retry_kind": "literal_grounding_only",
+                "rules": [
+                    "Copy every evidence_span as exact contiguous characters from current_user_input.",
+                    "Preserve every semantic branch and dependency already intended in the immediately preceding declaration.",
+                    "Do not paraphrase evidence_span or change business meaning.",
+                ],
+                "forbidden": [
+                    "oracle answers",
+                    "expected tool or capability identity",
+                    "normalized business values",
+                    "fuzzy or keyword hints",
+                ],
+            },
+        },
+    }
+
 
 def _declare_with_bounded_production_repair(
     *,
@@ -307,15 +369,19 @@ def _declare_with_bounded_production_repair(
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], int]:
     """Return the first declaration that production validators can freeze.
 
-    The repair message contains no oracle-derived count, expected effect identity,
-    span or dependency. It mirrors the production rule: a rejected declaration is
-    not frozen and the model must re-read the same user turn, preserving every
-    independently completable effect. Candidate-blind verifier feedback may expose
-    its own grounded uncovered literal spans, but never an oracle/tool/capability answer.
+    The normal semantic declaration repair budget remains two attempts. One
+    final declaration-only retry is available only when both normal attempts
+    fail before semantic verification on pure literal ``evidence_span``
+    grounding. That retry can only copy exact user text while preserving the
+    model's own immediately preceding semantic branches; it receives no oracle,
+    capability answer, normalized business value, fuzzy hint, or Runtime rewrite.
     """
     messages: list[Any] = [system, HumanMessage(content=user_text)]
     last_result: dict[str, Any] | None = None
     inventory_authority: dict[str, Any] | None = None
+    literal_grounding_only_history = True
+    last_response: Any | None = None
+    last_call: dict[str, Any] | None = None
     for attempt in range(1, 3):
         response, trace = invoke_model(
             purpose=f"preprod_semantic_goal:{case_id}:attempt{attempt}",
@@ -327,6 +393,8 @@ def _declare_with_bounded_production_repair(
         if len(candidates) != 1 or str(candidates[0].get("name") or "") != "declare_turn_goals":
             raise RuntimeError(f"{case_id}: model did not emit exactly one declare_turn_goals call")
         call = candidates[0]
+        last_response = response
+        last_call = call
         args = call.get("args") if isinstance(call.get("args"), dict) else {}
         goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
         # Repair invariant: 不能删除系统没有精确能力的分支；the exact Runtime result below supplies the deterministic reason.
@@ -343,6 +411,10 @@ def _declare_with_bounded_production_repair(
                 raise
             result = exc.result
             last_result = result
+            literal_grounding_only_history = (
+                literal_grounding_only_history
+                and _is_pure_literal_grounding_rejection(result)
+            )
             data = result.get("data") if isinstance(result.get("data"), dict) else {}
             granularity = data.get("granularity_proof") if isinstance(data.get("granularity_proof"), dict) else {}
             details = granularity.get("details") if isinstance(granularity.get("details"), dict) else {}
@@ -367,6 +439,57 @@ def _declare_with_bounded_production_repair(
                 content=json.dumps(result, ensure_ascii=False, default=str),
             ),
         ]
+
+    if (
+        literal_grounding_only_history
+        and _is_pure_literal_grounding_rejection(last_result)
+        and last_response is not None
+        and last_call is not None
+    ):
+        # Both normal attempts failed before alignment/granularity verification,
+        # so this extra declaration call does not create a new verifier budget.
+        # The final candidate may enter the existing verifier envelope once; no
+        # further declaration repair is available after this attempt.
+        literal_retry = _literal_grounding_retry_result(
+            user_text=user_text,
+            result=last_result,
+        )
+        tool_call_id = str(last_call.get("id") or f"{case_id}:declare:2")
+        messages = [
+            system,
+            HumanMessage(content=user_text),
+            last_response,
+            ToolMessage(
+                tool_call_id=tool_call_id,
+                name="declare_turn_goals",
+                content=json.dumps(literal_retry, ensure_ascii=False, default=str),
+            ),
+        ]
+        response, trace = invoke_model(
+            purpose=f"preprod_semantic_goal:{case_id}:attempt3",
+            model=bound,
+            payload=messages,
+        )
+        attestation = attest_real_model_metadata(response=response, identity=identity)
+        candidates = tool_calls(response)
+        if len(candidates) != 1 or str(candidates[0].get("name") or "") != "declare_turn_goals":
+            raise RuntimeError(f"{case_id}: model did not emit exactly one declare_turn_goals call")
+        call = candidates[0]
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        goals = [row for row in list(args.get("goals") or []) if isinstance(row, dict)]
+        try:
+            declared = _validate_with_production_goal_contract(
+                case_id=case_id,
+                user_text=user_text,
+                goals=goals,
+                inventory_authority=inventory_authority,
+            )
+            return goals, declared, {"trace": trace, "attestation": attestation}, 3
+        except RuntimeError as exc:
+            if not isinstance(exc, _ProductionGoalDeclarationRejected):
+                raise
+            last_result = exc.result
+
     errors = ((last_result or {}).get("data") or {}).get("errors") or [(last_result or {}).get("code")]
     diagnostic = _sanitized_goal_rejection_diagnostic(last_result)
     raise RuntimeError(
@@ -442,13 +565,16 @@ def main() -> int:
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
-        # Each accepted declaration is checked by both independent model validators:
-        # alignment owns the complete grounded dependency graph, while candidate-blind
-        # granularity owns only outcome decomposition. A rejected declaration may be repaired
-        # once through the same protected path. Each verifier remains capped at two calls;
-        # granularity's second call is decomposition-only self-audit (never dependency
-        # re-judgment), so the existing worst-case envelope remains
-        # 12 * 2 * (1 declaration + 2 alignment + 2 granularity) = 120.
+        # The normal declaration budget remains two attempts. Each accepted
+        # declaration is checked by both independent model validators: alignment
+        # owns the complete grounded dependency graph, while candidate-blind
+        # granularity owns only outcome decomposition. The optional third call is
+        # declaration-only and is reachable only after two pure literal-grounding
+        # failures, which return before either verifier runs. Its worst case is
+        # therefore 2 declaration failures + (1 declaration + 2 alignment +
+        # 2 granularity) = 7 calls for that case, below the normal two-attempt
+        # worst case of 2 * (1 + 2 + 2) = 10. The governed 120-call envelope and
+        # each verifier's existing per-declaration cap remain unchanged.
         with model_call_scope(max_calls=120, scope="preprod_semantic_goal_prototypes") as calls:
             for case in cases:
                 turn = case["execution_contract"]["turn_contracts"][0]
