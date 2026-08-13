@@ -1,0 +1,33 @@
+name: tmp-local-python-runtime-export
+
+on:
+  push:
+    branches:
+      - fix/wp08-literal-evidence-repair-20260813
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Pack exact local-test Python runtime
+        run: |
+          set -euo pipefail
+          tar -C /opt/hostedtoolcache/Python/3.12.13 -czf python312-runtime.tar.gz x64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned
+        with:
+          name: tmp-local-python-runtime-${{ github.run_id }}
+          path: python312-runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 1
