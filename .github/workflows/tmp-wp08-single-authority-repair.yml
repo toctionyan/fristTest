@@ -32,12 +32,12 @@ jobs:
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Run focused authority regressions
         run: >-
-          services/agent-service/.venv/bin/python -m pytest
-          services/agent-service/tests/runtime/test_wp08_attempt3_single_authority_repairs.py
-          services/agent-service/tests/runtime/test_semantic_reference_binding.py
-          services/agent-service/tests/runtime/test_semantic_output_coverage.py
-          services/agent-service/tests/runtime/test_deterministic_target_compiler.py
-          services/agent-service/tests/runtime/test_execution_target_authority_cutover.py -q
+          cd services/agent-service && .venv/bin/python -m pytest
+          tests/runtime/test_wp08_attempt3_single_authority_repairs.py
+          tests/runtime/test_semantic_reference_binding.py
+          tests/runtime/test_semantic_output_coverage.py
+          tests/runtime/test_deterministic_target_compiler.py
+          tests/runtime/test_execution_target_authority_cutover.py -q
       - name: Refresh exact protected source baseline
         run: python .github/tmp/wp08_refresh_authority_baseline.py
       - name: Validate Skill control plane against refreshed baseline
