@@ -1,0 +1,39 @@
+name: temporary-v20.18-scope-focused-validation
+
+on:
+  push:
+    branches:
+      - fix/v20.18-goal-scope-target-binding-20260813
+    paths:
+      - .github/workflows/tmp-v20.18-scope-focused-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: fix/v20.18-goal-scope-target-binding-20260813
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Run V20.18 and preserved scope regressions
+        run: |
+          services/agent-service/.venv/bin/python -m pytest -q \
+            skill-system/tests/test_v20_18_scope_identity_adjudication.py \
+            skill-system/tests/test_wp08_attempt7_scope_constraint_repair.py \
+            skill-system/tests/test_wp08_final_product_closure_repair.py
+          git diff --check
