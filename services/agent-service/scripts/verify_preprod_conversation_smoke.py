@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Canonical semantic adapter for the WP08 real-model goal smoke.
+"""Canonical semantic entry point for the WP08 real-model goal smoke.
 
-The mature bounded-repair/provider-attestation implementation is preserved in
-``_verify_preprod_conversation_smoke_legacy.py``. This entry point owns only the
-semantic migration boundary: provider planning gets the live Runtime's
-capability-independent vocabulary, new-turn declarations require canonical
-``requested_outputs``, and the independent oracle certifies canonical output IDs.
+The bounded-repair/provider-attestation mechanics live in the private
+``_verify_preprod_conversation_smoke_impl.py`` implementation module. This
+entry point owns the semantic certification boundary: provider planning gets
+the live Runtime's capability-independent vocabulary, new-turn declarations
+require canonical ``requested_outputs``, and the independent oracle certifies
+canonical output IDs.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-_IMPL_PATH = Path(__file__).with_name("_verify_preprod_conversation_smoke_legacy.py")
+_IMPL_PATH = Path(__file__).with_name("_verify_preprod_conversation_smoke_impl.py")
 _SPEC = importlib.util.spec_from_file_location("_wp08_semantic_smoke_impl", _IMPL_PATH)
 if _SPEC is None or _SPEC.loader is None:
     raise RuntimeError(f"unable to load semantic smoke implementation: {_IMPL_PATH}")
@@ -29,7 +30,7 @@ from agent_core.composition import get_module_registry  # noqa: E402
 
 _ORIGINAL_PLANNING_SCHEMAS = _impl.planning_schemas
 _ORIGINAL_SYSTEM_MESSAGE = _impl.SystemMessage
-_LEGACY_DECLARE_WITH_BOUNDED_REPAIR = _impl._declare_with_bounded_production_repair
+_IMPL_DECLARE_WITH_BOUNDED_REPAIR = _impl._declare_with_bounded_production_repair
 
 # This is an independent case oracle, not a capability vocabulary. Every
 # registered ID below is checked against ModuleRegistry before certification.
@@ -105,9 +106,9 @@ def _canonical_system_message(*args: Any, **kwargs: Any):
         "Goal 只表示用户可独立判断完成与否的业务效果；实现步骤不能单独提升为 Goal。"
         "requested_effect.requested_outputs 是新轮语义身份的唯一权威：每个 output_id 必须从下面的"
         "能力无关 semantic vocabulary 精确选择；若用户语义不在登记词汇中，只能使用保留 output_id=open，"
-        "并在 open_description 中按用户原意描述，禁止映射到相近 output、legacy effect、能力或工具。"
+        "并在 open_description 中按用户原意描述，禁止映射到相近 output、旧 effect 字段、能力或工具。"
         f"semantic vocabulary（不包含能力可用性和工具身份）：{vocabulary}。"
-        "domain、operation、object_type 如出现仅是兼容元数据，不能决定新轮语义，也不能替代 requested_outputs。"
+        "domain、operation、object_type 如出现仅是非权威元数据，不能决定新轮语义，也不能替代 requested_outputs。"
         "能力词汇中没有精确身份的分支也必须保留；不能吞掉不支持分支，也不能用相似能力代替。"
         "evidence_span 必须来自用户当前轮原话；多目标时每个 span 只覆盖自己的局部连续原文。"
         "同轮后续目标依赖前一目标真实结果时用 depends_on；普通共享范围不制造依赖。"
@@ -248,7 +249,7 @@ def _match_oracle(
 
 
 def _sync_direct_repair_surface() -> None:
-    # Legacy function objects resolve globals from their implementation module.
+    # Implementation function objects resolve globals from their own module.
     # Mirror monkeypatched adapter dependencies before direct focused-test calls.
     for name in (
         "invoke_model",
@@ -261,7 +262,7 @@ def _sync_direct_repair_surface() -> None:
 
 def _declare_with_bounded_production_repair(**kwargs: Any):
     _sync_direct_repair_surface()
-    return _LEGACY_DECLARE_WITH_BOUNDED_REPAIR(**kwargs)
+    return _IMPL_DECLARE_WITH_BOUNDED_REPAIR(**kwargs)
 
 
 def _sync_impl() -> None:
