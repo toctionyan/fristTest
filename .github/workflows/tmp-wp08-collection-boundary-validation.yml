@@ -34,7 +34,7 @@ jobs:
       - name: Run focused deterministic target authority tests
         run: >-
           cd services/agent-service &&
-          uv run pytest -q
+          PYTHONPATH=src uv run pytest -q
           tests/runtime/test_deterministic_target_compiler.py
           tests/runtime/test_execution_target_authority_cutover.py
       - name: Refresh protected product-source baseline for repaired owner
