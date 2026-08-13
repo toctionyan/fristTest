@@ -1,5 +1,5 @@
 {
-  "file_count": 572,
+  "file_count": 573,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -336,7 +336,7 @@
     "services/agent-service/src/agent_modules/ecommerce/module_manifest.json": "ae33d89d6252960e8006a54b596c4194a748130f8f147c67157d91c7190f2fa7",
     "services/agent-service/src/agent_modules/ecommerce/operation_plugins.py": "c1b4991d2d3152b4f5de183e99a381472918e77158f9eea3e1e54791bdb94143",
     "services/agent-service/src/agent_modules/ecommerce/presentation/__init__.py": "3d2823584d41c1da981e25575d0324da8d25fba13fa7a0f665967129eb21ba19",
-    "services/agent-service/src/agent_modules/ecommerce/presentation/adapter.py": "354771d18da5fb493100ca85fd36eade3328dc83ab6556d12eefe88d7b483693",
+    "services/agent-service/src/agent_modules/ecommerce/presentation/adapter.py": "63de0c26a6566778ce86db9612d79793169444066bdf8db95263cffd09678e9a",
     "services/agent-service/src/agent_modules/ecommerce/presentation/contracts.py": "c2a2e82e8be5cddebec4a2a83868ed8ce6ea6e7f5847721c1b996dbff6915e39",
     "services/agent-service/src/agent_modules/ecommerce/presentation/ecommerce_advisory_v1.json": "39a3664d833062d459379cd3e0aea80633eee21c08e3b53262ac08bb8b57fb5f",
     "services/agent-service/src/agent_modules/ecommerce/presentation/ecommerce_business_status_list_v1.json": "1a9c8ab156895e92c538de05dbac75e4924dd5c31d6973c3e06032d59b1a8483",
@@ -347,7 +347,7 @@
     "services/agent-service/src/agent_modules/ecommerce/rag_seed.py": "5a36af4bfe951e4c546d6148a8da0ed69bc464f1ad92826b6044b48bb8200e42",
     "services/agent-service/src/agent_modules/ecommerce/resource_plugins.py": "816af2d287fdfb2d6631429718dd4df58a2d8bc331b6d17dba630c5d98d8d95a",
     "services/agent-service/src/agent_modules/ecommerce/schemas.py": "5ae0c82844786629b250289a15623e332ae1f28a8be82894748e77d6b4c997c3",
-    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py": "2818c9589f5c1b90713e2891e57aa38e9282b10874b4272e2012feff1d142758",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py": "620b022f98f56f9fa5064b47c1451ba9b7bc8df397f9cce0c8c59e9cf5e4adf1",
     "services/agent-service/src/agent_modules/ecommerce/shared/__init__.py": "b17d7e67b65b6027ed7880254c3cbe35b2a62aa858ab4fc113e9aee8cf4d3d8f",
     "services/agent-service/src/agent_modules/ecommerce/shared/consultation.py": "01615ec102092b61712df1eaa0ea247d1438e778a30b3cd67a17783b4d817eb6",
     "services/agent-service/src/agent_modules/ecommerce/shared/context.py": "a6089b808a6419f456236fc09e04253945a0942d437495fe997ee8b406eeff9f",
@@ -416,6 +416,7 @@
     "services/agent-service/tests/architecture/test_systemic_operational_closure.py": "b68edda731890fa500ed9756c549d45b16d974c65cfa0291d15a53584b3179c2",
     "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py": "987308e87fe35e62a5da9d7364971c57e74e0d739ca0d5163eb93a1fe2dc1250",
     "services/agent-service/tests/architecture/test_utils_scc_extraction.py": "ce66c7f8e99363523d351642a7558b9a75fadb3ca6d754566360942623fb05d9",
+    "services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py": "94794e4256edbe41bdb211c23ab40702c18f07780d36f2bd2c89c79a6f78d79d",
     "services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json": "8f1a2604987e219fd772c0bb93ed6d38a30174c46e7a3b5cf537249af36d9c1d",
     "services/agent-service/tests/context/strong_context_cases/correction_cases.json": "82b551c2dfbf7e5603316b7ca1aa19875e458296d17fa26efc6656809802921c",
     "services/agent-service/tests/context/strong_context_cases/multi_target_write_cases.json": "3c177fae35da4da5424d1c77b644d9a2edbcbeeedc1f799d1f47f24d1e056a2f",
@@ -574,8 +575,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T12:47:24Z",
-  "generated_from": "git:1cc875e559ab324325cdfc900998e19dca352a5a",
+  "generated_at": "2026-08-13T13:41:42Z",
+  "generated_from": "git:5d2295a002cfcef03b88f4a8b804c24a8b5f9f88",
   "protected_roots": [
     "services",
     "web",

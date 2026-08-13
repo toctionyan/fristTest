@@ -1,7 +1,7 @@
 """E-commerce observation adapter using only canonical formal contracts.
 
 No unstructured ``label/title/id`` display block can leave this adapter. Every
-primary structured result is projected exactly once through an e-commerce
+primary structured result is projected exactly once through a registered
 contract and then released by the core StructuredResultReleaseGate.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_core.presentation.actions import customer_actions_for_business_codes
+from agent_core.presentation.contracts.runtime import project_transaction_status
 from agent_modules.ecommerce.presentation.contracts import (
     presentation_contract_manifests,
     presentation_renderer_registrations,
@@ -38,6 +39,30 @@ def _logistics_observation(item: dict[str, Any]) -> dict[str, Any]:
         "latest": _text(logistics.get("latest")),
         "estimate": logistics.get("estimate"),
     }
+
+
+def _runtime_status_block(
+    result: dict[str, Any],
+    *,
+    trace_id: str | None,
+) -> dict[str, Any] | None:
+    """Project only the closed RuntimeOutcome carried by a runtime read.
+
+    Runtime-owned status contracts may not be synthesized from arbitrary tool
+    payloads.  The execution boundary already attached the authoritative
+    RuntimeOutcome, so this adapter only forwards its customer-safe summary and
+    payload through the registered core projector.
+    """
+    runtime = result.get("runtime_outcome") if isinstance(result.get("runtime_outcome"), dict) else {}
+    summary = _text(runtime.get("customer_safe_summary"))
+    payload = runtime.get("payload") if isinstance(runtime.get("payload"), dict) else None
+    if not summary or payload is None:
+        return None
+    return project_transaction_status(
+        summary=summary,
+        data=dict(payload),
+        trace_id=trace_id,
+    )
 
 
 def _next_actions_block(
@@ -95,6 +120,9 @@ class EcommerceObservationAdapter:
         "consult_after_sales_policy": "commerce.advisory@1",
         "consult_warranty_policy": "commerce.advisory@1",
         "evaluate_refund_eligibility": "commerce.eligibility_decision@1",
+        "query_transaction_lifecycle": "runtime.transaction_status@1",
+        "list_active_eligibilities": "runtime.transaction_status@1",
+        "list_active_offers": "runtime.transaction_status@1",
     }
 
     @staticmethod
@@ -110,8 +138,9 @@ class EcommerceObservationAdapter:
 
         A single Goal may require several prerequisite tools, so candidates
         within the same Goal scope still follow the established precedence
-        (action/advisory > logistics > order > related status).  Independent
-        Goals must not overwrite one another merely because they share a turn.
+        (action/advisory > runtime status > logistics > order > related status).
+        Independent Goals must not overwrite one another merely because they
+        share a turn.
 
         Legacy traces without Goal provenance intentionally share one turn
         scope, preserving the former single-primary behaviour for old
@@ -141,6 +170,7 @@ class EcommerceObservationAdapter:
             scope = scope_for(row)
             if scope not in scoped:
                 scoped[scope] = {
+                    "runtime_status_block": None,
                     "logistics_items": [],
                     "logistics_parameterization": None,
                     "latest_order_observations": None,
@@ -194,6 +224,15 @@ class EcommerceObservationAdapter:
                     "list_invoices": "发票记录",
                 }[name]
             elif name in {
+                "query_transaction_lifecycle",
+                "list_active_eligibilities",
+                "list_active_offers",
+            }:
+                current["runtime_status_block"] = _runtime_status_block(
+                    result,
+                    trace_id=trace_id,
+                )
+            elif name in {
                 "consult_invoice_policy",
                 "consult_refund_policy",
                 "consult_after_sales_policy",
@@ -238,6 +277,8 @@ class EcommerceObservationAdapter:
             block: dict[str, Any] | None = None
             if current["next_action_blocks"]:
                 block = dict(current["next_action_blocks"][-1])
+            elif current["runtime_status_block"] is not None:
+                block = dict(current["runtime_status_block"])
             elif current["logistics_items"]:
                 block = project_logistics_overview(
                     current["logistics_items"],

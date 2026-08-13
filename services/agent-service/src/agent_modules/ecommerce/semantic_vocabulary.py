@@ -29,9 +29,21 @@ def _output(
 SEMANTIC_OUTPUTS = (
     _output("order.collection", "order", ("read",), "订单集合及其可见成员。", "order.list:order"),
     _output("order.details", "order", ("read",), "订单的已验证业务详情。", "order.query_details:order"),
-    _output("shipment.current_status", "shipment", ("read",), "物流当前状态或所处阶段。", "order.query_logistics:order"),
+    _output(
+        "shipment.current_status",
+        "shipment",
+        ("read",),
+        "物流生命周期的当前状态或阶段标签，例如待发货、运输中、已签收；不表示当前位置节点、轨迹或运输进展。",
+        "order.query_logistics:order",
+    ),
     _output("shipment.eta", "shipment", ("read",), "物流预计送达时间。", "order.query_logistics:order"),
-    _output("shipment.tracking", "shipment", ("read",), "物流轨迹、节点或运输进展。", "order.query_logistics:order"),
+    _output(
+        "shipment.tracking",
+        "shipment",
+        ("read",),
+        "物流当前位置节点、已发生轨迹或运输进展；用于回答货件当前到达何处或运输推进到哪里，不等同于仅有生命周期状态标签。",
+        "order.query_logistics:order",
+    ),
     _output("refund.status", "refund", ("read",), "退款申请的当前处理状态。", "refund.query_status:refund"),
     _output("after_sales.status", "after_sales_request", ("read",), "售后申请的当前处理状态。", "after_sales.query_status:after_sales_request"),
     _output("invoice.status", "invoice", ("read",), "发票申请或开具状态。", "invoice.query_status:invoice"),
