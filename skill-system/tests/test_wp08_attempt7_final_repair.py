@@ -36,13 +36,16 @@ class Attempt7FinalRepairTests(unittest.TestCase):
         self.assertIn("不存在精确对应时才保留开放身份", prompt)
         self.assertIn("禁止用 query/action 等泛化类别", prompt)
 
-    def test_semantic_smoke_receives_runtime_effect_vocabulary_without_weakening_oracle(self) -> None:
+    def test_semantic_smoke_uses_module_semantic_vocabulary_and_canonical_oracle(self) -> None:
         source = (
             ROOT / "services" / "agent-service" / "scripts" / "verify_preprod_conversation_smoke.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("capability_effect_index(get_runtime_registry().capabilities)", source)
-        self.assertIn("当前部署登记的业务效果身份", source)
-        self.assertIn('_effect_identity(row.get("requested_effect")) == expected_effect', source)
+        self.assertIn("get_module_registry().semantic_vocabulary_snapshot()", source)
+        self.assertIn("planning_schemas(semantic_output_ids=semantic_output_ids)", source)
+        self.assertIn("require_canonical_output_identity=True", source)
+        self.assertIn("_requested_output_identity(row) in accepted_outputs", source)
+        self.assertNotIn("capability_effect_index(get_runtime_registry().capabilities)", source)
+        self.assertNotIn('_effect_identity(row.get("requested_effect")) == expected_effect', source)
         self.assertNotIn("expected_effect in", source)
 
     def test_browser_postgres_diagnostics_projects_only_safe_model_call_fields(self) -> None:
