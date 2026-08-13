@@ -141,6 +141,12 @@ def _message_for(messages: list[object], tool_names: set[str] | None = None) -> 
                 "domain": "order",
                 "operation": "cancel",
                 "object_type": "order",
+                "requested_outputs": [
+                    {
+                        "output_id": "order.cancellation",
+                        "evidence_span": user_text,
+                    }
+                ],
                 "raw_description": user_text,
             }
             if is_cancel
@@ -148,6 +154,13 @@ def _message_for(messages: list[object], tool_names: set[str] | None = None) -> 
                 "domain": "conversation",
                 "operation": "respond",
                 "object_type": "message",
+                "requested_outputs": [
+                    {
+                        "output_id": "open",
+                        "evidence_span": user_text,
+                        "open_description": user_text,
+                    }
+                ],
                 "raw_description": user_text,
             }
         )
