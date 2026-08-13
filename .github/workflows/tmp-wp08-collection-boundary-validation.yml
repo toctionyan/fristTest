@@ -1,4 +1,5 @@
 name: temporary-wp08-collection-boundary-validation
+# rerun after preserving one-or-collection fail-closed semantics
 
 "on":
   push:
