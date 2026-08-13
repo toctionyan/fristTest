@@ -21,9 +21,9 @@ from agent_modules.ecommerce.semantic_vocabulary import SEMANTIC_OUTPUTS
 
 
 # The old logistics compatibility triple intentionally fans out to three
-# canonical meanings.  These release fixtures ask where the shipment is, so
-# they explicitly demand current status rather than letting compatibility data
-# guess between status, ETA and tracking.
+# canonical meanings.  These release fixtures ask for the shipment's current
+# logistics state, so they explicitly demand current status rather than letting
+# compatibility data guess between status, ETA and tracking.
 _AMBIGUOUS_OUTPUT_OVERRIDES: dict[tuple[str, str, int, str], str] = {
     (
         "conversation_runtime_contract_suite_v20_4",
@@ -36,6 +36,12 @@ _AMBIGUOUS_OUTPUT_OVERRIDES: dict[tuple[str, str, int, str], str] = {
         "semantic_multi_orders_logistics",
         1,
         "g2",
+    ): "shipment.current_status",
+    (
+        "semantic_goal_coverage_suite_v20_4",
+        "semantic_supported_plus_unsupported",
+        1,
+        "g1",
     ): "shipment.current_status",
 }
 
