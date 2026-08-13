@@ -14,9 +14,13 @@ DOC = ROOT / "docs/governance/LOCAL_FIRST_ENGINEERING_LOOP.md"
 MAKEFILE = ROOT / "Makefile"
 AGENTS = ROOT / "AGENTS.md"
 PROFILE = ROOT / "skill-system/profiles/skill-static.json"
+STAGE2 = ROOT / ".github/workflows/governed-ci-repair-stage2.yml"
+RETIRED_AUTO_WORKFLOW = ROOT / ".github/workflows/governed-ci-stage2-auto-handoff.yml"
+RETIRED_AUTO_CONTROLLER = ROOT / "scripts/github_stage2_auto_handoff.py"
 TESTS = (
     ROOT / "skill-system/tests/test_local_first_governance.py",
     ROOT / "skill-system/tests/test_local_first_loop.py",
+    ROOT / "skill-system/tests/test_repair_lane_single_authority.py",
 )
 
 FORBIDDEN_WRITABLE_AUTHORITY = (
@@ -34,8 +38,11 @@ REQUIRED_CORE_SYMBOLS = {
     "bind_ci_run",
     "classify_ci_failure",
     "record_ci_result",
-    "approve_remote_repair",
     "export_status",
+}
+RETIRED_REMOTE_APPROVAL_SYMBOLS = {
+    "approve_remote_repair",
+    "_remote_repair_is_approved",
 }
 
 
@@ -48,10 +55,15 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def verify(root: Path = ROOT) -> dict[str, Any]:
     errors: list[str] = []
-    required = (CORE, CLI, SCHEMA, DOC, MAKEFILE, AGENTS, PROFILE, *TESTS)
+    required = (CORE, CLI, SCHEMA, DOC, MAKEFILE, AGENTS, PROFILE, STAGE2, *TESTS)
     for path in required:
         if not path.is_file():
             errors.append(f"missing required local-first file: {path.relative_to(root)}")
+
+    if RETIRED_AUTO_WORKFLOW.exists():
+        errors.append("retired automatic Stage-2 handoff workflow still exists")
+    if RETIRED_AUTO_CONTROLLER.exists():
+        errors.append("retired automatic Stage-2 handoff controller still exists")
 
     if errors:
         return {"status": "FAIL", "errors": errors, "production_closed": False}
@@ -74,6 +86,15 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     missing_symbols = sorted(REQUIRED_CORE_SYMBOLS - symbols)
     if missing_symbols:
         errors.append(f"local-first core symbols missing: {missing_symbols}")
+    retired_symbols = sorted(RETIRED_REMOTE_APPROVAL_SYMBOLS & symbols)
+    if retired_symbols:
+        errors.append(f"retired local remote-approval symbols remain live: {retired_symbols}")
+    if "approve-remote-repair" in cli_text:
+        errors.append("retired approve-remote-repair CLI still exists")
+    if '"remote_repair"' in core_text:
+        errors.append("retired local remote_repair state still exists")
+    if '"remote_fallback_activation": "manual-workflow-dispatch-only"' not in core_text:
+        errors.append("CI feedback does not bind remote fallback activation to manual workflow dispatch")
 
     schema = _load_json(SCHEMA)
     if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
@@ -95,10 +116,13 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
 
     agents_text = AGENTS.read_text(encoding="utf-8")
     for fragment in (
+        "## Single-authority cutover rule",
+        "exactly one authoritative owner and one live writer",
         "## Local-first Patch Owner lifecycle",
         "One TaskRun has one Patch Owner",
         "GitHub Actions is the clean-room certification layer",
         "explicitly approved fallback",
+        "must never be automatically entered by a normal CI failure",
     ):
         if fragment not in agents_text:
             errors.append(f"AGENTS local-first authority text missing: {fragment}")
@@ -110,9 +134,24 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "exact-scope upload admission",
         "original Patch Owner",
         "Remote Stage-2 repair is opt-in fallback only",
+        "remote_repair_approval=explicitly-approved",
+        "Single-authority cutover",
     ):
         if fragment not in doc_text:
             errors.append(f"local-first engineering document missing: {fragment}")
+
+    stage2_text = STAGE2.read_text(encoding="utf-8")
+    for fragment in (
+        "workflow_dispatch:",
+        "remote_repair_approval:",
+        '"${REMOTE_REPAIR_APPROVAL}" != "explicitly-approved"',
+        "Normal CI code failures must return to the local Patch Owner instead.",
+    ):
+        if fragment not in stage2_text:
+            errors.append(f"explicit remote Stage-2 fallback binding missing: {fragment}")
+    for fragment in ("workflow_run:", "schedule:", "push:"):
+        if fragment in stage2_text:
+            errors.append(f"remote Stage 2 regained automatic initial trigger: {fragment}")
 
     tests_text = "\n".join(path.read_text(encoding="utf-8") for path in TESTS)
     for scenario in (
@@ -124,6 +163,8 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "test_cli_init_rejects_base_sha_mismatch",
         "test_cli_init_rejects_branch_mismatch",
         "test_cli_admit_rejects_dirty_candidate",
+        "test_retired_automatic_remote_repair_authority_is_deleted",
+        "test_local_controller_has_no_second_remote_approval_writer",
     ):
         if scenario not in tests_text:
             errors.append(f"local-first adversarial test missing: {scenario}")
