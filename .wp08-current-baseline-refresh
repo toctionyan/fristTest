@@ -1,5 +1,0 @@
-WP08-Release-Run-ID: wp08-release-31657843214
-WP08-Parent-Run-ID: 31664178320
-Source-SHA: 756f9385db0dea00ef4ab9036e36543f8c3972b6
-Purpose: regenerate protected baseline after canonical protected model-stub contract update.
-production_closed=false
