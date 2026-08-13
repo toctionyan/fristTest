@@ -87,11 +87,17 @@ def test_deepseek_v4_profile_uses_provider_adapter_without_tool_choice(monkeypat
     monkeypatch.setenv("MODEL_PROVIDER", "deepseek")
     monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.delenv("DEEPSEEK_V4_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("DEEPSEEK_V4_MAX_RETRIES", raising=False)
     profile = agent_config.get_model_profile()
     assert profile["provider"] == "deepseek"
     assert profile["thinking_mode"] == "disabled"
     assert profile["tool_choice_supported"] is False
     assert profile["reasoning_content_required_for_tool_calls"] is False
+    assert profile["timeout_seconds"] == 40.0
+    assert profile["max_retries"] == 0
+    assert profile["latency_policy"] == "deepseek_v4_long_first_attempt"
+    assert profile["provider_retry_envelope_seconds"] == 40.0
 
 
 def test_get_model_uses_chatdeepseek_for_official_deepseek_v4(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -99,10 +105,11 @@ def test_get_model_uses_chatdeepseek_for_official_deepseek_v4(monkeypatch: pytes
     monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
     monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
     monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
-    # Do not inherit timeout/retry overrides from unrelated standard-suite tests.
-    # This provider-construction test proves the exact governed control-plane envelope.
+    # Generic settings stay 25/1 while official V4 resolves its dedicated policy.
     monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "25")
     monkeypatch.setenv("MODEL_MAX_RETRIES", "1")
+    monkeypatch.delenv("DEEPSEEK_V4_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("DEEPSEEK_V4_MAX_RETRIES", raising=False)
     agent_config.get_model.cache_clear()
     try:
         model = agent_config.get_model()
@@ -110,10 +117,37 @@ def test_get_model_uses_chatdeepseek_for_official_deepseek_v4(monkeypatch: pytes
         assert str(getattr(model, "model_name", "")) == "deepseek-v4-flash"
         assert getattr(model, "extra_body", None) == {"thinking": {"type": "disabled"}}
         settings = agent_config.get_model_settings()
-        assert settings["timeout_seconds"] == 25.0
-        assert settings["max_retries"] == 1
+        assert settings["timeout_seconds"] == 40.0
+        assert settings["max_retries"] == 0
+        assert settings["provider_retry_envelope_seconds"] == 40.0
     finally:
         agent_config.get_model.cache_clear()
+
+
+def test_deepseek_v4_latency_policy_has_dedicated_bounded_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv("DEEPSEEK_V4_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("DEEPSEEK_V4_MAX_RETRIES", "1")
+    settings = agent_config.get_model_settings()
+    assert settings["timeout_seconds"] == 30.0
+    assert settings["max_retries"] == 1
+    assert settings["provider_retry_envelope_seconds"] == 60.0
+    assert settings["latency_policy"] == "deepseek_v4_long_first_attempt"
+
+
+def test_non_v4_deepseek_keeps_generic_provider_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-chat")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "25")
+    monkeypatch.setenv("MODEL_MAX_RETRIES", "1")
+    monkeypatch.setenv("DEEPSEEK_V4_TIMEOUT_SECONDS", "40")
+    monkeypatch.setenv("DEEPSEEK_V4_MAX_RETRIES", "0")
+    settings = agent_config.get_model_settings()
+    assert settings["timeout_seconds"] == 25.0
+    assert settings["max_retries"] == 1
+    assert settings["provider_retry_envelope_seconds"] == 50.0
+    assert settings["latency_policy"] == "generic_bounded_retry"
 
 
 def test_deepseek_v4_binding_omits_provider_tool_choice() -> None:
