@@ -27,8 +27,20 @@ def _output(
 
 
 SEMANTIC_OUTPUTS = (
-    _output("order.collection", "order", ("read",), "订单集合及其可见成员。", "order.list:order"),
-    _output("order.details", "order", ("read",), "订单的已验证业务详情。", "order.query_details:order"),
+    _output(
+        "order.collection",
+        "order",
+        ("read",),
+        "发现、筛选或列出订单本身及其可见成员；当用户按商品、状态、金额或其他属性寻找订单时，即使最终只匹配一笔，也仍属于订单集合语义。",
+        "order.list:order",
+    ),
+    _output(
+        "order.details",
+        "order",
+        ("read",),
+        "读取一个在本次查询前已经通过订单号、唯一历史结果或其他已验证引用唯一绑定的订单业务详情；不用于按商品、状态或其他属性寻找订单本身。",
+        "order.query_details:order",
+    ),
     _output(
         "shipment.current_status",
         "shipment",
@@ -51,13 +63,25 @@ SEMANTIC_OUTPUTS = (
     _output("refund.policy", "order", ("consult",), "与订单退款有关的政策说明。", "refund.consult_policy:order"),
     _output("after_sales.policy", "order", ("consult",), "与订单售后有关的政策说明。", "after_sales.consult_policy:order"),
     _output("warranty.policy", "order", ("consult",), "与订单或商品保修有关的政策说明。", "warranty.consult_policy:order"),
-    _output("refund.eligibility", "order", ("read",), "订单当前是否具备退款办理资格及其已验证结论。", "refund.assess_eligibility:order"),
+    _output(
+        "refund.eligibility",
+        "order",
+        ("read",),
+        "核验订单当前能否退款、是否具备退款办理资格并返回已验证结论；这是对当前订单资格进行判断的语义，不等同于检索此前已经存在的资格记录集合。",
+        "refund.assess_eligibility:order",
+    ),
     _output("order.cancellation", "order", ("cancel",), "取消指定订单所产生的外部业务效果。", "order.cancel:order"),
     _output("after_sales.request", "order", ("create",), "创建售后申请所产生的外部业务效果。", "after_sales.create:order"),
     _output("refund.request", "order", ("create",), "创建退款申请所产生的外部业务效果。", "refund.create:order"),
     _output("invoice.request", "order", ("create",), "创建开票申请所产生的外部业务效果。", "invoice.create:order"),
     _output("transaction.status", "transaction", ("read",), "办理事务的当前生命周期状态。", "transaction.query_status:transaction"),
-    _output("refund.eligibility.collection", "refund_eligibility", ("read",), "当前仍有效的退款资格结论集合。", "refund.list_eligibilities:refund_eligibility"),
+    _output(
+        "refund.eligibility.collection",
+        "refund_eligibility",
+        ("read",),
+        "检索此前已经产生且当前仍有效的退款资格核验记录集合；不表示现在对一笔或多笔订单重新判断能否退款，也不因用户询问多个订单的退款资格而自动成立。",
+        "refund.list_eligibilities:refund_eligibility",
+    ),
     _output("transaction.draft.collection", "transaction_draft", ("read",), "当前仍有效的办理草稿集合。", "transaction.list_drafts:transaction_draft"),
     _output("transaction.draft.dismissal", "transaction_draft", ("cancel", "dismiss"), "撤销或关闭一个仍有效的办理草稿。", "transaction.cancel_draft:transaction_draft"),
     _output("refund.eligibility.dismissal", "refund_eligibility", ("dismiss",), "关闭一个仍有效的退款资格结论。", "refund.dismiss_eligibility:refund_eligibility"),

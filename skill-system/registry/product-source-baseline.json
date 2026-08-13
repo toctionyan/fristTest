@@ -1,5 +1,5 @@
 {
-  "file_count": 573,
+  "file_count": 574,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -347,7 +347,7 @@
     "services/agent-service/src/agent_modules/ecommerce/rag_seed.py": "5a36af4bfe951e4c546d6148a8da0ed69bc464f1ad92826b6044b48bb8200e42",
     "services/agent-service/src/agent_modules/ecommerce/resource_plugins.py": "816af2d287fdfb2d6631429718dd4df58a2d8bc331b6d17dba630c5d98d8d95a",
     "services/agent-service/src/agent_modules/ecommerce/schemas.py": "5ae0c82844786629b250289a15623e332ae1f28a8be82894748e77d6b4c997c3",
-    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py": "620b022f98f56f9fa5064b47c1451ba9b7bc8df397f9cce0c8c59e9cf5e4adf1",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py": "b81e548e5d5de78e840df0d9094a843432da0a99acb3eac7b7595f1e2a8d8f85",
     "services/agent-service/src/agent_modules/ecommerce/shared/__init__.py": "b17d7e67b65b6027ed7880254c3cbe35b2a62aa858ab4fc113e9aee8cf4d3d8f",
     "services/agent-service/src/agent_modules/ecommerce/shared/consultation.py": "01615ec102092b61712df1eaa0ea247d1438e778a30b3cd67a17783b4d817eb6",
     "services/agent-service/src/agent_modules/ecommerce/shared/context.py": "a6089b808a6419f456236fc09e04253945a0942d437495fe997ee8b406eeff9f",
@@ -417,6 +417,7 @@
     "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py": "987308e87fe35e62a5da9d7364971c57e74e0d739ca0d5163eb93a1fe2dc1250",
     "services/agent-service/tests/architecture/test_utils_scc_extraction.py": "ce66c7f8e99363523d351642a7558b9a75fadb3ca6d754566360942623fb05d9",
     "services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py": "94794e4256edbe41bdb211c23ab40702c18f07780d36f2bd2c89c79a6f78d79d",
+    "services/agent-service/tests/architecture/test_wp08_attempt7_semantic_capability_routing.py": "7b6655673c4e3f28663e8357b67fc7856b5a0af7a6f163372ad7723ef8b34af0",
     "services/agent-service/tests/context/strong_context_cases/conversation_runtime_contract_suite_v20_4.json": "8f1a2604987e219fd772c0bb93ed6d38a30174c46e7a3b5cf537249af36d9c1d",
     "services/agent-service/tests/context/strong_context_cases/correction_cases.json": "82b551c2dfbf7e5603316b7ca1aa19875e458296d17fa26efc6656809802921c",
     "services/agent-service/tests/context/strong_context_cases/multi_target_write_cases.json": "3c177fae35da4da5424d1c77b644d9a2edbcbeeedc1f799d1f47f24d1e056a2f",
@@ -575,8 +576,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T13:41:42Z",
-  "generated_from": "git:5d2295a002cfcef03b88f4a8b804c24a8b5f9f88",
+  "generated_at": "2026-08-13T15:21:37Z",
+  "generated_from": "git:ddc9d676efc7fad6507e4af1d6bc7ac52e0a4e3e",
   "protected_roots": [
     "services",
     "web",
