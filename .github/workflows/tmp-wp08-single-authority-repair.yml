@@ -22,7 +22,9 @@ jobs:
         with:
           python-version: '3.12.13'
       - name: Apply authority repair
-        run: python .github/tmp/wp08_single_authority_repair.py
+        run: |
+          python .github/tmp/wp08_single_authority_repair.py
+          python .github/tmp/wp08_authority_compatibility_repair.py
       - name: Bootstrap locked uv
         run: >-
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
@@ -38,8 +40,17 @@ jobs:
           tests/runtime/test_semantic_output_coverage.py
           tests/runtime/test_deterministic_target_compiler.py
           tests/runtime/test_execution_target_authority_cutover.py -q
+      - name: Stage validated product snapshot
+        run: |
+          git add services/agent-service/src/agent_core/lifecycle/protocol.py
+          git add services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          git add services/agent-service/src/agent_core/runtime/capability_gate.py
+          git add services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py
+          git add services/agent-service/tests/runtime/test_wp08_attempt3_single_authority_repairs.py
       - name: Refresh exact protected source baseline
-        run: python .github/tmp/wp08_refresh_authority_baseline.py
+        run: |
+          python .github/tmp/wp08_refresh_authority_baseline.py
+          git add skill-system/registry/product-source-baseline.json
       - name: Validate Skill control plane against refreshed baseline
         run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
       - name: Publish validated repair and remove carrier
@@ -49,13 +60,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/tmp-wp08-single-authority-repair.yml
           git rm .github/tmp/wp08_single_authority_repair.py
+          git rm .github/tmp/wp08_authority_compatibility_repair.py
           git rm .github/tmp/wp08_refresh_authority_baseline.py
-          git add services/agent-service/src/agent_core/lifecycle/protocol.py
-          git add services/agent-service/src/agent_core/lifecycle/goal_planning.py
-          git add services/agent-service/src/agent_core/runtime/capability_gate.py
-          git add services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py
-          git add services/agent-service/tests/runtime/test_wp08_attempt3_single_authority_repairs.py
-          git add skill-system/registry/product-source-baseline.json
           git diff --cached --check
           git commit -m "Make semantic output and target contracts single authority"
           git push origin HEAD:fix/wp08-single-authority-cutover-20260813
