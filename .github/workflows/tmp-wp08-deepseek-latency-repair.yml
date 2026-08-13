@@ -62,35 +62,37 @@ jobs:
           def get_model_settings() -> dict[str, object]:
               """Return the complete, non-secret model configuration and latency policy.
 
-              Generic providers keep the existing 25-second / one-retry defaults. Official
-              DeepSeek V4 control-plane calls use one longer bounded attempt by default:
-              40 seconds / zero retries. This raises the useful per-attempt read window while
-              reducing the worst-case provider envelope from 50 seconds to 40 seconds, so a
-              slow-but-valid response is less likely to be killed and duplicated by a retry.
-              Provider-specific overrides remain explicit and replayable.
+              Generic providers keep the governed 25-second / one-retry defaults. Official
+              DeepSeek V4 control-plane calls instead use one longer bounded attempt by
+              default: 40 seconds / zero retries. This raises the useful per-attempt read
+              window while reducing the default worst-case provider envelope from 50 seconds
+              to 40 seconds, so a slow-but-valid response is less likely to be killed and
+              duplicated by a retry. Provider-specific overrides remain explicit and bounded.
               """
               model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
               base_url = os.getenv("OPENAI_API_BASE") or None
-              deepseek_v4 = _is_official_deepseek_v4_identity(model=model, base_url=base_url)
-              timeout_env = "DEEPSEEK_V4_TIMEOUT_SECONDS" if deepseek_v4 else "MODEL_TIMEOUT_SECONDS"
-              retries_env = "DEEPSEEK_V4_MAX_RETRIES" if deepseek_v4 else "MODEL_MAX_RETRIES"
-              timeout_default = 40.0 if deepseek_v4 else 25.0
-              retries_default = 0 if deepseek_v4 else 1
               timeout_seconds = _bounded_float_env(
-                  timeout_env, timeout_default, minimum=1.0, maximum=600.0
+                  "MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0
               )
               max_retries = _bounded_int_env(
-                  retries_env, retries_default, minimum=0, maximum=10
+                  "MODEL_MAX_RETRIES", 1, minimum=0, maximum=10
               )
+              latency_policy = "generic_bounded_retry"
+              if _is_official_deepseek_v4_identity(model=model, base_url=base_url):
+                  timeout_seconds = _bounded_float_env(
+                      "DEEPSEEK_V4_TIMEOUT_SECONDS", 40.0, minimum=1.0, maximum=60.0
+                  )
+                  max_retries = _bounded_int_env(
+                      "DEEPSEEK_V4_MAX_RETRIES", 0, minimum=0, maximum=1
+                  )
+                  latency_policy = "deepseek_v4_long_first_attempt"
               return {
                   "model": model,
                   "base_url": base_url,
                   "temperature": _bounded_float_env("MODEL_TEMPERATURE", 0.0, minimum=0.0, maximum=2.0),
                   "timeout_seconds": timeout_seconds,
                   "max_retries": max_retries,
-                  "latency_policy": (
-                      "deepseek_v4_single_attempt" if deepseek_v4 else "generic_bounded_retry"
-                  ),
+                  "latency_policy": latency_policy,
                   "provider_retry_envelope_seconds": timeout_seconds * (max_retries + 1),
               }
           '''
@@ -122,6 +124,14 @@ jobs:
           '''
           replace_once(config_path, old_diag, new_diag)
 
+          old_comment = '''            # V4 defaults to thinking=enabled. Control-plane calls must remain inside the
+                      # existing 25s x 2-attempt provider envelope, so disable thinking explicitly.
+          '''
+          new_comment = '''            # V4 defaults to thinking=enabled. Keep control-plane work inside the
+                      # provider-specific bounded latency envelope, so disable thinking explicitly.
+          '''
+          replace_once(config_path, old_comment, new_comment)
+
           env_path = "services/agent-service/.env.example"
           old_env = '''MODEL_TEMPERATURE=0
           MODEL_TIMEOUT_SECONDS=25
@@ -133,7 +143,7 @@ jobs:
           MODEL_TIMEOUT_SECONDS=25
           MODEL_MAX_RETRIES=1
           # Official DeepSeek V4 uses one longer attempt instead of duplicating a 25s timeout.
-          # These provider-specific values are independent from the generic MODEL_* budget.
+          # The production effective provider envelope is still fail-closed at <= 60 seconds.
           DEEPSEEK_V4_TIMEOUT_SECONDS=40
           DEEPSEEK_V4_MAX_RETRIES=0
           # Protected real-model certification only accepts official HTTPS provider hosts.
@@ -164,7 +174,7 @@ jobs:
               assert profile["reasoning_content_required_for_tool_calls"] is False
               assert profile["timeout_seconds"] == 40.0
               assert profile["max_retries"] == 0
-              assert profile["latency_policy"] == "deepseek_v4_single_attempt"
+              assert profile["latency_policy"] == "deepseek_v4_long_first_attempt"
               assert profile["provider_retry_envelope_seconds"] == 40.0
           '''
           replace_once(test_path, old_profile_test, new_profile_test)
@@ -195,7 +205,7 @@ jobs:
               monkeypatch.setenv("OPENAI_MODEL", "deepseek-v4-flash")
               monkeypatch.setenv("OPENAI_API_BASE", "https://api.deepseek.com")
               monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
-              # Generic provider settings stay 25/1, while V4 has its own effective policy.
+              # Generic settings stay 25/1 while official V4 resolves its dedicated policy.
               monkeypatch.setenv("MODEL_TIMEOUT_SECONDS", "25")
               monkeypatch.setenv("MODEL_MAX_RETRIES", "1")
               monkeypatch.delenv("DEEPSEEK_V4_TIMEOUT_SECONDS", raising=False)
@@ -223,7 +233,7 @@ jobs:
               assert settings["timeout_seconds"] == 30.0
               assert settings["max_retries"] == 1
               assert settings["provider_retry_envelope_seconds"] == 60.0
-              assert settings["latency_policy"] == "deepseek_v4_single_attempt"
+              assert settings["latency_policy"] == "deepseek_v4_long_first_attempt"
 
 
           def test_non_v4_deepseek_keeps_generic_provider_budget(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,5 +305,5 @@ jobs:
             services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
             skill-system/registry/product-source-baseline.json
           git diff --cached --check
-          git commit -m "Bound DeepSeek V4 latency with a single longer attempt"
+          git commit -m "Bound DeepSeek V4 latency with a longer first attempt"
           git push origin HEAD:fix/wp08-deepseek-v4-latency-envelope-20260813
