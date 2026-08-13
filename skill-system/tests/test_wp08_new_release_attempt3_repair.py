@@ -42,18 +42,21 @@ class Attempt3RepairTests(unittest.TestCase):
         self.assertNotIn("goal_oracle", helper)
         self.assertNotIn("_match_oracle", helper)
         self.assertIn("不能删除系统没有精确能力的分支", helper)
-        # Protected certification now executes declaration + independent alignment
-        # + independent candidate-blind granularity, with at most one repair attempt.
+        # Protected certification executes declaration + independent alignment
+        # + independent candidate-blind granularity, with the existing bounded
+        # declaration repair envelope unchanged.
         self.assertIn('model_call_scope(max_calls=120', source)
         self.assertIn('"GOAL_GRANULARITY_VERIFIER_MODE"', source)
 
-    def test_independent_oracle_still_runs_after_production_freeze(self) -> None:
+    def test_independent_oracle_still_runs_after_canonical_production_freeze(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
         declaration = source.index("goals, declared, declaration_evidence, declaration_attempts")
         oracle = source.index("_match_oracle(", declaration)
         self.assertLess(declaration, oracle)
-        self.assertIn('candidate_effect = _effect_identity(row.get("requested_effect"))', source)
-        self.assertIn('_effect_identity(row.get("requested_effect")) == expected_effect', source)
+        self.assertIn("require_canonical_output_identity=True", source)
+        self.assertIn("accepted_outputs = _oracle_output_sets(case_id=case_id, expected=expected)", source)
+        self.assertIn("_requested_output_identity(row) in accepted_outputs", source)
+        self.assertNotIn('_effect_identity(row.get("requested_effect")) == expected_effect', source)
 
     def test_safe_model_call_events_use_service_logger_when_available(self) -> None:
         from agent_core.model_calls import gateway

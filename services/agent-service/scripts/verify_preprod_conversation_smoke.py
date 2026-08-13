@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Read-only real-model smoke for independent semantic goal prototypes.
 
-The smoke exercises only the planning protocol.  It never builds the lifecycle
-graph, opens a Draft, or dispatches a BusinessPort.  Each real-model
-``declare_turn_goals`` call is compared with an independent ``goal_oracle``;
-therefore a multi-intent turn fails when the model drops one branch even if the
-remaining candidate tool is otherwise allowed.
+The smoke exercises only the planning protocol. It never builds the lifecycle
+graph, opens a Draft, or dispatches a BusinessPort. Each real-model
+``declare_turn_goals`` call is first validated through the same canonical
+semantic contract as the live Runtime, then compared with an independent
+canonical-output oracle. A multi-intent turn therefore fails when the model
+drops one branch or changes its user-visible semantic output even if a nearby
+legacy effect or installed tool could otherwise execute something similar.
 """
 from __future__ import annotations
 
@@ -39,10 +41,65 @@ from agent_core.model_calls import (  # noqa: E402
 )
 from agent_core.runtime.node_support import tool_calls  # noqa: E402
 from agent_core.runtime.profile import resolve_verifier_mode  # noqa: E402
-from agent_core.composition import get_runtime_registry  # noqa: E402
-from agent_core.runtime.capability_effects import capability_effect_index  # noqa: E402
+from agent_core.composition import get_module_registry, get_runtime_registry  # noqa: E402
 
 CATALOG = WORKSPACE / "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
+
+
+# Independent certification expectations. These are test-oracle semantics, not
+# capability identities: no tool name, capability key or availability signal is
+# used to derive them. Exact alternative sets are listed only where the user
+# wording legitimately admits more than one canonical semantic decomposition.
+_SHIPMENT_OVERVIEW_OUTPUT_SETS: tuple[tuple[str, ...], ...] = (
+    ("shipment.current_status",),
+    ("shipment.eta",),
+    ("shipment.tracking",),
+    ("shipment.current_status", "shipment.eta"),
+    ("shipment.current_status", "shipment.tracking"),
+    ("shipment.eta", "shipment.tracking"),
+    ("shipment.current_status", "shipment.eta", "shipment.tracking"),
+)
+
+_CANONICAL_OUTPUT_ORACLE: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
+    "semantic_multi_orders_logistics": {
+        "g1": (("order.collection",),),
+        "g2": (
+            ("shipment.tracking",),
+            ("shipment.current_status", "shipment.tracking"),
+        ),
+    },
+    "semantic_multi_refunds_invoices": {
+        "g1": (("refund.status",),),
+        "g2": (("invoice.status",),),
+    },
+    "semantic_query_then_refund_consult": {
+        "g1": (("order.collection",),),
+        "g2": (("refund.eligibility",),),
+    },
+    "semantic_query_then_refund_draft": {
+        "g1": (("order.collection",),),
+        "g2": (("refund.request",),),
+    },
+    "semantic_cancel_and_refund_branch": {
+        "g1": (("order.cancellation",),),
+        "g2": (("refund.eligibility",),),
+    },
+    "semantic_supported_plus_unsupported": {
+        "g1": _SHIPMENT_OVERVIEW_OUTPUT_SETS,
+        "g2": (("courier.contact.phone",),),
+    },
+    "semantic_unsupported_courier_phone": {
+        "g1": (("courier.contact.phone",),),
+    },
+    # The installed ecommerce vocabulary intentionally has no refund ETA
+    # meaning. The reserved ``open`` output preserves the user's actual request
+    # rather than inventing a nearby canonical ID.
+    "semantic_refund_arrival_query": {"g1": (("open",),)},
+    "semantic_delete_record_not_cancel": {"g1": (("open",),)},
+    "semantic_refund_consult_no_draft": {"g1": (("refund.eligibility",),)},
+    "semantic_multi_target_cancel_boundary": {"g1": (("order.cancellation",),)},
+    "semantic_conflicting_actions_clarify": {"g1": (("open",),)},
+}
 
 
 def _compact_span(value: Any) -> str:
@@ -56,10 +113,10 @@ def _span_matches_oracle(*, expected: Any, actual: Any) -> bool:
     """Accept a literal model span that adds surrounding user wording.
 
     Goal spans are independently checked by the production validator to be
-    literal substrings of the current user turn.  The oracle therefore owns
-    the semantic core, while the model may legitimately include an adjacent
-    verb or conjunction (for example ``再看看``).  Containment is deliberately
-    one-dimensional; fuzzy similarity and token overlap remain forbidden.
+    literal substrings of the current user turn. The oracle therefore owns the
+    semantic core, while the model may legitimately include an adjacent verb or
+    conjunction. Containment is deliberately one-dimensional; fuzzy similarity
+    and token overlap remain forbidden.
     """
 
     oracle_span = _compact_span(expected)
@@ -71,17 +128,74 @@ def _span_matches_oracle(*, expected: Any, actual: Any) -> bool:
     ))
 
 
-_EFFECT_KEYS = ("domain", "operation", "object_type")
+def _semantic_vocabulary_snapshot() -> dict[str, Any]:
+    """Return only module-owned domain semantics, never capability availability."""
+
+    snapshot = get_module_registry().semantic_vocabulary_snapshot()
+    if snapshot.get("availability_exposed") is not False:
+        raise RuntimeError("semantic planning vocabulary must not expose capability availability")
+    if snapshot.get("tool_names_exposed") is not False:
+        raise RuntimeError("semantic planning vocabulary must not expose tool names")
+    return snapshot
 
 
-def _effect_identity(value: Any) -> tuple[str, str, str]:
-    source = value if isinstance(value, dict) else {}
-    return tuple(str(source.get(key) or "").strip().casefold() for key in _EFFECT_KEYS)  # type: ignore[return-value]
+def _semantic_output_ids() -> tuple[str, ...]:
+    return tuple(get_module_registry().semantic_output_ids())
 
 
-def _effect_key(value: tuple[str, str, str]) -> str:
-    domain, operation, object_type = value
-    return f"{domain}.{operation}:{object_type}" if domain and operation and object_type else ""
+def _requested_output_identity(row: dict[str, Any]) -> tuple[str, ...]:
+    effect = row.get("requested_effect") if isinstance(row.get("requested_effect"), dict) else {}
+    raw_outputs = effect.get("requested_outputs") if isinstance(effect, dict) else []
+    output_ids: list[str] = []
+    for item in list(raw_outputs or []):
+        output_id = (
+            str(item.get("output_id") or "").strip().casefold()
+            if isinstance(item, dict)
+            else str(item or "").strip().casefold()
+        )
+        if output_id:
+            output_ids.append(output_id)
+    return tuple(sorted(dict.fromkeys(output_ids)))
+
+
+def _oracle_output_sets(*, case_id: str, expected: dict[str, Any]) -> tuple[tuple[str, ...], ...]:
+    """Resolve independent canonical expectations without consulting capabilities."""
+
+    explicit = expected.get("accepted_output_sets")
+    if isinstance(explicit, list):
+        values = tuple(
+            tuple(sorted(dict.fromkeys(
+                str(value or "").strip().casefold()
+                for value in row
+                if str(value or "").strip()
+            )))
+            for row in explicit
+            if isinstance(row, list)
+        )
+    else:
+        values = _CANONICAL_OUTPUT_ORACLE.get(case_id, {}).get(
+            str(expected.get("oracle_id") or ""),
+            (),
+        )
+    if not values:
+        raise RuntimeError(
+            f"{case_id}: canonical semantic oracle missing for {expected.get('oracle_id')!r}"
+        )
+    if any(not row for row in values):
+        raise RuntimeError(f"{case_id}: canonical oracle output set must not be empty")
+
+    registered = {value.casefold() for value in _semantic_output_ids()}
+    unknown = sorted({
+        output_id
+        for row in values
+        for output_id in row
+        if output_id != "open" and output_id not in registered
+    })
+    if unknown:
+        raise RuntimeError(
+            f"{case_id}: canonical oracle references unregistered outputs: {unknown}"
+        )
+    return values
 
 
 def _user_turns(case: dict[str, Any]) -> list[str]:
@@ -99,7 +213,12 @@ def _match_oracle(
     goals: list[dict[str, Any]],
     registered_effect_identities: set[str] | None = None,
 ) -> None:
-    registered_effect_identities = registered_effect_identities or set()
+    """Match only canonical requested outputs; legacy triplets are non-authoritative."""
+
+    # Kept only as a call-signature compatibility parameter for focused tests
+    # from older repair attempts. It is deliberately ignored as semantic input.
+    del registered_effect_identities
+
     if len(goals) != len(oracle):
         raise RuntimeError(f"{case_id}: goal count mismatch, expected {len(oracle)}, got {len(goals)}")
     goal_ids = [str(row.get("goal_id") or "") for row in goals]
@@ -110,55 +229,42 @@ def _match_oracle(
         raise RuntimeError(
             f"{case_id}: duplicate goal_id values are forbidden: {duplicate_ids}"
         )
+
     unmatched = list(goals)
     oracle_to_goal: dict[str, str] = {}
     for expected in oracle:
         evidence = str(expected.get("evidence_span") or "")
         required = bool(expected.get("required", True))
-        expected_effect = _effect_identity(expected.get("requested_effect"))
-        match_mode = str(expected.get("requested_effect_match") or "exact").strip().casefold()
-        if match_mode not in {"exact", "unregistered_open"}:
-            raise RuntimeError(f"{case_id}: unsupported requested_effect_match={match_mode!r}")
-        if not all(expected_effect):
-            raise RuntimeError(
-                f"{case_id}: oracle goal {expected.get('oracle_id')!r} lacks requested_effect identity"
-            )
+        accepted_outputs = _oracle_output_sets(case_id=case_id, expected=expected)
 
-        def candidate_matches(row: dict[str, Any], *, fuzzy_span: bool) -> bool:
+        def candidate_matches(row: dict[str, Any], *, containment: bool) -> bool:
             span_ok = (
                 _span_matches_oracle(expected=evidence, actual=row.get("evidence_span"))
-                if fuzzy_span
+                if containment
                 else str(row.get("evidence_span") or "") == evidence
             )
-            candidate_effect = _effect_identity(row.get("requested_effect"))
-            if match_mode == "unregistered_open":
-                effect_ok = bool(all(candidate_effect)) and _effect_key(candidate_effect) not in registered_effect_identities
-            else:
-                effect_ok = _effect_identity(row.get("requested_effect")) == expected_effect
             return (
                 span_ok
                 and bool(row.get("required", True)) == required
-                and effect_ok
+                and _requested_output_identity(row) in accepted_outputs
             )
 
-        exact_matches = [row for row in unmatched if candidate_matches(row, fuzzy_span=False)]
-        matches = exact_matches or [row for row in unmatched if candidate_matches(row, fuzzy_span=True)]
+        exact_matches = [row for row in unmatched if candidate_matches(row, containment=False)]
+        matches = exact_matches or [
+            row for row in unmatched if candidate_matches(row, containment=True)
+        ]
         if len(matches) != 1:
             candidates = [
                 {
                     "goal_id": str(row.get("goal_id") or ""),
                     "evidence_span": str(row.get("evidence_span") or ""),
-                    "goal_type": str(row.get("goal_type") or ""),
-                    "requested_effect": {
-                        key: str((row.get("requested_effect") or {}).get(key) or "")
-                        for key in _EFFECT_KEYS
-                    } if isinstance(row.get("requested_effect"), dict) else {},
+                    "requested_outputs": list(_requested_output_identity(row)),
                 }
                 for row in unmatched
             ]
             raise RuntimeError(
                 f"{case_id}: no unique model goal matches oracle span={evidence!r}, "
-                f"requested_effect={expected_effect!r}, match_mode={match_mode!r}, candidates={candidates!r}"
+                f"accepted_outputs={accepted_outputs!r}, candidates={candidates!r}"
             )
         matched = matches[0]
         oracle_id = str(expected.get("oracle_id") or "")
@@ -167,8 +273,10 @@ def _match_oracle(
             raise RuntimeError(f"{case_id}: oracle and model goals must declare stable IDs")
         oracle_to_goal[oracle_id] = goal_id
         unmatched.remove(matched)
+
     if unmatched:
         raise RuntimeError(f"{case_id}: model emitted undeclared extra goals")
+
     goals_by_id = {str(row.get("goal_id") or ""): row for row in goals}
     for expected in oracle:
         expected_dependencies = {
@@ -191,7 +299,8 @@ def _production_goal_declaration_evaluation(
     goals: list[dict[str, Any]],
     inventory_authority: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Evaluate through production Runtime, preserving turn-scoped blind authority."""
+    """Evaluate through the same strict canonical contract as production Runtime."""
+
     state: dict[str, Any] = {"current_user_input": user_text}
     if isinstance(inventory_authority, dict):
         state["current_turn_plan"] = {
@@ -201,6 +310,7 @@ def _production_goal_declaration_evaluation(
         state=state,
         args={"goals": goals},
         capability_registry=get_runtime_registry().capabilities,
+        require_canonical_output_identity=True,
     )
 
 
@@ -306,6 +416,7 @@ _SEMANTIC_VERIFIER_DATA_KEYS = (
 
 def _is_pure_literal_grounding_rejection(result: dict[str, Any] | None) -> bool:
     """Admit a final declaration-only retry only for pre-verifier literal failures."""
+
     if not isinstance(result, dict) or str(result.get("code") or "") != "GOAL_DECLARATION_INVALID":
         return False
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
@@ -376,6 +487,7 @@ def _declare_with_bounded_production_repair(
     model's own immediately preceding semantic branches; it receives no oracle,
     capability answer, normalized business value, fuzzy hint, or Runtime rewrite.
     """
+
     messages: list[Any] = [system, HumanMessage(content=user_text)]
     last_result: dict[str, Any] | None = None
     inventory_authority: dict[str, Any] | None = None
@@ -498,6 +610,7 @@ def _declare_with_bounded_production_repair(
         f"verifier_diagnostic={json.dumps(diagnostic, ensure_ascii=False, sort_keys=True)}"
     )
 
+
 def _identity_failure_reason(exc: RealModelCertificationError) -> str:
     if exc.environment_blocked:
         return "real_model_environment_unavailable"
@@ -540,27 +653,28 @@ def main() -> int:
             raise RuntimeError("preproduction semantic prototypes must currently be single-turn")
 
         model = get_model()
-        effect_index = capability_effect_index(get_runtime_registry().capabilities)
-        effect_vocabulary_json = json.dumps(
-            effect_index,
+        semantic_vocabulary = _semantic_vocabulary_snapshot()
+        semantic_vocabulary_json = json.dumps(
+            semantic_vocabulary,
             ensure_ascii=False,
             sort_keys=True,
         )
-        registered_effect_identities = {
-            str(row.get("requested_effect_identity") or "").strip().casefold()
-            for row in list(effect_index.get("effects") or [])
-            if isinstance(row, dict) and str(row.get("requested_effect_identity") or "").strip()
-        }
-        bound = model.bind_tools(planning_schemas()) if hasattr(model, "bind_tools") else model
+        semantic_output_ids = _semantic_output_ids()
+        bound = (
+            model.bind_tools(planning_schemas(semantic_output_ids=semantic_output_ids))
+            if hasattr(model, "bind_tools")
+            else model
+        )
         evidence: list[dict[str, Any]] = []
         system = SystemMessage(content=(
             "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
             "Goal 只表示用户可独立判断完成与否的业务效果；筛选、选目标、输入、前置校验、政策读取、Draft 和展示都只是实现步骤，不能单独提升为 Goal。"
-            "requested_effect 必须完整填写 domain、operation、object_type；若下面登记词汇中存在与用户业务效果精确对应的身份，必须逐字段使用；"
-            "若不存在精确对应，保留开放业务效果，禁止用 query/action 等泛化类别或相近能力迁就。"
-            f"当前部署登记的业务效果身份及模块语义边界（只帮助模型选择结构化 identity；Runtime 仍 exact-match，不是关键词分类器）：{effect_vocabulary_json}。"
-            "能力词汇中没有精确身份的分支也必须保留成独立 Goal；requested_effect 要写用户实际请求的开放业务效果，不能写 unsupported_request、能力缺失或系统不支持来替代用户语义。"
-            "不能把不支持分支吞掉，也不能用相似能力代替。evidence_span 必须来自用户原话。"
+            "requested_effect.requested_outputs 是新轮语义身份的唯一权威；每个 output_id 必须从下面的 capability-independent semantic vocabulary 精确选择。"
+            "domain、operation、object_type 仍按用户开放业务语义填写，但只是非权威兼容元数据，不能覆盖 requested_outputs。"
+            "若词汇中不存在用户实际请求的概念，output_id 只能使用保留值 open，并在 open_description 中保留用户真正要的结果；禁止用 query/action 等泛化类别或相近 semantic output 迁就。"
+            f"当前部署登记的 canonical semantic outputs（不包含能力可用性和工具身份）：{semantic_vocabulary_json}。"
+            "能力词汇中没有精确身份的分支也必须保留成独立 Goal；不能把不支持分支吞掉，也不能用相似能力代替。"
+            "evidence_span 必须来自用户原话；requested_outputs[].evidence_span 也必须是该 Goal 原话中的直接连续证据。"
             "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。"
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
@@ -590,7 +704,6 @@ def main() -> int:
                     case_id=case["id"],
                     oracle=oracle,
                     goals=goals,
-                    registered_effect_identities=registered_effect_identities,
                 )
                 trace = declaration_evidence["trace"]
                 attestation = declaration_evidence["attestation"]
@@ -599,6 +712,10 @@ def main() -> int:
                     "goal_count": len(goals),
                     "declaration_attempts": declaration_attempts,
                     "goal_types": [str(row.get("goal_type") or "") for row in goals],
+                    "canonical_requested_outputs": [
+                        list(_requested_output_identity(row))
+                        for row in goals
+                    ],
                     "oracle_required_tools": sorted({
                         str(value)
                         for row in oracle
@@ -619,10 +736,16 @@ def main() -> int:
             "certification_session": certification_session_evidence(component="semantic", identity=identity),
             "model_profile": get_model_profile(),
             "verifier_authority": verifier_authority,
+            "semantic_vocabulary": {
+                "authority": semantic_vocabulary.get("authority"),
+                "availability_exposed": semantic_vocabulary.get("availability_exposed"),
+                "tool_names_exposed": semantic_vocabulary.get("tool_names_exposed"),
+                "output_count": len(semantic_output_ids),
+            },
             "calls": calls.summary(),
             "cases": evidence,
             "guarantee": (
-                "schema-compliant real-model goal declaration, production validation, and dependency semantics; "
+                "schema-compliant real-model canonical goal declaration, production validation, and dependency semantics; "
                 "tool authorization remains covered by deterministic runtime gates"
             ),
         }, ensure_ascii=False))

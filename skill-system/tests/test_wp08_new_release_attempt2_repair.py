@@ -27,7 +27,14 @@ class NewReleaseAttempt2RepairTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_courier_contact_is_open_effect_not_generic_unsupported_semantics(self) -> None:
+    def test_courier_contact_is_registered_semantic_meaning_without_capability_coverage(self) -> None:
+        source = (
+            AGENT_SRC / "agent_modules/ecommerce/semantic_vocabulary.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('_output("courier.contact.phone"', source)
+        self.assertIn("zero installed capability coverage", source)
+        self.assertNotIn('"courier.contact.phone", "courier", ("read",), "配送人员的联系电话。", "', source)
+
         courier = []
         for case in self._catalog()["cases"]:
             execution = case.get("execution_contract") or {}
@@ -39,60 +46,96 @@ class NewReleaseAttempt2RepairTests(unittest.TestCase):
                 )
         self.assertEqual(len(courier), 2)
         for goal in courier:
-            self.assertEqual(goal.get("requested_effect_match"), "unregistered_open")
-            self.assertEqual(
-                goal.get("requested_effect"),
-                {"domain": "delivery", "operation": "query_courier_contact", "object_type": "courier"},
-            )
+            # The historical execution fixture still records the old effect and
+            # unsupported tool expectation. Certification no longer uses either
+            # as semantic authority.
             self.assertEqual(goal.get("required_tools"), ["report_unsupported_request"])
 
-    def test_open_effect_match_accepts_unregistered_spelling_and_rejects_registered_nearby_effect(self) -> None:
+    def test_canonical_match_accepts_unavailable_registered_meaning_and_rejects_nearby_output(self) -> None:
         smoke = self._smoke()
         oracle = [{
             "oracle_id": "g1",
             "evidence_span": "快递员手机号",
             "required": True,
             "depends_on": [],
-            "requested_effect_match": "unregistered_open",
-            "requested_effect": {"domain": "delivery", "operation": "query_courier_contact", "object_type": "courier"},
+            "accepted_output_sets": [["courier.contact.phone"]],
         }]
         smoke._match_oracle(
-            case_id="open-effect",
+            case_id="canonical-unavailable-effect",
             oracle=oracle,
             goals=[{
                 "goal_id": "m1",
                 "evidence_span": "快递员手机号",
                 "required": True,
                 "depends_on": [],
-                "requested_effect": {"domain": "shipping", "operation": "courier_phone", "object_type": "courier"},
+                "requested_effect": {
+                    "domain": "delivery",
+                    "operation": "query_courier_contact",
+                    "object_type": "courier",
+                    "requested_outputs": [{
+                        "output_id": "courier.contact.phone",
+                        "evidence_span": "快递员手机号",
+                    }],
+                },
             }],
-            registered_effect_identities={"order.query_logistics:order"},
         )
         with self.assertRaises(RuntimeError):
             smoke._match_oracle(
-                case_id="nearby-effect",
+                case_id="canonical-nearby-effect",
                 oracle=oracle,
                 goals=[{
                     "goal_id": "m1",
                     "evidence_span": "快递员手机号",
                     "required": True,
                     "depends_on": [],
-                    "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"},
+                    "requested_effect": {
+                        "domain": "order",
+                        "operation": "query_logistics",
+                        "object_type": "order",
+                        "requested_outputs": [{
+                            "output_id": "shipment.current_status",
+                            "evidence_span": "快递员手机号",
+                        }],
+                    },
                 }],
-                registered_effect_identities={"order.query_logistics:order"},
             )
 
-    def test_open_effect_branch_cannot_be_dropped(self) -> None:
+    def test_unavailable_semantic_branch_cannot_be_dropped(self) -> None:
         smoke = self._smoke()
         with self.assertRaisesRegex(RuntimeError, "goal count mismatch"):
             smoke._match_oracle(
-                case_id="drop-open-branch",
+                case_id="drop-unavailable-branch",
                 oracle=[
-                    {"oracle_id": "g1", "evidence_span": "查物流", "required": True, "depends_on": [], "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"}},
-                    {"oracle_id": "g2", "evidence_span": "快递员手机号", "required": True, "depends_on": [], "requested_effect_match": "unregistered_open", "requested_effect": {"domain": "delivery", "operation": "query_courier_contact", "object_type": "courier"}},
+                    {
+                        "oracle_id": "g1",
+                        "evidence_span": "查物流",
+                        "required": True,
+                        "depends_on": [],
+                        "accepted_output_sets": [["shipment.tracking"]],
+                    },
+                    {
+                        "oracle_id": "g2",
+                        "evidence_span": "快递员手机号",
+                        "required": True,
+                        "depends_on": [],
+                        "accepted_output_sets": [["courier.contact.phone"]],
+                    },
                 ],
-                goals=[{"goal_id": "m1", "evidence_span": "查物流", "required": True, "depends_on": [], "requested_effect": {"domain": "order", "operation": "query_logistics", "object_type": "order"}}],
-                registered_effect_identities={"order.query_logistics:order"},
+                goals=[{
+                    "goal_id": "m1",
+                    "evidence_span": "查物流",
+                    "required": True,
+                    "depends_on": [],
+                    "requested_effect": {
+                        "domain": "order",
+                        "operation": "query_logistics",
+                        "object_type": "order",
+                        "requested_outputs": [{
+                            "output_id": "shipment.tracking",
+                            "evidence_span": "查物流",
+                        }],
+                    },
+                }],
             )
 
     def test_declaration_clarification_detector_is_same_turn_only(self) -> None:
@@ -119,10 +162,13 @@ class NewReleaseAttempt2RepairTests(unittest.TestCase):
         self.assertLess(accepted, workflow)
         self.assertIn("不得发现、调用或暗示任何业务能力", source)
 
-    def test_semantic_prompt_explicitly_preserves_unregistered_branch(self) -> None:
+    def test_semantic_prompt_preserves_vocab_meanings_even_without_capability(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
         self.assertIn("能力词汇中没有精确身份的分支也必须保留成独立 Goal", source)
-        self.assertIn("registered_effect_identities", source)
+        self.assertIn("capability-independent semantic vocabulary", source)
+        self.assertIn("不包含能力可用性和工具身份", source)
+        self.assertIn("get_module_registry().semantic_vocabulary_snapshot()", source)
+        self.assertNotIn("capability_effect_index(get_runtime_registry().capabilities)", source)
 
     def test_browser_response_sla_remains_120_seconds(self) -> None:
         source = (AGENT_ROOT / "frontend/e2e/strong_context_journey.mjs").read_text(encoding="utf-8")

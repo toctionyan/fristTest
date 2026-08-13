@@ -220,7 +220,6 @@ def test_mixed_literal_and_semantic_verifier_failure_does_not_gain_third_retry(m
 def test_prior_semantic_verifier_failure_blocks_third_retry_even_if_second_is_literal(monkeypatch) -> None:
     script = _load_script()
     user_text = "查订单，再查物流"
-
     calls = {"count": 0}
     responses = [
         _response("one", "再查物流"),
@@ -320,3 +319,131 @@ def test_third_literal_retry_still_fails_closed_when_evidence_remains_non_litera
         )
 
     assert calls["count"] == 3
+
+
+def _canonical_goal(*, output_id: str, legacy_domain: str = "order", legacy_operation: str = "query_logistics") -> dict:
+    return {
+        "goal_id": "g1",
+        "evidence_span": "查下物流到哪了",
+        "required": True,
+        "depends_on": [],
+        "requested_effect": {
+            "domain": legacy_domain,
+            "operation": legacy_operation,
+            "object_type": "order",
+            "requested_outputs": [{
+                "output_id": output_id,
+                "evidence_span": "查下物流到哪了",
+            }],
+        },
+    }
+
+
+def _canonical_oracle() -> list[dict]:
+    return [{
+        "oracle_id": "g1",
+        "evidence_span": "查下物流到哪了",
+        "required": True,
+        "depends_on": [],
+        "accepted_output_sets": [["shipment.current_status"]],
+    }]
+
+
+def test_wp08_production_gate_requires_canonical_output_identity(monkeypatch) -> None:
+    script = _load_script()
+    captured = {}
+
+    monkeypatch.setattr(
+        script,
+        "get_runtime_registry",
+        lambda: SimpleNamespace(capabilities=()),
+    )
+
+    def validate_goal_declaration(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}, {"goals": kwargs["args"]["goals"]}
+
+    monkeypatch.setattr(script, "validate_goal_declaration", validate_goal_declaration)
+    result, declared = script._production_goal_declaration_evaluation(
+        user_text="查下物流到哪了",
+        goals=[_canonical_goal(output_id="shipment.current_status")],
+    )
+
+    assert result["ok"] is True
+    assert declared is not None
+    assert captured["require_canonical_output_identity"] is True
+
+
+def test_canonical_oracle_ignores_non_authoritative_legacy_triplet(monkeypatch) -> None:
+    script = _load_script()
+    monkeypatch.setattr(script, "_semantic_output_ids", lambda: ("shipment.current_status",))
+    goal = _canonical_goal(
+        output_id="shipment.current_status",
+        legacy_domain="deliberately-wrong-legacy-domain",
+        legacy_operation="deliberately-wrong-legacy-operation",
+    )
+
+    script._match_oracle(
+        case_id="adversarial-canonical-pass",
+        oracle=_canonical_oracle(),
+        goals=[goal],
+    )
+
+
+def test_matching_legacy_triplet_cannot_rescue_wrong_canonical_output(monkeypatch) -> None:
+    script = _load_script()
+    monkeypatch.setattr(
+        script,
+        "_semantic_output_ids",
+        lambda: ("shipment.current_status", "order.collection"),
+    )
+    goal = _canonical_goal(
+        output_id="order.collection",
+        legacy_domain="order",
+        legacy_operation="query_logistics",
+    )
+
+    with pytest.raises(RuntimeError, match="no unique model goal matches oracle"):
+        script._match_oracle(
+            case_id="adversarial-wrong-canonical",
+            oracle=_canonical_oracle(),
+            goals=[goal],
+        )
+
+
+def test_open_output_cannot_satisfy_registered_canonical_oracle(monkeypatch) -> None:
+    script = _load_script()
+    monkeypatch.setattr(script, "_semantic_output_ids", lambda: ("shipment.current_status",))
+    goal = _canonical_goal(output_id="open")
+    goal["requested_effect"]["requested_outputs"][0]["open_description"] = "查询未知物流语义"
+
+    with pytest.raises(RuntimeError, match="no unique model goal matches oracle"):
+        script._match_oracle(
+            case_id="adversarial-open-nearest-match",
+            oracle=_canonical_oracle(),
+            goals=[goal],
+        )
+
+
+def test_canonical_planning_vocabulary_exposes_no_availability_or_tool_names(monkeypatch) -> None:
+    script = _load_script()
+    snapshot = {
+        "version": "semantic-output-vocabulary@1",
+        "authority": "domain_semantics_only_capability_independent",
+        "availability_exposed": False,
+        "tool_names_exposed": False,
+        "outputs": [{"output_id": "shipment.current_status"}],
+    }
+    monkeypatch.setattr(
+        script,
+        "get_module_registry",
+        lambda: SimpleNamespace(semantic_vocabulary_snapshot=lambda: snapshot),
+    )
+
+    projected = script._semantic_vocabulary_snapshot()
+    assert projected == snapshot
+    assert projected["availability_exposed"] is False
+    assert projected["tool_names_exposed"] is False
+    serialized_outputs = json.dumps(projected["outputs"], ensure_ascii=False)
+    assert "tool_name" not in serialized_outputs
+    assert "availability" not in serialized_outputs
