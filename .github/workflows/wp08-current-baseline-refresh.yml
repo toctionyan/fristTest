@@ -1,0 +1,46 @@
+name: WP08 Current Protected Baseline Closure
+run-name: Refresh protected baseline for current PR 722 source
+
+on:
+  push:
+    branches: [fix/wp08-single-authority-cutover-20260813]
+    paths: [.wp08-current-baseline-refresh]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Regenerate derived protected authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B scripts/refresh_product_source_baseline.py \
+            --workspace . \
+            --generated-from-sha "${GITHUB_SHA}" \
+            --output /tmp/baseline-refresh.json
+          python -B -m unittest skill-system.tests.test_product_source_baseline_binding
+          git diff --check -- skill-system/registry/product-source-baseline.json
+          test "$(git diff --name-only)" = 'skill-system/registry/product-source-baseline.json'
+
+      - name: Publish derived authority only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'Refresh current WP08 protected source baseline'
+          git push origin HEAD:fix/wp08-single-authority-cutover-20260813
