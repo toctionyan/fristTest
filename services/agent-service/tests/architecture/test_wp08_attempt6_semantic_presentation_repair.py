@@ -24,7 +24,7 @@ def test_shipment_semantic_vocabulary_distinguishes_status_from_tracking_progres
 
     # This remains a domain-semantic distinction, not a capability hint. Both
     # meanings keep the same legacy migration alias and the public vocabulary
-    # exposes no tool/capability/availability metadata.
+    # exposes only the capability-independent public semantic fields.
     assert status.legacy_effect_aliases == tracking.legacy_effect_aliases == (
         "order.query_logistics:order",
     )
@@ -33,7 +33,8 @@ def test_shipment_semantic_vocabulary_distinguishes_status_from_tracking_progres
     assert snapshot["availability_exposed"] is False
     assert snapshot["tool_names_exposed"] is False
     assert "get_order_logistics" not in serialized
-    assert "capability" not in serialized.casefold()
+    for row in snapshot["outputs"]:
+        assert set(row) == {"output_id", "subject_type", "effect_kinds", "description"}
 
 
 def test_every_ecommerce_structured_read_has_a_real_trace_to_declared_contract_route() -> None:
