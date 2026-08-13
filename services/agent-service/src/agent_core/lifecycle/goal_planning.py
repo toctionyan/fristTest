@@ -1860,6 +1860,7 @@ def validate_goal_declaration(
     raw_blocker_resolutions = args.get("blocker_resolutions") if isinstance(args.get("blocker_resolutions"), list) else []
     raw_focus_change = args.get("focus_change") if isinstance(args.get("focus_change"), dict) else None
     errors: list[str] = []
+    semantic_output_identity_errors: list[str] = []
     if not raw_goals:
         errors.append("goals_required")
     if len(raw_goals) > MAX_TURN_GOALS:
@@ -1895,6 +1896,10 @@ def validate_goal_declaration(
             if not isinstance(raw_effect, dict):
                 raise ValueError("requested_effect.required_for_new_turn")
             requested_effect = normalize_requested_effect(raw_effect, description=description)
+            if not isinstance(requested_effect.get("requested_outputs"), list):
+                semantic_output_identity_errors.append(
+                    f"invalid_requested_effect:{goal_id}:requested_effect.requested_outputs_required_for_new_turn"
+                )
             errors.extend(_validate_semantic_output_effect(
                 requested_effect,
                 user_text=user_text,
@@ -2120,6 +2125,22 @@ def validate_goal_declaration(
                 "alignment_proof": alignment.as_dict(),
                 "granularity_proof": granularity.as_dict(),
                 **_granularity_repair_feedback(granularity),
+                **_goal_declaration_repair_context(user_text),
+            },
+        }, None)
+
+    # Preserve independent alignment/granularity feedback priority, but
+    # never freeze a new formal contract whose sole effect identity is the
+    # legacy compatibility triple.  Historical readers remain compatible.
+    if semantic_output_identity_errors:
+        return ({
+            "ok": False,
+            "code": "GOAL_DECLARATION_INVALID",
+            "message": "本轮正式语义输出身份缺失，Runtime 不会以兼容字段替代 canonical semantic output。",
+            "data": {
+                "errors": semantic_output_identity_errors,
+                "alignment_proof": alignment.as_dict(),
+                "granularity_proof": granularity.as_dict(),
                 **_goal_declaration_repair_context(user_text),
             },
         }, None)

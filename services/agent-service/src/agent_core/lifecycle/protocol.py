@@ -463,6 +463,18 @@ def planning_schemas(*, semantic_output_ids: list[str] | tuple[str, ...] | None 
     that vocabulary instead of nearest-matching them.
     """
     schema = deepcopy(DECLARE_TURN_GOALS_SCHEMA)
+    effect_schema = (
+        schema["function"]["parameters"]["properties"]["goals"]["items"]
+        ["properties"]["requested_effect"]
+    )
+    provider_required = list(effect_schema.get("required") or [])
+    if "requested_outputs" not in provider_required:
+        provider_required.append("requested_outputs")
+    effect_schema["required"] = provider_required
+    # DeepSeek/OpenAI-compatible function calling does not reliably enforce
+    # an allOf-only required field.  Flatten only the provider projection;
+    # canonical Runtime validation remains strict and capability-independent.
+    effect_schema.pop("allOf", None)
     ids = list(dict.fromkeys(
         str(value or "").strip().casefold()
         for value in list(semantic_output_ids or [])
