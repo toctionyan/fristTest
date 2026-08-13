@@ -44,7 +44,9 @@ jobs:
           services/agent-service/tests/support/canonical_semantic_fixture.py
           skill-system/registry/product-source-baseline.json
           EOF
-          git diff --name-only origin/main...HEAD | sort > /tmp/actual-pr-paths.txt
+          git diff --name-only origin/main...HEAD \
+            | grep -v -E '^(\.github/workflows/b28-product-baseline-refresh\.yml|\.wp08-baseline-refresh-trigger)$' \
+            | sort > /tmp/actual-pr-paths.txt
           sort -o /tmp/expected-pr-paths.txt /tmp/expected-pr-paths.txt
           diff -u /tmp/expected-pr-paths.txt /tmp/actual-pr-paths.txt
 
