@@ -32,6 +32,7 @@ replace_once(
                                 "requested_outputs": [{
                                     "output_id": "open",
                                     "evidence_span": text,
+                                    "open_description": text,
                                 }],
                             },
 ''',
