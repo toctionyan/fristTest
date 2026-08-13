@@ -16,10 +16,17 @@ from agent_core.business import configure_business_port
 from agent_core.config import clear_checkpointer_cache
 from agent_core.persistence.store_provider import get_store_provider, reset_store_provider_cache
 from agent_modules.ecommerce.business_port import get_ecommerce_business_port, reset_ecommerce_business_port_cache
+from tests.support.canonical_semantic_fixture import canonicalize_scripted_live_goal_fixture
 from tests.support.conversation_case_runner import run_conversation_case
 
 CATALOG = Path(__file__).parent / "strong_context_cases" / "semantic_goal_coverage_suite_v20_4.json"
-CASES = list(json.loads(CATALOG.read_text(encoding="utf-8"))["cases"])
+CASES = [
+    canonicalize_scripted_live_goal_fixture(
+        row,
+        suite_id="semantic_goal_coverage_suite_v20_4",
+    )
+    for row in json.loads(CATALOG.read_text(encoding="utf-8"))["cases"]
+]
 
 
 @pytest.fixture(autouse=True)

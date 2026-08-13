@@ -19,6 +19,7 @@ from agent_modules.ecommerce.business_port import (
     get_ecommerce_business_port,
     reset_ecommerce_business_port_cache,
 )
+from tests.support.canonical_semantic_fixture import canonicalize_scripted_live_goal_fixture
 from tests.support.conversation_case_runner import run_conversation_case
 
 CATALOG = (
@@ -27,10 +28,14 @@ CATALOG = (
     / "strong_context_cases"
     / "semantic_goal_coverage_suite_v20_4.json"
 )
-CASE = next(
+_RAW_CASE = next(
     row
     for row in json.loads(CATALOG.read_text(encoding="utf-8"))["cases"]
     if row["id"] == "semantic_unsupported_courier_phone"
+)
+CASE = canonicalize_scripted_live_goal_fixture(
+    _RAW_CASE,
+    suite_id="semantic_goal_coverage_suite_v20_4",
 )
 
 

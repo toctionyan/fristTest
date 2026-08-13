@@ -245,6 +245,7 @@ def execute_agent_loop_calls_node(
                     state=state,
                     args=args,
                     capability_registry=capability_registry,
+                    require_canonical_output_identity=True,
                 )
                 result_data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else {}
                 granularity_proof = result_data.get("granularity_proof") if isinstance(result_data.get("granularity_proof"), dict) else {}

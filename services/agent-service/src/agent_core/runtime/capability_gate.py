@@ -1143,6 +1143,7 @@ def _semantic_reference_binding_proof(
     args: dict[str, Any],
     *,
     goal_ids: set[str],
+    target_cardinality: str = "",
 ) -> dict[str, Any]:
     """Bind tool target arguments to frozen Runtime-resolved references.
 
@@ -1202,6 +1203,12 @@ def _semantic_reference_binding_proof(
         if resolution_status != "UNIQUE" or not resolved:
             matched = False
             reason = "frozen_reference_not_unique"
+        elif target_cardinality == "none":
+            # The registered capability contract is the execution-target authority.
+            # A targetless capability may consume a verified frozen historical
+            # reference as semantic context without inventing an impossible target.
+            matched = True
+            reason = "capability_target_not_required_reference_context_verified"
         elif mode in {"entity_match", "all_orders", ""}:
             matched = False
             reason = "resolved_reference_must_use_verified_handle_target"
@@ -1243,6 +1250,8 @@ def _semantic_reference_binding_proof(
             "expected_cardinality": reference_cardinality,
             "goal_result_cardinality": goal_result_cardinality,
             "target_mode": mode or None,
+            "target_cardinality": target_cardinality or None,
+            "reference_context_only": target_cardinality == "none",
             "actual_target_handles": sorted(actual_handles),
             "canonical_scope": canonical_scope or None,
             "matched": matched,
@@ -1582,8 +1591,13 @@ def issue_execution_permit(
     formal_scope_coverage = _formal_goal_scope_coverage_proof(
         state, goal_ids=goal_ids, parameterization=parameterization, visible_reference=visible_reference
     )
+    planning_target = getattr(getattr(contract, "planning_contract", None), "target", None)
+    target_cardinality = str(getattr(planning_target, "cardinality", "") or "")
     semantic_reference_binding = _semantic_reference_binding_proof(
-        state, normalized_args, goal_ids=goal_ids
+        state,
+        normalized_args,
+        goal_ids=goal_ids,
+        target_cardinality=target_cardinality,
     )
     semantic = (
         verify_candidate_semantics(

@@ -20,6 +20,7 @@ from agent_modules.ecommerce.business_port import (
     get_ecommerce_business_port,
     reset_ecommerce_business_port_cache,
 )
+from tests.support.canonical_semantic_fixture import canonicalize_scripted_live_goal_fixture
 from tests.support.conversation_case_runner import run_conversation_case
 
 
@@ -30,7 +31,13 @@ EXECUTABLE_CASE_IDS = [str(value) for value in SUITE["executable_case_ids"]]
 assert len(EXECUTABLE_CASE_IDS) == int(SUITE["execution_case_count"])
 assert len(EXECUTABLE_CASE_IDS) == len(set(EXECUTABLE_CASE_IDS))
 assert set(EXECUTABLE_CASE_IDS).issubset(CASE_BY_ID)
-CASES = [CASE_BY_ID[case_id] for case_id in EXECUTABLE_CASE_IDS]
+CASES = [
+    canonicalize_scripted_live_goal_fixture(
+        CASE_BY_ID[case_id],
+        suite_id="conversation_runtime_contract_suite_v20_4",
+    )
+    for case_id in EXECUTABLE_CASE_IDS
+]
 
 
 def _user_turns(case: dict) -> list[str]:

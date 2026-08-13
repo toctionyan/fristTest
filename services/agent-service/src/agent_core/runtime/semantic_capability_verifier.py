@@ -169,6 +169,7 @@ def _deterministic_historical_target_authority(
     *,
     effect_id: str,
     args: dict[str, Any],
+    contract: ToolCapabilityContract | None = None,
 ) -> dict[str, Any]:
     """Prove a historical target from the frozen semantic contract only.
 
@@ -193,6 +194,8 @@ def _deterministic_historical_target_authority(
         for row in semantic_goals(state)
         if str(row.get("goal_id") or "") in set(goal_ids)
     }
+    planning_target = getattr(getattr(contract, "planning_contract", None), "target", None)
+    target_cardinality = str(getattr(planning_target, "cardinality", "") or "")
     target = args.get("target") if isinstance(args.get("target"), dict) else {}
     target_mode = str(target.get("mode") or "")
     actual_handles = {
@@ -206,6 +209,7 @@ def _deterministic_historical_target_authority(
     for goal_id in goal_ids:
         goal = goals.get(goal_id) or {}
         resolved = goal.get("resolved_reference") if isinstance(goal.get("resolved_reference"), dict) else None
+        proof = goal.get("referent_resolution_proof") if isinstance(goal.get("referent_resolution_proof"), dict) else {}
         reference = goal.get("reference_expression") if isinstance(goal.get("reference_expression"), dict) else {}
         if resolved is None:
             checks.append({"goal_id": goal_id, "required": False, "matched": True})
@@ -222,11 +226,17 @@ def _deterministic_historical_target_authority(
             expected_handles = set(members)
         else:
             expected_handles = {result_ref} if result_ref else set()
-        matched = bool(
-            target_mode not in {"", "all_orders", "entity_match"}
-            and expected_handles
-            and actual_handles.intersection(expected_handles)
-        )
+        if target_cardinality == "none":
+            matched = bool(
+                str(proof.get("resolution_status") or "") == "UNIQUE"
+                and expected_handles
+            )
+        else:
+            matched = bool(
+                target_mode not in {"", "all_orders", "entity_match"}
+                and expected_handles
+                and actual_handles.intersection(expected_handles)
+            )
         complete = complete and matched
         checks.append(
             {
@@ -235,6 +245,8 @@ def _deterministic_historical_target_authority(
                 "reference_cardinality": reference_cardinality,
                 "matched": matched,
                 "target_mode": target_mode or None,
+                "target_cardinality": target_cardinality or None,
+                "reference_context_only": target_cardinality == "none",
             }
         )
     authoritative = bool(required and complete)
@@ -245,6 +257,8 @@ def _deterministic_historical_target_authority(
         "historical_reference_binding_authoritative": authoritative,
         "goal_ids": goal_ids,
         "target_mode": target_mode or None,
+        "target_cardinality": target_cardinality or None,
+        "reference_context_only": target_cardinality == "none",
         "checks": checks,
         "opaque_handle_identity_exposed_to_semantic_model": False if authoritative else True,
         "language_interpretation_used": False,
@@ -595,6 +609,7 @@ def verify_candidate_semantics(
         state,
         effect_id=effect_id,
         args=dict(args),
+        contract=contract,
     )
     if injected is not None:
         try:

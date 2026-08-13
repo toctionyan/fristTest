@@ -166,6 +166,8 @@ def test_stage3_prepare_applies_exact_patch_and_binds_tree(tmp_path: Path) -> No
     assert plan["targeted_components"] == ["agent-python"]
     assert plan["tree_binding_complete"] is True
     assert plan["validated_parent_sha"] == plan["head_sha"]
+    assert plan["derived_paths"] == []
+    assert plan["publication_paths"] == plan["changed_paths"]
     assert _git(workspace, "rev-parse", "HEAD^{tree}") == plan["validated_tree_sha"]
     assert _git(workspace, "status", "--porcelain") == ""
     task = json.loads(task_path.read_text(encoding="utf-8"))
@@ -252,6 +254,8 @@ def test_privileged_publisher_recreates_same_validated_tree(tmp_path: Path) -> N
         output_path=output,
     )
     assert result["validated_tree_sha"] == plan["validated_tree_sha"]
+    assert result["derived_paths"] == []
+    assert result["publication_paths"] == result["changed_paths"]
     assert _git(publisher, "rev-parse", "HEAD^{tree}") == plan["validated_tree_sha"]
     assert _git(publisher, "rev-parse", "HEAD^") == plan["head_sha"]
     assert result["published_candidate_sha"] != ""
@@ -291,7 +295,31 @@ def test_publisher_rejects_validation_tree_drift(tmp_path: Path) -> None:
         )
 
 
-def test_stage3_completion_uses_published_tree_and_legal_transition(tmp_path: Path) -> None:
+def _green_ci_evidence(candidate_sha: str) -> dict:
+    checks = {}
+    for index, name in enumerate(COMPLETE.REQUIRED_PR_WORKFLOWS, start=1):
+        checks[name] = {
+            "run_id": 100 + index,
+            "status": "completed",
+            "conclusion": "success",
+            "head_sha": candidate_sha,
+            "event": "pull_request",
+            "html_url": f"https://github.com/owner/repo/actions/runs/{100 + index}",
+        }
+    return {
+        "status": "VERIFIED_GREEN",
+        "closure_eligible": True,
+        "continue_repair": False,
+        "exit_reason": "VERIFIED_GREEN",
+        "missing": [],
+        "pending": [],
+        "failed": [],
+        "required_checks": checks,
+        "production_closed": False,
+    }
+
+
+def test_stage3_publication_waits_for_exact_head_pr_ci_before_completion(tmp_path: Path) -> None:
     _workspace, _source, _stage2, _patch, task_path = _fixture(tmp_path)
     task = TaskRunStore(task_path, json.loads(task_path.read_text(encoding="utf-8")))
     task.checkpoint(
@@ -342,16 +370,97 @@ def test_stage3_completion_uses_published_tree_and_legal_transition(tmp_path: Pa
     validation_path.write_text(json.dumps(validation), encoding="utf-8")
     publication_path.write_text(json.dumps(publication), encoding="utf-8")
     output_path = tmp_path / "publication-result.json"
+
+    pending = COMPLETE.complete_publication(
+        validation_result_path=validation_path,
+        publication_commit_path=publication_path,
+        task_run_path=task_path,
+        pr_url="https://github.com/owner/repo/pull/99",
+        output_path=output_path,
+        ci_evidence=None,
+    )
+    assert pending["status"] == "AWAITING_PR_CI"
+    assert pending["closure_eligible"] is False
+    task_payload = json.loads(task_path.read_text(encoding="utf-8"))
+    assert task_payload["status"] == "WAITING_EXTERNAL_RESULT"
+    assert task_payload["phase"] == "STAGE3_PR_CI_REQUIRED"
+    assert task_payload["conditions"]["draft_pr_published"]["satisfied"] is False
+
     completed = COMPLETE.complete_publication(
         validation_result_path=validation_path,
         publication_commit_path=publication_path,
         task_run_path=task_path,
         pr_url="https://github.com/owner/repo/pull/99",
         output_path=output_path,
+        ci_evidence=_green_ci_evidence("p" * 40),
     )
-    assert completed["status"] == "DRAFT_REPAIR_PR_PUBLISHED"
-    assert completed["published_candidate_sha"] == "p" * 40
+    assert completed["status"] == "VERIFIED_GREEN"
+    assert completed["closure_eligible"] is True
+    assert completed["exit_reason"] == "VERIFIED_GREEN"
     task_payload = json.loads(task_path.read_text(encoding="utf-8"))
     assert task_payload["status"] == "COMPLETED"
     assert task_payload["phase"] == "COMPLETED"
     assert task_payload["conditions"]["draft_pr_published"]["satisfied"] is True
+
+
+def test_pr_ci_failure_is_continue_condition_not_success_exit() -> None:
+    sha = "a" * 40
+    runs = [
+        {
+            "id": 11,
+            "name": "quality",
+            "head_sha": sha,
+            "status": "completed",
+            "conclusion": "failure",
+            "event": "pull_request",
+            "html_url": "https://github.com/owner/repo/actions/runs/11",
+        },
+        {
+            "id": 12,
+            "name": "skill-self-validation",
+            "head_sha": sha,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "pull_request",
+            "html_url": "https://github.com/owner/repo/actions/runs/12",
+        },
+    ]
+    decision = COMPLETE.evaluate_pr_ci_runs(runs, candidate_sha=sha)
+    assert decision["status"] == "PR_CI_FAILED_RETRYABLE"
+    assert decision["closure_eligible"] is False
+    assert decision["continue_repair"] is True
+    assert decision["exit_reason"] is None
+
+
+def test_pr_ci_evidence_must_match_exact_latest_head() -> None:
+    sha = "a" * 40
+    old_sha = "b" * 40
+    runs = [
+        {
+            "id": 21,
+            "name": "quality",
+            "head_sha": old_sha,
+            "status": "completed",
+            "conclusion": "success",
+        },
+        {
+            "id": 22,
+            "name": "skill-self-validation",
+            "head_sha": old_sha,
+            "status": "completed",
+            "conclusion": "success",
+        },
+    ]
+    decision = COMPLETE.evaluate_pr_ci_runs(runs, candidate_sha=sha)
+    assert decision["status"] == "AWAITING_PR_CI"
+    assert set(decision["missing"]) == set(COMPLETE.REQUIRED_PR_WORKFLOWS)
+    assert decision["closure_eligible"] is False
+
+
+def test_repair_terminal_exit_reason_vocabulary_is_fail_closed() -> None:
+    assert COMPLETE.ALLOWED_TERMINAL_EXIT_REASONS == {
+        "VERIFIED_GREEN",
+        "ATTEMPT_BUDGET_EXHAUSTED",
+        "ENVIRONMENT_BLOCKED",
+        "HUMAN_DECISION_REQUIRED",
+    }

@@ -63,6 +63,11 @@ def _turn(text: str, turn_id: str, thread: str) -> dict:
                                 "operation": "continue_request",
                                 "object_type": "goal",
                                 "raw_description": text,
+                                "requested_outputs": [{
+                                    "output_id": "open",
+                                    "evidence_span": text,
+                                    "open_description": text,
+                                }],
                             },
                             "expected_result_cardinality": "none",
                             "required": True,
