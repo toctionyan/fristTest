@@ -265,7 +265,7 @@
     "services/agent-service/src/agent_core/runtime/outcomes.py": "f16bfdf8717a808ae40b2ec1033be58f198ab2d0e25183c552ccd31e5724b4e6",
     "services/agent-service/src/agent_core/runtime/profile.py": "9e8609da97d86bd45ffa39f0c3b852d5d7f58857155c24700131062646e8479f",
     "services/agent-service/src/agent_core/runtime/semantic_capability_verifier.py": "bc31c4e338be9d7be5d09b6a934c0191695bbeec840055791ad6271184f748c3",
-    "services/agent-service/src/agent_core/runtime/target_compiler.py": "b7158df06f1ce37e9912bdfff561dd323b103f259813569d6df987e4817bb031",
+    "services/agent-service/src/agent_core/runtime/target_compiler.py": "b3dc6722d238dd3435ed3fd1fc3618fdb691677a87c72686f67a2f112a2a2dd0",
     "services/agent-service/src/agent_core/runtime/turn_fencing.py": "d2a4100865a7d235f902393b68a07bf320de569e659ca4e903827d54ffd687f2",
     "services/agent-service/src/agent_core/security/__init__.py": "3e383d9d7fd0e783854e21faa8e98ca6ff330182ca1ad57c436abf84ec9d25db",
     "services/agent-service/src/agent_core/security/auth_provider.py": "9de3436fbc83d39b4fede6e46c15b9d84e9e4a514c93711c3444e4bcc51e2d52",
