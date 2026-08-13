@@ -1,0 +1,137 @@
+name: wp08-attempt5-fixture-migrate-v2-once
+
+on:
+  push:
+    branches:
+      - fix/wp08-attempt5-canonical-semantic-certification-20260813
+    paths:
+      - .github/workflows/wp08-attempt5-fixture-migrate-v2-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+      - name: Migrate three stale canonical semantic fixtures
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('services/agent-service/tests/architecture/test_quality_loop_governance.py')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_fn(source: str, name: str, body: str) -> str:
+              marker = f'def {name}() -> None:'
+              start = source.find(marker)
+              if start < 0:
+                  raise SystemExit(f'missing function {name}')
+              end = source.find('\ndef ', start + len(marker))
+              if end < 0:
+                  raise SystemExit(f'missing function boundary after {name}')
+              return source[:start] + body.rstrip() + '\n\n' + source[end + 1:]
+
+          text = replace_fn(text, 'test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_tools', '''def test_protected_goal_smoke_accepts_schema_compliant_goals_without_expected_tools() -> None:
+              smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
+              smoke._match_oracle(
+                  case_id="schema-compliant",
+                  oracle=[{
+                      "oracle_id": "g1", "evidence_span": "查订单", "goal_type": "query",
+                      "required": True, "depends_on": [],
+                      "accepted_output_sets": [["order.collection"]],
+                      "required_tools": ["list_orders"],
+                  }],
+                  goals=[{
+                      "goal_id": "g1", "description": "查询订单", "evidence_span": "查订单",
+                      "goal_type": "query", "required": True, "depends_on": [],
+                      "requested_effect": {"requested_outputs": [{"output_id": "order.collection"}]},
+                  }],
+              )''')
+
+          text = replace_fn(text, 'test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording', '''def test_protected_goal_smoke_accepts_literal_span_with_surrounding_user_wording() -> None:
+              smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
+              smoke._match_oracle(
+                  case_id="literal-span-extension",
+                  oracle=[{
+                      "oracle_id": "refund-history", "evidence_span": "鼠标订单的退款记录",
+                      "goal_type": "query", "required": True, "depends_on": [],
+                      "accepted_output_sets": [["refund.status"]],
+                  }],
+                  goals=[{
+                      "goal_id": "model-goal", "evidence_span": "查下鼠标订单的退款记录",
+                      "goal_type": "query", "required": True, "depends_on": [],
+                      "requested_effect": {"requested_outputs": [{"output_id": "refund.status"}]},
+                  }],
+              )''')
+
+          text = replace_fn(text, 'test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching', '''def test_protected_goal_smoke_rejects_fuzzy_or_ambiguous_span_matching() -> None:
+              smoke = _load_script("../services/agent-service/scripts/verify_preprod_conversation_smoke.py")
+              with pytest.raises(RuntimeError, match="no unique model goal"):
+                  smoke._match_oracle(
+                      case_id="fuzzy-is-forbidden",
+                      oracle=[{
+                          "oracle_id": "refund-history", "evidence_span": "鼠标订单的退款记录",
+                          "goal_type": "query", "required": True, "depends_on": [],
+                          "accepted_output_sets": [["refund.status"]],
+                      }],
+                      goals=[{
+                          "goal_id": "model-goal", "evidence_span": "鼠标订单的物流记录",
+                          "goal_type": "query", "required": True, "depends_on": [],
+                          "requested_effect": {"requested_outputs": [{"output_id": "refund.status"}]},
+                      }],
+                  )
+              ambiguous_effect = {"requested_outputs": [{"output_id": "open"}]}
+              with pytest.raises(RuntimeError, match="no unique model goal"):
+                  smoke._match_oracle(
+                      case_id="ambiguous-containment",
+                      oracle=[
+                          {"oracle_id": "cancel", "evidence_span": "取消", "goal_type": "action", "required": True, "depends_on": [], "accepted_output_sets": [["open"]]},
+                          {"oracle_id": "ship", "evidence_span": "继续发货", "goal_type": "action", "required": True, "depends_on": [], "accepted_output_sets": [["open"]]},
+                      ],
+                      goals=[
+                          {"goal_id": "combined-a", "evidence_span": "取消，然后继续发货", "goal_type": "action", "required": True, "depends_on": [], "requested_effect": ambiguous_effect},
+                          {"goal_id": "combined-b", "evidence_span": "取消并继续发货", "goal_type": "action", "required": True, "depends_on": [], "requested_effect": ambiguous_effect},
+                      ],
+                  )''')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Refresh exact protected baseline
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root = Path.cwd()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          roots = tuple(str(v) for v in payload.get('protected_roots') or ('services', 'web', 'contracts'))
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *roots], cwd=root)
+          tracked = sorted(x.decode() for x in raw.split(b'\0') if x)
+          payload['file_count'] = len(tracked)
+          payload['files'] = {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in tracked}
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['generated_from'] = f'git:{head}'
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+      - name: Commit migration and remove temporary workflows
+        shell: bash
+        run: |
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git rm .github/workflows/wp08-attempt5-fixture-migrate-once.yml
+          git rm .github/workflows/wp08-attempt5-fixture-migrate-v2-once.yml
+          git add services/agent-service/tests/architecture/test_quality_loop_governance.py skill-system/registry/product-source-baseline.json
+          git commit -m 'Migrate WP08 semantic smoke governance fixtures'
+          git push origin HEAD:fix/wp08-attempt5-canonical-semantic-certification-20260813
