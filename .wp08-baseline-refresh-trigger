@@ -1,4 +1,5 @@
 WP08-Release-Run-ID: wp08-release-31657843214
 WP08-Parent-Run-ID: 31664178320
 Purpose: refresh protected source baseline for PR 722 after canonical fixture migration.
+Retry: 2
 production_closed=false
