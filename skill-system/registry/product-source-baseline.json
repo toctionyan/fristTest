@@ -515,7 +515,7 @@
     "services/agent-service/tests/runtime/test_wp08_attempt4_release_repairs.py": "8591d0871ad510b362defa7a2ab4149af5813079b91390bd30315aa8fbb2a2fd",
     "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "1778e423eb75d05db3258b6a46b5c5e56e99468404ab405e8cb4caf2d20cff1f",
     "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "96d1a418497c057e0e642474afbb2cde6467f9544bddb4d024eada8c96f08a3f",
-    "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "45f48e78f8ba3298718c331a4a811e1787d27600ba1edefa788ea1ffb1701e7a",
+    "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "0d5c403791ac846c0422eef30e975ade37c915234f0b4d4b9b71b0e675ae0f1b",
     "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "1fc34d7eea598d30db159bedfc7a8d0e00caaff81388e110c3049cef79caea8c",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
     "services/agent-service/tests/support/canonical_semantic_fixture.py": "6bb8b587b49ec9c765162ee998a39a668c317842bb7fb0c2af902243f5acb7d0",
@@ -574,8 +574,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T12:37:00Z",
-  "generated_from": "git:6419a8b15d499ecc0d475d15737a08a41ef845dd",
+  "generated_at": "2026-08-13T12:47:24Z",
+  "generated_from": "git:1cc875e559ab324325cdfc900998e19dca352a5a",
   "protected_roots": [
     "services",
     "web",

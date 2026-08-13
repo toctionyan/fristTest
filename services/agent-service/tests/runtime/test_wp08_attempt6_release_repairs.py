@@ -186,31 +186,29 @@ def test_semantic_oracle_accepts_optional_legacy_goal_type_when_effect_matches()
     oracle = [{
         "oracle_id": "g1", "goal_type": "query", "evidence_span": "查一下键盘订单",
         "required": True, "depends_on": [],
-        "requested_effect": {"domain": "order", "operation": "query", "object_type": "order"},
+        "accepted_output_sets": [["order.collection"]],
     }]
     goals = [{
         "goal_id": "m1", "goal_type": "", "evidence_span": "查一下键盘订单",
         "required": True, "depends_on": [],
-        "requested_effect": {"domain": "order", "operation": "query", "object_type": "order"},
+        "requested_effect": {"requested_outputs": [{"output_id": "order.collection"}]},
     }]
     smoke._match_oracle(case_id="optional-goal-type", oracle=oracle, goals=goals)
-
 
 def test_semantic_oracle_rejects_wrong_authoritative_requested_effect() -> None:
     smoke = _load_semantic_smoke()
     oracle = [{
         "oracle_id": "g1", "goal_type": "query", "evidence_span": "查一下键盘订单",
         "required": True, "depends_on": [],
-        "requested_effect": {"domain": "order", "operation": "query", "object_type": "order"},
+        "accepted_output_sets": [["order.collection"]],
     }]
     goals = [{
         "goal_id": "m1", "goal_type": "query", "evidence_span": "查一下键盘订单",
         "required": True, "depends_on": [],
-        "requested_effect": {"domain": "logistics", "operation": "query", "object_type": "order"},
+        "requested_effect": {"requested_outputs": [{"output_id": "shipment.tracking"}]},
     }]
-    with pytest.raises(RuntimeError, match="requested_effect"):
+    with pytest.raises(RuntimeError, match="accepted_outputs"):
         smoke._match_oracle(case_id="wrong-effect", oracle=oracle, goals=goals)
-
 
 def test_recovery_input_values_are_scoped_to_current_form_step() -> None:
     import verify_managed_postgres_recovery as recovery
