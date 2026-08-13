@@ -440,7 +440,7 @@
     "services/agent-service/tests/fixtures/parameterized-release-evidence.json": "03522132119cbe465a0bf4abb60eabfeb957742208c4fbe09fca9a9f9ef960e3",
     "services/agent-service/tests/fixtures/presentation-release-evidence.json": "f469bfe074ca69474cf969beabd70266656a4262602fad1f5e7edc68a6ab526a",
     "services/agent-service/tests/integration/__init__.py": "33ca456c79e97ec71d628af3d904abf8efe109f1b6ffe9d6769508af67e2bf45",
-    "services/agent-service/tests/integration/model_stub.py": "c88610e6ecfe4b0ca5dcbdebd0c344cc811176ce1754a364b48088bd907c911a",
+    "services/agent-service/tests/integration/model_stub.py": "90f0a76c42d7467f9ccdcc9cf4bd5aff0708459edce232038fd3c40bcef5ed08",
     "services/agent-service/tests/integration/test_atomic_postgres_fencing.py": "8ae05c77ad86ced2fc9809e75c238e96fa81bb4a881b47a12dd6e9ead092fde2",
     "services/agent-service/tests/integration/test_model_stub.py": "64846b85550cc0e4f20944547f8273c847a89aa8cf23631ebafb5bc29c0d0bd9",
     "services/agent-service/tests/integration/test_pgvector_runtime.py": "664da768be56b88e7364c83fa774654f9931d5fcac8c92222bc680811c273880",
@@ -573,8 +573,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T07:16:46Z",
-  "generated_from": "git:22b93c4c3aeb500042bdb48efcbf04d28885692c",
+  "generated_at": "2026-08-13T15:30:23+08:00",
+  "generated_from": "git:2eecdceda5c003f20432fa804980dc8e1bb511c9",
   "protected_roots": [
     "services",
     "web",
