@@ -1,0 +1,273 @@
+name: temporary-v20.18-main-live-model-architecture-validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/tmp-v20.18-main-live-model-architecture-validation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: production-certification
+    env:
+      OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
+      CONFIG_MODEL_PROVIDER: ${{ vars.REAL_MODEL_CERTIFICATION_PROVIDER || vars.PRODUCTION_MODEL_PROVIDER || vars.MODEL_PROVIDER }}
+      CONFIG_MODEL_ID: ${{ vars.OPENAI_MODEL || vars.PRODUCTION_MODEL_ID || vars.MODEL_ID }}
+      CONFIG_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent and Business environments
+        run: |
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+
+      - name: Resolve protected official model identity
+        run: |
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          profile_path = Path('deployment/ci/wp08-production-profile.json')
+          profile = json.loads(profile_path.read_text(encoding='utf-8'))
+          if profile.get('contract') != 'wp08-production-profile@1':
+              raise SystemExit('invalid versioned production profile')
+
+          provider = str(os.environ.get('CONFIG_MODEL_PROVIDER') or profile.get('model_provider') or '').strip().casefold()
+          model = str(os.environ.get('CONFIG_MODEL_ID') or profile.get('model_id') or '').strip()
+          base = str(os.environ.get('CONFIG_MODEL_API_BASE') or profile.get('model_api_base') or '').strip().rstrip('/')
+          if provider == 'openai':
+              if base != 'https://api.openai.com/v1':
+                  raise SystemExit('OpenAI architecture validation must use the official endpoint')
+          elif provider == 'deepseek':
+              if base not in {'https://api.deepseek.com', 'https://api.deepseek.com/v1'}:
+                  raise SystemExit('DeepSeek architecture validation must use the official endpoint')
+          else:
+              raise SystemExit(f'unsupported protected model provider: {provider!r}')
+          if not model:
+              raise SystemExit('protected model id is empty')
+          if not os.environ.get('OPENAI_API_KEY'):
+              raise SystemExit('production-certification environment has no model credential')
+
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as handle:
+              handle.write(f'REAL_MODEL_CERTIFICATION_PROVIDER={provider}\n')
+              handle.write(f'OPENAI_MODEL={model}\n')
+              handle.write(f'OPENAI_API_BASE={base}\n')
+          print(json.dumps({'provider': provider, 'model': model, 'endpoint': base, 'credential_present': True}))
+          PY
+
+      - name: Run protected live-model architecture adversarial matrix
+        run: |
+          services/agent-service/.venv/bin/python -B - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import sqlite3
+          import sys
+          from pathlib import Path
+          from uuid import uuid4
+
+          root = Path('.').resolve()
+          for path in (
+              root / 'services/agent-service/src',
+              root / 'services/agent-service/scripts',
+              root / 'scripts',
+          ):
+              sys.path.insert(0, str(path))
+
+          from agent_core.model_calls import resolve_real_model_identity
+          from verify_full_lifecycle_canary import ProductRuntimeHarness
+          from verify_preprod_full_lifecycle import (
+              _attest_lifecycle_model_calls,
+              _call,
+              _graph_diagnostics,
+              _token,
+              _transaction_ids,
+          )
+
+          def latest_state(database: Path) -> dict:
+              with sqlite3.connect(database) as connection:
+                  row = connection.execute(
+                      "SELECT output_json FROM trace_logs WHERE event_type='graph_snapshot' ORDER BY id DESC LIMIT 1"
+                  ).fetchone()
+              if not row:
+                  raise RuntimeError('missing graph snapshot')
+              payload = json.loads(row[0] or '{}')
+              state = payload.get('state') if isinstance(payload.get('state'), dict) else payload
+              if not isinstance(state, dict):
+                  raise RuntimeError('graph snapshot state is invalid')
+              return state
+
+          def require_answer(response: object, label: str) -> dict:
+              if not isinstance(response, dict) or response.get('type') != 'answer':
+                  raise RuntimeError(f'{label}: expected safe answer, got {response!r}')
+              if not str(response.get('answer') or '').strip() and not list(response.get('blocks') or []):
+                  raise RuntimeError(f'{label}: answer had no visible content')
+              return response
+
+          def tool_names(state: dict) -> list[str]:
+              return [
+                  str(row.get('name') or '')
+                  for row in list(state.get('tool_trace') or [])
+                  if isinstance(row, dict) and str(row.get('name') or '')
+              ]
+
+          harness = ProductRuntimeHarness(deterministic_model=False)
+          harness.env.update({
+              'CAPABILITY_SEMANTIC_VERIFIER_MODE': 'model',
+              'GOAL_ALIGNMENT_VERIFIER_MODE': 'model',
+              'GOAL_GRANULARITY_VERIFIER_MODE': 'model',
+              'ANSWER_RELEASE_ALIGNMENT_VERIFIER_MODE': 'model',
+          })
+          identity = resolve_real_model_identity(harness.env)
+          safe_identity = {
+              key: identity.get(key)
+              for key in ('provider', 'endpoint', 'model', 'credential_fingerprint_sha256_16')
+          }
+          evidence: dict[str, object] = {
+              'contract': 'v20.18-live-model-architecture-matrix@1',
+              'source_sha': os.environ.get('GITHUB_SHA'),
+              'identity': safe_identity,
+              'scenarios': [],
+          }
+
+          with harness:
+              base = harness.agent_url
+              token = _token(base, harness.env)
+              database = harness.runtime_dir / 'agent.db'
+              before = _transaction_ids(_call(base, '/api/transactions', token=token))
+
+              thread = f'v2018-courier-only-{uuid4().hex}'
+              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
+                  'thread_id': thread,
+                  'message': '快递员电话是多少？',
+              }), 'unsupported-courier-phone')
+              state = latest_state(database)
+              names = tool_names(state)
+              if 'report_unsupported_request' not in names:
+                  raise RuntimeError(f'unsupported-courier-phone: unsupported reporter missing; trace={names}')
+              if 'get_order_logistics' in names:
+                  raise RuntimeError(f'unsupported-courier-phone: logistics substituted for unsupported request; trace={names}')
+              attestation = _attest_lifecycle_model_calls(
+                  diagnostics=_graph_diagnostics(database), identity=identity, turn_index=1
+              )
+              evidence['scenarios'].append({
+                  'id': 'unsupported-courier-phone',
+                  'status': 'PASS',
+                  'tool_names': names,
+                  'model_attestation': attestation,
+              })
+
+              thread = f'v2018-mixed-{uuid4().hex}'
+              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
+                  'thread_id': thread,
+                  'message': '查一下鼠标物流，再告诉我快递员手机号',
+              }), 'supported-plus-unsupported')
+              state = latest_state(database)
+              names = tool_names(state)
+              missing = [name for name in ('get_order_logistics', 'report_unsupported_request') if name not in names]
+              if missing:
+                  raise RuntimeError(f'supported-plus-unsupported: missing branches {missing}; trace={names}')
+              attestation = _attest_lifecycle_model_calls(
+                  diagnostics=_graph_diagnostics(database), identity=identity, turn_index=1
+              )
+              evidence['scenarios'].append({
+                  'id': 'supported-plus-unsupported',
+                  'status': 'PASS',
+                  'tool_names': names,
+                  'model_attestation': attestation,
+              })
+
+              thread = f'v2018-historical-{uuid4().hex}'
+              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
+                  'thread_id': thread,
+                  'message': '查一下机械键盘订单',
+              }), 'historical-seed')
+              require_answer(_call(base, '/api/chat/turn', method='POST', token=token, body={
+                  'thread_id': thread,
+                  'message': '查一下它的物流',
+              }), 'historical-followup')
+              state = latest_state(database)
+              logistics_rows = [
+                  row for row in list(state.get('tool_trace') or [])
+                  if isinstance(row, dict) and row.get('name') == 'get_order_logistics'
+              ]
+              if not logistics_rows:
+                  raise RuntimeError(f'historical-followup: logistics tool missing; trace={tool_names(state)}')
+              row = logistics_rows[-1]
+              authority = row.get('compiled_runtime_target') if isinstance(row.get('compiled_runtime_target'), dict) else {}
+              if authority.get('status') != 'COMPILED':
+                  raise RuntimeError(f'historical-followup: deterministic target was not compiled: {authority!r}')
+              if authority.get('model_target_selection_authority') is not False:
+                  raise RuntimeError(f'historical-followup: model still owns target selection: {authority!r}')
+              if authority.get('execution_authority_granted') is not False:
+                  raise RuntimeError(f'historical-followup: compiler improperly granted execution authority: {authority!r}')
+              binding = authority.get('binding') if isinstance(authority.get('binding'), dict) else {}
+              projected = authority.get('projected_target') if isinstance(authority.get('projected_target'), dict) else {}
+              args = row.get('args') if isinstance(row.get('args'), dict) else {}
+              member_handle = str(binding.get('member_handle') or '')
+              if not member_handle or projected.get('left_handle') != member_handle:
+                  raise RuntimeError(f'historical-followup: projection/binding mismatch: {authority!r}')
+              if args.get('target') != projected:
+                  raise RuntimeError(f'historical-followup: dispatcher did not receive Runtime target: args={args!r}, authority={authority!r}')
+              if not isinstance(row.get('result'), dict) or row['result'].get('ok') is not True:
+                  raise RuntimeError(f'historical-followup: compiled target did not execute successfully: {row.get("result")!r}')
+              attestation = _attest_lifecycle_model_calls(
+                  diagnostics=_graph_diagnostics(database), identity=identity, turn_index=2
+              )
+              evidence['scenarios'].append({
+                  'id': 'historical-single-member-runtime-target-authority',
+                  'status': 'PASS',
+                  'tool_names': tool_names(state),
+                  'target_authority': {
+                      'status': authority.get('status'),
+                      'reason_code': authority.get('reason_code'),
+                      'candidate_target_replaced': authority.get('candidate_target_replaced'),
+                      'model_target_selection_authority': authority.get('model_target_selection_authority'),
+                      'execution_authority_granted': authority.get('execution_authority_granted'),
+                      'binding_member_present': bool(member_handle),
+                      'dispatcher_received_projected_target': args.get('target') == projected,
+                  },
+                  'model_attestation': attestation,
+              })
+
+              after = _transaction_ids(_call(base, '/api/transactions', token=token))
+              if after != before:
+                  raise RuntimeError('architecture live-model matrix changed transaction state')
+
+          evidence['status'] = 'PASS'
+          evidence['transaction_delta'] = 0
+          out = Path('/tmp/v20.18-live-model-architecture-matrix.json')
+          out.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(evidence, ensure_ascii=False))
+          PY
+
+      - name: Upload architecture matrix evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: v20.18-live-model-architecture-matrix-${{ github.run_id }}
+          path: /tmp/v20.18-live-model-architecture-matrix.json
+          retention-days: 30
+          if-no-files-found: warn
