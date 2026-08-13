@@ -27,8 +27,20 @@ def _output(
 
 
 SEMANTIC_OUTPUTS = (
-    _output("order.collection", "order", ("read",), "订单集合及其可见成员。", "order.list:order"),
-    _output("order.details", "order", ("read",), "订单的已验证业务详情。", "order.query_details:order"),
+    _output(
+        "order.collection",
+        "order",
+        ("read",),
+        "发现、筛选或列出订单本身及其可见成员；当用户按商品、状态、金额或其他属性寻找订单时，即使最终只匹配一笔，也仍属于订单集合语义。",
+        "order.list:order",
+    ),
+    _output(
+        "order.details",
+        "order",
+        ("read",),
+        "读取一个在本次查询前已经通过订单号、唯一历史结果或其他已验证引用唯一绑定的订单业务详情；不用于按商品、状态或其他属性寻找订单本身。",
+        "order.query_details:order",
+    ),
     _output(
         "shipment.current_status",
         "shipment",
