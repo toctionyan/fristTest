@@ -331,7 +331,10 @@ def _canonical_goal(*, output_id: str, legacy_domain: str = "order", legacy_oper
             "domain": legacy_domain,
             "operation": legacy_operation,
             "object_type": "order",
-            "requested_outputs": [{"output_id": output_id}],
+            "requested_outputs": [{
+                "output_id": output_id,
+                "evidence_span": "查下物流到哪了",
+            }],
         },
     }
 
@@ -422,7 +425,7 @@ def test_open_output_cannot_satisfy_registered_canonical_oracle(monkeypatch) -> 
         )
 
 
-def test_canonical_planning_vocabulary_is_capability_independent(monkeypatch) -> None:
+def test_canonical_planning_vocabulary_exposes_no_availability_or_tool_names(monkeypatch) -> None:
     script = _load_script()
     snapshot = {
         "version": "semantic-output-vocabulary@1",
@@ -431,9 +434,16 @@ def test_canonical_planning_vocabulary_is_capability_independent(monkeypatch) ->
         "tool_names_exposed": False,
         "outputs": [{"output_id": "shipment.current_status"}],
     }
-    monkeypatch.setattr(script, "_semantic_vocabulary_snapshot", lambda: snapshot)
+    monkeypatch.setattr(
+        script,
+        "get_module_registry",
+        lambda: SimpleNamespace(semantic_vocabulary_snapshot=lambda: snapshot),
+    )
 
-    assert script._canonical_effect_index(object()) == snapshot
-    serialized = json.dumps(snapshot, ensure_ascii=False)
-    assert "capability" not in serialized.casefold()
-    assert "tool_name" not in serialized
+    projected = script._semantic_vocabulary_snapshot()
+    assert projected == snapshot
+    assert projected["availability_exposed"] is False
+    assert projected["tool_names_exposed"] is False
+    serialized_outputs = json.dumps(projected["outputs"], ensure_ascii=False)
+    assert "tool_name" not in serialized_outputs
+    assert "availability" not in serialized_outputs
