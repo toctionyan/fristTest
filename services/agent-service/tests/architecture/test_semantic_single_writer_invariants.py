@@ -12,8 +12,8 @@ def test_planning_schema_keeps_compat_shape_but_exact_output_is_capability_blind
         schema["function"]["parameters"]["properties"]["goals"]["items"]
         ["properties"]["requested_effect"]
     )
-    assert set(effect["required"]) == {"domain", "operation", "object_type"}
-    assert effect["allOf"] == [{"required": ["requested_outputs"]}]
+    assert set(effect["required"]) == {"domain", "operation", "object_type", "requested_outputs"}
+    assert "allOf" not in effect
     assert "requested_outputs" in effect["properties"]
     assert "enum" not in effect["properties"]["operation"]
     output_id = effect["properties"]["requested_outputs"]["items"]["properties"]["output_id"]
