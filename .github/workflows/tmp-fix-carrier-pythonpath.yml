@@ -1,0 +1,38 @@
+name: tmp-fix-carrier-pythonpath
+
+on:
+  push:
+    branches:
+      - fix/wp08-deepseek-v4-latency-envelope-20260813
+
+permissions:
+  contents: write
+
+jobs:
+  fix-carrier:
+    if: github.ref == 'refs/heads/fix/wp08-deepseek-v4-latency-envelope-20260813'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/wp08-deepseek-v4-latency-envelope-20260813
+          fetch-depth: 1
+      - name: Repair carrier and self-clean
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/tmp-wp08-deepseek-settings-contract-repair.yml')
+          text = path.read_text(encoding='utf-8')
+          old = 'cd services/agent-service && .venv/bin/python -m pytest'
+          new = 'cd services/agent-service && PYTHONPATH=src .venv/bin/python -m pytest'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one carrier command, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-fix-carrier-pythonpath.yml
+          git add .github/workflows/tmp-wp08-deepseek-settings-contract-repair.yml
+          git commit -m "Fix temporary latency repair test path"
+          git push origin HEAD:fix/wp08-deepseek-v4-latency-envelope-20260813
