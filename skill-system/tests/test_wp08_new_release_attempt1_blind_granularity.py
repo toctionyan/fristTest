@@ -123,10 +123,13 @@ class BlindGranularityRepairTests(unittest.TestCase):
         })
         self.assertEqual(oracle[1].get("requested_effect_match"), "unregistered_open")
 
-    def test_certification_exact_effect_oracle_is_unchanged(self) -> None:
+    def test_certification_oracle_uses_exact_canonical_output_sets(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
-        self.assertIn('_effect_identity(row.get("requested_effect")) == expected_effect', source)
-        self.assertIn('match_mode == "unregistered_open"', source)
+        self.assertIn("_requested_output_identity(row) in accepted_outputs", source)
+        self.assertIn("require_canonical_output_identity=True", source)
+        self.assertIn('if output_id != "open" and output_id not in registered', source)
+        self.assertNotIn('_effect_identity(row.get("requested_effect")) == expected_effect', source)
+        self.assertNotIn('match_mode == "unregistered_open"', source)
 
     def test_browser_response_sla_and_provider_budget_are_unchanged(self) -> None:
         browser = (AGENT_ROOT / "frontend/e2e/strong_context_journey.mjs").read_text(encoding="utf-8")
