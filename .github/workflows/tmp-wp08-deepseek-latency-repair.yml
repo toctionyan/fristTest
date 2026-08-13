@@ -71,12 +71,8 @@ jobs:
               """
               model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
               base_url = os.getenv("OPENAI_API_BASE") or None
-              timeout_seconds = _bounded_float_env(
-                  "MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0
-              )
-              max_retries = _bounded_int_env(
-                  "MODEL_MAX_RETRIES", 1, minimum=0, maximum=10
-              )
+              timeout_seconds = _bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0)
+              max_retries = _bounded_int_env("MODEL_MAX_RETRIES", 1, minimum=0, maximum=10)
               latency_policy = "generic_bounded_retry"
               if _is_official_deepseek_v4_identity(model=model, base_url=base_url):
                   timeout_seconds = _bounded_float_env(
