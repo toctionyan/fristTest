@@ -20,7 +20,6 @@ if str(CONTROL) not in sys.path:
 from local_first_governance import (  # noqa: E402
     LOCAL_GATE_ORDER,
     LocalFirstGovernanceError,
-    approve_remote_repair,
     begin_local_repair_round,
     bind_ci_run,
     create_local_first_task,
@@ -456,13 +455,6 @@ def command_ci_result(args: argparse.Namespace) -> int:
     return 0 if args.conclusion == "success" else 1
 
 
-def command_approve_remote(args: argparse.Namespace) -> int:
-    store = _open_task(Path(args.state))
-    approve_remote_repair(store, approval="explicitly-approved", evidence_refs=[args.evidence])
-    print(json.dumps(export_status(store), ensure_ascii=False, indent=2))
-    return 0
-
-
 def command_status(args: argparse.Namespace) -> int:
     store = _open_task(Path(args.state))
     print(json.dumps(export_status(store), ensure_ascii=False, indent=2))
@@ -511,11 +503,6 @@ def build_parser() -> argparse.ArgumentParser:
     ci_result.add_argument("--log-text", default="")
     ci_result.add_argument("--evidence", required=True)
     ci_result.set_defaults(func=command_ci_result)
-
-    approve = sub.add_parser("approve-remote-repair")
-    approve.add_argument("--state", required=True)
-    approve.add_argument("--evidence", required=True)
-    approve.set_defaults(func=command_approve_remote)
 
     status = sub.add_parser("status")
     status.add_argument("--state", required=True)
