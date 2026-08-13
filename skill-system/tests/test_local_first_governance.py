@@ -14,6 +14,7 @@ if str(CONTROL) not in sys.path:
 
 from local_first_governance import (  # noqa: E402
     CIFeedbackBindingError,
+    DEFAULT_BUDGETS,
     UploadAdmissionError,
     begin_local_repair_round,
     bind_ci_run,
@@ -50,6 +51,10 @@ class LocalFirstGovernanceTests(unittest.TestCase):
                 evidence_refs=[f"evidence/{gate}.json"],
                 workspace_fingerprint="workspace-green",
             )
+
+    def test_local_repair_budget_matches_bounded_eight_round_policy(self) -> None:
+        self.assertEqual(DEFAULT_BUDGETS["local_repair_rounds"], 8)
+        self.assertEqual(DEFAULT_BUDGETS["local_verification_rounds"], 8)
 
     def test_scope_never_expands_from_ci_logs(self) -> None:
         violations = scope_violations(
@@ -122,18 +127,24 @@ class LocalFirstGovernanceTests(unittest.TestCase):
             )
             self.assertIsNotNone(decision)
             self.assertEqual(decision.kind, "code_or_contract")
+            self.assertTrue(decision.remote_fallback_eligible)
             status = export_status(store)
             self.assertEqual(status["phase"], "CI_FAILURE_RETURNED_TO_PATCH_OWNER")
-            self.assertTrue(status["ci_feedback"][-1]["product_code_write_allowed"])
-            self.assertFalse(status["ci_feedback"][-1]["remote_repair_allowed"])
+            feedback = status["ci_feedback"][-1]
+            self.assertTrue(feedback["product_code_write_allowed"])
+            self.assertTrue(feedback["remote_fallback_eligible"])
+            self.assertEqual(feedback["remote_fallback_activation"], "manual-workflow-dispatch-only")
+            self.assertNotIn("remote_repair", status)
 
     def test_environment_and_secret_failures_cannot_edit_product_code(self) -> None:
         environment = classify_ci_failure(job_name="integration", log_text="Could not resolve host: registry.example")
         secret = classify_ci_failure(job_name="model", log_text="401 Unauthorized: bad credentials")
         self.assertEqual(environment.owner, "ci-reliability-agent")
         self.assertFalse(environment.product_code_write_allowed)
+        self.assertFalse(environment.remote_fallback_eligible)
         self.assertEqual(secret.owner, "platform-operator")
         self.assertFalse(secret.product_code_write_allowed)
+        self.assertFalse(secret.remote_fallback_eligible)
 
     def test_ci_binding_rejects_another_sha(self) -> None:
         with TemporaryDirectory() as directory:
@@ -200,7 +211,6 @@ class LocalFirstGovernanceTests(unittest.TestCase):
                 evidence_refs=["upload.json"],
             )
             self.assertTrue(admitted.allowed)
-            # Simulate a CI code failure returning the task to the same Patch Owner.
             bind_ci_run(
                 store,
                 run_id=123,
@@ -239,6 +249,7 @@ class LocalFirstGovernanceTests(unittest.TestCase):
         self.assertEqual(decision.kind, "test_defect")
         self.assertEqual(decision.owner, "test-maintainer-agent")
         self.assertFalse(decision.product_code_write_allowed)
+        self.assertFalse(decision.remote_fallback_eligible)
 
 
 if __name__ == "__main__":
