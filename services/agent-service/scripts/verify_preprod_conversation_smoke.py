@@ -2,11 +2,10 @@
 """Canonical semantic adapter for the WP08 real-model goal smoke.
 
 The mature bounded-repair/provider-attestation implementation is preserved in
-``_verify_preprod_conversation_smoke_legacy.py``.  This entry point owns the
-migration boundary: pre-freeze planning receives the same capability-independent
-semantic-output vocabulary as live Runtime, new-turn declarations require
-``requested_outputs``, and the independent oracle certifies canonical output IDs
-rather than historical domain/operation/object_type compatibility fields.
+``_verify_preprod_conversation_smoke_legacy.py``. This entry point owns only the
+semantic migration boundary: provider planning gets the live Runtime's
+capability-independent vocabulary, new-turn declarations require canonical
+``requested_outputs``, and the independent oracle certifies canonical output IDs.
 """
 from __future__ import annotations
 
@@ -22,10 +21,6 @@ if _SPEC is None or _SPEC.loader is None:
 _impl = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_impl)
 
-# Preserve the existing test/support surface.  The adapter overrides only the
-# semantic-authority seams below; literal grounding, bounded repair, verifier
-# budgets, provider attestation, environment classification, and evidence
-# rendering remain the existing implementation.
 for _name in dir(_impl):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_impl, _name)
@@ -34,12 +29,10 @@ from agent_core.composition import get_module_registry  # noqa: E402
 
 _ORIGINAL_PLANNING_SCHEMAS = _impl.planning_schemas
 _ORIGINAL_SYSTEM_MESSAGE = _impl.SystemMessage
+_LEGACY_DECLARE_WITH_BOUNDED_REPAIR = _impl._declare_with_bounded_production_repair
 
-# Independent case oracle.  These are expected *user-requested semantic
-# outputs*, not capability/tool identities.  Every registered ID is checked
-# against ModuleRegistry before certification.  ``open`` is the provider
-# protocol's reserved representation for semantics outside the registered
-# domain vocabulary and is never rewritten to a nearby registered output.
+# This is an independent case oracle, not a capability vocabulary. Every
+# registered ID below is checked against ModuleRegistry before certification.
 _CANONICAL_OUTPUT_ORACLE: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
     "semantic_multi_orders_logistics": {
         "g1": (("order.collection",),),
@@ -73,24 +66,12 @@ _CANONICAL_OUTPUT_ORACLE: dict[str, dict[str, tuple[tuple[str, ...], ...]]] = {
         ),
         "g2": (("courier.contact.phone",),),
     },
-    "semantic_unsupported_courier_phone": {
-        "g1": (("courier.contact.phone",),),
-    },
-    "semantic_refund_arrival_query": {
-        "g1": (("refund.eta",),),
-    },
-    "semantic_delete_record_not_cancel": {
-        "g1": (("open",),),
-    },
-    "semantic_refund_consult_no_draft": {
-        "g1": (("refund.eligibility",),),
-    },
-    "semantic_multi_target_cancel_boundary": {
-        "g1": (("order.cancellation",),),
-    },
-    "semantic_conflicting_actions_clarify": {
-        "g1": (("open",),),
-    },
+    "semantic_unsupported_courier_phone": {"g1": (("courier.contact.phone",),)},
+    "semantic_refund_arrival_query": {"g1": (("refund.eta",),)},
+    "semantic_delete_record_not_cancel": {"g1": (("open",),)},
+    "semantic_refund_consult_no_draft": {"g1": (("refund.eligibility",),)},
+    "semantic_multi_target_cancel_boundary": {"g1": (("order.cancellation",),)},
+    "semantic_conflicting_actions_clarify": {"g1": (("open",),)},
 }
 
 
@@ -114,13 +95,11 @@ def _canonical_planning_schemas(*args: Any, **kwargs: Any):
 
 
 def _canonical_effect_index(_capabilities: Any = None) -> dict[str, object]:
-    """Compatibility hook for the legacy main; returns semantics, never availability."""
     return _semantic_vocabulary_snapshot()
 
 
 def _canonical_system_message(*args: Any, **kwargs: Any):
-    snapshot = _semantic_vocabulary_snapshot()
-    vocabulary = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+    vocabulary = json.dumps(_semantic_vocabulary_snapshot(), ensure_ascii=False, sort_keys=True)
     content = (
         "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
         "Goal 只表示用户可独立判断完成与否的业务效果；实现步骤不能单独提升为 Goal。"
@@ -144,7 +123,6 @@ def _production_goal_declaration_evaluation(
     goals: list[dict[str, Any]],
     inventory_authority: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Use the exact new-turn canonical identity gate used by live Runtime."""
     state: dict[str, Any] = {"current_user_input": user_text}
     if isinstance(inventory_authority, dict):
         state["current_turn_plan"] = {
@@ -182,12 +160,9 @@ def _oracle_output_sets(*, case_id: str, expected: dict[str, Any]) -> tuple[tupl
             if isinstance(row, list)
         )
     else:
-        oracle_id = str(expected.get("oracle_id") or "")
-        values = _CANONICAL_OUTPUT_ORACLE.get(case_id, {}).get(oracle_id, ())
+        values = _CANONICAL_OUTPUT_ORACLE.get(case_id, {}).get(str(expected.get("oracle_id") or ""), ())
     if not values:
-        raise RuntimeError(
-            f"{case_id}: canonical semantic oracle missing for {expected.get('oracle_id')!r}"
-        )
+        raise RuntimeError(f"{case_id}: canonical semantic oracle missing for {expected.get('oracle_id')!r}")
     registered = set(_semantic_output_ids())
     unknown = sorted({value for row in values for value in row if value != "open" and value not in registered})
     if unknown:
@@ -204,7 +179,6 @@ def _match_oracle(
     goals: list[dict[str, Any]],
     registered_effect_identities: set[str] | None = None,
 ) -> None:
-    """Match structure and canonical outputs; legacy triplets have zero authority."""
     del registered_effect_identities
     if len(goals) != len(oracle):
         raise RuntimeError(f"{case_id}: goal count mismatch, expected {len(oracle)}, got {len(goals)}")
@@ -273,9 +247,24 @@ def _match_oracle(
             )
 
 
+def _sync_direct_repair_surface() -> None:
+    # Legacy function objects resolve globals from their implementation module.
+    # Mirror monkeypatched adapter dependencies before direct focused-test calls.
+    for name in (
+        "invoke_model",
+        "tool_calls",
+        "attest_real_model_metadata",
+        "_validate_with_production_goal_contract",
+    ):
+        setattr(_impl, name, globals()[name])
+
+
+def _declare_with_bounded_production_repair(**kwargs: Any):
+    _sync_direct_repair_surface()
+    return _LEGACY_DECLARE_WITH_BOUNDED_REPAIR(**kwargs)
+
+
 def _sync_impl() -> None:
-    # Preserve monkeypatchability of the original script surface used by focused
-    # tests while installing the canonical authority seams for actual execution.
     for name in (
         "CATALOG",
         "get_model",
