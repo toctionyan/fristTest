@@ -20,14 +20,14 @@ TaskRun
   -> CI feedback returned to the same TaskRun
 ```
 
-GitHub is the independent certification layer. It is not the default repair workspace.
+GitHub is the independent certification layer. It is not the default repair workspace. A code/contract CI failure returns to the same local Patch Owner and does not automatically enter a remote repair workflow.
 
 ## Local budgets
 
 Default budgets are independent:
 
-- local repair rounds: 4;
-- local verification failures: 2;
+- local repair rounds: 8;
+- local verification failures: 8;
 - CI feedback rounds: 2;
 - no-progress events: 2;
 - flaky retries: 2.
@@ -62,7 +62,15 @@ A code/contract failure is returned to the original local TaskRun. A new unrelat
 
 ## Remote repair
 
-Remote Stage-2 repair is opt-in fallback only. It requires explicit approval evidence. It remains unable to merge `main`, weaken tests, publish production or set `production_closed=true`.
+Remote Stage-2 repair is opt-in fallback only. Initial activation has one authority: a manual `governed-ci-repair-stage2` workflow dispatch with `remote_repair_approval=explicitly-approved`, bound to the exact failed source run and attempt. The local controller does not carry a second remote-approval state or command.
+
+After that explicit fallback has started, later Stage-2 rounds may be dispatched only by the bound Stage-3 outer-loop feedback for the same source failure and within rounds 2-8. This continuation inherits the initial fallback authority; it does not create a second default repair lane.
+
+Remote Stage 2 remains unable to merge `main`, weaken tests, publish production or set `production_closed=true`.
+
+## Single-authority cutover
+
+When a repair controller, state machine, trigger or decision owner is replaced, the old writer must be deleted or reduced to a read-only compatibility adapter. Compatibility may translate historical representation but may not authorize repair, start another controller, override CI, or declare completion. If old and new paths can both initiate the same repair state transition, the cutover is incomplete and must fail closed.
 
 ## CLI
 
