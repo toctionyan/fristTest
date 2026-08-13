@@ -1,0 +1,47 @@
+name: tmp-local-toolchain-export
+
+on:
+  push:
+    branches:
+      - fix/wp08-literal-evidence-repair-20260813
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # pinned
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Install locked local-test toolchain
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check uv==0.11.29
+          (cd services/agent-service && uv sync --locked --all-groups)
+          (cd services/business-service && uv sync --locked --all-groups)
+          (cd services/agent-service/frontend && npm ci --ignore-scripts=false)
+          mkdir -p .quality/tools/agent-venv/lib/python3.12 .quality/tools/business-venv/lib/python3.12
+          cp -a services/agent-service/.venv/lib/python3.12/site-packages .quality/tools/agent-venv/lib/python3.12/
+          cp -a services/business-service/.venv/lib/python3.12/site-packages .quality/tools/business-venv/lib/python3.12/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pinned
+        with:
+          name: tmp-local-toolchain-${{ github.run_id }}
+          path: |
+            .quality/tools/agent-venv/lib/python3.12/site-packages
+            .quality/tools/business-venv/lib/python3.12/site-packages
+            services/agent-service/frontend/node_modules
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
