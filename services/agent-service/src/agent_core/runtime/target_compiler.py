@@ -71,9 +71,12 @@ def compile_frozen_reference_target(
     """Compile one UNIQUE frozen historical member into a Runtime target binding.
 
     C1 deliberately covers only the strongest deterministic case: one frozen
-    historical member.  Collection pipelines and fresh literal targets remain
-    outside this compiler until their own deterministic contracts are defined.
-    Every non-provable case fails closed and returns no binding.
+    historical member whose capability target shape permits a singleton binding.
+    Collection pipelines and fresh literal targets remain outside this compiler
+    until their own deterministic contracts are defined.  A valid collection
+    target therefore returns NOT_APPLICABLE rather than being rejected merely
+    because this singleton compiler observed it first.  Every case that *does*
+    require a singleton but cannot prove one still fails closed.
     """
 
     integrity = semantic_contract_integrity(frozen_contract)
@@ -135,6 +138,20 @@ def compile_frozen_reference_target(
             goal_id=goal_id,
             target_contract=target_contract,
         )
+
+    # This compiler owns singleton projection only.  Collection-shaped capability
+    # targets continue through the existing candidate + CapabilityGate path; they
+    # must not be converted into artifact singletons or rejected simply because a
+    # singleton-only compiler observed them first.
+    if target_contract.cardinality == "collection":
+        return _result(
+            status="NOT_APPLICABLE",
+            reason_code="COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER",
+            contract=frozen_contract,
+            goal_id=goal_id,
+            target_contract=target_contract,
+        )
+
     if len(member_handles) != 1:
         return _result(
             status="REJECTED",

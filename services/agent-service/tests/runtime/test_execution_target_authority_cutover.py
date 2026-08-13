@@ -80,6 +80,13 @@ def _logistics_target_contract():
     return contract.planning_contract.target
 
 
+def _list_orders_target_contract():
+    contract = get_runtime_registry().capabilities.contract_for_tool("list_orders")
+    assert contract is not None and contract.planning_contract is not None
+    assert contract.planning_contract.target.cardinality == "collection"
+    return contract.planning_contract.target
+
+
 def test_registered_target_resolver_capabilities_publish_deterministic_projection() -> None:
     registry = get_runtime_registry().capabilities
     governed = []
@@ -130,6 +137,41 @@ def test_fresh_uncompiled_target_remains_on_existing_candidate_path() -> None:
         arguments=candidate,
     )
     assert evidence["status"] == "NOT_APPLICABLE"
+    assert projected == candidate
+
+
+def test_collection_pipeline_remains_on_candidate_path_for_collection_capability() -> None:
+    candidate = {
+        "target": {
+            "mode": "pipeline",
+            "source_kind": "collection",
+            "source_handle": "result:orders:turn-1",
+            "steps": [
+                {
+                    "op": "filter",
+                    "predicate": {
+                        "field": "status",
+                        "comparison": "eq",
+                        "value": "运输中",
+                        "source_span": "还在路上",
+                        "value_span": "还在路上",
+                    },
+                }
+            ],
+        },
+        "expected_shape": "collection",
+        "reference_span": "哪些还在路上",
+    }
+    projected, evidence = compile_runtime_target_arguments(
+        _frozen_contract(members=["artifact:order:10001", "artifact:order:10002"]),
+        goal_ids=["goal-logistics"],
+        target_contract=_list_orders_target_contract(),
+        arguments=candidate,
+    )
+    assert evidence["status"] == "NOT_APPLICABLE"
+    assert evidence["reason_code"] == "NO_FROZEN_HISTORICAL_TARGET_TO_COMPILE"
+    assert evidence["per_goal"][0]["reason_code"] == "COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER"
+    assert evidence["model_target_selection_authority"] is None
     assert projected == candidate
 
 
