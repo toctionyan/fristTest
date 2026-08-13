@@ -139,6 +139,39 @@ def test_multi_member_reference_fails_closed_for_single_target() -> None:
     assert compiled["binding"] is None
 
 
+def test_collection_capability_leaves_multi_member_reference_outside_singleton_compiler() -> None:
+    compiled = compile_frozen_reference_target(
+        _frozen_contract(members=["order:10001", "order:10002"]),
+        goal_id="goal-logistics",
+        target_contract=_target_contract(cardinality="collection"),
+    )
+    assert compiled["status"] == "NOT_APPLICABLE"
+    assert compiled["reason_code"] == "COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER"
+    assert compiled["binding"] is None
+
+
+def test_collection_capability_does_not_collapse_one_member_collection_shape() -> None:
+    compiled = compile_frozen_reference_target(
+        _frozen_contract(members=["order:10001"]),
+        goal_id="goal-logistics",
+        target_contract=_target_contract(cardinality="collection"),
+    )
+    assert compiled["status"] == "NOT_APPLICABLE"
+    assert compiled["reason_code"] == "COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER"
+    assert compiled["binding"] is None
+
+
+def test_one_or_collection_leaves_collection_reference_on_candidate_path() -> None:
+    compiled = compile_frozen_reference_target(
+        _frozen_contract(members=["order:10001", "order:10002"]),
+        goal_id="goal-logistics",
+        target_contract=_target_contract(cardinality="one_or_collection"),
+    )
+    assert compiled["status"] == "NOT_APPLICABLE"
+    assert compiled["reason_code"] == "COLLECTION_REFERENCE_OUTSIDE_SINGLE_MEMBER_COMPILER"
+    assert compiled["binding"] is None
+
+
 def test_target_resource_type_requires_positive_reference_proof() -> None:
     compiled = compile_frozen_reference_target(
         _frozen_contract(),
