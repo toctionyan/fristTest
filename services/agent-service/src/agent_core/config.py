@@ -59,19 +59,56 @@ def _bounded_int_env(name: str, default: int, *, minimum: int, maximum: int) -> 
     return value
 
 
-def get_model_settings() -> dict[str, object]:
-    """Return the complete, non-secret OpenAI-compatible model configuration.
+def _is_official_deepseek_v4_identity(*, model: object, base_url: object) -> bool:
+    model_name = str(model or "").strip().lower()
+    endpoint = str(base_url or "").strip().rstrip("/").lower()
+    return (
+        endpoint in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
+        and model_name.startswith("deepseek-v4")
+    )
 
-    The settings are intentionally read from ``.env`` rather than hard-coded in
-    ``get_model``.  A model change must be reproducible from deployment
-    configuration and visible in the model profile without exposing credentials.
+
+def get_model_settings() -> dict[str, object]:
+    """Return the complete, non-secret model configuration and latency policy.
+
+    Generic providers keep the governed 25-second / one-retry defaults. Official
+    DeepSeek V4 control-plane calls instead use one longer bounded attempt by
+    default: 40 seconds / zero retries. This raises the useful per-attempt read
+    window while reducing the default worst-case provider envelope from 50 seconds
+    to 40 seconds, so a slow-but-valid response is less likely to be killed and
+    duplicated by a retry. Provider-specific overrides remain explicit and bounded.
     """
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = os.getenv("OPENAI_API_BASE") or None
+    timeout_seconds = _bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0)
+    max_retries = _bounded_int_env("MODEL_MAX_RETRIES", 1, minimum=0, maximum=10)
+    if _is_official_deepseek_v4_identity(model=model, base_url=base_url):
+        timeout_seconds = _bounded_float_env(
+            "DEEPSEEK_V4_TIMEOUT_SECONDS", 40.0, minimum=1.0, maximum=60.0
+        )
+        max_retries = _bounded_int_env(
+            "DEEPSEEK_V4_MAX_RETRIES", 0, minimum=0, maximum=1
+        )
     return {
-        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        "base_url": os.getenv("OPENAI_API_BASE") or None,
+        "model": model,
+        "base_url": base_url,
         "temperature": _bounded_float_env("MODEL_TEMPERATURE", 0.0, minimum=0.0, maximum=2.0),
-        "timeout_seconds": _bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0),
-        "max_retries": _bounded_int_env("MODEL_MAX_RETRIES", 1, minimum=0, maximum=10),
+        "timeout_seconds": timeout_seconds,
+        "max_retries": max_retries,
+    }
+
+
+def _model_latency_metadata(settings: dict[str, object]) -> dict[str, object]:
+    deepseek_v4 = _is_official_deepseek_v4_identity(
+        model=settings.get("model"), base_url=settings.get("base_url")
+    )
+    timeout_seconds = float(settings.get("timeout_seconds") or 0.0)
+    max_retries = int(settings.get("max_retries") or 0)
+    return {
+        "latency_policy": (
+            "deepseek_v4_long_first_attempt" if deepseek_v4 else "generic_bounded_retry"
+        ),
+        "provider_retry_envelope_seconds": timeout_seconds * (max_retries + 1),
     }
 
 
@@ -91,6 +128,7 @@ def get_model_profile() -> dict[str, object]:
     behaves, without exposing API keys or arbitrary endpoint credentials.
     """
     settings = get_model_settings()
+    latency = _model_latency_metadata(settings)
     provider = "deepseek" if _use_deepseek_adapter(settings) else "openai_compatible"
     deepseek_v4 = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
     return {
@@ -100,6 +138,8 @@ def get_model_profile() -> dict[str, object]:
         "temperature": settings["temperature"],
         "timeout_seconds": settings["timeout_seconds"],
         "max_retries": settings["max_retries"],
+        "latency_policy": latency["latency_policy"],
+        "provider_retry_envelope_seconds": latency["provider_retry_envelope_seconds"],
         # Agent planning, routing and verifier calls are latency-bounded control-plane work.
         # DeepSeek V4 defaults to thinking=enabled, so production opts out explicitly here.
         "thinking_mode": "disabled" if deepseek_v4 else "provider_default",
@@ -115,9 +155,11 @@ def get_runtime_config_diagnostics(mask_secrets: bool = True) -> dict[str, objec
     business_token = os.getenv("BUSINESS_SERVICE_TOKEN")
     try:
         model_settings = get_model_settings()
+        model_latency = _model_latency_metadata(model_settings)
         model_config_error: str | None = None
     except RuntimeError as exc:
         model_settings = {}
+        model_latency = {}
         model_config_error = str(exc)
 
     budget_names = {
@@ -149,6 +191,8 @@ def get_runtime_config_diagnostics(mask_secrets: bool = True) -> dict[str, objec
         "model_temperature": model_settings.get("temperature"),
         "model_timeout_seconds": model_settings.get("timeout_seconds"),
         "model_max_retries": model_settings.get("max_retries"),
+        "model_latency_policy": model_latency.get("latency_policy"),
+        "model_provider_retry_envelope_seconds": model_latency.get("provider_retry_envelope_seconds"),
         "model_config_error": model_config_error,
         "model_call_budget": model_call_budget,
         "model_call_budget_error": model_call_budget_error,
@@ -408,8 +452,8 @@ OPENAI_API_BASE=
             temperature=float(settings["temperature"]),
             timeout=float(settings["timeout_seconds"]),
             max_retries=int(settings["max_retries"]),
-            # V4 defaults to thinking=enabled. Control-plane calls must remain inside the
-            # existing 25s x 2-attempt provider envelope, so disable thinking explicitly.
+            # V4 defaults to thinking=enabled. Keep control-plane work inside the
+            # provider-specific bounded latency envelope, so disable thinking explicitly.
             extra_body={"thinking": {"type": "disabled"}} if deepseek_v4 else None,
         )
 
