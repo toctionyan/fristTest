@@ -107,6 +107,7 @@ def test_new_goal_declaration_rejects_legacy_effect_as_sole_identity(monkeypatch
             }],
         },
         capability_registry=registry,
+        require_canonical_output_identity=True,
     )
     assert plan is None
     assert result["code"] == "GOAL_DECLARATION_INVALID"

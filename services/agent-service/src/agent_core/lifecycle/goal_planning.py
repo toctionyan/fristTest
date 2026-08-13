@@ -1842,6 +1842,7 @@ def validate_goal_declaration(
     state: dict[str, Any],
     args: dict[str, Any],
     capability_registry: CapabilityRegistry,
+    require_canonical_output_identity: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Compile and validate one turn without giving capability state semantic authority.
 
@@ -1896,7 +1897,10 @@ def validate_goal_declaration(
             if not isinstance(raw_effect, dict):
                 raise ValueError("requested_effect.required_for_new_turn")
             requested_effect = normalize_requested_effect(raw_effect, description=description)
-            if not isinstance(requested_effect.get("requested_outputs"), list):
+            if (
+                require_canonical_output_identity
+                and not isinstance(requested_effect.get("requested_outputs"), list)
+            ):
                 semantic_output_identity_errors.append(
                     f"invalid_requested_effect:{goal_id}:requested_effect.requested_outputs_required_for_new_turn"
                 )
@@ -2129,9 +2133,10 @@ def validate_goal_declaration(
             },
         }, None)
 
-    # Preserve independent alignment/granularity feedback priority, but
-    # never freeze a new formal contract whose sole effect identity is the
-    # legacy compatibility triple.  Historical readers remain compatible.
+    # The live semantic-writer boundary opts into canonical output identity.
+    # Direct/internal compatibility callers may still validate historical
+    # declarations, but production model declarations cannot freeze a new
+    # contract whose sole effect identity is the legacy compatibility triple.
     if semantic_output_identity_errors:
         return ({
             "ok": False,

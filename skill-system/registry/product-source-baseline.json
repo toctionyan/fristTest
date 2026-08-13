@@ -158,7 +158,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "be2e9e01c1428e8fae13408f70329a024ce810ff83d81573687f05691dea1a7f",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "5a09b21f3dd893af3ae998717dabe3a74a011b133171242a24b9fa13bba8e976",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "67369c5e878a5d872e9161c26626edd061503923ab1d35b36040dc0a520b842f",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "8a6ac4f7fc9bb0c8d861b86721ee893bac636be6a8cafa7f94f2c092eb09882a",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "a487449ed21fb06f56121403cde0d8c1708de2b7b6ae98b10d1ede755336100e",
@@ -173,7 +173,7 @@
     "services/agent-service/src/agent_core/lifecycle/state_contracts.py": "e010e3ba6307e50e6ad64ee2c24125e63484e6d369d9f97a6d2e63a7c031b3b7",
     "services/agent-service/src/agent_core/lifecycle/state_schema.py": "52e5ac6860f78253a12203142a97698c17aa149371718b3bc1c987352588608d",
     "services/agent-service/src/agent_core/lifecycle/task_board.py": "899642b56cbaf17508d28a2b7a1fe14397c631e907b20bbaf4a5471038472048",
-    "services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py": "8e007d5aaeba472686f0df9f5a539fefe1a634c9b9d6c032928ec27c0b82323d",
+    "services/agent-service/src/agent_core/lifecycle/tool_execution_runtime.py": "f7fefea245814044dd8cf46ea5b995a8b87e2364fb732e141a4bfc29c9fc4f10",
     "services/agent-service/src/agent_core/lifecycle/workflow_contracts.py": "0675a01801a1ad2dd373650f5d8760bd356c6a2b7f87ddb443bfd515f2d10ae3",
     "services/agent-service/src/agent_core/lifecycle/workflow_runtime.py": "342adba5523dc9d003c4c2e3c0e3e4e28ecda962a9cce9a4edbf8a1754617190",
     "services/agent-service/src/agent_core/model_calls/__init__.py": "6badbf49472d189fafc543d597d43d60e773d5d536f1b77eff39391a9553f58d",
@@ -570,7 +570,7 @@
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
-    "services/agent-service/tests/runtime/test_wp08_attempt3_single_authority_repairs.py": "1361340495d401587bab19e37fbb5d58ec647dcd03f374bb0e7ef01a4698e1be"
+    "services/agent-service/tests/runtime/test_wp08_attempt3_single_authority_repairs.py": "97419e0043b6140df61e11ac19db7207266f1bd6c060ee384b698d32adaaba5c"
   },
   "generated_at": "2026-08-12T23:33:46Z",
   "generated_from": "git:6e64ea3feede24f8c42a4152109a6120b0a7250d",
