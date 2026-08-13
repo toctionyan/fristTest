@@ -398,7 +398,7 @@
     "services/agent-service/tests/architecture/test_presentation_dependency_boundary_scc.py": "8454cd800d9b15bcfb5a13493c6008145dba039c81933d682006c874a543e195",
     "services/agent-service/tests/architecture/test_production_security_contract.py": "14f71a8b8d833ca54e07188832a7a3ebef9bb66064e2f313a66560465a365865",
     "services/agent-service/tests/architecture/test_productization_boundary.py": "84895f51fdd764e116359fff0fdd7626aa556105914ded340bb86a8b33e9779f",
-    "services/agent-service/tests/architecture/test_protected_model_stub_contract.py": "7d3b8e1c1213c950cd8ad113c34bea6723eea931befc8f3b77efcb4d37a1d547",
+    "services/agent-service/tests/architecture/test_protected_model_stub_contract.py": "73f8469c49aab142ab407191f15d527286d3b25f9e015a7086772e526a43e48f",
     "services/agent-service/tests/architecture/test_python_test_runner.py": "e1120705cb96a07800af83eb7c6abccd9291c8bfc13d5eb476dc93e551da2bbc",
     "services/agent-service/tests/architecture/test_quality_loop_controller.py": "f0117991f8a36a35593ce20607f548baf8bcf29ece93818cc1df48cacf58d565",
     "services/agent-service/tests/architecture/test_quality_loop_governance.py": "912d85ba1ae393cce65b0f7c2c0994e96d5c5589a8aa4b3c04852bc56f776996",
@@ -573,8 +573,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T15:30:23+08:00",
-  "generated_from": "git:2eecdceda5c003f20432fa804980dc8e1bb511c9",
+  "generated_at": "2026-08-13T15:37:41+08:00",
+  "generated_from": "git:58edd03d50d8f814078e097d502534b41a37f9a6",
   "protected_roots": [
     "services",
     "web",
