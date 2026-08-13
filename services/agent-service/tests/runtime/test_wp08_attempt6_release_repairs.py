@@ -117,9 +117,10 @@ def test_get_model_uses_chatdeepseek_for_official_deepseek_v4(monkeypatch: pytes
         assert str(getattr(model, "model_name", "")) == "deepseek-v4-flash"
         assert getattr(model, "extra_body", None) == {"thinking": {"type": "disabled"}}
         settings = agent_config.get_model_settings()
+        profile = agent_config.get_model_profile()
         assert settings["timeout_seconds"] == 40.0
         assert settings["max_retries"] == 0
-        assert settings["provider_retry_envelope_seconds"] == 40.0
+        assert profile["provider_retry_envelope_seconds"] == 40.0
     finally:
         agent_config.get_model.cache_clear()
 
@@ -130,10 +131,11 @@ def test_deepseek_v4_latency_policy_has_dedicated_bounded_override(monkeypatch: 
     monkeypatch.setenv("DEEPSEEK_V4_TIMEOUT_SECONDS", "30")
     monkeypatch.setenv("DEEPSEEK_V4_MAX_RETRIES", "1")
     settings = agent_config.get_model_settings()
+    profile = agent_config.get_model_profile()
     assert settings["timeout_seconds"] == 30.0
     assert settings["max_retries"] == 1
-    assert settings["provider_retry_envelope_seconds"] == 60.0
-    assert settings["latency_policy"] == "deepseek_v4_long_first_attempt"
+    assert profile["provider_retry_envelope_seconds"] == 60.0
+    assert profile["latency_policy"] == "deepseek_v4_long_first_attempt"
 
 
 def test_non_v4_deepseek_keeps_generic_provider_budget(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,10 +146,11 @@ def test_non_v4_deepseek_keeps_generic_provider_budget(monkeypatch: pytest.Monke
     monkeypatch.setenv("DEEPSEEK_V4_TIMEOUT_SECONDS", "40")
     monkeypatch.setenv("DEEPSEEK_V4_MAX_RETRIES", "0")
     settings = agent_config.get_model_settings()
+    profile = agent_config.get_model_profile()
     assert settings["timeout_seconds"] == 25.0
     assert settings["max_retries"] == 1
-    assert settings["provider_retry_envelope_seconds"] == 50.0
-    assert settings["latency_policy"] == "generic_bounded_retry"
+    assert profile["provider_retry_envelope_seconds"] == 50.0
+    assert profile["latency_policy"] == "generic_bounded_retry"
 
 
 def test_deepseek_v4_binding_omits_provider_tool_choice() -> None:

@@ -82,7 +82,6 @@ def get_model_settings() -> dict[str, object]:
     base_url = os.getenv("OPENAI_API_BASE") or None
     timeout_seconds = _bounded_float_env("MODEL_TIMEOUT_SECONDS", 25.0, minimum=1.0, maximum=600.0)
     max_retries = _bounded_int_env("MODEL_MAX_RETRIES", 1, minimum=0, maximum=10)
-    latency_policy = "generic_bounded_retry"
     if _is_official_deepseek_v4_identity(model=model, base_url=base_url):
         timeout_seconds = _bounded_float_env(
             "DEEPSEEK_V4_TIMEOUT_SECONDS", 40.0, minimum=1.0, maximum=60.0
@@ -90,14 +89,25 @@ def get_model_settings() -> dict[str, object]:
         max_retries = _bounded_int_env(
             "DEEPSEEK_V4_MAX_RETRIES", 0, minimum=0, maximum=1
         )
-        latency_policy = "deepseek_v4_long_first_attempt"
     return {
         "model": model,
         "base_url": base_url,
         "temperature": _bounded_float_env("MODEL_TEMPERATURE", 0.0, minimum=0.0, maximum=2.0),
         "timeout_seconds": timeout_seconds,
         "max_retries": max_retries,
-        "latency_policy": latency_policy,
+    }
+
+
+def _model_latency_metadata(settings: dict[str, object]) -> dict[str, object]:
+    deepseek_v4 = _is_official_deepseek_v4_identity(
+        model=settings.get("model"), base_url=settings.get("base_url")
+    )
+    timeout_seconds = float(settings.get("timeout_seconds") or 0.0)
+    max_retries = int(settings.get("max_retries") or 0)
+    return {
+        "latency_policy": (
+            "deepseek_v4_long_first_attempt" if deepseek_v4 else "generic_bounded_retry"
+        ),
         "provider_retry_envelope_seconds": timeout_seconds * (max_retries + 1),
     }
 
@@ -118,6 +128,7 @@ def get_model_profile() -> dict[str, object]:
     behaves, without exposing API keys or arbitrary endpoint credentials.
     """
     settings = get_model_settings()
+    latency = _model_latency_metadata(settings)
     provider = "deepseek" if _use_deepseek_adapter(settings) else "openai_compatible"
     deepseek_v4 = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
     return {
@@ -127,8 +138,8 @@ def get_model_profile() -> dict[str, object]:
         "temperature": settings["temperature"],
         "timeout_seconds": settings["timeout_seconds"],
         "max_retries": settings["max_retries"],
-        "latency_policy": settings["latency_policy"],
-        "provider_retry_envelope_seconds": settings["provider_retry_envelope_seconds"],
+        "latency_policy": latency["latency_policy"],
+        "provider_retry_envelope_seconds": latency["provider_retry_envelope_seconds"],
         # Agent planning, routing and verifier calls are latency-bounded control-plane work.
         # DeepSeek V4 defaults to thinking=enabled, so production opts out explicitly here.
         "thinking_mode": "disabled" if deepseek_v4 else "provider_default",
@@ -144,9 +155,11 @@ def get_runtime_config_diagnostics(mask_secrets: bool = True) -> dict[str, objec
     business_token = os.getenv("BUSINESS_SERVICE_TOKEN")
     try:
         model_settings = get_model_settings()
+        model_latency = _model_latency_metadata(model_settings)
         model_config_error: str | None = None
     except RuntimeError as exc:
         model_settings = {}
+        model_latency = {}
         model_config_error = str(exc)
 
     budget_names = {
@@ -178,8 +191,8 @@ def get_runtime_config_diagnostics(mask_secrets: bool = True) -> dict[str, objec
         "model_temperature": model_settings.get("temperature"),
         "model_timeout_seconds": model_settings.get("timeout_seconds"),
         "model_max_retries": model_settings.get("max_retries"),
-        "model_latency_policy": model_settings.get("latency_policy"),
-        "model_provider_retry_envelope_seconds": model_settings.get("provider_retry_envelope_seconds"),
+        "model_latency_policy": model_latency.get("latency_policy"),
+        "model_provider_retry_envelope_seconds": model_latency.get("provider_retry_envelope_seconds"),
         "model_config_error": model_config_error,
         "model_call_budget": model_call_budget,
         "model_call_budget_error": model_call_budget_error,
