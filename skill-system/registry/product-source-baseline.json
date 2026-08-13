@@ -380,7 +380,7 @@
     "services/agent-service/tests/architecture/test_command_and_model_governance.py": "9ac1ba6edf5a2a16dac067a2d62acc7e36bf5b40d8a239c5ad54dca64556247a",
     "services/agent-service/tests/architecture/test_context_projection_boundary_scc.py": "96cc77f1f46a07edd943f9daae6f481990083dfc00c5654d2e493142cabb4a4b",
     "services/agent-service/tests/architecture/test_convergence.py": "5a40ad102a4b30b2160baba2c6f6d80da2dc98f0a5d967c298d925078f5ea27d",
-    "services/agent-service/tests/architecture/test_core_module_boundaries.py": "bdab205f8ecd88d51a11225c08fcde86147834d830f27c6336168f403c52fe1",
+    "services/agent-service/tests/architecture/test_core_module_boundaries.py": "bdab205f8ecd88d51a11225c08fcde86147834d830fb27c6336168f403c52fe1",
     "services/agent-service/tests/architecture/test_coverage_baseline.py": "cfe36217486174b70ff6444690167129c9baf9618f912ea7340dfe81693800a6",
     "services/agent-service/tests/architecture/test_current_architecture_truth.py": "648644dfa2fddb10b01fcc39aae7b7f62c14a4e4c48454dcfe0cf7accfd5c9fe",
     "services/agent-service/tests/architecture/test_current_contract_boundary.py": "92b0af10a43efd6b21fcf97e79f5bd7da72ec755350bad209035db6a439b0217",
