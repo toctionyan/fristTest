@@ -96,8 +96,9 @@ TARGET_CANDIDATE_SCHEMA: dict[str, Any] = {
     "description": (
         "开放的目标候选，不是业务事实。若当前 Goal 含有明确缩小目标/结果人口的筛选、状态、阈值或比较谓词，"
         "必须把最小的当前原文字面证据写入 scope_constraints[].evidence_span。这里只冻结用户表达过的范围证据，"
-        "不得在此猜测归一化业务值；普通目标集合筛选也不得为了结构化而伪装成 Goal.condition。历史结果/成员引用"
-        "必须只进入 reference_expression；不要提交/只查询等执行承诺、输入或控制措辞也不是人口筛选，禁止复制到"
+        "不得在此猜测归一化业务值；普通目标集合筛选也不得为了结构化而伪装成 Goal.condition。对象名称、成员名称、稳定标识等"
+        "只用于识别或选择目标的身份文字不是人口筛选，禁止写入 scope_constraints。历史结果/成员引用必须只进入 reference_expression；"
+        "不要提交/只查询等执行承诺、输入或控制措辞也不是人口筛选，禁止复制到"
         "scope_constraints。一个字面片段不得同时充当 reference_expression 与 scope_constraints。"
     ),
     "properties": {
