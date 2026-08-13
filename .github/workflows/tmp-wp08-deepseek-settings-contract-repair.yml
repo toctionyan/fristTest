@@ -1,0 +1,241 @@
+name: tmp-wp08-deepseek-settings-contract-repair
+
+on:
+  push:
+    branches:
+      - fix/wp08-deepseek-v4-latency-envelope-20260813
+
+permissions:
+  contents: write
+
+jobs:
+  repair-validate-publish:
+    if: github.ref == 'refs/heads/fix/wp08-deepseek-v4-latency-envelope-20260813'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/wp08-deepseek-v4-latency-envelope-20260813
+          fetch-depth: 1
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Preserve public model-settings contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected exactly one replacement in {path}, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          config_path = "services/agent-service/src/agent_core/config.py"
+          old_settings = '''    latency_policy = "generic_bounded_retry"
+              if _is_official_deepseek_v4_identity(model=model, base_url=base_url):
+                  timeout_seconds = _bounded_float_env(
+                      "DEEPSEEK_V4_TIMEOUT_SECONDS", 40.0, minimum=1.0, maximum=60.0
+                  )
+                  max_retries = _bounded_int_env(
+                      "DEEPSEEK_V4_MAX_RETRIES", 0, minimum=0, maximum=1
+                  )
+                  latency_policy = "deepseek_v4_long_first_attempt"
+              return {
+                  "model": model,
+                  "base_url": base_url,
+                  "temperature": _bounded_float_env("MODEL_TEMPERATURE", 0.0, minimum=0.0, maximum=2.0),
+                  "timeout_seconds": timeout_seconds,
+                  "max_retries": max_retries,
+                  "latency_policy": latency_policy,
+                  "provider_retry_envelope_seconds": timeout_seconds * (max_retries + 1),
+              }
+          '''
+          new_settings = '''    if _is_official_deepseek_v4_identity(model=model, base_url=base_url):
+                  timeout_seconds = _bounded_float_env(
+                      "DEEPSEEK_V4_TIMEOUT_SECONDS", 40.0, minimum=1.0, maximum=60.0
+                  )
+                  max_retries = _bounded_int_env(
+                      "DEEPSEEK_V4_MAX_RETRIES", 0, minimum=0, maximum=1
+                  )
+              return {
+                  "model": model,
+                  "base_url": base_url,
+                  "temperature": _bounded_float_env("MODEL_TEMPERATURE", 0.0, minimum=0.0, maximum=2.0),
+                  "timeout_seconds": timeout_seconds,
+                  "max_retries": max_retries,
+              }
+
+
+          def _model_latency_metadata(settings: dict[str, object]) -> dict[str, object]:
+              deepseek_v4 = _is_official_deepseek_v4_identity(
+                  model=settings.get("model"), base_url=settings.get("base_url")
+              )
+              timeout_seconds = float(settings.get("timeout_seconds") or 0.0)
+              max_retries = int(settings.get("max_retries") or 0)
+              return {
+                  "latency_policy": (
+                      "deepseek_v4_long_first_attempt" if deepseek_v4 else "generic_bounded_retry"
+                  ),
+                  "provider_retry_envelope_seconds": timeout_seconds * (max_retries + 1),
+              }
+          '''
+          replace_once(config_path, old_settings, new_settings)
+
+          old_profile = '''    settings = get_model_settings()
+              provider = "deepseek" if _use_deepseek_adapter(settings) else "openai_compatible"
+              deepseek_v4 = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
+              return {
+          '''
+          new_profile = '''    settings = get_model_settings()
+              latency = _model_latency_metadata(settings)
+              provider = "deepseek" if _use_deepseek_adapter(settings) else "openai_compatible"
+              deepseek_v4 = provider == "deepseek" and str(settings["model"]).strip().lower().startswith("deepseek-v4")
+              return {
+          '''
+          replace_once(config_path, old_profile, new_profile)
+
+          old_profile_fields = '''        "timeout_seconds": settings["timeout_seconds"],
+                  "max_retries": settings["max_retries"],
+                  "latency_policy": settings["latency_policy"],
+                  "provider_retry_envelope_seconds": settings["provider_retry_envelope_seconds"],
+          '''
+          new_profile_fields = '''        "timeout_seconds": settings["timeout_seconds"],
+                  "max_retries": settings["max_retries"],
+                  "latency_policy": latency["latency_policy"],
+                  "provider_retry_envelope_seconds": latency["provider_retry_envelope_seconds"],
+          '''
+          replace_once(config_path, old_profile_fields, new_profile_fields)
+
+          old_try = '''    try:
+                  model_settings = get_model_settings()
+                  model_config_error: str | None = None
+              except RuntimeError as exc:
+                  model_settings = {}
+                  model_config_error = str(exc)
+          '''
+          new_try = '''    try:
+                  model_settings = get_model_settings()
+                  model_latency = _model_latency_metadata(model_settings)
+                  model_config_error: str | None = None
+              except RuntimeError as exc:
+                  model_settings = {}
+                  model_latency = {}
+                  model_config_error = str(exc)
+          '''
+          replace_once(config_path, old_try, new_try)
+
+          old_diag = '''        "model_timeout_seconds": model_settings.get("timeout_seconds"),
+                  "model_max_retries": model_settings.get("max_retries"),
+                  "model_latency_policy": model_settings.get("latency_policy"),
+                  "model_provider_retry_envelope_seconds": model_settings.get("provider_retry_envelope_seconds"),
+          '''
+          new_diag = '''        "model_timeout_seconds": model_settings.get("timeout_seconds"),
+                  "model_max_retries": model_settings.get("max_retries"),
+                  "model_latency_policy": model_latency.get("latency_policy"),
+                  "model_provider_retry_envelope_seconds": model_latency.get("provider_retry_envelope_seconds"),
+          '''
+          replace_once(config_path, old_diag, new_diag)
+
+          test_path = "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py"
+          old_model = '''        settings = agent_config.get_model_settings()
+                  assert settings["timeout_seconds"] == 40.0
+                  assert settings["max_retries"] == 0
+                  assert settings["provider_retry_envelope_seconds"] == 40.0
+          '''
+          new_model = '''        settings = agent_config.get_model_settings()
+                  profile = agent_config.get_model_profile()
+                  assert settings["timeout_seconds"] == 40.0
+                  assert settings["max_retries"] == 0
+                  assert profile["provider_retry_envelope_seconds"] == 40.0
+          '''
+          replace_once(test_path, old_model, new_model)
+
+          old_override = '''    settings = agent_config.get_model_settings()
+              assert settings["timeout_seconds"] == 30.0
+              assert settings["max_retries"] == 1
+              assert settings["provider_retry_envelope_seconds"] == 60.0
+              assert settings["latency_policy"] == "deepseek_v4_long_first_attempt"
+          '''
+          new_override = '''    settings = agent_config.get_model_settings()
+              profile = agent_config.get_model_profile()
+              assert settings["timeout_seconds"] == 30.0
+              assert settings["max_retries"] == 1
+              assert profile["provider_retry_envelope_seconds"] == 60.0
+              assert profile["latency_policy"] == "deepseek_v4_long_first_attempt"
+          '''
+          replace_once(test_path, old_override, new_override)
+
+          old_generic = '''    settings = agent_config.get_model_settings()
+              assert settings["timeout_seconds"] == 25.0
+              assert settings["max_retries"] == 1
+              assert settings["provider_retry_envelope_seconds"] == 50.0
+              assert settings["latency_policy"] == "generic_bounded_retry"
+          '''
+          new_generic = '''    settings = agent_config.get_model_settings()
+              profile = agent_config.get_model_profile()
+              assert settings["timeout_seconds"] == 25.0
+              assert settings["max_retries"] == 1
+              assert profile["provider_retry_envelope_seconds"] == 50.0
+              assert profile["latency_policy"] == "generic_bounded_retry"
+          '''
+          replace_once(test_path, old_generic, new_generic)
+          PY
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Run focused configuration and latency regressions
+        run: >-
+          services/agent-service/.venv/bin/python -m pytest
+          services/agent-service/tests/runtime/test_configuration_contract.py
+          services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py -q
+      - name: Refresh exact protected source baseline
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          baseline_path = Path("skill-system/registry/product-source-baseline.json")
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          protected = [
+              "services/agent-service/src/agent_core/config.py",
+              "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py",
+          ]
+          files = baseline.get("files")
+          if not isinstance(files, dict):
+              raise SystemExit("product source baseline files map is invalid")
+          missing = [path for path in protected if path not in files]
+          if missing:
+              raise SystemExit(f"protected path missing from baseline: {missing}")
+          for path in protected:
+              files[path] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+          baseline["file_count"] = len(files)
+          baseline_path.write_text(
+              json.dumps(baseline, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print({path: files[path] for path in protected})
+          PY
+      - name: Validate Skill control plane
+        run: services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+      - name: Publish repaired candidate and remove carrier
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-wp08-deepseek-settings-contract-repair.yml
+          git add \
+            services/agent-service/src/agent_core/config.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py \
+            skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m "Preserve model settings contract for DeepSeek latency policy"
+          git push origin HEAD:fix/wp08-deepseek-v4-latency-envelope-20260813
