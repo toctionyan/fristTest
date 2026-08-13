@@ -19,12 +19,30 @@ def test_stub_declares_goals_before_emitting_a_business_candidate() -> None:
         "domain": "order",
         "operation": "cancel",
         "object_type": "order",
+        "requested_outputs": [
+            {
+                "output_id": "order.cancellation",
+                "evidence_span": "请取消订单10003",
+            }
+        ],
         "raw_description": "请取消订单10003",
     }
 
     greeting = _message_for(_user("你好"), {"declare_turn_goals"})
     greeting_goal = json.loads(greeting["tool_calls"][0]["function"]["arguments"])["goals"][0]
-    assert greeting_goal["requested_effect"]["operation"] == "respond"
+    assert greeting_goal["requested_effect"] == {
+        "domain": "conversation",
+        "operation": "respond",
+        "object_type": "message",
+        "requested_outputs": [
+            {
+                "output_id": "open",
+                "evidence_span": "你好",
+                "open_description": "你好",
+            }
+        ],
+        "raw_description": "你好",
+    }
 
     execution = _message_for(_user("请取消订单10003"), {"prepare_cancel_order"})
     candidate = json.loads(execution["tool_calls"][0]["function"]["arguments"])
