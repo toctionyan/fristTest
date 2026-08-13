@@ -498,6 +498,7 @@ def _dependency_adjudication_goal_projection(
     goals: list[dict[str, Any]],
     *,
     include_requested_effect: bool = False,
+    include_target_candidate: bool = False,
 ) -> list[dict[str, Any]]:
     """Project only evidence needed for adversarial dependency adjudication.
 
@@ -516,6 +517,8 @@ def _dependency_adjudication_goal_projection(
         }
         if include_requested_effect and isinstance(goal.get("requested_effect"), dict):
             row["requested_effect"] = deepcopy(goal.get("requested_effect"))
+        if include_target_candidate and isinstance(goal.get("target_candidate"), dict):
+            row["target_candidate"] = deepcopy(goal.get("target_candidate"))
         rows.append(row)
     return rows
 
@@ -593,6 +596,34 @@ def _requested_effect_sibling_collision_risk(
         "risk": bool(collisions),
         "collisions": collisions,
         "capability_registry_consulted": False,
+        "language_interpretation_used": False,
+        "runtime_rejection_authority": False,
+    }
+
+
+
+def _declared_scope_constraint_risk(goals: list[dict[str, Any]]) -> dict[str, Any]:
+    """Expose only the structural fact that Planner supplied scope constraints.
+
+    This signal grants no rejection or language authority. It only reserves the
+    already-bounded third verifier slot for an adversarial inverse-direction
+    semantic audit so an exact broad audit cannot silently bless target identity
+    or another non-scope phrase as a population-narrowing predicate.
+    """
+    rows: list[dict[str, Any]] = []
+    for goal in goals:
+        goal_id = _clean_text(goal.get("goal_id"), limit=80)
+        target = goal.get("target_candidate") if isinstance(goal.get("target_candidate"), dict) else {}
+        for index, raw in enumerate(list(target.get("scope_constraints") or [])):
+            if not isinstance(raw, dict):
+                continue
+            span = _clean_text(raw.get("evidence_span"), limit=240)
+            if not span:
+                continue
+            rows.append({"goal_id": goal_id, "scope_index": index, "evidence_span": span})
+    return {
+        "risk": bool(rows),
+        "constraints": rows,
         "language_interpretation_used": False,
         "runtime_rejection_authority": False,
     }
@@ -810,6 +841,7 @@ class ModelGoalAlignmentVerifier:
             semantic_claim_reaudit = verifier_repair_kind in {
                 "candidate_blind_dependency_requested_effect_reaudit",
                 "candidate_blind_dependency_scope_constraint_reaudit",
+                "candidate_blind_dependency_scope_constraint_adjudication",
             }
             if semantic_claim_reaudit:
                 effective_instruction = (
@@ -1124,7 +1156,8 @@ class ModelGoalAlignmentVerifier:
             ):
                 positive_dependency_edges = bool(list(verdict.details.get("dependency_edges") or []))
                 effect_collision_risk = _requested_effect_sibling_collision_risk(goals)
-                if positive_dependency_edges or effect_collision_risk["risk"]:
+                scope_constraint_risk = _declared_scope_constraint_risk(goals)
+                if positive_dependency_edges or effect_collision_risk["risk"] or scope_constraint_risk["risk"]:
                     # The third verifier slot is already the bounded adversarial
                     # adjudicator for high-impact semantic claims. Keep one slot:
                     # confirm positive dependency edges and, when structurally
@@ -1153,7 +1186,7 @@ class ModelGoalAlignmentVerifier:
                             "one sibling has been collapsed into a different lookup/action/object/effect, return incomplete with the smallest literal "
                             "mismatch span."
                         )
-                    else:
+                    elif effect_collision_risk["risk"]:
                         verifier_repair_kind = "candidate_blind_dependency_effect_collision_adjudication"
                         verifier_repair = (
                             "Adversarially re-audit the structurally signaled sibling requested-effect collision from USER_TEXT only while also "
@@ -1167,9 +1200,37 @@ class ModelGoalAlignmentVerifier:
                             "dependency_decisions row using only literal result-reference/result-condition/result-value evidence; otherwise mark it "
                             "independent."
                         )
+                    else:
+                        # A supplied scope constraint is itself a high-impact semantic
+                        # claim. The broad blind audit may miss the inverse-direction
+                        # error (identity/reference/control text mislabeled as scope), so
+                        # spend the otherwise-free third slot on that claim only.
+                        preserved_blind_dependency_details = deepcopy(verdict.details)
+                        verifier_repair_kind = "candidate_blind_dependency_scope_constraint_adjudication"
+                        verifier_repair = (
+                            "Adversarially re-audit every supplied target_candidate.scope_constraints entry from USER_TEXT only. "
+                            "Start each supplied entry from the assumption that it is NOT a population-narrowing predicate. Retain it "
+                            "only when the literal phrase itself is an explicit filter, status predicate, threshold or comparison that "
+                            "changes which members belong in this Goal's target/result population. Object identity, object/member naming, "
+                            "stable identifiers, ordinary target selection, historical/current result references, execution commitments, "
+                            "input/control wording and requested-output wording are not scope constraints even when they help locate one "
+                            "object. If any supplied entry has one of those non-scope roles, return verdict=incomplete and copy that exact "
+                            "smallest supplied literal span into missing_spans with a target-scope-constraint fidelity reason. If every "
+                            "supplied entry is genuine population narrowing and no other mismatch exists, return exact. Do not choose a tool, "
+                            "target, entity, normalized value or capability."
+                        )
+                        prompt = {
+                            "USER_TEXT_UNTRUSTED": user_text,
+                            "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                            "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                            "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                            "DECLARED_SCOPE_CONSTRAINT_RISK": scope_constraint_risk,
+                        }
+                        continue
                     adjudication_goals = _dependency_adjudication_goal_projection(
                         goals,
                         include_requested_effect=bool(effect_collision_risk["risk"]),
+                        include_target_candidate=bool(scope_constraint_risk["risk"]),
                     )
                     prompt = {
                         "USER_TEXT_UNTRUSTED": user_text,
@@ -1179,6 +1240,8 @@ class ModelGoalAlignmentVerifier:
                     }
                     if effect_collision_risk["risk"]:
                         prompt["REQUESTED_EFFECT_COLLISION_RISK"] = effect_collision_risk
+                    if scope_constraint_risk["risk"]:
+                        prompt["DECLARED_SCOPE_CONSTRAINT_RISK"] = scope_constraint_risk
                     continue
             normalized_semantic_reason = (
                 str(verdict.reason_code or "").strip().casefold().replace("-", "_").replace(" ", "_")
