@@ -1,4 +1,4 @@
-name: tmp-v20.18-targeted-regression-diagnostic
+name: tmp-v20.18-context-performance-diagnostic
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  targeted-regressions:
+  context-performance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 14
     steps:
       - name: Checkout diagnostic carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -25,19 +25,20 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Reconstruct exact Recovery-F product candidate
+      - name: Reconstruct baseline and exact 17-path candidate overlay
         shell: bash
         run: |
           set -euo pipefail
           baseline_sha='aeb9a445001d4922e13a032e4cccc12f8ff34e9a'
           candidate_sha='55403a01f957257fbbefead32bcde21b7d866001'
-          rm -rf /tmp/v2018-targeted
-          mkdir -p /tmp/v2018-targeted
-          git archive "$baseline_sha" | tar -x -C /tmp/v2018-targeted
-          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-targeted/governance/active-change.json').read_text())['allowed_paths']))")
+          rm -rf /tmp/v2018-perf-base /tmp/v2018-perf-candidate
+          mkdir -p /tmp/v2018-perf-base /tmp/v2018-perf-candidate
+          git archive "$baseline_sha" | tar -x -C /tmp/v2018-perf-base
+          git archive "$baseline_sha" | tar -x -C /tmp/v2018-perf-candidate
+          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-perf-base/governance/active-change.json').read_text())['allowed_paths']))")
           test "${#allowed[@]}" -eq 17
           for path in "${allowed[@]}"; do
-            target="/tmp/v2018-targeted/$path"
+            target="/tmp/v2018-perf-candidate/$path"
             if git cat-file -e "${candidate_sha}:${path}" 2>/dev/null; then
               mkdir -p "$(dirname "$target")"
               git show "${candidate_sha}:${path}" > "$target"
@@ -45,101 +46,123 @@ jobs:
               rm -f "$target"
             fi
           done
-          src="${RUNNER_TEMP}/red-oracle.py"
-          dst="/tmp/v2018-targeted/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
-          git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
-          sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
+          printf '%s\n' "baseline=$baseline_sha" "candidate=$candidate_sha" "allowed_paths=${#allowed[@]}"
 
-      - name: Bootstrap locked Agent environment
-        working-directory: /tmp/v2018-targeted
+      - name: Bootstrap identical locked environments
         shell: bash
         run: |
           set -euo pipefail
-          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
-          cd services/agent-service
-          uv sync --locked --all-groups
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r /tmp/v2018-perf-base/deployment/ci/uv-requirements-linux-x86_64.txt
+          (cd /tmp/v2018-perf-base/services/agent-service && uv sync --locked --all-groups)
+          (cd /tmp/v2018-perf-candidate/services/agent-service && uv sync --locked --all-groups)
 
-      - name: Reproduce pending-action under explicit local runtime profile
-        working-directory: /tmp/v2018-targeted/services/agent-service
+      - name: Profile baseline context slice with gate-equivalent coverage
         shell: bash
         env:
           APP_ENV: dev
           APP_PROFILE: local
           AGENT_DB_BACKEND: sqlite
-          AGENT_DATABASE_URL: sqlite:////tmp/v2018-targeted/pending-action.sqlite3
-          DATABASE_URL: sqlite:////tmp/v2018-targeted/pending-action.sqlite3
-          SQLITE_DB_PATH: /tmp/v2018-targeted/pending-action.sqlite3
           CHECKPOINT_BACKEND: memory
           AGENT_BUSINESS_ADAPTER: ecommerce_http
+          OPENAI_API_KEY: deterministic-test-not-a-real-key
+          OPENAI_API_BASE: http://127.0.0.1:9/v1
+          OPENAI_MODEL: deterministic-test-model
         run: |
           set -u
-          export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
-          log="${RUNNER_TEMP}/pending-action-profiled.log"
+          root=/tmp/v2018-perf-base
+          cd "$root/services/agent-service"
+          export PYTHONPATH="$root/services/agent-service/src:$root/services/agent-service"
+          export AGENT_DATABASE_URL="sqlite:///$root/perf.sqlite3"
+          export DATABASE_URL="$AGENT_DATABASE_URL"
+          export SQLITE_DB_PATH="$root/perf.sqlite3"
+          log="${RUNNER_TEMP}/context-baseline.log"
+          start=$(date +%s)
           set +e
-          .venv/bin/python -B -m pytest -vv -s -p no:cacheprovider \
-            tests/context/test_dialogue_counterexamples.py::test_pending_action_goal_re_presents_card_without_second_model_call \
-            2>&1 | tee "$log"
-          rc=${PIPESTATUS[0]}
-          set -e
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/pending-action-profiled.rc"
-          echo "PENDING_ACTION_PROFILED_RC=$rc"
-          tail -n 180 "$log"
-
-      - name: Run semantic suite sequentially in one process with stack dumps
-        working-directory: /tmp/v2018-targeted/services/agent-service
-        shell: bash
-        run: |
-          set -u
-          export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
-          log="${RUNNER_TEMP}/semantic-suite-sequential.log"
-          set +e
-          timeout --signal=TERM 210s .venv/bin/python -X faulthandler -B -m pytest -vv -s -p no:cacheprovider \
-            -o faulthandler_timeout=20 \
+          timeout --signal=TERM 300s .venv/bin/python -X faulthandler -B -m pytest -q -ra -p no:cacheprovider \
+            -m 'not integration and not preprod' \
+            --cov=agent_core --cov=app --cov-report="xml:${RUNNER_TEMP}/context-baseline-coverage.xml" \
+            --durations=50 --durations-min=0.20 \
+            tests/context/test_context_bundle_runtime.py \
+            tests/context/test_context_convergence_boundaries.py \
+            tests/context/test_conversation_protocol.py \
+            tests/context/test_conversation_regression_suite_execution.py \
+            tests/context/test_dialogue_counterexamples.py \
+            tests/context/test_parameterized_capability_alignment.py \
+            tests/context/test_reference_resolution_contract.py \
+            tests/context/test_runtime_result_ref_pipeline.py \
+            tests/context/test_scenario_topology.py \
             tests/context/test_semantic_goal_coverage_suite_execution.py \
             2>&1 | tee "$log"
           rc=${PIPESTATUS[0]}
           set -e
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/semantic-suite-sequential.rc"
-          echo "SEMANTIC_SUITE_SEQUENTIAL_RC=$rc"
-          tail -n 260 "$log"
+          elapsed=$(( $(date +%s) - start ))
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/context-baseline.rc"
+          printf '%s\n' "$elapsed" > "${RUNNER_TEMP}/context-baseline.seconds"
+          echo "BASELINE_CONTEXT_RC=$rc ELAPSED=${elapsed}s"
 
-      - name: Run prelude plus semantic multi-target in one process
-        working-directory: /tmp/v2018-targeted/services/agent-service
+      - name: Profile candidate context slice with gate-equivalent coverage
         shell: bash
+        env:
+          APP_ENV: dev
+          APP_PROFILE: local
+          AGENT_DB_BACKEND: sqlite
+          CHECKPOINT_BACKEND: memory
+          AGENT_BUSINESS_ADAPTER: ecommerce_http
+          OPENAI_API_KEY: deterministic-test-not-a-real-key
+          OPENAI_API_BASE: http://127.0.0.1:9/v1
+          OPENAI_MODEL: deterministic-test-model
         run: |
           set -u
-          export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
-          log="${RUNNER_TEMP}/prelude-plus-multitarget.log"
-          target='tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_multi_target_cancel_boundary]'
+          root=/tmp/v2018-perf-candidate
+          cd "$root/services/agent-service"
+          export PYTHONPATH="$root/services/agent-service/src:$root/services/agent-service"
+          export AGENT_DATABASE_URL="sqlite:///$root/perf.sqlite3"
+          export DATABASE_URL="$AGENT_DATABASE_URL"
+          export SQLITE_DB_PATH="$root/perf.sqlite3"
+          log="${RUNNER_TEMP}/context-candidate.log"
+          start=$(date +%s)
           set +e
-          timeout --signal=TERM 180s .venv/bin/python -X faulthandler -B -m pytest -vv -s -p no:cacheprovider \
-            -o faulthandler_timeout=20 \
+          timeout --signal=TERM 300s .venv/bin/python -X faulthandler -B -m pytest -q -ra -p no:cacheprovider \
+            -m 'not integration and not preprod' \
+            --cov=agent_core --cov=app --cov-report="xml:${RUNNER_TEMP}/context-candidate-coverage.xml" \
+            --durations=50 --durations-min=0.20 \
+            tests/context/test_context_bundle_runtime.py \
+            tests/context/test_context_convergence_boundaries.py \
+            tests/context/test_conversation_protocol.py \
+            tests/context/test_conversation_regression_suite_execution.py \
             tests/context/test_dialogue_counterexamples.py \
+            tests/context/test_parameterized_capability_alignment.py \
+            tests/context/test_reference_resolution_contract.py \
+            tests/context/test_runtime_result_ref_pipeline.py \
             tests/context/test_scenario_topology.py \
-            "$target" \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
             2>&1 | tee "$log"
           rc=${PIPESTATUS[0]}
           set -e
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/prelude-plus-multitarget.rc"
-          echo "PRELUDE_PLUS_MULTITARGET_RC=$rc"
-          tail -n 300 "$log"
+          elapsed=$(( $(date +%s) - start ))
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/context-candidate.rc"
+          printf '%s\n' "$elapsed" > "${RUNNER_TEMP}/context-candidate.seconds"
+          echo "CANDIDATE_CONTEXT_RC=$rc ELAPSED=${elapsed}s"
 
-      - name: Stage targeted evidence
+      - name: Stage performance evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p targeted-diagnostic-v2
-          for name in pending-action-profiled semantic-suite-sequential prelude-plus-multitarget; do
-            cp -f "${RUNNER_TEMP}/${name}.log" targeted-diagnostic-v2/ 2>/dev/null || true
-            cp -f "${RUNNER_TEMP}/${name}.rc" targeted-diagnostic-v2/ 2>/dev/null || true
+          mkdir -p context-performance
+          for stem in context-baseline context-candidate; do
+            cp -f "${RUNNER_TEMP}/${stem}.log" context-performance/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${stem}.rc" context-performance/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${stem}.seconds" context-performance/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${stem}-coverage.xml" context-performance/ 2>/dev/null || true
           done
-          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > targeted-diagnostic-v2/candidate-source-sha.txt
+          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > context-performance/baseline-source-sha.txt
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > context-performance/candidate-source-sha.txt
 
-      - name: Upload targeted evidence
+      - name: Upload performance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-targeted-regression-diagnostic-v2
-          path: targeted-diagnostic-v2
+          name: v20.18-context-performance-diagnostic
+          path: context-performance
           if-no-files-found: error
