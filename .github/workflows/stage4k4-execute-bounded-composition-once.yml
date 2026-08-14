@@ -1,0 +1,266 @@
+name: stage4k4-execute-bounded-composition-once
+
+on:
+  push:
+    branches:
+      - feat/stage4k4-production-composition-disabled-20260814
+
+permissions:
+  contents: write
+
+jobs:
+  execute-validate-publish:
+    if: github.repository == 'toctionyan/fristTest' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Stage4K4 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: feat/stage4k4-production-composition-disabled-20260814
+
+      - name: Verify bounded two-workflow prestate
+        env:
+          BASE_SHA: d6ba4b034bb677ddadc817f599dc3a536b976d12
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ['BASE_SHA']
+          subprocess.run(['git', 'merge-base', '--is-ancestor', base, 'HEAD'], check=True)
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}..HEAD'], text=True
+          ).splitlines())
+          expected = {
+              '.github/workflows/stage4k4-production-composition-finalize-once.yml',
+              '.github/workflows/stage4k4-execute-bounded-composition-once.yml',
+          }
+          if changed != expected:
+              raise SystemExit('unexpected_prestate:' + ','.join(sorted(changed)))
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Execute bounded Stage4K4 mutation from frozen one-shot
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          import textwrap
+
+          workflow = Path('.github/workflows/stage4k4-production-composition-finalize-once.yml')
+          text = workflow.read_text(encoding='utf-8')
+          section = '      - name: Apply bounded Stage4K4 production-composition mutation\n'
+          start_at = text.find(section)
+          if start_at < 0:
+              raise SystemExit('stage4k4_mutation_section_missing')
+          heredoc = "          python - <<'PY'\n"
+          start = text.find(heredoc, start_at)
+          end_marker = "\n          PY\n\n      - name: Refresh locked Agent dependency graph"
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('stage4k4_mutation_heredoc_missing')
+          script = textwrap.dedent(text[start + len(heredoc):end])
+          subprocess.run([sys.executable, '-'], input=script, text=True, check=True)
+
+          test_path = Path('services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py')
+          test_text = test_path.read_text(encoding='utf-8')
+          old = '    assert "signature" not in str(readiness)\n'
+          new = (
+              '    assert "signature" not in readiness\n'
+              '    assert readiness["signature_scheme"] == DEPENDENCY_AUTHORITY_ED25519_SIGNATURE_SCHEME\n'
+          )
+          if test_text.count(old) != 1:
+              raise SystemExit(f'expected_single_readiness_assertion:{test_text.count(old)}')
+          test_path.write_text(test_text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git diff --check
+
+      - name: Refresh locked Agent dependency graph
+        run: |
+          cd services/agent-service
+          uv lock
+          uv sync --locked --all-groups
+
+      - name: Run focused Stage4K4 authority tests
+        run: |
+          cd services/agent-service
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_typed_goal_dependency_production_composition.py \
+            tests/runtime/test_typed_goal_dependency_control_provider_contract.py \
+            tests/runtime/test_typed_goal_dependency_signed_provider.py \
+            tests/runtime/test_typed_goal_dependency_persistent_control.py \
+            tests/runtime/test_typed_goal_dependency_activation_ingress.py \
+            tests/runtime/test_pretool_execution_policy.py
+
+      - name: Verify bounded Stage4K4 source delta
+        run: |
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          expected = {
+              'services/agent-service/.env.example',
+              'services/agent-service/app/services/agent_service.py',
+              'services/agent-service/app/services/dependency_authority_composition.py',
+              'services/agent-service/app/services/readiness_service.py',
+              'services/agent-service/pyproject.toml',
+              'services/agent-service/requirements.txt',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_control.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_persistent_control.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_signed_provider.py',
+              'services/agent-service/uv.lock',
+          }
+          changed = set()
+          for raw in subprocess.check_output(['git', 'status', '--short'], text=True).splitlines():
+              if raw.strip():
+                  changed.add(raw[3:])
+          if changed != expected:
+              raise SystemExit('unexpected_stage4k4_delta:' + ','.join(sorted(changed)))
+          for path in expected:
+              if not Path(path).exists():
+                  raise SystemExit('missing_expected_path:' + path)
+          PY
+          git diff --check
+
+      - name: Commit frozen Stage4K4 source
+        id: source_commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/agent-service/.env.example \
+            services/agent-service/app/services/agent_service.py \
+            services/agent-service/app/services/dependency_authority_composition.py \
+            services/agent-service/app/services/readiness_service.py \
+            services/agent-service/pyproject.toml \
+            services/agent-service/requirements.txt \
+            services/agent-service/src/agent_core/runtime/dependency_authority_control.py \
+            services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py \
+            services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_persistent_control.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_signed_provider.py \
+            services/agent-service/uv.lock
+          git diff --cached --check
+          git commit -m "Stage4K4: wire persistent control behind default-disabled composition"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh protected source baseline fail-closed
+        env:
+          SOURCE_SHA: ${{ steps.source_commit.outputs.source_sha }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          source_sha = os.environ['SOURCE_SHA'].strip()
+          if len(source_sha) != 40 or subprocess.check_output(
+              ['git', 'rev-parse', 'HEAD'], cwd=root, text=True
+          ).strip() != source_sha:
+              raise SystemExit('source_sha_identity_mismatch')
+
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          previous = {str(k): str(v) for k, v in (payload.get('files') or {}).items()}
+          if int(payload.get('file_count') or 0) != 601 or len(previous) != 601:
+              raise SystemExit(
+                  f"unexpected_previous_baseline:{payload.get('file_count')}/{len(previous)}"
+              )
+          protected_roots = tuple(str(v) for v in payload.get('protected_roots') or ())
+          if protected_roots != ('services', 'web', 'contracts'):
+              raise SystemExit(f'unexpected_protected_roots:{protected_roots!r}')
+
+          raw = subprocess.check_output(
+              ['git', 'ls-files', '-z', '--', *protected_roots], cwd=root
+          )
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          changed = {
+              path for path in set(current) & set(previous)
+              if current[path] != previous[path]
+          }
+          added = set(current) - set(previous)
+          removed = set(previous) - set(current)
+          expected_changed = {
+              'services/agent-service/.env.example',
+              'services/agent-service/app/services/agent_service.py',
+              'services/agent-service/app/services/readiness_service.py',
+              'services/agent-service/pyproject.toml',
+              'services/agent-service/requirements.txt',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_control.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_persistent_control.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_signed_provider.py',
+              'services/agent-service/uv.lock',
+          }
+          expected_added = {
+              'services/agent-service/app/services/dependency_authority_composition.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py',
+          }
+          if changed != expected_changed:
+              raise SystemExit('unexpected_changed_existing:' + ','.join(sorted(changed)))
+          if added != expected_added:
+              raise SystemExit('unexpected_added:' + ','.join(sorted(added)))
+          if removed:
+              raise SystemExit('unexpected_removed:' + ','.join(sorted(removed)))
+          if len(current) != 603:
+              raise SystemExit(f'unexpected_protected_file_count:{len(current)}')
+
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          payload['generated_at'] = (
+              datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          )
+          payload['generated_from'] = 'git:' + source_sha
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps({
+              'status': 'PASS',
+              'file_count': len(current),
+              'generated_from': payload['generated_from'],
+              'changed': sorted(changed),
+              'added': sorted(added),
+              'removed': sorted(removed),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify refreshed baseline contract
+        run: python skill-system/tests/test_product_source_baseline_binding.py
+
+      - name: Commit and publish refreshed baseline
+        run: |
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m "Refresh Stage4K4 production-composition protected baseline"
+          git push origin HEAD:feat/stage4k4-production-composition-disabled-20260814
