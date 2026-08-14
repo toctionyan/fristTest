@@ -14,6 +14,9 @@ from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.config import get_model
 from agent_core.lifecycle.context_runtime import build_context_bundle_node, prepare_agent_loop_turn_node
 from agent_core.lifecycle.dialogue_runtime import agent_loop_node as _dialogue_agent_loop_node
+from agent_core.lifecycle.pretool_execution_policy import (
+    TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY,
+)
 from agent_core.lifecycle.graph_routes import (
     finalize_agent_loop_turn_node,
     route_after_agent_loop,
@@ -56,10 +59,22 @@ def agent_loop_node(
     context_bundle_builder: ContextBundleBuilder,
     capability_registry: CapabilityRegistry,
     model_resolver: Callable[[], Any] = get_model,
+    dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
-    """Thin node wrapper retaining the explicit model injection seam."""
+    """Thin node wrapper retaining explicit model and authority-control seams.
+
+    Checkpoint/user/model state is never trusted as dependency-activation
+    authority. The private key is stripped on every call and can only be
+    reintroduced as an in-process callable supplied by LifecycleRuntimeDeps.
+    """
+    runtime_state = dict(state)
+    runtime_state.pop(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY, None)
+    if callable(dependency_authority_control_resolver):
+        runtime_state[TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] = (
+            dependency_authority_control_resolver
+        )
     return _dialogue_agent_loop_node(
-        state,
+        runtime_state,
         context_bundle_builder=context_bundle_builder,
         capability_registry=capability_registry,
         model_resolver=model_resolver,

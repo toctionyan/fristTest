@@ -43,6 +43,9 @@ from agent_core.lifecycle.goal_outputs import reusable_goal_outputs_for_goal
 
 PRETOOL_EXECUTION_POLICY_VERSION = "pretool-execution-policy@1"
 TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION = "typed-dependency-authority-shadow@1"
+TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY = (
+    "_trusted_dependency_authority_control_resolver"
+)
 _PROGRESS_STEP_STATES = {"SUCCEEDED"}
 _COMPLETED_GOAL_LIFECYCLES = {"COMPLETED"}
 
@@ -194,8 +197,8 @@ def _typed_dependency_authority_shadow(
 ) -> dict[str, Any] | None:
     """Audit legacy dependency blocking against verified Goal Graph dataflow.
 
-    This is migration evidence only. The current provider frontier continues to
-    use ``depends_on_goal_ids`` until a later explicit authority cutover.
+    This is migration evidence only. Stage 4E's separate runtime selector owns
+    any explicit authority choice; the shadow itself never changes enforcement.
     """
 
     typed = (
@@ -309,6 +312,83 @@ def _typed_dependency_authority_shadow(
     return payload
 
 
+
+def _trusted_dependency_authority_control(
+    state: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve application-owned authority control without trusting state data.
+
+    Only an in-process callable injected by ``LifecycleRuntimeDeps`` is accepted.
+    JSON/checkpoint/user/model values cannot satisfy ``callable`` and are ignored.
+    Raw grant/preflight records are never copied into the observable ingress
+    summary; the downstream selector validates all sealed records independently.
+    """
+
+    resolver = state.get(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY)
+    if resolver is None:
+        return {}, {
+            "status": "DISABLED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    if not callable(resolver):
+        return {}, {
+            "status": "UNTRUSTED_STATE_VALUE_IGNORED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    try:
+        raw = resolver()
+    except Exception as exc:
+        return {}, {
+            "status": "RESOLVER_ERROR_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "error_type": exc.__class__.__name__,
+            "raw_control_exposed": False,
+        }
+    if raw is None:
+        return {}, {
+            "status": "NO_CONTROL_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    if not isinstance(raw, dict):
+        return {}, {
+            "status": "INVALID_CONTROL_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+
+    evaluation_time = raw.get("evaluation_time")
+    if evaluation_time is not None:
+        try:
+            evaluation_time = float(evaluation_time)
+        except (TypeError, ValueError):
+            evaluation_time = None
+    control = {
+        "activation_preflight": (
+            deepcopy(raw.get("activation_preflight"))
+            if isinstance(raw.get("activation_preflight"), dict)
+            else None
+        ),
+        "runtime_activation": (
+            deepcopy(raw.get("runtime_activation"))
+            if isinstance(raw.get("runtime_activation"), dict)
+            else None
+        ),
+        "evaluation_time": evaluation_time,
+        "rollback_requested": raw.get("rollback_requested") is True,
+    }
+    return control, {
+        "status": "RESOLVED",
+        "source": "application_runtime_deps",
+        "has_activation_preflight": control["activation_preflight"] is not None,
+        "has_runtime_activation": control["runtime_activation"] is not None,
+        "has_evaluation_time": control["evaluation_time"] is not None,
+        "rollback_requested": control["rollback_requested"],
+        "raw_control_exposed": False,
+    }
+
 def build_pretool_execution_policy(
     *,
     state: dict[str, Any],
@@ -371,6 +451,25 @@ def build_pretool_execution_policy(
         {field: dependency_authority_attestation.get(field) for field in identity_fields}
         if isinstance(dependency_authority_attestation, dict)
         else {}
+    )
+    dependency_authority_control, dependency_authority_ingress = (
+        _trusted_dependency_authority_control(state)
+    )
+    if dependency_activation_preflight is None:
+        dependency_activation_preflight = dependency_authority_control.get(
+            "activation_preflight"
+        )
+    if dependency_runtime_activation is None:
+        dependency_runtime_activation = dependency_authority_control.get(
+            "runtime_activation"
+        )
+    if dependency_authority_evaluation_time is None:
+        dependency_authority_evaluation_time = dependency_authority_control.get(
+            "evaluation_time"
+        )
+    dependency_authority_rollback_requested = bool(
+        dependency_authority_rollback_requested
+        or dependency_authority_control.get("rollback_requested") is True
     )
     dependency_runtime_selection = select_runtime_dependency_authority(
         preflight=dependency_activation_preflight,
@@ -688,6 +787,7 @@ def build_pretool_execution_policy(
         "global_coverage_digest": global_coverage.get("coverage_digest"),
         "selected_dependency_authority": selected_dependency_authority,
         "dependency_runtime_authority_selection": dependency_runtime_selection,
+        "dependency_authority_ingress": dependency_authority_ingress,
         "selected_global_coverage_id": (
             (global_coverage.get("selected_coverage") or {}).get("coverage_id")
             if isinstance(global_coverage.get("selected_coverage"), dict)
