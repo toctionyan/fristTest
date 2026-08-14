@@ -1,0 +1,114 @@
+name: tmp-v20.18-targeted-regression-diagnostic
+
+on:
+  push:
+    branches:
+      - tmp/v20.18-governance-recovery-20260814
+    paths:
+      - .github/workflows/tmp-v20.18-targeted-regression-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  targeted-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout diagnostic carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Reconstruct exact Recovery-F product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_sha='aeb9a445001d4922e13a032e4cccc12f8ff34e9a'
+          candidate_sha='55403a01f957257fbbefead32bcde21b7d866001'
+          rm -rf /tmp/v2018-targeted
+          mkdir -p /tmp/v2018-targeted
+          git archive "$baseline_sha" | tar -x -C /tmp/v2018-targeted
+          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-targeted/governance/active-change.json').read_text())['allowed_paths']))")
+          test "${#allowed[@]}" -eq 17
+          for path in "${allowed[@]}"; do
+            target="/tmp/v2018-targeted/$path"
+            if git cat-file -e "${candidate_sha}:${path}" 2>/dev/null; then
+              mkdir -p "$(dirname "$target")"
+              git show "${candidate_sha}:${path}" > "$target"
+            else
+              rm -f "$target"
+            fi
+          done
+          src="${RUNNER_TEMP}/red-oracle.py"
+          dst="/tmp/v2018-targeted/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
+          git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
+          sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
+
+      - name: Bootstrap locked Agent environment
+        working-directory: /tmp/v2018-targeted
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Reproduce pending-action regression
+        working-directory: /tmp/v2018-targeted/services/agent-service
+        shell: bash
+        run: |
+          set -u
+          export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
+          log="${RUNNER_TEMP}/pending-action.log"
+          set +e
+          .venv/bin/python -B -m pytest -vv -s -p no:cacheprovider \
+            tests/context/test_dialogue_counterexamples.py::test_pending_action_goal_re_presents_card_without_second_model_call \
+            2>&1 | tee "$log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/pending-action.rc"
+          echo "PENDING_ACTION_RC=$rc"
+          tail -n 160 "$log"
+
+      - name: Reproduce multi-target cancel hang with stack dump
+        working-directory: /tmp/v2018-targeted/services/agent-service
+        shell: bash
+        run: |
+          set -u
+          export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
+          log="${RUNNER_TEMP}/multi-target-cancel.log"
+          node='tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_multi_target_cancel_boundary]'
+          set +e
+          timeout --signal=TERM 90s .venv/bin/python -X faulthandler -B -m pytest -vv -s -p no:cacheprovider \
+            -o faulthandler_timeout=20 "$node" 2>&1 | tee "$log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/multi-target-cancel.rc"
+          echo "MULTI_TARGET_CANCEL_RC=$rc"
+          tail -n 220 "$log"
+
+      - name: Stage targeted evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p targeted-diagnostic
+          for name in pending-action multi-target-cancel; do
+            cp -f "${RUNNER_TEMP}/${name}.log" targeted-diagnostic/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${name}.rc" targeted-diagnostic/ 2>/dev/null || true
+          done
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > targeted-diagnostic/candidate-source-sha.txt
+
+      - name: Upload targeted evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v20.18-targeted-regression-diagnostic
+          path: targeted-diagnostic
+          if-no-files-found: error
