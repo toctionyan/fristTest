@@ -1,0 +1,88 @@
+name: tmp-v20.18-recovery-h-publisher
+
+on:
+  push:
+    branches:
+      - tmp/v20.18-governance-recovery-20260814
+    paths:
+      - .github/workflows/tmp-v20.18-recovery-h-publisher.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish-recovery-h:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Publish Quick-only Recovery-H workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit='b1c71a6ed37e85cf7ff834368787511a6efd1f9f'
+          target='.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml'
+          publisher='.github/workflows/tmp-v20.18-recovery-h-publisher.yml'
+          git cat-file -e "${source_commit}^{commit}"
+          git show "${source_commit}:${target}" > /tmp/recovery-h-source.yml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('/tmp/recovery-h-source.yml')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace('name: tmp-v20.18-governance-recovery-successor-close', 'name: tmp-v20.18-governance-recovery-successor-quick-h', 1)
+          trigger = """on:\n  push:\n    branches:\n      - tmp/v20.18-governance-recovery-20260814\n"""
+          replacement = """on:\n  push:\n    branches:\n      - tmp/v20.18-governance-recovery-20260814\n    paths:\n      - .github/workflows/tmp-v20.18-governance-recovery-diff-review.yml\n"""
+          assert trigger in text
+          text = text.replace(trigger, replacement, 1)
+          text = text.replace('successor-permit-and-close:', 'successor-permit-and-quick:', 1)
+          text = text.replace('Historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001; full Quick must converge without scope expansion.', 'Historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001 plus bounded performance repair 7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8; full Quick must converge without scope expansion.', 1)
+          text = text.replace("failure['reproduction']['expected']='Historical A2/B candidate 55403 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'", "failure['reproduction']['expected']='Historical A2/B candidate 55403 plus the independently validated bounded performance repair 7e6bd3 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'", 1)
+          text = text.replace("plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate; no new product design or production activation.'", "plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate plus bounded performance repair 7e6bd3 on the already-permitted capability_effects.py path; no new product design or production activation.'", 1)
+
+          start_marker = '      - name: Overlay exact historical A2B candidate only inside successor permit\n'
+          end_marker = '      - name: Deterministically prove candidate diff is exact and permit-bounded\n'
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          segment = text[start:end]
+          segment = segment.replace('      - name: Overlay exact historical A2B candidate only inside successor permit', '      - name: Overlay historical A2B candidate plus bounded performance repair inside successor permit', 1)
+          segment = segment.replace('          candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"\n', '          candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"\n          perf_sha="7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8"\n          perf_path="services/agent-service/src/agent_core/runtime/capability_effects.py"\n', 1)
+          needle = '          done\n\n'
+          assert segment.endswith(needle)
+          overlay = '''          done\n          printf '%s\\n' "${allowed[@]}" | grep -Fxq "$perf_path"\n          git show "${perf_sha}:${perf_path}" > "/tmp/v2018-baseline/${perf_path}"\n          test "$(git show "${perf_sha}:${perf_path}" | sha256sum | awk '{print $1}')" = "$(sha256sum "/tmp/v2018-baseline/${perf_path}" | awk '{print $1}')"\n          printf '%s\\n' "$perf_sha" > "${RUNNER_TEMP}/performance-repair-sha.txt"\n\n'''
+          segment = segment[:-len(needle)] + overlay
+          text = text[:start] + segment + text[end:]
+
+          receipt_old = "'candidate_sha':'55403a01f957257fbbefead32bcde21b7d866001','recorded_at'"
+          receipt_new = "'candidate_sha':'55403a01f957257fbbefead32bcde21b7d866001','performance_repair_sha':'7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8','recorded_at'"
+          assert receipt_old in text
+          text = text.replace(receipt_old, receipt_new, 1)
+
+          closure_start = text.index('      - name: Record independent read-only review attestations\n')
+          artifact_start = text.index('      - name: Stage Recovery-E outputs\n', closure_start)
+          text = text[:closure_start] + text[artifact_start:]
+          text = text.replace('      - name: Stage Recovery-E outputs', '      - name: Stage Recovery-H Quick outputs', 1)
+          text = text.replace('      - name: Upload Recovery-E artifact', '      - name: Upload Recovery-H Quick artifact', 1)
+          text = text.replace('name: v20.18-governance-recovery-successor-closure', 'name: v20.18-governance-recovery-successor-quick-h', 1)
+          artifact_sha_line = "          printf '%s\\n' '55403a01f957257fbbefead32bcde21b7d866001' > \"$out/historical-candidate-sha.txt\"\n"
+          assert artifact_sha_line in text
+          text = text.replace(artifact_sha_line, artifact_sha_line + "          printf '%s\\n' '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' > \"$out/performance-repair-sha.txt\"\n", 1)
+          assert 'Record independent read-only review attestations' not in text
+          assert 'Freeze final diff review and eight-dimensional closure' not in text
+          assert 'Deterministically verify and close successor Contract' not in text
+          assert 'product-verify --mode quick' in text
+          assert '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' in text
+          Path('/tmp/recovery-h-final.yml').write_text(text, encoding='utf-8')
+          PY
+          cp /tmp/recovery-h-final.yml "$target"
+          rm -f "$publisher"
+          git config user.name 'toctionyan'
+          git config user.email '1104730926@qq.com'
+          git add -A "$target" "$publisher"
+          git diff --cached --check
+          git commit -m 'Recovery-H: verify successor Quick with bounded A2/B performance repair'
+          git push origin HEAD:refs/heads/tmp/v20.18-governance-recovery-20260814
