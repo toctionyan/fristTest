@@ -462,7 +462,7 @@
     "services/agent-service/tests/integration/test_atomic_postgres_fencing.py": "8ae05c77ad86ced2fc9809e75c238e96fa81bb4a881b47a12dd6e9ead092fde2",
     "services/agent-service/tests/integration/test_model_stub.py": "64846b85550cc0e4f20944547f8273c847a89aa8cf23631ebafb5bc29c0d0bd9",
     "services/agent-service/tests/integration/test_pgvector_runtime.py": "664da768be56b88e7364c83fa774654f9931d5fcac8c92222bc680811c273880",
-    "services/agent-service/tests/integration/test_postgres_migrations.py": "4f89a5cd2165198a28ec4974deb1a232ae2ba3739ea947edab0882845abea1d1",
+    "services/agent-service/tests/integration/test_postgres_migrations.py": "9d2e82cd074baabbda1a448e4d899c37c8cddf9f2e7533b212d0e9d056ae9fb6",
     "services/agent-service/tests/presentation/test_conversation_stream_live.py": "d97c0f1c51f578eab8994ee1f7ef3b7fc4cefe1d67745a6c268489ca08add2e3",
     "services/agent-service/tests/presentation/test_presentation_contracts.py": "69fe71215e8d2c5d5490c78fba1429833cdcf0eb3f90f12e951ee1580a3ae262",
     "services/agent-service/tests/presentation/test_presentation_modules.py": "b4abb5485684216b780b5f3c1f6de581e5544d52bce180e261ffffe7f5182d73",
@@ -603,8 +603,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-14T16:58:23+08:00",
-  "generated_from": "git:64d5db2652f35c28d6115cd9f727894401c92e87",
+  "generated_at": "2026-08-14T17:15:04+08:00",
+  "generated_from": "git:e4f1919d2bbcf2df0ab286fcdcec2b7bfe3aff55",
   "protected_roots": [
     "services",
     "web",
