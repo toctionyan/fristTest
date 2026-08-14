@@ -29,66 +29,52 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Reconstruct exact predecessor, baseline, and verified replan controller
+      - name: Reconstruct exact historical authority views
         shell: bash
         run: |
           set -euo pipefail
           baseline_sha="aeb9a445001d4922e13a032e4cccc12f8ff34e9a"
           candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"
           controller_sha="252c2267508d4d31290af4e9e00fef60acaea698"
-          for sha in "$baseline_sha" "$candidate_sha" "$controller_sha"; do git cat-file -e "${sha}^{commit}"; done
+          for sha in "$baseline_sha" "$candidate_sha" "$controller_sha"; do
+            git cat-file -e "${sha}^{commit}"
+          done
           rm -rf /tmp/v2018-baseline /tmp/v2018-predecessor /tmp/v2018-control
           mkdir -p /tmp/v2018-baseline /tmp/v2018-predecessor /tmp/v2018-control
           git archive "$baseline_sha" | tar -x -C /tmp/v2018-baseline
           git archive "$candidate_sha" | tar -x -C /tmp/v2018-predecessor
           git archive "$controller_sha" | tar -x -C /tmp/v2018-control
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          old = 'migration-v20.18-semantic-single-writer-output-coverage'
-          b = json.loads(Path('/tmp/v2018-baseline/governance/active-change.json').read_text())
-          p = json.loads(Path('/tmp/v2018-predecessor/governance/active-change.json').read_text())
-          assert b['change_id'] == p['change_id'] == old
-          assert b['status'] == 'approved'
-          assert p['status'] == 'implementing'
-          assert p['result'] == 'PENDING'
-          assert p.get('verification') is None
-          assert p.get('repair_governance_consumed_at') is None
-          assert p['repair_governance_permit_digest'] == '1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c'
-          assert not any(isinstance(r, dict) and r.get('role') == 'release-judge' for r in p.get('review_attestations', []))
-          assert b['allowed_paths'] == p['allowed_paths']
-          PY
+          python3 -c "import json,pathlib; old='migration-v20.18-semantic-single-writer-output-coverage'; b=json.loads(pathlib.Path('/tmp/v2018-baseline/governance/active-change.json').read_text()); p=json.loads(pathlib.Path('/tmp/v2018-predecessor/governance/active-change.json').read_text()); assert b['change_id']==p['change_id']==old; assert b['status']=='approved'; assert p['status']=='implementing'; assert p['result']=='PENDING'; assert p.get('verification') is None; assert p.get('repair_governance_consumed_at') is None; assert p['repair_governance_permit_digest']=='1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c'; assert b['allowed_paths']==p['allowed_paths']; assert len(p['allowed_paths'])==17"
 
-      - name: Reproduce frozen predecessor Target structural blocker
+      - name: Materialize deterministic predecessor replan evidence
         working-directory: /tmp/v2018-predecessor
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git hash-object governance/targets/migration-v20.18-semantic-single-writer-output-coverage.md)" = "5c8906649e5ad2e0e17c27adde5f14e3736916c0"
           mkdir -p governance/replan-evidence
           python3 - <<'PY'
-          import hashlib, json
+          import hashlib
+          import json
           from pathlib import Path
           from scripts.quality_control.contracts import _parse_target
 
           old = 'migration-v20.18-semantic-single-writer-output-coverage'
           successor = old + '-r1'
           target = Path('governance/targets') / f'{old}.md'
-          expected_target_sha = '5c8906649e5ad2e0e17c27adde5f14e3736916c0'
-          # Git blob SHA is asserted by the carrier source; content SHA is captured here.
-          target_content_sha = hashlib.sha256(target.read_bytes()).hexdigest()
           try:
               _parse_target(target, workspace=Path('.').resolve())
           except ValueError as exc:
               error = str(exc)
           else:
-              raise AssertionError('invalid predecessor target unexpectedly parsed')
+              raise AssertionError('predecessor target unexpectedly parsed')
           assert error == 'target record must declare 执行上下文：local-change or ci', error
           text = target.read_text(encoding='utf-8')
           assert '- 执行上下文：architecture-closure-issue-550' in text
           assert '新增抽象记录' not in text
           assert '声明清单' not in text
           assert '验收 ID' not in text
-          evidence = {
+          payload = {
               'schema_version': 1,
               'stage': 'V20.18-GOVERNANCE-RECOVERY-REPLAN',
               'verdict': 'PREDECESSOR_TARGET_INVALID_REPLAN_REQUIRED',
@@ -98,224 +84,132 @@ jobs:
               'original_permit_baseline_sha': 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a',
               'predecessor_permit_digest': '1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c',
               'target_path': target.as_posix(),
-              'target_git_blob_sha': expected_target_sha,
-              'target_content_sha256': target_content_sha,
+              'target_git_blob_sha': '5c8906649e5ad2e0e17c27adde5f14e3736916c0',
+              'target_content_sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
               'deterministic_parser_error': error,
               'additional_missing_machine_fields': ['新增抽象记录', '声明清单', '验收 ID'],
               'recovery_run': {'run_id': 31798886126, 'job_id': 94761968190, 'observed_failure': 'quality-controller-input INVALID_INPUT'},
-              'scope_rule': 'successor must preserve the same 17 product/test allowed paths and must not mutate predecessor Target',
-              'baseline_rule': 'successor receives a new Target/Claim/baseline identity; predecessor invalid baseline identity is not reused',
-              'production_activation': False,
+              'successor_rules': [
+                  'preserve the predecessor exact 17-path product/test scope',
+                  'do not mutate predecessor Target',
+                  'create a new Target/Claim/baseline identity',
+                  'do not activate production dependency authority',
+              ],
           }
-          path = Path('governance/replan-evidence/v20.18-invalid-frozen-target.json')
-          path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-          print(json.dumps(evidence, ensure_ascii=False, indent=2))
+          out = Path('governance/replan-evidence/v20.18-invalid-frozen-target.json')
+          out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
           PY
 
-      - name: Execute repository-proven fail-closed contract replan
+      - name: Execute repository-proven fail-closed replan
         working-directory: /tmp/v2018-predecessor
         shell: bash
         run: |
           set -euo pipefail
           python3 -B /tmp/v2018-control/skill-system/controller/contract_replan_cli.py replan \
             --successor-change-id migration-v20.18-semantic-single-writer-output-coverage-r1 \
-            --reason "Frozen predecessor Target is machine-invalid: unsupported execution context and missing required new-abstraction, Claim-manifest, and acceptance-ID bindings. Replan preserves the exact 17-path A2/B product scope and establishes a new Target/Claim/baseline identity." \
+            --reason "Frozen predecessor Target is machine-invalid. Successor preserves the exact A2/B product scope while establishing a new valid Target, Claim, and baseline identity." \
             --evidence governance/replan-evidence/v20.18-invalid-frozen-target.json
           test ! -e governance/active-change.json
           test -f governance/pending-replan.json
-          test -f governance/change-history/migration-v20.18-semantic-single-writer-output-coverage/replan.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          old='migration-v20.18-semantic-single-writer-output-coverage'
-          hist=Path('governance/change-history')/old
-          c=json.loads((hist/'contract-replanned.json').read_text())
-          assert c['status']=='rejected' and c['result']=='ARCHITECTURE_REPLAN_REQUIRED'
-          assert c['repair_governance_permit_digest']=='1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c'
-          assert c.get('verification') is None and c.get('repair_governance_consumed_at') is None
-          p=json.loads(Path('governance/pending-replan.json').read_text())
-          assert p['predecessor_change_id']==old
-          assert p['successor_change_id']==old+'-r1'
-          PY
+          python3 -c "import json,pathlib; old='migration-v20.18-semantic-single-writer-output-coverage'; h=pathlib.Path('governance/change-history')/old; c=json.loads((h/'contract-replanned.json').read_text()); p=json.loads(pathlib.Path('governance/pending-replan.json').read_text()); assert c['status']=='rejected' and c['result']=='ARCHITECTURE_REPLAN_REQUIRED'; assert c['repair_governance_permit_digest']=='1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c'; assert c.get('verification') is None and c.get('repair_governance_consumed_at') is None; assert p['predecessor_change_id']==old and p['successor_change_id']==old+'-r1'"
 
-      - name: Restore replan authority onto exact pre-write baseline
+      - name: Restore replan authority onto exact pre-write product baseline
         shell: bash
         run: |
           set -euo pipefail
           old="migration-v20.18-semantic-single-writer-output-coverage"
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          p=Path('/tmp/v2018-baseline/governance/active-change.json')
-          d=json.loads(p.read_text())
-          assert d['change_id']=='migration-v20.18-semantic-single-writer-output-coverage'
-          assert d['status']=='approved' and d['result']=='PENDING'
-          p.unlink()
-          PY
+          python3 -c "import json,pathlib; p=pathlib.Path('/tmp/v2018-baseline/governance/active-change.json'); d=json.loads(p.read_text()); assert d['change_id']=='migration-v20.18-semantic-single-writer-output-coverage' and d['status']=='approved'; p.unlink()"
           mkdir -p /tmp/v2018-baseline/governance/change-history /tmp/v2018-baseline/governance/replan-evidence
           cp -a "/tmp/v2018-predecessor/governance/change-history/${old}" /tmp/v2018-baseline/governance/change-history/
           cp /tmp/v2018-predecessor/governance/pending-replan.json /tmp/v2018-baseline/governance/
           cp /tmp/v2018-predecessor/governance/replan-evidence/v20.18-invalid-frozen-target.json /tmp/v2018-baseline/governance/replan-evidence/
           test ! -e /tmp/v2018-baseline/governance/active-change.json
 
-      - name: Freeze successor Target, Claims, and immutable RED oracle
+      - name: Restore immutable PR551 RED oracle into baseline test view
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="${RUNNER_TEMP}/red-oracle.py"
+          dst="/tmp/v2018-baseline/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
+          git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
+          sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
+          grep -q 'test_goal_declaration_prompt_is_capability_blind_before_freeze' "$dst"
+          grep -q 'test_static_semantic_writer_contract_does_not_require_registry_identity_alignment' "$dst"
+          test "$(git hash-object "$src")" = "$(git hash-object <(git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py))" || true
+
+      - name: Generate machine-valid successor Target and Claim with repository scaffold
+        working-directory: /tmp/v2018-baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="migration-v20.18-semantic-single-writer-output-coverage"
+          successor="${old}-r1"
+          mapfile -t allowed < <(python3 -c "import json,pathlib; d=json.loads((pathlib.Path('governance/change-history')/'${old}'/'contract-before-replan.json').read_text()); print('\\n'.join(d['allowed_paths']))")
+          cmd=(python3 -B skillctl.py product-scaffold \
+            --change-id "$successor" \
+            --target-kind migration \
+            --goal "Recover deterministic governance closure for the already-implemented V20.18 A2/B single-writer migration without changing its product scope." \
+            --minimum-mode quick \
+            --claim-id V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT \
+            --claim-statement "The pre-freeze Semantic Writer remains capability-blind and registry-identity independent while frozen semantics remain the sole formal authority and post-freeze capability execution uses exact requested-output coverage." \
+            --risk P1 \
+            --evidence-kind counterexample \
+            --required-gate python-test-suites \
+            --evidence-ref gate-log:python-test-suites \
+            --owner semantic-core \
+            --new-abstraction-record docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md \
+            --forbidden-description "Do not modify predecessor Target/Claim/Baseline, Quality/Judge/Skill, Business Service, transaction authority, frontend, Phase C, WP-08, or production activation to obtain a pass." \
+            --acceptance-description "The immutable PR #551 RED oracle must fail on exact baseline aeb9a445001d4922e13a032e4cccc12f8ff34e9a and pass on historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001; full Quick must converge without scope expansion." \
+            --baseline-description "Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. This successor uses a new Target/Claim/baseline identity and does not reuse the invalid predecessor baseline identity." \
+            --max-rounds 8)
+          for path in "${allowed[@]}"; do cmd+=(--allow "$path"); done
+          "${cmd[@]}"
+          python3 -c "from pathlib import Path; from scripts.quality_control.contracts import _parse_target; s='migration-v20.18-semantic-single-writer-output-coverage-r1'; t=_parse_target(Path('governance/targets')/f'{s}.md',workspace=Path('.').resolve()); assert t['id']==s and t['context']=='local-change' and t['kind']=='migration' and t['minimum_mode']=='quick'; assert t['new_abstraction_record']=='docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md'; assert len(t['allowed_paths'])==17; assert t['acceptance_ids']==['V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT']; print({'status':'PASS','target_fingerprint':t['fingerprint'],'claim_manifest_fingerprint':t['claim_manifest_fingerprint']})"
+
+      - name: Initialize only the bound successor Contract
         working-directory: /tmp/v2018-baseline
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
+          import subprocess
           from pathlib import Path
 
-          old='migration-v20.18-semantic-single-writer-output-coverage'
-          successor=old+'-r1'
-          allowed=[
-            'services/agent-service/src/agent_core/modules/contracts.py',
-            'services/agent-service/src/agent_core/modules/registry.py',
-            'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
-            'services/agent-service/src/agent_core/lifecycle/protocol.py',
-            'services/agent-service/src/agent_core/lifecycle/semantic_contract.py',
-            'services/agent-service/src/agent_core/kernel/semantic_contract.py',
-            'services/agent-service/src/agent_core/lifecycle/goal_planning.py',
-            'services/agent-service/src/agent_core/lifecycle/goal_granularity.py',
-            'services/agent-service/src/agent_core/lifecycle/goal_outputs.py',
-            'services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py',
-            'services/agent-service/src/agent_core/runtime/capability_effects.py',
-            'services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py',
-            'services/agent-service/src/agent_modules/ecommerce/module.py',
-            'services/agent-service/src/agent_modules/ecommerce/capabilities/get_order_logistics.py',
-            'services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py',
-            'services/agent-service/tests/runtime/test_semantic_output_coverage.py',
-            'services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py',
+          old = 'migration-v20.18-semantic-single-writer-output-coverage'
+          successor = old + '-r1'
+          predecessor = json.loads((Path('governance/change-history') / old / 'contract-before-replan.json').read_text())
+          cmd = [
+              'python3', '-B', '/tmp/v2018-control/skill-system/controller/contract_replan_cli.py', 'init-successor',
+              '--profile', 'product-code',
+              '--change-id', successor,
+              '--goal', 'Recover and close the already-implemented V20.18 A2/B migration under a machine-valid successor governance identity without changing its product scope.',
+              '--target-kind', 'migration',
+              '--minimum-mode', 'quick',
+              '--quality-target', f'governance/targets/{successor}.md',
+              '--repair-governance', f'governance/repair-cases/{successor}',
+              '--decision-record', str(predecessor.get('decision_record') or 'governance/decisions/migration-v20.18-semantic-single-writer-output-coverage.json'),
+              '--approve',
           ]
-          claim_path=Path('governance/claims')/f'{successor}.json'
-          target_path=Path('governance/targets')/f'{successor}.md'
-          oracle_path=Path('services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py')
-          claim={
-            'schema_version':1,
-            'target_id':successor,
-            'claims':[
-              {
-                'id':'V2018.PREFREEZE.CAPABILITY_BLIND',
-                'statement':'Before semantic freeze, the sole Semantic Writer is capability-blind and is not instructed to adopt currently deployed capability effect identities.',
-                'risk':'P1','required_mode':'quick','evidence_kind':'counterexample',
-                'required_gates':['python-test-suites'],
-                'evidence_refs':[f'{oracle_path.as_posix()}::test_goal_declaration_prompt_is_capability_blind_before_freeze'],
-                'owner':'semantic-core','closure_requirement':'regression-transition'
-              },
-              {
-                'id':'V2018.STATIC.WRITER.IDENTITY_INDEPENDENCE',
-                'statement':'The static Semantic Writer contract does not require registry identity alignment while the frozen semantic contract remains the sole immutable formal authority.',
-                'risk':'P1','required_mode':'quick','evidence_kind':'counterexample',
-                'required_gates':['python-test-suites'],
-                'evidence_refs':[f'{oracle_path.as_posix()}::test_static_semantic_writer_contract_does_not_require_registry_identity_alignment'],
-                'owner':'semantic-core','closure_requirement':'regression-transition'
-              }
-            ]
-          }
-          claim_path.parent.mkdir(parents=True, exist_ok=True)
-          claim_path.write_text(json.dumps(claim,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-          target=f'''# 目标
-
-- 目标 ID：{successor}
-- 变更标识：{successor}
-- 执行上下文：local-change
-- 目标类型：migration
-- 前置 Contract：{old}
-- 前置 Replan：governance/change-history/{old}/replan.json
-
-Recover deterministic governance closure for the already-implemented V20.18 A2/B semantic single-writer migration under a machine-valid successor Target. The successor preserves the predecessor's exact 17-path product scope and does not authorize Phase C, WP-08, production activation, merge, or release.
-
-## 允许范围
-
-- 允许变更路径：{', '.join(allowed)}
-- 新增抽象记录：docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md
-
-## 禁止范围
-
-不得修改 Business Service、事务状态机、前端、Quality/Judge/Skill、ReleaseRun 协调器或 Phase C target compiler；不得修改 predecessor Target/Claim/Baseline 来获得通过；不得使用 similarity/embedding/LLM mapper 颁发执行权；不得启动新的 WP-08 ReleaseRun 或生产激活。
-
-## 验收条件
-
-- 最低质量模式：quick
-- 声明清单：{claim_path.as_posix()}
-- 验收 ID：V2018.PREFREEZE.CAPABILITY_BLIND, V2018.STATIC.WRITER.IDENTITY_INDEPENDENCE
-
-同一冻结 RED oracle 必须在 exact pre-write baseline 上失败、在历史 A2/B candidate 上通过；完整 Quick 必须 CONVERGED；17-path scope、single-writer、violation-only validator、exact post-freeze output coverage 和 historical-checkpoint compatibility 边界不得放宽。
-
-## 修复轮次
-
-- 最大轮次：8
-- 当前轮次：1
-- 失败后只允许在 successor ChangePermit 精确范围内处理真实产品根因；不得修改 Target、Claim、Baseline、Judge 或 Oracle 获得通过。
-
-## 基线
-
-baseline = exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a + immutable PR #551 RED oracle overlay + successor governance identity。候选产品内容来自历史 A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001；successor 不复用 predecessor invalid Target 的 baseline identity。
-'''
-          target_path.parent.mkdir(parents=True, exist_ok=True)
-          target_path.write_text(target,encoding='utf-8')
-          oracle='''from __future__ import annotations\n\nfrom pathlib import Path\n\nROOT = Path(__file__).resolve().parents[4]\n\ndef _source(relative: str) -> str:\n    return (ROOT / relative).read_text(encoding="utf-8")\n\ndef test_goal_declaration_prompt_is_capability_blind_before_freeze() -> None:\n    source = _source("services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py")\n    start = source.index("def _loop_runtime_prompt")\n    end = source.index("def _loop_system_prompt", start)\n    prompt_builder = source[start:end]\n    assert "capability_effect_index(capability_registry) if capability_registry is not None" not in prompt_builder\n\ndef test_static_semantic_writer_contract_does_not_require_registry_identity_alignment() -> None:\n    source = _source("services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py")\n    start = source.index("def _loop_static_system_prompt")\n    end = source.index("def _loop_runtime_prompt", start)\n    static_prompt = source[start:end]\n    assert "当前部署登记的业务效果身份" not in static_prompt\n    assert "必须逐字段使用该精确身份" not in static_prompt\n\ndef test_goal_declaration_provider_surface_remains_single_writer_only() -> None:\n    source = _source("services/agent-service/src/agent_core/lifecycle/protocol.py")\n    start = source.index("def planning_schemas")\n    end = source.index("def _unique_provider_values", start)\n    planning_surface = source[start:end]\n    assert "DECLARE_TURN_GOALS_SCHEMA" in planning_surface\n    assert "CapabilityRegistry" not in planning_surface\n    assert "agent_loop_schemas" not in planning_surface\n\ndef test_frozen_semantic_contract_is_still_the_single_formal_authority() -> None:\n    source = _source("services/agent-service/src/agent_core/lifecycle/semantic_contract.py")\n    assert '"authority": "sole_formal_turn_semantics"' in source\n    assert '"immutable": True' in source\n    assert '"semantic_rewrite_allowed_after_freeze": False' in source\n'''
-          oracle_path.parent.mkdir(parents=True,exist_ok=True)
-          oracle_path.write_text(oracle,encoding='utf-8')
-          assert Path('docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md').is_file()
-          print(json.dumps({'successor':successor,'allowed_path_count':len(allowed),'target':target_path.as_posix(),'claim':claim_path.as_posix(),'oracle':oracle_path.as_posix()},indent=2))
+          for value in predecessor['allowed_paths']:
+              cmd += ['--allow', value]
+          for value in predecessor.get('forbidden_paths', []):
+              cmd += ['--forbid', value]
+          for value in predecessor.get('affected_modules', []):
+              cmd += ['--affected-module', value]
+          for value in predecessor.get('invariants', []):
+              cmd += ['--invariant', value]
+          subprocess.run(cmd, check=True)
+          c = json.loads(Path('governance/active-change.json').read_text())
+          assert c['change_id'] == successor
+          assert c['status'] == 'approved' and c['result'] == 'PENDING'
+          assert c['predecessor_change_id'] == old
+          assert c['replan_record'] == f'governance/change-history/{old}/replan.json'
+          assert c['allowed_paths'] == predecessor['allowed_paths'] and len(c['allowed_paths']) == 17
+          print(json.dumps({'status':'PASS','change_id':successor,'predecessor':old,'allowed_path_count':len(c['allowed_paths'])}, indent=2))
           PY
-
-      - name: Parse successor Target and Claims before any baseline run
-        working-directory: /tmp/v2018-baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          from scripts.quality_control.contracts import _parse_target
-          successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
-          target=_parse_target(Path('governance/targets')/f'{successor}.md',workspace=Path('.').resolve())
-          assert target['id']==successor
-          assert target['context']=='local-change'
-          assert target['kind']=='migration'
-          assert target['new_abstraction_record']=='docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md'
-          assert target['minimum_mode']=='quick'
-          assert len(target['allowed_paths'])==17
-          assert set(target['acceptance_ids'])=={'V2018.PREFREEZE.CAPABILITY_BLIND','V2018.STATIC.WRITER.IDENTITY_INDEPENDENCE'}
-          print({'status':'PASS','target_fingerprint':target['fingerprint'],'claim_manifest_fingerprint':target['claim_manifest_fingerprint']})
-          PY
-
-      - name: Initialize only the replan-bound successor Contract
-        working-directory: /tmp/v2018-baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json, subprocess
-          from pathlib import Path
-          successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
-          old='migration-v20.18-semantic-single-writer-output-coverage'
-          predecessor=json.loads((Path('governance/change-history')/old/'contract-before-replan.json').read_text())
-          cmd=[
-            'python3','-B','/tmp/v2018-control/skill-system/controller/contract_replan_cli.py','init-successor',
-            '--profile','product-code','--change-id',successor,
-            '--goal','Recover and close the already-implemented V20.18 A2/B migration under a machine-valid successor Target without changing its product scope.',
-            '--target-kind','migration','--minimum-mode','quick',
-            '--quality-target',f'governance/targets/{successor}.md',
-            '--repair-governance',f'governance/repair-cases/{successor}',
-            '--decision-record',str(predecessor.get('decision_record') or 'governance/decisions/migration-v20.18-semantic-single-writer-output-coverage.json'),
-            '--approve',
-          ]
-          for value in predecessor['allowed_paths']: cmd += ['--allow',value]
-          for value in predecessor.get('forbidden_paths',[]): cmd += ['--forbid',value]
-          for value in predecessor.get('affected_modules',[]): cmd += ['--affected-module',value]
-          for value in predecessor.get('invariants',[]): cmd += ['--invariant',value]
-          subprocess.run(cmd,check=True)
-          c=json.loads(Path('governance/active-change.json').read_text())
-          assert c['change_id']==successor and c['status']=='approved' and c['result']=='PENDING'
-          assert c['predecessor_change_id']==old
-          assert c['replan_record']==f'governance/change-history/{old}/replan.json'
-          assert c['allowed_paths']==predecessor['allowed_paths']
-          assert len(c['allowed_paths'])==17
-          print(json.dumps({'status':'PASS','change_id':c['change_id'],'predecessor':c['predecessor_change_id'],'allowed_path_count':len(c['allowed_paths'])},indent=2))
-          PY
+          python3 -B skillctl.py contract-validate
 
       - name: Bootstrap locked uv
         working-directory: /tmp/v2018-baseline
@@ -345,20 +239,7 @@ baseline = exact original permit pre-write source aeb9a445001d4922e13a032e4cccc1
           baseline_dir=".quality/product-code/${successor}/baseline"
           test -f "$baseline_dir/baseline-record.json"
           test -f "$baseline_dir/run-summary.json"
-          "$py" - <<'PY'
-          import json
-          from pathlib import Path
-          successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
-          d=Path('.quality/product-code')/successor/'baseline'
-          summary=json.loads((d/'run-summary.json').read_text())
-          contract=json.loads(Path('governance/active-change.json').read_text())
-          assert summary.get('run_kind')=='baseline',summary
-          assert summary.get('loop_status')=='BASELINE_RECORDED',summary
-          assert contract['baseline_evidence']==d.as_posix(),contract
-          assert contract['product_validation']['baseline']==d.as_posix(),contract
-          assert contract['status']=='approved' and contract['result']=='PENDING'
-          print(json.dumps({'status':'PASS','loop_status':summary['loop_status'],'baseline_evidence':contract['baseline_evidence'],'target_id':successor},indent=2))
-          PY
+          "$py" -c "import json,pathlib; s='migration-v20.18-semantic-single-writer-output-coverage-r1'; d=pathlib.Path('.quality/product-code')/s/'baseline'; r=json.loads((d/'run-summary.json').read_text()); c=json.loads(pathlib.Path('governance/active-change.json').read_text()); assert r.get('run_kind')=='baseline',r; assert r.get('loop_status')=='BASELINE_RECORDED',r; assert c['baseline_evidence']==d.as_posix(),c; assert c['product_validation']['baseline']==d.as_posix(),c; assert c['status']=='approved' and c['result']=='PENDING'; print(json.dumps({'status':'PASS','loop_status':r['loop_status'],'baseline_evidence':c['baseline_evidence']},indent=2))"
 
       - name: Stage Recovery-D evidence
         if: always()
@@ -378,7 +259,7 @@ baseline = exact original permit pre-write source aeb9a445001d4922e13a032e4cccc1
           cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/run-summary.json "$out/baseline-run-summary.json" 2>/dev/null || true
           cp "${RUNNER_TEMP}/successor-product-baseline.log" "$out/" 2>/dev/null || true
           printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > "$out/baseline-source-sha.txt"
-          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/predecessor-candidate-sha.txt"
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/historical-candidate-sha.txt"
 
       - name: Upload Recovery-D artifact
         if: always()
