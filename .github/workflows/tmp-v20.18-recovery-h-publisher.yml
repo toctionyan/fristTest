@@ -1,4 +1,4 @@
-name: tmp-v20.18-recovery-h-publisher
+name: tmp-v20.18-governance-recovery-successor-quick-h
 
 on:
   push:
@@ -8,81 +8,165 @@ on:
       - .github/workflows/tmp-v20.18-recovery-h-publisher.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish-recovery-h:
+  recovery-h-successor-quick:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 35
     steps:
       - name: Checkout exact carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
-      - name: Publish Quick-only Recovery-H workflow
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Execute successor lifecycle through formal Quick only
         shell: bash
         run: |
           set -euo pipefail
           source_commit='b1c71a6ed37e85cf7ff834368787511a6efd1f9f'
-          target='.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml'
-          publisher='.github/workflows/tmp-v20.18-recovery-h-publisher.yml'
+          old_workflow='.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml'
           git cat-file -e "${source_commit}^{commit}"
-          git show "${source_commit}:${target}" > /tmp/recovery-h-source.yml
+          git show "${source_commit}:${old_workflow}" > "${RUNNER_TEMP}/recovery-h-source.yml"
           python3 - <<'PY'
+          from __future__ import annotations
+          import json
+          import os
+          import subprocess
+          import sys
           from pathlib import Path
 
-          p = Path('/tmp/recovery-h-source.yml')
-          text = p.read_text(encoding='utf-8')
-          text = text.replace('name: tmp-v20.18-governance-recovery-successor-close', 'name: tmp-v20.18-governance-recovery-successor-quick-h', 1)
-          trigger = """on:\n  push:\n    branches:\n      - tmp/v20.18-governance-recovery-20260814\n"""
-          replacement = """on:\n  push:\n    branches:\n      - tmp/v20.18-governance-recovery-20260814\n    paths:\n      - .github/workflows/tmp-v20.18-governance-recovery-diff-review.yml\n"""
-          assert trigger in text
-          text = text.replace(trigger, replacement, 1)
-          text = text.replace('successor-permit-and-close:', 'successor-permit-and-quick:', 1)
-          text = text.replace('Historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001; full Quick must converge without scope expansion.', 'Historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001 plus bounded performance repair 7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8; full Quick must converge without scope expansion.', 1)
-          text = text.replace("failure['reproduction']['expected']='Historical A2/B candidate 55403 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'", "failure['reproduction']['expected']='Historical A2/B candidate 55403 plus the independently validated bounded performance repair 7e6bd3 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'", 1)
-          text = text.replace("plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate; no new product design or production activation.'", "plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate plus bounded performance repair 7e6bd3 on the already-permitted capability_effects.py path; no new product design or production activation.'", 1)
+          source = Path(os.environ['RUNNER_TEMP']) / 'recovery-h-source.yml'
+          text = source.read_text(encoding='utf-8')
+          perf_sha = '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'
+          candidate_sha = '55403a01f957257fbbefead32bcde21b7d866001'
+          perf_path = 'services/agent-service/src/agent_core/runtime/capability_effects.py'
 
-          start_marker = '      - name: Overlay exact historical A2B candidate only inside successor permit\n'
-          end_marker = '      - name: Deterministically prove candidate diff is exact and permit-bounded\n'
-          start = text.index(start_marker)
-          end = text.index(end_marker, start)
-          segment = text[start:end]
-          segment = segment.replace('      - name: Overlay exact historical A2B candidate only inside successor permit', '      - name: Overlay historical A2B candidate plus bounded performance repair inside successor permit', 1)
-          segment = segment.replace('          candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"\n', '          candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"\n          perf_sha="7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8"\n          perf_path="services/agent-service/src/agent_core/runtime/capability_effects.py"\n', 1)
-          needle = '          done\n\n'
-          assert segment.endswith(needle)
-          overlay = '''          done\n          printf '%s\\n' "${allowed[@]}" | grep -Fxq "$perf_path"\n          git show "${perf_sha}:${perf_path}" > "/tmp/v2018-baseline/${perf_path}"\n          test "$(git show "${perf_sha}:${perf_path}" | sha256sum | awk '{print $1}')" = "$(sha256sum "/tmp/v2018-baseline/${perf_path}" | awk '{print $1}')"\n          printf '%s\\n' "$perf_sha" > "${RUNNER_TEMP}/performance-repair-sha.txt"\n\n'''
-          segment = segment[:-len(needle)] + overlay
-          text = text[:start] + segment + text[end:]
+          def extract_run(name: str) -> str:
+              marker = f'      - name: {name}\n'
+              start = text.index(marker)
+              end = text.find('\n      - name:', start + len(marker))
+              if end < 0:
+                  end = len(text)
+              block = text[start:end]
+              run_marker = '        run: |\n'
+              pos = block.index(run_marker) + len(run_marker)
+              raw = block[pos:]
+              lines = []
+              for line in raw.splitlines():
+                  if line.startswith('          '):
+                      lines.append(line[10:])
+                  elif not line.strip():
+                      lines.append('')
+                  else:
+                      raise AssertionError(f'unexpected run indentation in {name}: {line!r}')
+              return '\n'.join(lines).rstrip() + '\n'
 
-          receipt_old = "'candidate_sha':'55403a01f957257fbbefead32bcde21b7d866001','recorded_at'"
-          receipt_new = "'candidate_sha':'55403a01f957257fbbefead32bcde21b7d866001','performance_repair_sha':'7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8','recorded_at'"
-          assert receipt_old in text
-          text = text.replace(receipt_old, receipt_new, 1)
+          steps = [
+              ('Reconstruct exact predecessor, pre-write baseline, and verified replan controller', Path(os.environ['GITHUB_WORKSPACE'])),
+              ('Replan invalid predecessor and restore successor authority onto exact baseline', Path('/tmp/v2018-predecessor')),
+              ('Restore immutable PR551 RED oracle into the common test view', Path(os.environ['GITHUB_WORKSPACE'])),
+              ('Generate successor Target, Claim and Decision and initialize successor Contract', Path('/tmp/v2018-baseline')),
+              ('Bootstrap and install locked validation environments', Path('/tmp/v2018-baseline')),
+              ('Reproduce successor machine RED baseline and exact failed Claim', Path('/tmp/v2018-baseline')),
+              ('Create and validate successor repair-governance case', Path('/tmp/v2018-baseline')),
+              ('Issue fresh successor ChangePermit and enter implementing state', Path('/tmp/v2018-baseline')),
+              ('Overlay exact historical A2B candidate only inside successor permit', Path(os.environ['GITHUB_WORKSPACE'])),
+              ('Deterministically prove candidate diff is exact and permit-bounded', Path('/tmp/v2018-baseline')),
+              ('Run focused counterexample negative authority and runtime evidence', Path('/tmp/v2018-baseline')),
+              ('Run full successor Quick and prove RED-to-GREEN Claim transition', Path('/tmp/v2018-baseline')),
+          ]
 
-          closure_start = text.index('      - name: Record independent read-only review attestations\n')
-          artifact_start = text.index('      - name: Stage Recovery-E outputs\n', closure_start)
-          text = text[:closure_start] + text[artifact_start:]
-          text = text.replace('      - name: Stage Recovery-E outputs', '      - name: Stage Recovery-H Quick outputs', 1)
-          text = text.replace('      - name: Upload Recovery-E artifact', '      - name: Upload Recovery-H Quick artifact', 1)
-          text = text.replace('name: v20.18-governance-recovery-successor-closure', 'name: v20.18-governance-recovery-successor-quick-h', 1)
-          artifact_sha_line = "          printf '%s\\n' '55403a01f957257fbbefead32bcde21b7d866001' > \"$out/historical-candidate-sha.txt\"\n"
-          assert artifact_sha_line in text
-          text = text.replace(artifact_sha_line, artifact_sha_line + "          printf '%s\\n' '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' > \"$out/performance-repair-sha.txt\"\n", 1)
-          assert 'Record independent read-only review attestations' not in text
-          assert 'Freeze final diff review and eight-dimensional closure' not in text
-          assert 'Deterministically verify and close successor Contract' not in text
-          assert 'product-verify --mode quick' in text
-          assert '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' in text
-          Path('/tmp/recovery-h-final.yml').write_text(text, encoding='utf-8')
+          records = []
+          for index, (name, cwd) in enumerate(steps, start=1):
+              script = extract_run(name)
+              if name == 'Generate successor Target, Claim and Decision and initialize successor Contract':
+                  old = f'Historical A2/B candidate {candidate_sha}; full Quick must converge without scope expansion.'
+                  new = f'Historical A2/B candidate {candidate_sha} plus bounded performance repair {perf_sha}; full Quick must converge without scope expansion.'
+                  assert old in script
+                  script = script.replace(old, new, 1)
+              elif name == 'Create and validate successor repair-governance case':
+                  old_expected = "failure['reproduction']['expected']='Historical A2/B candidate 55403 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'"
+                  new_expected = "failure['reproduction']['expected']='Historical A2/B candidate 55403 plus independently validated bounded performance repair 7e6bd3 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'"
+                  assert old_expected in script
+                  script = script.replace(old_expected, new_expected, 1)
+                  old_strategy = "plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate; no new product design or production activation.'"
+                  new_strategy = "plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate plus bounded performance repair 7e6bd3 on already-permitted capability_effects.py; no new product design or production activation.'"
+                  assert old_strategy in script
+                  script = script.replace(old_strategy, new_strategy, 1)
+              elif name == 'Overlay exact historical A2B candidate only inside successor permit':
+                  script += f'''\nperf_sha={perf_sha!r}\nperf_path={perf_path!r}\nprintf '%s\\n' "${{allowed[@]}}" | grep -Fxq "$perf_path"\ngit show "${{perf_sha}}:${{perf_path}}" > "/tmp/v2018-baseline/${{perf_path}}"\ntest "$(git show "${{perf_sha}}:${{perf_path}}" | sha256sum | awk '{{print $1}}')" = "$(sha256sum "/tmp/v2018-baseline/${{perf_path}}" | awk '{{print $1}}')"\nprintf '%s\\n' "$perf_sha" > "${{RUNNER_TEMP}}/performance-repair-sha.txt"\n'''
+              elif name == 'Run focused counterexample negative authority and runtime evidence':
+                  old = f"'candidate_sha':'{candidate_sha}','recorded_at'"
+                  new = f"'candidate_sha':'{candidate_sha}','performance_repair_sha':'{perf_sha}','recorded_at'"
+                  assert old in script
+                  script = script.replace(old, new, 1)
+
+              script_path = Path(os.environ['RUNNER_TEMP']) / f'recovery-h-{index:02d}.sh'
+              script_path.write_text(script, encoding='utf-8')
+              print(f'::group::Recovery-H {index:02d} {name}', flush=True)
+              started = __import__('time').monotonic()
+              proc = subprocess.run(['bash', str(script_path)], cwd=cwd, env=os.environ.copy())
+              duration_ms = int((__import__('time').monotonic() - started) * 1000)
+              print('::endgroup::', flush=True)
+              records.append({'index': index, 'name': name, 'cwd': str(cwd), 'exit_code': proc.returncode, 'duration_ms': duration_ms})
+              (Path(os.environ['RUNNER_TEMP']) / 'recovery-h-execution.json').write_text(json.dumps({'candidate_sha': candidate_sha, 'performance_repair_sha': perf_sha, 'steps': records}, indent=2) + '\n', encoding='utf-8')
+              if proc.returncode != 0:
+                  sys.exit(proc.returncode)
+
+          quick_pointer = Path(os.environ['RUNNER_TEMP']) / 'quick-summary-path.txt'
+          assert quick_pointer.is_file(), 'formal Quick summary pointer missing'
+          quick_path = Path('/tmp/v2018-baseline') / quick_pointer.read_text().strip()
+          quick = json.loads(quick_path.read_text())
+          assert quick['decision'] == 'PASS', quick
+          assert quick['loop_status'] == 'CONVERGED', quick
+          assert quick['completion_eligible'] is True, quick
+          assert quick.get('missing_prerequisites') == [], quick
+          assert quick.get('unverified_claim_ids') == [], quick
+          print(json.dumps({'recovery_h':'PASS','quick_summary':str(quick_path),'decision':quick['decision'],'loop_status':quick['loop_status'],'completion_eligible':quick['completion_eligible']}, indent=2))
           PY
-          cp /tmp/recovery-h-final.yml "$target"
-          rm -f "$publisher"
-          git config user.name 'toctionyan'
-          git config user.email '1104730926@qq.com'
-          git add -A "$target" "$publisher"
-          git diff --cached --check
-          git commit -m 'Recovery-H: verify successor Quick with bounded A2/B performance repair'
-          git push origin HEAD:refs/heads/tmp/v20.18-governance-recovery-20260814
+
+      - name: Stage Recovery-H Quick evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${GITHUB_WORKSPACE}/recovery-h-artifact"
+          rm -rf "$out" && mkdir -p "$out"
+          old='migration-v20.18-semantic-single-writer-output-coverage'
+          successor="${old}-r1"
+          cp "${RUNNER_TEMP}/recovery-h-execution.json" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/successor-product-baseline.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/successor-product-verify-quick.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/fresh-permit-digest.txt" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/performance-repair-sha.txt" "$out/" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/active-change.json "$out/successor-active-contract.json" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/targets/${successor}.md "$out/successor-target.md" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/claims/${successor}.json "$out/successor-claims.json" 2>/dev/null || true
+          cp -a /tmp/v2018-baseline/governance/repair-cases/${successor} "$out/successor-repair-case" 2>/dev/null || true
+          cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/baseline-record.json "$out/" 2>/dev/null || true
+          cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/run-summary.json "$out/baseline-run-summary.json" 2>/dev/null || true
+          quick="$(cat "${RUNNER_TEMP}/quick-summary-path.txt" 2>/dev/null || true)"
+          if [ -n "$quick" ] && [ -f "/tmp/v2018-baseline/$quick" ]; then cp "/tmp/v2018-baseline/$quick" "$out/quick-run-summary.json"; fi
+          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > "$out/baseline-source-sha.txt"
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/historical-candidate-sha.txt"
+          printf '%s\n' '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' > "$out/performance-repair-sha.txt"
+
+      - name: Upload Recovery-H Quick evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v20.18-governance-recovery-successor-quick-h
+          path: recovery-h-artifact
+          if-no-files-found: error
