@@ -23,17 +23,13 @@ jobs:
         run: |
           set -euo pipefail
           target_sha="55403a01f957257fbbefead32bcde21b7d866001"
-          test "$(git rev-parse HEAD^)" = "$target_sha"
+          test "$(git rev-parse HEAD^)" != "$target_sha"
+          test "$(git rev-parse HEAD^^)" = "$target_sha"
           rm -rf /tmp/v2018-recovery
           mkdir -p /tmp/v2018-recovery
           git archive "$target_sha" | tar -x -C /tmp/v2018-recovery
-          test "$(python3 - <<'PY'
-import json
-from pathlib import Path
-p = json.loads(Path('/tmp/v2018-recovery/governance/active-change.json').read_text())
-print(p['change_id'])
-PY
-)" = "migration-v20.18-semantic-single-writer-output-coverage"
+          change_id="$(python3 -c "import json, pathlib; print(json.loads(pathlib.Path('/tmp/v2018-recovery/governance/active-change.json').read_text())['change_id'])")"
+          test "$change_id" = "migration-v20.18-semantic-single-writer-output-coverage"
 
       - name: Run repository-owned deterministic diff review
         shell: bash
@@ -42,24 +38,7 @@ PY
           set -euo pipefail
           python3 -B skillctl.py repair-governance-status
           python3 -B skillctl.py repair-diff-review --decision PASS
-          python3 - <<'PY'
-import json
-from pathlib import Path
-p = Path('governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/diff-review.json')
-data = json.loads(p.read_text())
-assert data['decision'] == 'PASS', data
-assert data['out_of_scope_paths'] == [], data
-assert data['deterministic_findings'] == [], data
-assert data['candidate_source_fingerprint'] != data['baseline_source_fingerprint'], data
-print(json.dumps({
-    'status': 'PASS',
-    'decision': data['decision'],
-    'changed_paths': data['changed_paths'],
-    'out_of_scope_paths': data['out_of_scope_paths'],
-    'candidate_source_fingerprint': data['candidate_source_fingerprint'],
-    'baseline_source_fingerprint': data['baseline_source_fingerprint'],
-}, indent=2))
-PY
+          python3 -c "import json,pathlib; p=pathlib.Path('governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/diff-review.json'); d=json.loads(p.read_text()); assert d['decision']=='PASS',d; assert d['out_of_scope_paths']==[],d; assert d['deterministic_findings']==[],d; assert d['candidate_source_fingerprint']!=d['baseline_source_fingerprint'],d; print(json.dumps({'status':'PASS','decision':d['decision'],'changed_paths':d['changed_paths'],'out_of_scope_paths':d['out_of_scope_paths'],'candidate_source_fingerprint':d['candidate_source_fingerprint'],'baseline_source_fingerprint':d['baseline_source_fingerprint']},indent=2))"
 
       - name: Stage deterministic recovery evidence
         if: always()
