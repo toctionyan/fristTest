@@ -95,6 +95,12 @@ def _artifact_ref_errors(
         errors.append("VERIFIED_ARTIFACT_REF_CARDINALITY_UNPROVEN")
     if not _text(ref.get("source_ref_id"), limit=500) or not _text(ref.get("proof_digest"), limit=256):
         errors.append("VERIFIED_ARTIFACT_REF_PROVENANCE_REQUIRED")
+    if ref.get("expires_at") is not None:
+        try:
+            if float(ref.get("expires_at")) <= 0:
+                errors.append("VERIFIED_ARTIFACT_REF_EXPIRY_INVALID")
+        except (TypeError, ValueError):
+            errors.append("VERIFIED_ARTIFACT_REF_EXPIRY_INVALID")
     if _text(ref.get("producer_goal_id"), limit=200) != producer_goal_id:
         errors.append("VERIFIED_ARTIFACT_REF_PRODUCER_MISMATCH")
     if normalize_scope(ref.get("scope") if isinstance(ref.get("scope"), dict) else {}) != normalize_scope(
@@ -336,6 +342,10 @@ def graph_structural_integrity(
         errors.append("GOAL_GRAPH_VERSION_INVALID")
     if not bool(graph.get("immutable")):
         errors.append("GOAL_GRAPH_IMMUTABLE_REQUIRED")
+    graph_scope = normalize_scope(graph.get("scope") if isinstance(graph.get("scope"), dict) else {})
+    for field in ("tenant_id", "user_id", "thread_id"):
+        if not graph_scope.get(field):
+            errors.append(f"GOAL_GRAPH_SCOPE_REQUIRED:{field}")
     errors.extend(_source_identity_errors(graph, frozen_contract=frozen_contract))
     expected_digest, expected_id = _expected_graph_digest(graph)
     if _text(graph.get("graph_digest"), limit=128) != expected_digest:
