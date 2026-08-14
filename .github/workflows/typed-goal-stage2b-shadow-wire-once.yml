@@ -1,0 +1,307 @@
+name: Typed Goal Stage2B Shadow Wire Once
+
+"on":
+  push:
+    branches:
+      - feat/typed-goal-graph-foundation-20260814
+    paths:
+      - .github/workflows/typed-goal-stage2b-shadow-wire-once.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: typed-goal-stage2b-shadow-wire-once
+  cancel-in-progress: false
+
+env:
+  TARGET_BRANCH: feat/typed-goal-graph-foundation-20260814
+  EXPECTED_PARENT_HEAD: c920d376ae810cdc6defc407d7c3bfad602a7ec7
+
+jobs:
+  wire:
+    if: >-
+      github.repository == 'toctionyan/fristTest' &&
+      github.ref_name == 'feat/typed-goal-graph-foundation-20260814'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact feature branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat/typed-goal-graph-foundation-20260814
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Verify one-shot parent identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git rev-parse --abbrev-ref HEAD)" = "$TARGET_BRANCH"
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Apply fail-closed typed shadow wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+
+          ROOT = Path(".").resolve()
+
+
+          def replace_once(text: str, old: str, new: str, *, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}:expected_exactly_one_match:{count}")
+              return text.replace(old, new, 1)
+
+
+          coverage_path = ROOT / "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py"
+          coverage = coverage_path.read_text(encoding="utf-8")
+          coverage = replace_once(
+              coverage,
+              'from agent_core.kernel.capability_registry import CapabilityRegistry\nfrom agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility\n',
+              'from agent_core.goal_graph.capability_closure import build_typed_goal_capability_coverage\nfrom agent_core.kernel.capability_registry import CapabilityRegistry\nfrom agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility\n',
+              label="coverage_import",
+          )
+          coverage = replace_once(
+              coverage,
+              'GOAL_CAPABILITY_COVERAGE_VERSION = "goal-capability-coverage@2"\n',
+              'GOAL_CAPABILITY_COVERAGE_VERSION = "goal-capability-coverage@2"\n'
+              'TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION = "typed-goal-capability-shadow-comparison@1"\n',
+              label="coverage_version",
+          )
+          coverage = replace_once(
+              coverage,
+              "\n\ndef build_goal_capability_coverage(\n",
+              "\n\n" + '\ndef _typed_shadow_comparison(\n    *,\n    legacy_goal_rows: list[dict[str, Any]],\n    typed_coverage: dict[str, Any],\n) -> dict[str, Any]:\n    """Compare typed closure against legacy exact-effect coverage without changing selection."""\n\n    typed_by_goal = {\n        str(row.get("goal_id") or ""): row\n        for row in list(typed_coverage.get("goals") or [])\n        if isinstance(row, dict) and str(row.get("goal_id") or "")\n    }\n    divergences: list[dict[str, Any]] = []\n\n    if str(typed_coverage.get("coverage_status") or "") == "STRUCTURAL_INVALID":\n        divergences.append(\n            {\n                "code": "TYPED_GOAL_GRAPH_STRUCTURAL_INVALID",\n                "goal_id": None,\n                "typed_dataflow_status": typed_coverage.get("dataflow_status"),\n            }\n        )\n\n    for legacy in legacy_goal_rows:\n        goal_id = str(legacy.get("goal_id") or "")\n        legacy_tools = sorted(\n            {\n                str(value)\n                for value in list(legacy.get("completion_tools") or [])\n                if str(value)\n            }\n        )\n        typed_row = typed_by_goal.get(goal_id, {})\n        typed_tools = sorted(\n            {\n                str(value)\n                for value in list(typed_row.get("closed_capability_tools") or [])\n                if str(value)\n            }\n        )\n        if legacy_tools and not typed_tools:\n            divergences.append(\n                {\n                    "code": "LEGACY_COVERED_TYPED_UNCLOSED",\n                    "goal_id": goal_id,\n                    "legacy_completion_tools": legacy_tools,\n                    "typed_closed_capability_tools": [],\n                    "typed_status": str(typed_row.get("status") or "MISSING"),\n                }\n            )\n        typed_only = sorted(set(typed_tools) - set(legacy_tools))\n        if typed_only:\n            divergences.append(\n                {\n                    "code": "TYPED_CLOSED_LEGACY_UNCOVERED",\n                    "goal_id": goal_id,\n                    "legacy_completion_tools": legacy_tools,\n                    "typed_only_tools": typed_only,\n                    "typed_status": str(typed_row.get("status") or "UNKNOWN"),\n                }\n            )\n\n    legacy_dependencies = {\n        str(row.get("goal_id") or ""): sorted(\n            {\n                str(value)\n                for value in list(row.get("depends_on") or [])\n                if str(value)\n            }\n        )\n        for row in legacy_goal_rows\n        if str(row.get("goal_id") or "")\n    }\n    typed_dependencies = {\n        str(goal_id): sorted(\n            {\n                str(value)\n                for value in list(values or [])\n                if str(value)\n            }\n        )\n        for goal_id, values in dict(\n            typed_coverage.get("derived_dependencies") or {}\n        ).items()\n        if str(goal_id)\n    }\n    for goal_id in sorted(set(legacy_dependencies) | set(typed_dependencies)):\n        legacy_depends_on = legacy_dependencies.get(goal_id, [])\n        typed_depends_on = typed_dependencies.get(goal_id, [])\n        if legacy_depends_on != typed_depends_on:\n            divergences.append(\n                {\n                    "code": "LEGACY_DEPENDENCY_DIFFERS_FROM_VERIFIED_DATAFLOW",\n                    "goal_id": goal_id,\n                    "legacy_depends_on": legacy_depends_on,\n                    "typed_derived_dependencies": typed_depends_on,\n                }\n            )\n\n    if (\n        str(typed_coverage.get("coverage_status") or "") == "DATAFLOW_OPEN"\n        and not any(\n            row.get("code") == "LEGACY_DEPENDENCY_DIFFERS_FROM_VERIFIED_DATAFLOW"\n            for row in divergences\n        )\n    ):\n        divergences.append(\n            {\n                "code": "TYPED_DATAFLOW_OPEN",\n                "goal_id": None,\n                "typed_dataflow_status": typed_coverage.get("dataflow_status"),\n                "typed_dataflow_errors": list(\n                    typed_coverage.get("dataflow_errors") or []\n                ),\n            }\n        )\n\n    payload = {\n        "version": TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION,\n        "authority": "audit_only_legacy_selection_unchanged",\n        "status": "MATCHED" if not divergences else "DIVERGED",\n        "graph_id": typed_coverage.get("graph_id"),\n        "graph_digest": typed_coverage.get("graph_digest"),\n        "typed_coverage_digest": typed_coverage.get("coverage_digest"),\n        "capability_registry_version": typed_coverage.get(\n            "capability_registry_version"\n        ),\n        "divergences": divergences,\n        "typed_shadow_may_widen_legacy_coverage": False,\n        "legacy_selection_authority_unchanged": True,\n        "blocks_execution": False,\n        "creates_permit": False,\n        "mutates_semantics": False,\n        "mutates_plan_run": False,\n    }\n    payload["comparison_digest"] = _digest(payload)\n    return payload\n\n' + "def build_goal_capability_coverage(\n",
+              label="coverage_comparison_insertion",
+          )
+          coverage = replace_once(
+              coverage,
+              'def build_goal_capability_coverage(\n    *,\n    goals: Iterable[dict[str, Any]],\n    goal_plans: Iterable[dict[str, Any]],\n    capability_registry: CapabilityRegistry,\n) -> dict[str, Any]:\n',
+              'def build_goal_capability_coverage(\n    *,\n    goals: Iterable[dict[str, Any]],\n    goal_plans: Iterable[dict[str, Any]],\n    capability_registry: CapabilityRegistry,\n    typed_goal_graph: dict[str, Any] | None = None,\n    frozen_contract: dict[str, Any] | None = None,\n    available_input_evidence: tuple[dict[str, Any], ...] = (),\n    evaluation_time: float | None = None,\n) -> dict[str, Any]:\n',
+              label="coverage_signature",
+          )
+          coverage = replace_once(
+              coverage,
+              '        "mutates_plan_run": False,\n    }\n    payload["coverage_digest"] = _digest(payload)\n    return payload\n\n\n__all__ = [\n    "GOAL_CAPABILITY_COVERAGE_VERSION",\n    "build_goal_capability_coverage",\n]\n',
+              '        "mutates_plan_run": False,\n    }\n    if isinstance(typed_goal_graph, dict):\n        typed_shadow = build_typed_goal_capability_coverage(\n            graph=typed_goal_graph,\n            capability_registry=capability_registry,\n            frozen_contract=frozen_contract,\n            available_input_evidence=tuple(available_input_evidence or ()),\n            evaluation_time=evaluation_time,\n        )\n        payload["typed_goal_capability_shadow"] = typed_shadow\n        payload["typed_shadow_comparison"] = _typed_shadow_comparison(\n            legacy_goal_rows=per_goal,\n            typed_coverage=typed_shadow,\n        )\n    payload["coverage_digest"] = _digest(payload)\n    return payload\n\n\n__all__ = [\n    "GOAL_CAPABILITY_COVERAGE_VERSION",\n    "TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION",\n    "build_goal_capability_coverage",\n]\n',
+              label="coverage_typed_shadow_tail",
+          )
+          coverage_path.write_text(coverage, encoding="utf-8")
+
+          pretool_path = ROOT / "services/agent-service/src/agent_core/lifecycle/pretool_planner.py"
+          pretool = pretool_path.read_text(encoding="utf-8")
+          pretool = replace_once(
+              pretool,
+              'from agent_core.kernel.capability_registry import CapabilityRegistry\nfrom agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage\n',
+              'from agent_core.goal_graph.compiler import compile_frozen_semantic_contract\nfrom agent_core.kernel.capability_registry import CapabilityRegistry\nfrom agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage\n',
+              label="pretool_import",
+          )
+          pretool = replace_once(
+              pretool,
+              '    global_coverage = build_goal_capability_coverage(\n        goals=goals,\n        goal_plans=goal_plans,\n        capability_registry=capability_registry,\n    )\n',
+              '    typed_goal_graph = compile_frozen_semantic_contract(\n        contract,\n        scope={\n            "tenant_id": state.get("current_tenant_id"),\n            "user_id": state.get("current_user_id"),\n            "thread_id": state.get("current_thread_id"),\n        },\n    )\n    global_coverage = build_goal_capability_coverage(\n        goals=goals,\n        goal_plans=goal_plans,\n        capability_registry=capability_registry,\n        typed_goal_graph=typed_goal_graph,\n        frozen_contract=contract,\n    )\n',
+              label="pretool_typed_graph_compile",
+          )
+          pretool = replace_once(
+              pretool,
+              '        "goal_dependency_edges": dependency_edges,\n        "global_goal_capability_coverage": global_coverage,\n        "generated_before_model_tool_call": True,\n',
+              '        "goal_dependency_edges": dependency_edges,\n        "typed_goal_graph": typed_goal_graph,\n        "global_goal_capability_coverage": global_coverage,\n        "generated_before_model_tool_call": True,\n',
+              label="pretool_payload_typed_graph",
+          )
+          pretool_path.write_text(pretool, encoding="utf-8")
+
+          test_path = ROOT / "services/agent-service/tests/runtime/test_typed_goal_coverage_shadow_integration.py"
+          if test_path.exists():
+              raise SystemExit("typed_shadow_test_already_exists")
+          test_path.write_text('from __future__ import annotations\n\nfrom agent_core.goal_graph.compiler import compile_frozen_semantic_contract\nfrom agent_core.kernel.capability import (\n    CapabilityAuthorizationContract,\n    CapabilityCompletionContract,\n    CapabilityInputContract,\n    CapabilityOutputContract,\n    CapabilityPlanningContract,\n    CapabilityPreconditionContract,\n    CapabilityTargetContract,\n    ToolCapabilityContract,\n)\nfrom agent_core.kernel.capability_registry import CapabilityBinding, CapabilityRegistry\nfrom agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage\nfrom agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan\nfrom agent_core.lifecycle.semantic_contract import freeze_semantic_contract\n\n\n_SCOPE = {\n    "tenant_id": "tenant-1",\n    "user_id": "u001",\n    "thread_id": "web-u001-shadow",\n}\n\n\ndef _binding(\n    *,\n    tool_name: str,\n    effect: str,\n    target_cardinality: str = "none",\n) -> CapabilityBinding:\n    target = (\n        CapabilityTargetContract(resource_types=(), cardinality="none")\n        if target_cardinality == "none"\n        else CapabilityTargetContract(\n            resource_types=("order",),\n            cardinality=target_cardinality,\n            binding_sources=("target_resolver",),\n        )\n    )\n    requires = (\n        (\n            CapabilityInputContract(\n                name="target_binding",\n                type_name="ResolvedOrderBinding",\n                source_types=("target_resolver",),\n                authority="authoritative",\n            ),\n        )\n        if target_cardinality != "none"\n        else (\n            CapabilityInputContract(\n                name="request_evidence",\n                type_name="UserRequestEvidence",\n                source_types=("user_input",),\n                authority="candidate",\n            ),\n        )\n    )\n    planning = CapabilityPlanningContract(\n        target=target,\n        requires=requires,\n        produces=(\n            CapabilityOutputContract(\n                name="result",\n                type_name="VerifiedResult",\n                completion_proof=True,\n            ),\n        ),\n        preconditions=(\n            CapabilityPreconditionContract(\n                code="scope_valid",\n                description="scope is valid",\n                verifier_owner="runtime",\n            ),\n        ),\n        authorization=CapabilityAuthorizationContract(),\n        completion=CapabilityCompletionContract(\n            mode="tool_output",\n            proof_type="VerifiedResult",\n            output_name="result",\n        ),\n    )\n    contract = ToolCapabilityContract(\n        key=f"test.{tool_name}",\n        tool_name=tool_name,\n        category="query",\n        writes_business_data=False,\n        evidence_sources=("business_service",),\n        planner_rule="typed shadow test capability",\n        unavailable_response="unavailable",\n        execution_kind="grounding_read",\n        completion_effects=(effect,),\n        contract_version="2",\n        planning_contract=planning,\n    )\n    return CapabilityBinding(\n        domain_id="test",\n        contract=contract,\n        schema={\n            "type": "function",\n            "function": {\n                "name": tool_name,\n                "parameters": {"type": "object"},\n            },\n        },\n        dispatcher=lambda *args, **kwargs: {},\n        public_label=tool_name,\n    )\n\n\ndef _registry(*bindings: CapabilityBinding) -> CapabilityRegistry:\n    return CapabilityRegistry(bindings)\n\n\ndef _freeze(goals: list[dict]) -> dict:\n    user_text = "；".join(str(row["evidence_span"]) for row in goals)\n    return freeze_semantic_contract(\n        turn=1,\n        user_text=user_text,\n        summary="typed shadow integration",\n        goals=goals,\n        alignment_proof={\n            "verdict": "exact",\n            "source": "test",\n            "independent": True,\n        },\n    )\n\n\ndef _goal(\n    *,\n    goal_id: str,\n    operation: str,\n    evidence_span: str,\n    depends_on: list[str] | None = None,\n    target_candidate: dict | None = None,\n    cardinality: str = "none",\n) -> dict:\n    row = {\n        "goal_id": goal_id,\n        "description": evidence_span,\n        "evidence_span": evidence_span,\n        "requested_effect": {\n            "domain": "order",\n            "operation": operation,\n            "object_type": "order",\n        },\n        "expected_result_cardinality": cardinality,\n        "required": True,\n        "depends_on": list(depends_on or []),\n    }\n    if target_candidate is not None:\n        row["target_candidate"] = dict(target_candidate)\n    return row\n\n\ndef test_no_typed_graph_preserves_legacy_payload_shape() -> None:\n    contract = _freeze(\n        [_goal(goal_id="g1", operation="query_summary", evidence_span="查询摘要")]\n    )\n    registry = _registry(\n        _binding(\n            tool_name="query_summary",\n            effect="order.query_summary:order",\n        )\n    )\n\n    first = build_goal_capability_coverage(\n        goals=contract["goals"],\n        goal_plans=[],\n        capability_registry=registry,\n    )\n    second = build_goal_capability_coverage(\n        goals=contract["goals"],\n        goal_plans=[],\n        capability_registry=registry,\n    )\n\n    assert first == second\n    assert "typed_goal_capability_shadow" not in first\n    assert "typed_shadow_comparison" not in first\n\n\ndef test_legacy_exact_effect_does_not_hide_unresolved_typed_target() -> None:\n    contract = _freeze(\n        [\n            _goal(\n                goal_id="g1",\n                operation="query_details",\n                evidence_span="查询订单详情",\n                target_candidate={"order_id": "10002"},\n                cardinality="single",\n            )\n        ]\n    )\n    registry = _registry(\n        _binding(\n            tool_name="query_details",\n            effect="order.query_details:order",\n            target_cardinality="exactly_one",\n        )\n    )\n    graph = compile_frozen_semantic_contract(contract, scope=_SCOPE)\n\n    coverage = build_goal_capability_coverage(\n        goals=contract["goals"],\n        goal_plans=[],\n        capability_registry=registry,\n        typed_goal_graph=graph,\n        frozen_contract=contract,\n    )\n\n    assert coverage["coverage_status"] == "COMPLETE"\n    assert coverage["goals"][0]["completion_tools"] == ["query_details"]\n    assert coverage["typed_goal_capability_shadow"]["coverage_status"] == "DATAFLOW_OPEN"\n    assert coverage["typed_goal_capability_shadow"]["goals"][0]["closed_capability_tools"] == []\n    assert coverage["typed_shadow_comparison"]["status"] == "DIVERGED"\n    assert any(\n        row["code"] == "LEGACY_COVERED_TYPED_UNCLOSED"\n        and row["goal_id"] == "g1"\n        for row in coverage["typed_shadow_comparison"]["divergences"]\n    )\n    assert coverage["must_not_dispatch"] is True\n    assert coverage["creates_permit"] is False\n\n\ndef test_typed_shadow_exact_closure_matches_without_changing_legacy_selection() -> None:\n    contract = _freeze(\n        [_goal(goal_id="g1", operation="query_summary", evidence_span="查询摘要")]\n    )\n    registry = _registry(\n        _binding(\n            tool_name="query_summary",\n            effect="order.query_summary:order",\n        )\n    )\n    graph = compile_frozen_semantic_contract(contract, scope=_SCOPE)\n\n    coverage = build_goal_capability_coverage(\n        goals=contract["goals"],\n        goal_plans=[],\n        capability_registry=registry,\n        typed_goal_graph=graph,\n        frozen_contract=contract,\n    )\n\n    typed = coverage["typed_goal_capability_shadow"]\n    comparison = coverage["typed_shadow_comparison"]\n    assert typed["coverage_status"] == "COMPLETE"\n    assert typed["interaction_goal_ids"] == ["g1"]\n    assert typed["goals"][0]["closed_capability_tools"] == ["query_summary"]\n    assert comparison["status"] == "MATCHED"\n    assert comparison["divergences"] == []\n    assert comparison["typed_shadow_may_widen_legacy_coverage"] is False\n    assert comparison["blocks_execution"] is False\n\n\ndef test_typed_shadow_exposes_unverified_legacy_dependency_claim() -> None:\n    contract = _freeze(\n        [\n            _goal(\n                goal_id="g1",\n                operation="query_summary",\n                evidence_span="先查询摘要",\n            ),\n            _goal(\n                goal_id="g2",\n                operation="query_status",\n                evidence_span="再根据它查询状态",\n                depends_on=["g1"],\n            ),\n        ]\n    )\n    registry = _registry(\n        _binding(\n            tool_name="query_summary",\n            effect="order.query_summary:order",\n        ),\n        _binding(\n            tool_name="query_status",\n            effect="order.query_status:order",\n        ),\n    )\n    graph = compile_frozen_semantic_contract(contract, scope=_SCOPE)\n\n    coverage = build_goal_capability_coverage(\n        goals=contract["goals"],\n        goal_plans=[],\n        capability_registry=registry,\n        typed_goal_graph=graph,\n        frozen_contract=contract,\n    )\n\n    assert coverage["coverage_status"] == "COMPLETE"\n    assert coverage["typed_goal_capability_shadow"]["coverage_status"] == "DATAFLOW_OPEN"\n    assert coverage["typed_goal_capability_shadow"]["derived_dependencies"]["g2"] == []\n    assert any(\n        row["code"] == "LEGACY_DEPENDENCY_DIFFERS_FROM_VERIFIED_DATAFLOW"\n        and row["goal_id"] == "g2"\n        and row["legacy_depends_on"] == ["g1"]\n        and row["typed_derived_dependencies"] == []\n        for row in coverage["typed_shadow_comparison"]["divergences"]\n    )\n\n\ndef test_invalid_scope_is_audit_only_and_never_changes_legacy_coverage() -> None:\n    contract = _freeze(\n        [_goal(goal_id="g1", operation="query_summary", evidence_span="查询摘要")]\n    )\n    registry = _registry(\n        _binding(\n            tool_name="query_summary",\n            effect="order.query_summary:order",\n        )\n    )\n    graph = compile_frozen_semantic_contract(\n        contract,\n        scope={"tenant_id": "", "user_id": "u001", "thread_id": "t1"},\n    )\n\n    coverage = build_goal_capability_coverage(\n        goals=contract["goals"],\n        goal_plans=[],\n        capability_registry=registry,\n        typed_goal_graph=graph,\n        frozen_contract=contract,\n    )\n\n    assert coverage["coverage_status"] == "COMPLETE"\n    assert coverage["typed_goal_capability_shadow"]["coverage_status"] == "STRUCTURAL_INVALID"\n    assert any(\n        row["code"] == "TYPED_GOAL_GRAPH_STRUCTURAL_INVALID"\n        for row in coverage["typed_shadow_comparison"]["divergences"]\n    )\n    assert coverage["must_not_dispatch"] is True\n\n\ndef test_pretool_shadow_plan_compiles_scoped_goal_graph_and_attaches_comparison() -> None:\n    contract = _freeze(\n        [_goal(goal_id="g1", operation="query_summary", evidence_span="查询摘要")]\n    )\n    registry = _registry(\n        _binding(\n            tool_name="query_summary",\n            effect="order.query_summary:order",\n        )\n    )\n\n    plan = build_pretool_shadow_plan(\n        state={\n            "frozen_semantic_contract": contract,\n            "current_tenant_id": _SCOPE["tenant_id"],\n            "current_user_id": _SCOPE["user_id"],\n            "current_thread_id": _SCOPE["thread_id"],\n        },\n        capability_registry=registry,\n    )\n\n    assert plan["typed_goal_graph"]["scope"] == _SCOPE\n    coverage = plan["global_goal_capability_coverage"]\n    assert coverage["typed_goal_capability_shadow"]["graph_digest"] == plan["typed_goal_graph"]["graph_digest"]\n    assert coverage["typed_shadow_comparison"]["status"] == "MATCHED"\n    assert plan["must_not_dispatch"] is True\n    assert plan["creates_permit"] is False\n    assert plan["execution_readiness"] == "not_evaluated_shadow"\n', encoding="utf-8")
+          PY
+
+      - name: Run targeted Stage2B shadow tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_planner.py \
+            services/agent-service/tests/runtime/test_typed_goal_coverage_shadow_integration.py
+          git diff --cached --check
+          cd services/agent-service
+          PYTHONPATH=src .venv/bin/python -m pytest -q \
+            tests/runtime/test_typed_goal_coverage_shadow_integration.py \
+            tests/runtime/test_global_goal_capability_coverage.py \
+            tests/runtime/test_pretool_shadow_planner.py
+
+      - name: Commit typed shadow wiring locally
+        id: code_commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git commit -m 'Wire typed goal capability closure into shadow coverage'
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh exact protected product-source baseline
+        shell: bash
+        env:
+          CODE_COMMIT: ${{ steps.code_commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          import subprocess
+
+          root = Path(".").resolve()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          protected_roots = tuple(str(value) for value in payload.get("protected_roots") or ())
+          if protected_roots != ("services", "web", "contracts"):
+              raise SystemExit(f"unexpected_protected_roots:{protected_roots!r}")
+          previous = {
+              str(key): str(value)
+              for key, value in (payload.get("files") or {}).items()
+          }
+          if len(previous) != 581 or int(payload.get("file_count") or 0) != 581:
+              raise SystemExit(
+                  f"unexpected_previous_baseline_size:{payload.get('file_count')}/{len(previous)}"
+              )
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z", "--", *protected_roots],
+              cwd=root,
+          )
+          tracked = sorted(
+              item.decode("utf-8") for item in raw.split(b"\0") if item
+          )
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          if len(current) != 582:
+              raise SystemExit(f"unexpected_protected_file_count:{len(current)}")
+
+          expected_changed = {
+              "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+              "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+          }
+          expected_added = {
+              "services/agent-service/tests/runtime/test_typed_goal_coverage_shadow_integration.py",
+          }
+          changed_existing = {
+              path
+              for path in set(current) & set(previous)
+              if current[path] != previous[path]
+          }
+          added = set(current) - set(previous)
+          removed = set(previous) - set(current)
+          if changed_existing != expected_changed:
+              raise SystemExit(
+                  "unexpected_changed_existing_protected_paths:"
+                  + ",".join(sorted(changed_existing))
+              )
+          if added != expected_added:
+              raise SystemExit(
+                  "unexpected_added_protected_paths:" + ",".join(sorted(added))
+              )
+          if removed:
+              raise SystemExit(
+                  "unexpected_removed_protected_paths:" + ",".join(sorted(removed))
+              )
+
+          code_commit = str(os.environ.get("CODE_COMMIT") or "").strip()
+          if len(code_commit) != 40:
+              raise SystemExit("code_commit_identity_missing")
+          payload["file_count"] = len(current)
+          payload["files"] = dict(sorted(current.items()))
+          payload["generated_at"] = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          payload["generated_from"] = "git:" + code_commit
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              json.dumps(
+                  {
+                      "status": "PASS",
+                      "generated_from": payload["generated_from"],
+                      "file_count": len(current),
+                      "changed_existing": sorted(changed_existing),
+                      "added": sorted(added),
+                      "removed": sorted(removed),
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          )
+          PY
+
+      - name: Remove helper and validate Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/typed-goal-stage2b-shadow-wire-once.yml
+          git add \
+            skill-system/registry/product-source-baseline.json \
+            .github/workflows/typed-goal-stage2b-shadow-wire-once.yml
+          git diff --cached --check
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Publish exact Stage2B shadow wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          git commit -m 'Refresh typed goal Stage2B protected baseline'
+          git push origin HEAD:"$TARGET_BRANCH"
+          echo "FINAL_HEAD=$(git rev-parse HEAD)"
+
+      - name: Dispatch formal final-head gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 3
+          gh workflow run quality.yml --ref "$TARGET_BRANCH"
+          gh workflow run skill-self-validation.yml --ref "$TARGET_BRANCH"
