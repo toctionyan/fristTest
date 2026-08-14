@@ -1,0 +1,139 @@
+name: Typed Goal Stage2D Attestation Once
+
+"on":
+  push:
+    branches:
+      - feat/typed-goal-graph-foundation-20260814
+    paths:
+      - .github/workflows/typed-goal-stage2d-attestation-once.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: typed-goal-stage2d-attestation-once
+  cancel-in-progress: false
+
+env:
+  TARGET_BRANCH: feat/typed-goal-graph-foundation-20260814
+  EXPECTED_PARENT_HEAD: 3d90fee27b4f6d4e701a131cc2e150c92ff52af0
+
+jobs:
+  attest:
+    if: >-
+      github.repository == 'toctionyan/fristTest' &&
+      github.ref_name == 'feat/typed-goal-graph-foundation-20260814'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact feature branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat/typed-goal-graph-foundation-20260814
+          fetch-depth: 2
+          persist-credentials: true
+
+      - name: Verify one-shot parent identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git rev-parse --abbrev-ref HEAD)" = "$TARGET_BRANCH"
+          test -f .github/typed_goal_stage2d_helper.py
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent validation environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Apply immutable dependency authority attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B .github/typed_goal_stage2d_helper.py apply
+
+      - name: Run targeted Stage2D tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            services/agent-service/src/agent_core/goal_graph/__init__.py \
+            services/agent-service/src/agent_core/goal_graph/dependency_authority.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_authority_attestation.py
+          git diff --cached --check
+          cd services/agent-service
+          PYTHONPATH=src .venv/bin/python -m pytest -q \
+            tests/runtime/test_typed_goal_dependency_authority_attestation.py \
+            tests/runtime/test_typed_goal_dependency_authority_shadow.py \
+            tests/runtime/test_pretool_execution_policy.py \
+            tests/runtime/test_typed_goal_coverage_shadow_integration.py
+
+      - name: Commit Stage2D code locally
+        id: code_commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git commit -m 'Seal typed dependency authority cutover evidence'
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh exact protected product-source baseline
+        env:
+          CODE_COMMIT: ${{ steps.code_commit.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B .github/typed_goal_stage2d_helper.py refresh-baseline
+
+      - name: Remove helpers and validate Skill control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/typed-goal-stage2d-attestation-once.yml
+          rm .github/typed_goal_stage2d_helper.py
+          git add \
+            skill-system/registry/product-source-baseline.json \
+            .github/workflows/typed-goal-stage2d-attestation-once.yml \
+            .github/typed_goal_stage2d_helper.py
+          git diff --cached --check
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Publish exact Stage2D attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git commit -m 'Refresh typed goal Stage2D protected baseline'
+          git push origin HEAD:"$TARGET_BRANCH"
+          echo "FINAL_HEAD=$(git rev-parse HEAD)"
+
+      - name: Dispatch formal final-head gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 3
+          gh workflow run quality.yml --ref "$TARGET_BRANCH"
+          gh workflow run skill-self-validation.yml --ref "$TARGET_BRANCH"
