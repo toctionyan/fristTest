@@ -1,0 +1,80 @@
+name: tmp-v20.18-governance-recovery-diff-review
+
+on:
+  push:
+    branches:
+      - tmp/v20.18-governance-recovery-20260814
+
+permissions:
+  contents: read
+
+jobs:
+  historical-diff-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout recovery carrier
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct exact historical governed candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha="55403a01f957257fbbefead32bcde21b7d866001"
+          test "$(git rev-parse HEAD^)" = "$target_sha"
+          rm -rf /tmp/v2018-recovery
+          mkdir -p /tmp/v2018-recovery
+          git archive "$target_sha" | tar -x -C /tmp/v2018-recovery
+          test "$(python3 - <<'PY'
+import json
+from pathlib import Path
+p = json.loads(Path('/tmp/v2018-recovery/governance/active-change.json').read_text())
+print(p['change_id'])
+PY
+)" = "migration-v20.18-semantic-single-writer-output-coverage"
+
+      - name: Run repository-owned deterministic diff review
+        shell: bash
+        working-directory: /tmp/v2018-recovery
+        run: |
+          set -euo pipefail
+          python3 -B skillctl.py repair-governance-status
+          python3 -B skillctl.py repair-diff-review --decision PASS
+          python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path('governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/diff-review.json')
+data = json.loads(p.read_text())
+assert data['decision'] == 'PASS', data
+assert data['out_of_scope_paths'] == [], data
+assert data['deterministic_findings'] == [], data
+assert data['candidate_source_fingerprint'] != data['baseline_source_fingerprint'], data
+print(json.dumps({
+    'status': 'PASS',
+    'decision': data['decision'],
+    'changed_paths': data['changed_paths'],
+    'out_of_scope_paths': data['out_of_scope_paths'],
+    'candidate_source_fingerprint': data['candidate_source_fingerprint'],
+    'baseline_source_fingerprint': data['baseline_source_fingerprint'],
+}, indent=2))
+PY
+
+      - name: Stage deterministic recovery evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery-artifact
+          cp /tmp/v2018-recovery/governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/diff-review.json recovery-artifact/ 2>/dev/null || true
+          cp /tmp/v2018-recovery/governance/active-change.json recovery-artifact/active-change-at-55403.json
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > recovery-artifact/historical-candidate-sha.txt
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v20.18-governance-recovery-diff-review
+          path: recovery-artifact
+          if-no-files-found: error
