@@ -21,7 +21,7 @@
     "services/agent-service/app/schemas/operator_schema.py": "40778040d98091c381845034d7c074ccb5803ff3de1a4db4b0c0161877096292",
     "services/agent-service/app/security.py": "28118f9b016624eff699eb9b3c7edf9ae326b58a73bf71e17dbfa518bd5aa299",
     "services/agent-service/app/services/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "services/agent-service/app/services/agent_service.py": "7d2cedb97bd6911a5ce02b79d0ae1344f5d3a89548740f63f5111f528f8f916f",
+    "services/agent-service/app/services/agent_service.py": "a418fe2e794c7e1e136772f4dd8c8d290681c036c9e24998fba0bce9db724784",
     "services/agent-service/app/services/checkpoint_hydrator.py": "693a22fa91cdb804e9a6639333b4d8374768c78801d2a2cc8729c18e88bcbb6e",
     "services/agent-service/app/services/dependency_authority_composition.py": "7117b7e940ef473875591056a7be7b9510741baf1edde794c648882a08e6f558",
     "services/agent-service/app/services/document_service.py": "a15dbe4147b188ab9bf8f1d2e60967cb50a573b3bb0e70c71c7276dae6ef6eb7",
@@ -605,8 +605,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-14T10:34:17Z",
-  "generated_from": "git:02a0b6e3e6795a991682b74724715fcf3ad20b08",
+  "generated_at": "2026-08-14T10:36:49Z",
+  "generated_from": "git:2fcf2fb70a5c2842f1b1197a14e0bdf81a7ffc10",
   "protected_roots": [
     "services",
     "web",
