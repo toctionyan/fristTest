@@ -9,6 +9,12 @@ from .capability_closure import (
     TYPED_GOAL_CAPABILITY_COVERAGE_VERSION,
     build_typed_goal_capability_coverage,
 )
+from .dependency_authority import (
+    DEPENDENCY_AUTHORITY_ATTESTATION_AUTHORITY,
+    DEPENDENCY_AUTHORITY_ATTESTATION_VERSION,
+    build_dependency_authority_attestation,
+    dependency_authority_attestation_integrity,
+)
 from .contracts import (
     CANONICAL_GOAL_GRAPH_VERSION,
     GOAL_PORT_VERSION,
@@ -29,8 +35,12 @@ __all__ = [
     "TYPED_TARGET_BINDING_VERSION",
     "VERIFIED_ARTIFACT_REF_VERSION",
     "TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
+    "DEPENDENCY_AUTHORITY_ATTESTATION_AUTHORITY",
+    "DEPENDENCY_AUTHORITY_ATTESTATION_VERSION",
     "compile_frozen_semantic_contract",
     "build_typed_goal_capability_coverage",
+    "build_dependency_authority_attestation",
+    "dependency_authority_attestation_integrity",
     "dataflow_closure",
     "graph_structural_integrity",
     "make_verified_artifact_ref",

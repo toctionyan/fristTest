@@ -22,6 +22,7 @@ from hashlib import sha256
 import json
 from typing import Any
 
+from agent_core.goal_graph.dependency_authority import build_dependency_authority_attestation
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.semantic_contract import semantic_goals
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
@@ -583,6 +584,18 @@ def build_pretool_execution_policy(
         completed_goal_ids=completed_goal_ids,
     )
 
+    dependency_authority_attestation = (
+        build_dependency_authority_attestation(
+            dependency_shadow=dependency_authority_shadow,
+            semantic_contract_id=str(plan.get("formal_semantic_contract_id") or ""),
+            semantic_digest=str(plan.get("formal_semantic_digest") or ""),
+            capability_registry_version=capability_registry.version,
+            completed_goal_ids=completed_goal_ids,
+        )
+        if dependency_authority_shadow is not None
+        else None
+    )
+
     if evidence_errors:
         # Treat invalid prior progress as zero progress.  The goal policies above
         # were already compiled from contract topology with an empty progress
@@ -633,6 +646,8 @@ def build_pretool_execution_policy(
     }
     if dependency_authority_shadow is not None:
         payload["typed_dependency_authority_shadow"] = dependency_authority_shadow
+    if dependency_authority_attestation is not None:
+        payload["typed_dependency_authority_attestation"] = dependency_authority_attestation
     payload["policy_digest"] = _digest(payload)
     return payload
 
