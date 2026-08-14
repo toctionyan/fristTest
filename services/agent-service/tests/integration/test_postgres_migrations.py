@@ -49,7 +49,7 @@ def test_fresh_postgres_schema_upgrades_to_head_without_duplicate_columns() -> N
         row = admin.execute(
             f'SELECT version_num FROM "{schema}".alembic_version'
         ).fetchone()
-        assert row and row[0] == "0005_production_integrity"
+        assert row and row[0] == "0006_dependency_auth_control"
         vector_column = admin.execute(
             "SELECT udt_schema, udt_name FROM information_schema.columns "
             "WHERE table_schema = %s AND table_name = 'rag_chunks' "
