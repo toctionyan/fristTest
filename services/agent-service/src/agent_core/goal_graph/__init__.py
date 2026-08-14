@@ -4,6 +4,15 @@ Stage 1 is read-only and non-executable. Existing runtime authorities remain
 unchanged; this package only makes semantic/dataflow invariants explicit.
 """
 
+from .activation_preflight import (
+    DEPENDENCY_ACTIVATION_PREFLIGHT_AUTHORITY,
+    DEPENDENCY_ACTIVATION_PREFLIGHT_VERSION,
+    DEPENDENCY_ACTIVATION_REQUEST_AUTHORITY,
+    DEPENDENCY_ACTIVATION_REQUEST_VERSION,
+    dependency_activation_preflight_integrity,
+    dependency_activation_request_integrity,
+    evaluate_dependency_activation_preflight,
+)
 from .compiler import compile_frozen_semantic_contract
 from .capability_closure import (
     TYPED_GOAL_CAPABILITY_COVERAGE_VERSION,
@@ -48,6 +57,10 @@ __all__ = [
     "TYPED_TARGET_BINDING_VERSION",
     "VERIFIED_ARTIFACT_REF_VERSION",
     "TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
+    "DEPENDENCY_ACTIVATION_PREFLIGHT_AUTHORITY",
+    "DEPENDENCY_ACTIVATION_PREFLIGHT_VERSION",
+    "DEPENDENCY_ACTIVATION_REQUEST_AUTHORITY",
+    "DEPENDENCY_ACTIVATION_REQUEST_VERSION",
     "DEPENDENCY_AUTHORITY_ATTESTATION_AUTHORITY",
     "DEPENDENCY_AUTHORITY_ATTESTATION_VERSION",
     "DEPENDENCY_CUTOVER_GATE_VERSION",
@@ -57,6 +70,9 @@ __all__ = [
     "LEGACY_DEPENDENCY_AUTHORITY",
     "TYPED_DEPENDENCY_AUTHORITY",
     "compile_frozen_semantic_contract",
+    "dependency_activation_preflight_integrity",
+    "dependency_activation_request_integrity",
+    "evaluate_dependency_activation_preflight",
     "build_typed_goal_capability_coverage",
     "build_dependency_authority_attestation",
     "dependency_authority_attestation_integrity",
