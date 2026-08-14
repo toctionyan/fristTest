@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-successor-quick-h
+name: tmp-v20.18-governance-recovery-successor-quick-h2
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  recovery-h-successor-quick:
+  recovery-h2-successor-quick:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -31,26 +31,48 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Execute successor lifecycle through formal Quick only
+      - name: Execute corrected successor lifecycle through formal Quick only
         shell: bash
         run: |
           set -euo pipefail
           source_commit='b1c71a6ed37e85cf7ff834368787511a6efd1f9f'
           old_workflow='.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml'
           git cat-file -e "${source_commit}^{commit}"
-          git show "${source_commit}:${old_workflow}" > "${RUNNER_TEMP}/recovery-h-source.yml"
+          git show "${source_commit}:${old_workflow}" > "${RUNNER_TEMP}/recovery-h2-source.yml"
           python3 - <<'PY'
           from __future__ import annotations
           import json
           import os
           import subprocess
           import sys
+          import time
           from pathlib import Path
 
-          source = Path(os.environ['RUNNER_TEMP']) / 'recovery-h-source.yml'
+          runner_temp = Path(os.environ['RUNNER_TEMP'])
+          workspace = Path(os.environ['GITHUB_WORKSPACE'])
+          root = Path('/tmp/v2018-baseline')
+          source = runner_temp / 'recovery-h2-source.yml'
           text = source.read_text(encoding='utf-8')
           perf_sha = '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'
           candidate_sha = '55403a01f957257fbbefead32bcde21b7d866001'
+          successor = 'migration-v20.18-semantic-single-writer-output-coverage-r1'
+          perf_path = 'services/agent-service/src/agent_core/runtime/capability_effects.py'
+          expected_changed = sorted([
+              'services/agent-service/src/agent_core/kernel/semantic_contract.py',
+              'services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py',
+              'services/agent-service/src/agent_core/lifecycle/goal_granularity.py',
+              'services/agent-service/src/agent_core/lifecycle/goal_planning.py',
+              'services/agent-service/src/agent_core/lifecycle/protocol.py',
+              'services/agent-service/src/agent_core/lifecycle/semantic_contract.py',
+              'services/agent-service/src/agent_core/modules/contracts.py',
+              'services/agent-service/src/agent_core/modules/registry.py',
+              'services/agent-service/src/agent_core/runtime/capability_effects.py',
+              'services/agent-service/src/agent_modules/ecommerce/module.py',
+              'services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py',
+              'services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py',
+              'services/agent-service/tests/runtime/test_semantic_output_coverage.py',
+              'services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py',
+          ])
 
           def extract_run(name: str) -> str:
               marker = f'      - name: {name}\n'
@@ -72,23 +94,31 @@ jobs:
                       raise AssertionError(f'unexpected run indentation in {name}: {line!r}')
               return '\n'.join(lines).rstrip() + '\n'
 
-          steps = [
-              ('Reconstruct exact predecessor, pre-write baseline, and verified replan controller', Path(os.environ['GITHUB_WORKSPACE'])),
-              ('Replan invalid predecessor and restore successor authority onto exact baseline', Path('/tmp/v2018-predecessor')),
-              ('Restore immutable PR551 RED oracle into the common test view', Path(os.environ['GITHUB_WORKSPACE'])),
-              ('Generate successor Target, Claim and Decision and initialize successor Contract', Path('/tmp/v2018-baseline')),
-              ('Bootstrap and install locked validation environments', Path('/tmp/v2018-baseline')),
-              ('Reproduce successor machine RED baseline and exact failed Claim', Path('/tmp/v2018-baseline')),
-              ('Create and validate successor repair-governance case', Path('/tmp/v2018-baseline')),
-              ('Issue fresh successor ChangePermit and enter implementing state', Path('/tmp/v2018-baseline')),
-              ('Overlay exact historical A2B candidate only inside successor permit', Path(os.environ['GITHUB_WORKSPACE'])),
-              ('Deterministically prove candidate diff is exact and permit-bounded', Path('/tmp/v2018-baseline')),
-              ('Run focused counterexample negative authority and runtime evidence', Path('/tmp/v2018-baseline')),
-              ('Run full successor Quick and prove RED-to-GREEN Claim transition', Path('/tmp/v2018-baseline')),
-          ]
-
           records = []
-          for index, (name, cwd) in enumerate(steps, start=1):
+          def run_script(index: int, name: str, cwd: Path, script: str) -> None:
+              script_path = runner_temp / f'recovery-h2-{index:02d}.sh'
+              script_path.write_text(script, encoding='utf-8')
+              print(f'::group::Recovery-H2 {index:02d} {name}', flush=True)
+              started = time.monotonic()
+              proc = subprocess.run(['bash', str(script_path)], cwd=cwd, env=os.environ.copy())
+              duration_ms = int((time.monotonic() - started) * 1000)
+              print('::endgroup::', flush=True)
+              records.append({'index': index, 'name': name, 'cwd': str(cwd), 'exit_code': proc.returncode, 'duration_ms': duration_ms})
+              (runner_temp / 'recovery-h2-execution.json').write_text(json.dumps({'candidate_sha': candidate_sha, 'performance_repair_sha': perf_sha, 'steps': records}, indent=2) + '\n', encoding='utf-8')
+              if proc.returncode != 0:
+                  raise SystemExit(proc.returncode)
+
+          initial_steps = [
+              ('Reconstruct exact predecessor, pre-write baseline, and verified replan controller', workspace),
+              ('Replan invalid predecessor and restore successor authority onto exact baseline', Path('/tmp/v2018-predecessor')),
+              ('Restore immutable PR551 RED oracle into the common test view', workspace),
+              ('Generate successor Target, Claim and Decision and initialize successor Contract', root),
+              ('Bootstrap and install locked validation environments', root),
+              ('Reproduce successor machine RED baseline and exact failed Claim', root),
+              ('Create and validate successor repair-governance case', root),
+              ('Issue fresh successor ChangePermit and enter implementing state', root),
+          ]
+          for index, (name, cwd) in enumerate(initial_steps, start=1):
               script = extract_run(name)
               if name == 'Create and validate successor repair-governance case':
                   old_expected = "failure['reproduction']['expected']='Historical A2/B candidate 55403 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'"
@@ -99,56 +129,149 @@ jobs:
                   new_strategy = "plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path product scope, exact aeb9 RED source, exact historical 55403 candidate plus bounded performance repair 7e6bd3 on already-permitted capability_effects.py; no new product design or production activation.'"
                   assert old_strategy in script
                   script = script.replace(old_strategy, new_strategy, 1)
-              elif name == 'Overlay exact historical A2B candidate only inside successor permit':
-                  script += (
-                      "\nperf_sha='7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'\n"
-                      "perf_path='services/agent-service/src/agent_core/runtime/capability_effects.py'\n"
-                      "printf '%s\\n' \"${allowed[@]}\" | grep -Fxq \"$perf_path\"\n"
-                      "git show \"${perf_sha}:${perf_path}\" > \"/tmp/v2018-baseline/${perf_path}\"\n"
-                      "test \"$(git show \"${perf_sha}:${perf_path}\" | sha256sum | awk '{print $1}')\" = \"$(sha256sum \"/tmp/v2018-baseline/${perf_path}\" | awk '{print $1}')\"\n"
-                      "printf '%s\\n' \"$perf_sha\" > \"${RUNNER_TEMP}/performance-repair-sha.txt\"\n"
-                  )
-              elif name == 'Run focused counterexample negative authority and runtime evidence':
-                  old = f"'candidate_sha':'{candidate_sha}','recorded_at'"
-                  new = f"'candidate_sha':'{candidate_sha}','performance_repair_sha':'{perf_sha}','recorded_at'"
-                  assert old in script
-                  script = script.replace(old, new, 1)
+              run_script(index, name, cwd, script)
 
-              script_path = Path(os.environ['RUNNER_TEMP']) / f'recovery-h-{index:02d}.sh'
-              script_path.write_text(script, encoding='utf-8')
-              print(f'::group::Recovery-H {index:02d} {name}', flush=True)
-              started = __import__('time').monotonic()
-              proc = subprocess.run(['bash', str(script_path)], cwd=cwd, env=os.environ.copy())
-              duration_ms = int((__import__('time').monotonic() - started) * 1000)
-              print('::endgroup::', flush=True)
-              records.append({'index': index, 'name': name, 'cwd': str(cwd), 'exit_code': proc.returncode, 'duration_ms': duration_ms})
-              (Path(os.environ['RUNNER_TEMP']) / 'recovery-h-execution.json').write_text(json.dumps({'candidate_sha': candidate_sha, 'performance_repair_sha': perf_sha, 'steps': records}, indent=2) + '\n', encoding='utf-8')
+          # The first RED baseline proves the transition failure. Repair-governance
+          # records are then frozen into a second still-RED baseline before any
+          # product source changes. This keeps control-plane records outside the
+          # product diff without widening the Target scope.
+          refreeze = f'''set -euo pipefail\npy="services/agent-service/.venv/bin/python"\nsuccessor="{successor}"\n"$py" -B skillctl.py product-baseline --force | tee "${{RUNNER_TEMP}}/successor-product-baseline-refreeze.log"\n"$py" - <<'PY2'\nimport json\nfrom pathlib import Path\ns={successor!r}\nsummary=json.loads((Path('.quality/product-code')/s/'baseline'/'run-summary.json').read_text())\nrecord=json.loads((Path('.quality/product-code')/s/'baseline'/'baseline-record.json').read_text())\nassert summary['run_kind']=='baseline', summary\nassert summary['loop_status']=='BASELINE_RECORDED', summary\nassert summary['decision']=='FAIL', summary\nclaims={{row['id']:row for row in summary.get('claim_results',[])}}\nclaim=claims['V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT']\nassert claim['status']=='FAILED', claim\nassert record['decision']=='FAIL', record\nprint(json.dumps({{'status':'REFROZEN_RED','workspace_snapshot_fingerprint':record['workspace_snapshot_fingerprint'],'claim_status':claim['status']}}, indent=2))\nPY2\n'''
+          run_script(9, 'Refreeze RED quality baseline after repair-governance permit', root, refreeze)
+
+          overlay_name = 'Overlay exact historical A2B candidate only inside successor permit'
+          overlay = extract_run(overlay_name)
+          overlay += (
+              "\nperf_sha='7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'\n"
+              "perf_path='services/agent-service/src/agent_core/runtime/capability_effects.py'\n"
+              "printf '%s\\n' \"${allowed[@]}\" | grep -Fxq \"$perf_path\"\n"
+              "git show \"${perf_sha}:${perf_path}\" > \"/tmp/v2018-baseline/${perf_path}\"\n"
+              "test \"$(git show \"${perf_sha}:${perf_path}\" | sha256sum | awk '{print $1}')\" = \"$(sha256sum \"/tmp/v2018-baseline/${perf_path}\" | awk '{print $1}')\"\n"
+              "printf '%s\\n' \"$perf_sha\" > \"${RUNNER_TEMP}/performance-repair-sha.txt\"\n"
+          )
+          run_script(10, 'Overlay 17-path historical candidate plus bounded performance repair', workspace, overlay)
+
+          # Read-only deterministic diff proof. Do not write governance/diff-review.json
+          # before Product Quick because that would mutate the frozen workspace.
+          print('::group::Recovery-H2 11 Read-only permit-bounded diff proof', flush=True)
+          started = time.monotonic()
+          sys.path.insert(0, str(root / 'skill-system' / 'controller'))
+          from repair_governance import capture_workspace_manifest, load_chain  # type: ignore
+          contract = json.loads((root / 'governance' / 'active-change.json').read_text())
+          chain = load_chain(root, contract, include_diff=False, include_closure=False)
+          baseline_files = chain.baseline['workspace_files']
+          current_files = capture_workspace_manifest(root)
+          changed_all = sorted(
+              path for path in set(baseline_files) | set(current_files)
+              if baseline_files.get(path) != current_files.get(path)
+          )
+          assert changed_all == expected_changed, (changed_all, expected_changed)
+          assert set(changed_all).issubset(set(chain.permit['allowed_paths'])), changed_all
+          proof = {
+              'status': 'PASS',
+              'changed_paths': changed_all,
+              'out_of_scope_paths': [],
+              'permit_digest': chain.permit_digest,
+              'performance_repair_sha': perf_sha,
+              'baseline_source_fingerprint': chain.baseline['source_fingerprint'],
+          }
+          (runner_temp / 'recovery-h2-readonly-diff-proof.json').write_text(json.dumps(proof, indent=2) + '\n')
+          duration_ms = int((time.monotonic() - started) * 1000)
+          records.append({'index': 11, 'name': 'Read-only permit-bounded diff proof', 'cwd': str(root), 'exit_code': 0, 'duration_ms': duration_ms})
+          (runner_temp / 'recovery-h2-execution.json').write_text(json.dumps({'candidate_sha': candidate_sha, 'performance_repair_sha': perf_sha, 'steps': records}, indent=2) + '\n')
+          print(json.dumps(proof, indent=2))
+          print('::endgroup::', flush=True)
+
+          # Focused tests are real but their receipts stay outside the governed
+          # workspace until after Product Quick. The later closure stage can copy
+          # them into repair-governance evidence after Quick has converged.
+          focused_dir = runner_temp / 'recovery-h2-focused'
+          focused_dir.mkdir(parents=True, exist_ok=True)
+          py = root / 'services' / 'agent-service' / '.venv' / 'bin' / 'python'
+          env = os.environ.copy()
+          env['PYTHONPATH'] = f"{root}/services/agent-service/src:{root}/services/agent-service" + (f":{env['PYTHONPATH']}" if env.get('PYTHONPATH') else '')
+          focused_specs = {
+              'focused_tests': [
+                  'services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py',
+                  'services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py',
+                  'services/agent-service/tests/runtime/test_semantic_output_coverage.py',
+                  'services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py',
+              ],
+              'counterexamples': [
+                  'services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py',
+                  'services/agent-service/tests/runtime/test_semantic_output_coverage.py',
+              ],
+              'negative_paths': [
+                  'services/agent-service/tests/runtime/test_semantic_output_coverage.py',
+                  'services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py',
+              ],
+              'authority_boundary': [
+                  'services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py',
+                  'services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py',
+              ],
+              'runtime_trace': [
+                  'services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py',
+              ],
+          }
+          print('::group::Recovery-H2 12 Focused tests without workspace mutation', flush=True)
+          started = time.monotonic()
+          for dim, paths in focused_specs.items():
+              log = focused_dir / f'{dim}.log'
+              command = [str(py), '-B', '-m', 'pytest', '-q', *paths]
+              proc = subprocess.run(command, cwd=root, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              log.write_text(proc.stdout, encoding='utf-8', errors='replace')
+              receipt = {
+                  'schema_version': 1,
+                  'dimension': dim,
+                  'status': 'PASS' if proc.returncode == 0 else 'FAIL',
+                  'exit_code': proc.returncode,
+                  'baseline_sha': 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a',
+                  'candidate_sha': candidate_sha,
+                  'performance_repair_sha': perf_sha,
+                  'log_tail': proc.stdout[-16000:],
+              }
+              (focused_dir / f'{dim}.json').write_text(json.dumps(receipt, indent=2) + '\n')
               if proc.returncode != 0:
-                  sys.exit(proc.returncode)
+                  print(proc.stdout[-16000:])
+                  raise SystemExit(proc.returncode)
+          duration_ms = int((time.monotonic() - started) * 1000)
+          records.append({'index': 12, 'name': 'Focused tests without workspace mutation', 'cwd': str(root), 'exit_code': 0, 'duration_ms': duration_ms})
+          (runner_temp / 'recovery-h2-execution.json').write_text(json.dumps({'candidate_sha': candidate_sha, 'performance_repair_sha': perf_sha, 'steps': records}, indent=2) + '\n')
+          print('::endgroup::', flush=True)
 
-          quick_pointer = Path(os.environ['RUNNER_TEMP']) / 'quick-summary-path.txt'
+          quick_name = 'Run full successor Quick and prove RED-to-GREEN Claim transition'
+          quick_script = extract_run(quick_name)
+          run_script(13, quick_name, root, quick_script)
+
+          quick_pointer = runner_temp / 'quick-summary-path.txt'
           assert quick_pointer.is_file(), 'formal Quick summary pointer missing'
-          quick_path = Path('/tmp/v2018-baseline') / quick_pointer.read_text().strip()
+          quick_path = root / quick_pointer.read_text().strip()
           quick = json.loads(quick_path.read_text())
           assert quick['decision'] == 'PASS', quick
           assert quick['loop_status'] == 'CONVERGED', quick
           assert quick['completion_eligible'] is True, quick
           assert quick.get('missing_prerequisites') == [], quick
           assert quick.get('unverified_claim_ids') == [], quick
-          print(json.dumps({'recovery_h':'PASS','quick_summary':str(quick_path),'decision':quick['decision'],'loop_status':quick['loop_status'],'completion_eligible':quick['completion_eligible']}, indent=2))
+          assert quick.get('baseline_transition_unverified_claim_ids') == [], quick
+          claims = {row['id']: row for row in quick.get('claim_results', [])}
+          claim = claims['V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT']
+          assert claim['gate_statuses'] == {'python-test-suites': 'PASS'}, claim
+          print(json.dumps({'recovery_h2':'PASS','quick_summary':str(quick_path),'decision':quick['decision'],'loop_status':quick['loop_status'],'completion_eligible':quick['completion_eligible'],'claim_status':claim['status']}, indent=2))
           PY
 
-      - name: Stage Recovery-H Quick evidence
+      - name: Stage Recovery-H2 Quick evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          out="${GITHUB_WORKSPACE}/recovery-h-artifact"
+          out="${GITHUB_WORKSPACE}/recovery-h2-artifact"
           rm -rf "$out" && mkdir -p "$out"
           old='migration-v20.18-semantic-single-writer-output-coverage'
           successor="${old}-r1"
-          cp "${RUNNER_TEMP}/recovery-h-execution.json" "$out/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/successor-product-baseline.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/recovery-h2-execution.json" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/recovery-h2-readonly-diff-proof.json" "$out/" 2>/dev/null || true
+          cp -a "${RUNNER_TEMP}/recovery-h2-focused" "$out/focused" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/successor-product-baseline.log" "$out/initial-product-baseline.log" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/successor-product-baseline-refreeze.log" "$out/refrozen-product-baseline.log" 2>/dev/null || true
           cp "${RUNNER_TEMP}/successor-product-verify-quick.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/fresh-permit-digest.txt" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/performance-repair-sha.txt" "$out/" 2>/dev/null || true
@@ -164,10 +287,10 @@ jobs:
           printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/historical-candidate-sha.txt"
           printf '%s\n' '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' > "$out/performance-repair-sha.txt"
 
-      - name: Upload Recovery-H Quick evidence
+      - name: Upload Recovery-H2 Quick evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-successor-quick-h
-          path: recovery-h-artifact
+          name: v20.18-governance-recovery-successor-quick-h2
+          path: recovery-h2-artifact
           if-no-files-found: error
