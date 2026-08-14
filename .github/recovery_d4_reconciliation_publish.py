@@ -65,6 +65,13 @@ D3 = Path(d3_raw).resolve()
 OUT = Path(out_raw).resolve()
 assert ARTIFACT.is_dir() and D3.is_dir()
 
+# Make failure evidence uploadable before any publisher mutation/assertion occurs.
+if OUT.exists():
+    shutil.rmtree(OUT)
+OUT.mkdir(parents=True)
+for name in ("d3-reconciliation-simulation-summary.json", "d3-changed-paths.json", "d3-archive-hashes.json"):
+    shutil.copyfile(D3 / name, OUT / name)
+
 summary = load(D3 / "d3-reconciliation-simulation-summary.json")
 changed = load(D3 / "d3-changed-paths.json")
 hashes = load(D3 / "d3-archive-hashes.json")
@@ -125,11 +132,11 @@ active.unlink()
 assert not active.exists()
 assert not (worktree / "governance/pending-replan.json").exists()
 
-# Stage exactly the D3-proven set. Add immutable archive files explicitly and stage the
-# one tracked deletion explicitly with -u. Do not use a broad governance add that could
-# depend on worktree/index behavior or accidentally admit unrelated governance changes.
+# Stage exactly the D3-proven set. Archive files are added explicitly. The one stale
+# writer pointer is removed directly from the index with plumbing so linked-worktree
+# porcelain/index flags cannot silently suppress the tracked deletion.
 run("git", "add", "--", *expected_added, cwd=worktree)
-run("git", "add", "-u", "--", ACTIVE, cwd=worktree)
+run("git", "update-index", "--force-remove", "--", ACTIVE, cwd=worktree)
 staged = run("git", "diff", "--cached", "--name-only", cwd=worktree, capture=True).splitlines()
 staged = sorted(path for path in staged if path)
 assert staged == expected_changed, {"staged": staged, "expected": expected_changed}
@@ -162,9 +169,6 @@ assert len(rparts) == 2 and rparts[0] == commit_sha and rparts[1] == f"refs/head
 remote_main_after = run("git", "ls-remote", "origin", "refs/heads/main", capture=True).split()[0]
 assert remote_main_after == MAIN_SHA, {"main_mutated": remote_main_after}
 
-if OUT.exists():
-    shutil.rmtree(OUT)
-OUT.mkdir(parents=True)
 result = {
     "schema_version": 1,
     "phase": "D4-governance-reconciliation-branch-publish",
@@ -187,7 +191,4 @@ result = {
 (OUT / "d4-reconciliation-publish-summary.json").write_text(
     json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
-shutil.copyfile(D3 / "d3-reconciliation-simulation-summary.json", OUT / "d3-reconciliation-simulation-summary.json")
-shutil.copyfile(D3 / "d3-changed-paths.json", OUT / "d3-changed-paths.json")
-shutil.copyfile(D3 / "d3-archive-hashes.json", OUT / "d3-archive-hashes.json")
 print(json.dumps(result, ensure_ascii=False, indent=2))
