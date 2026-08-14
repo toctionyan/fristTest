@@ -309,6 +309,75 @@ def test_integrity_rejects_unsealed_post_build_tampering() -> None:
     assert "HANDOFF_SIMULATION_DIGEST_INVALID" in integrity["errors"]
 
 
+def test_integrity_rejects_recomputed_repeated_typed_handoff_sequence() -> None:
+    gate = _ready_gate()
+    simulation = build_dependency_authority_handoff_simulation(
+        gate=gate,
+        rollback=_rollback(gate),
+        exercise_rollback=True,
+    )
+    tampered = deepcopy(simulation)
+    tampered["timeline"].extend(
+        [
+            {
+                "index": 3,
+                "phase": "simulated_typed_handoff",
+                "selected_dependency_authority": TYPED_DEPENDENCY_AUTHORITY,
+                "active_authorities": [TYPED_DEPENDENCY_AUTHORITY],
+                "legacy_active": False,
+                "typed_active": True,
+            },
+            {
+                "index": 4,
+                "phase": "simulated_rollback_to_legacy",
+                "selected_dependency_authority": LEGACY_DEPENDENCY_AUTHORITY,
+                "active_authorities": [LEGACY_DEPENDENCY_AUTHORITY],
+                "legacy_active": True,
+                "typed_active": False,
+            },
+        ]
+    )
+    tampered["simulation_digest"] = _digest(
+        {k: v for k, v in tampered.items() if k != "simulation_digest"}
+    )
+
+    integrity = dependency_authority_handoff_simulation_integrity(tampered)
+
+    assert integrity["ok"] is False
+    assert "HANDOFF_TIMELINE_SHAPE_INVALID" in integrity["errors"]
+    assert "HANDOFF_TYPED_STEP_COUNT_INVALID" in integrity["errors"]
+
+
+def test_integrity_rejects_recomputed_phase_and_index_drift() -> None:
+    simulation = build_dependency_authority_handoff_simulation(gate=_ready_gate())
+    tampered = deepcopy(simulation)
+    tampered["timeline"][1]["index"] = 7
+    tampered["timeline"][1]["phase"] = "unexpected_phase"
+    tampered["simulation_digest"] = _digest(
+        {k: v for k, v in tampered.items() if k != "simulation_digest"}
+    )
+
+    integrity = dependency_authority_handoff_simulation_integrity(tampered)
+
+    assert integrity["ok"] is False
+    assert "HANDOFF_TIMELINE_STEP_1_INDEX_INVALID" in integrity["errors"]
+    assert "HANDOFF_TIMELINE_SHAPE_INVALID" in integrity["errors"]
+
+
+def test_integrity_rejects_recomputed_request_status_mismatch() -> None:
+    simulation = build_dependency_authority_handoff_simulation(gate=_ready_gate())
+    tampered = deepcopy(simulation)
+    tampered["requested_simulated_authority"] = LEGACY_DEPENDENCY_AUTHORITY
+    tampered["simulation_digest"] = _digest(
+        {k: v for k, v in tampered.items() if k != "simulation_digest"}
+    )
+
+    integrity = dependency_authority_handoff_simulation_integrity(tampered)
+
+    assert integrity["ok"] is False
+    assert "HANDOFF_REQUEST_STATUS_MISMATCH" in integrity["errors"]
+
+
 def test_stage4c_simulation_module_has_no_runtime_or_domain_import_authority() -> None:
     import agent_core.goal_graph.handoff_simulation as module
 

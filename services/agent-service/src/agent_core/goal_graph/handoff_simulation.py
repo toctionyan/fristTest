@@ -254,15 +254,43 @@ def dependency_authority_handoff_simulation_integrity(
         if bool(row.get(field)):
             errors.append(f"{field.upper()}_MUST_BE_FALSE")
 
+    status = _text(row.get("status"), limit=100)
+    expected_timeline_by_status = {
+        "BLOCKED": [
+            ("observed_runtime_baseline", LEGACY_DEPENDENCY_AUTHORITY),
+        ],
+        "LEGACY_ONLY_SIMULATED": [
+            ("observed_runtime_baseline", LEGACY_DEPENDENCY_AUTHORITY),
+        ],
+        "TYPED_HANDOFF_SIMULATED": [
+            ("observed_runtime_baseline", LEGACY_DEPENDENCY_AUTHORITY),
+            ("simulated_typed_handoff", TYPED_DEPENDENCY_AUTHORITY),
+        ],
+        "ROLLBACK_DRILL_COMPLETE": [
+            ("observed_runtime_baseline", LEGACY_DEPENDENCY_AUTHORITY),
+            ("simulated_typed_handoff", TYPED_DEPENDENCY_AUTHORITY),
+            ("simulated_rollback_to_legacy", LEGACY_DEPENDENCY_AUTHORITY),
+        ],
+    }
+    expected_timeline = expected_timeline_by_status.get(status)
+    if expected_timeline is None:
+        errors.append("HANDOFF_SIMULATION_STATUS_INVALID")
+
     timeline = row.get("timeline") if isinstance(row.get("timeline"), list) else []
     if not timeline:
         errors.append("HANDOFF_TIMELINE_REQUIRED")
     typed_steps = 0
+    actual_timeline: list[tuple[str, str]] = []
     for index, step in enumerate(timeline):
         if not isinstance(step, dict):
             errors.append(f"HANDOFF_TIMELINE_STEP_{index}_INVALID")
+            actual_timeline.append(("", ""))
             continue
+        if step.get("index") != index:
+            errors.append(f"HANDOFF_TIMELINE_STEP_{index}_INDEX_INVALID")
+        phase = _text(step.get("phase"), limit=200)
         selected = _text(step.get("selected_dependency_authority"), limit=200)
+        actual_timeline.append((phase, selected))
         active = list(step.get("active_authorities") or [])
         if selected not in _ALLOWED_AUTHORITIES:
             errors.append(f"HANDOFF_TIMELINE_STEP_{index}_AUTHORITY_INVALID")
@@ -278,7 +306,9 @@ def dependency_authority_handoff_simulation_integrity(
             if step.get("typed_active") is not True or bool(step.get("legacy_active")):
                 errors.append(f"HANDOFF_TIMELINE_STEP_{index}_TYPED_FLAGS_INVALID")
 
-    status = _text(row.get("status"), limit=100)
+    if expected_timeline is not None and actual_timeline != expected_timeline:
+        errors.append("HANDOFF_TIMELINE_SHAPE_INVALID")
+
     final = _text(row.get("simulated_final_dependency_authority"), limit=200)
     timeline_final = (
         _text(timeline[-1].get("selected_dependency_authority"), limit=200)
@@ -287,26 +317,47 @@ def dependency_authority_handoff_simulation_integrity(
     )
     if final != timeline_final:
         errors.append("HANDOFF_FINAL_AUTHORITY_TIMELINE_MISMATCH")
+    if expected_timeline is not None and final != expected_timeline[-1][1]:
+        errors.append("HANDOFF_FINAL_AUTHORITY_STATUS_MISMATCH")
+
+    expected_typed_steps = 1 if status in {
+        "TYPED_HANDOFF_SIMULATED",
+        "ROLLBACK_DRILL_COMPLETE",
+    } else 0
+    if typed_steps != expected_typed_steps:
+        errors.append("HANDOFF_TYPED_STEP_COUNT_INVALID")
 
     typed_entered = row.get("typed_candidate_entered_in_simulation") is True
-    if typed_entered != bool(typed_steps):
+    expected_typed_entered = status in {
+        "TYPED_HANDOFF_SIMULATED",
+        "ROLLBACK_DRILL_COMPLETE",
+    }
+    if typed_entered != expected_typed_entered:
         errors.append("HANDOFF_TYPED_ENTRY_FLAG_MISMATCH")
 
     rollback_exercised = row.get("rollback_exercised_in_simulation") is True
-    if status == "BLOCKED":
-        if typed_steps or final != LEGACY_DEPENDENCY_AUTHORITY:
-            errors.append("HANDOFF_BLOCKED_STATE_MUST_REMAIN_LEGACY")
-    elif status == "LEGACY_ONLY_SIMULATED":
-        if typed_steps or final != LEGACY_DEPENDENCY_AUTHORITY:
-            errors.append("HANDOFF_LEGACY_ONLY_STATE_INVALID")
-    elif status == "TYPED_HANDOFF_SIMULATED":
-        if not typed_steps or final != TYPED_DEPENDENCY_AUTHORITY or rollback_exercised:
-            errors.append("HANDOFF_TYPED_SIMULATION_STATE_INVALID")
-    elif status == "ROLLBACK_DRILL_COMPLETE":
-        if not typed_steps or final != LEGACY_DEPENDENCY_AUTHORITY or not rollback_exercised:
-            errors.append("HANDOFF_ROLLBACK_DRILL_STATE_INVALID")
-    else:
-        errors.append("HANDOFF_SIMULATION_STATUS_INVALID")
+    expected_rollback_exercised = status == "ROLLBACK_DRILL_COMPLETE"
+    if rollback_exercised != expected_rollback_exercised:
+        errors.append("HANDOFF_ROLLBACK_FLAG_MISMATCH")
+
+    requested = _text(row.get("requested_simulated_authority"), limit=200)
+    if status == "LEGACY_ONLY_SIMULATED" and requested != LEGACY_DEPENDENCY_AUTHORITY:
+        errors.append("HANDOFF_REQUEST_STATUS_MISMATCH")
+    if status in {"TYPED_HANDOFF_SIMULATED", "ROLLBACK_DRILL_COMPLETE"} and requested != TYPED_DEPENDENCY_AUTHORITY:
+        errors.append("HANDOFF_REQUEST_STATUS_MISMATCH")
+
+    evidence_errors = row.get("errors") if isinstance(row.get("errors"), list) else []
+    if status == "BLOCKED" and not evidence_errors:
+        errors.append("HANDOFF_BLOCKED_ERRORS_REQUIRED")
+    if status != "BLOCKED" and evidence_errors:
+        errors.append("HANDOFF_NONBLOCKED_ERRORS_MUST_BE_EMPTY")
+
+    if status != "BLOCKED" and not _text(row.get("source_gate_digest"), limit=128):
+        errors.append("HANDOFF_SOURCE_GATE_DIGEST_REQUIRED")
+    if status == "ROLLBACK_DRILL_COMPLETE" and not _text(
+        row.get("source_rollback_digest"), limit=128
+    ):
+        errors.append("HANDOFF_SOURCE_ROLLBACK_DIGEST_REQUIRED")
 
     return {
         "ok": not errors,
