@@ -90,12 +90,7 @@ jobs:
           records = []
           for index, (name, cwd) in enumerate(steps, start=1):
               script = extract_run(name)
-              if name == 'Generate successor Target, Claim and Decision and initialize successor Contract':
-                  old = f'Historical A2/B candidate {candidate_sha}; full Quick must converge without scope expansion.'
-                  new = f'Historical A2/B candidate {candidate_sha} plus bounded performance repair {perf_sha}; full Quick must converge without scope expansion.'
-                  assert old in script
-                  script = script.replace(old, new, 1)
-              elif name == 'Create and validate successor repair-governance case':
+              if name == 'Create and validate successor repair-governance case':
                   old_expected = "failure['reproduction']['expected']='Historical A2/B candidate 55403 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'"
                   new_expected = "failure['reproduction']['expected']='Historical A2/B candidate 55403 plus independently validated bounded performance repair 7e6bd3 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.'"
                   assert old_expected in script
