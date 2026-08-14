@@ -125,7 +125,11 @@ active.unlink()
 assert not active.exists()
 assert not (worktree / "governance/pending-replan.json").exists()
 
-run("git", "add", "-A", "--", "governance", cwd=worktree)
+# Stage exactly the D3-proven set. Add immutable archive files explicitly and stage the
+# one tracked deletion explicitly with -u. Do not use a broad governance add that could
+# depend on worktree/index behavior or accidentally admit unrelated governance changes.
+run("git", "add", "--", *expected_added, cwd=worktree)
+run("git", "add", "-u", "--", ACTIVE, cwd=worktree)
 staged = run("git", "diff", "--cached", "--name-only", cwd=worktree, capture=True).splitlines()
 staged = sorted(path for path in staged if path)
 assert staged == expected_changed, {"staged": staged, "expected": expected_changed}
