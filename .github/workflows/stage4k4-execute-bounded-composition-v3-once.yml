@@ -1,0 +1,69 @@
+name: stage4k4-execute-bounded-composition-v3-once
+
+on:
+  push:
+    branches:
+      - feat/stage4k4-production-composition-disabled-20260814
+
+permissions:
+  contents: write
+
+jobs:
+  execute-validate-publish:
+    if: github.repository == 'toctionyan/fristTest' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Stage4K4 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: feat/stage4k4-production-composition-disabled-20260814
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Execute frozen Stage4K4 bounded runner with import path
+        env:
+          BASE_SHA: d6ba4b034bb677ddadc817f599dc3a536b976d12
+          BRANCH: feat/stage4k4-production-composition-disabled-20260814
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import subprocess
+          import sys
+          import textwrap
+
+          source_commit = "9de50b4131a244c1c9ba3c522ea247406bb62e64"
+          source_path = ".github/workflows/stage4k4-execute-bounded-composition-v2-once.yml"
+          current_path = ".github/workflows/stage4k4-execute-bounded-composition-v3-once.yml"
+          workflow = subprocess.check_output(
+              ["git", "show", f"{source_commit}:{source_path}"],
+              text=True,
+          )
+          section = "      - name: Execute validate baseline and publish Stage4K4\n"
+          start_at = workflow.find(section)
+          heredoc = "          python - <<'PY'\n"
+          start = workflow.find(heredoc, start_at)
+          end = workflow.find("\n          PY\n", start)
+          if start_at < 0 or start < 0 or end < 0:
+              raise SystemExit("frozen_v2_runner_script_not_found")
+          script = textwrap.dedent(workflow[start + len(heredoc):end])
+          if script.count(source_path) != 1:
+              raise SystemExit(
+                  f"unexpected_runner_path_occurrences:{script.count(source_path)}"
+              )
+          script = script.replace(source_path, current_path, 1)
+          os.environ["PYTHONPATH"] = "src:."
+          exec(compile(script, "<stage4k4-v3-bounded-runner>", "exec"), globals(), globals())
+          PY
