@@ -312,6 +312,76 @@ def _typed_dependency_authority_shadow(
     return payload
 
 
+def _normalized_control_head_identity(
+    value: Any,
+    *,
+    epoch_field: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Normalize a provenance-only head without letting it become authority.
+
+    The application-owned resolver is trusted to supply control, but the runtime
+    still accepts only the exact non-secret head shape. Malformed provenance is
+    ignored for observability and never alters authority-selection inputs.
+    """
+
+    if value is None:
+        return None, "UNAVAILABLE"
+    if not isinstance(value, dict):
+        return None, "INVALID_IGNORED"
+    expected_fields = {epoch_field, "revision", "snapshot_digest"}
+    if set(value) != expected_fields:
+        return None, "INVALID_IGNORED"
+    epoch = value.get(epoch_field)
+    if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch <= 0:
+        return None, "INVALID_IGNORED"
+    revision = str(value.get("revision") or "").strip()
+    snapshot_digest = str(value.get("snapshot_digest") or "").strip()
+    if not revision or len(revision) > 500:
+        return None, "INVALID_IGNORED"
+    if (
+        len(snapshot_digest) != 64
+        or snapshot_digest.casefold() != snapshot_digest
+        or any(character not in "0123456789abcdef" for character in snapshot_digest)
+    ):
+        return None, "INVALID_IGNORED"
+    return {
+        epoch_field: epoch,
+        "revision": revision,
+        "snapshot_digest": snapshot_digest,
+    }, "RESOLVED_TRUSTED"
+
+
+def _dependency_authority_head_observability(raw: dict[str, Any]) -> dict[str, Any]:
+    control_head, control_status = _normalized_control_head_identity(
+        raw.get("control_head_identity"),
+        epoch_field="control_epoch",
+    )
+    rollback_head, rollback_status = _normalized_control_head_identity(
+        raw.get("rollback_head_identity"),
+        epoch_field="rollback_epoch",
+    )
+    control_digest = _digest(control_head) if control_head is not None else None
+    rollback_digest = _digest(rollback_head) if rollback_head is not None else None
+    vector_digest = (
+        _digest(
+            {
+                "control_head_identity": control_head,
+                "rollback_head_identity": rollback_head,
+            }
+        )
+        if control_head is not None or rollback_head is not None
+        else None
+    )
+    return {
+        "control_head_identity": control_head,
+        "control_head_identity_status": control_status,
+        "control_head_identity_digest": control_digest,
+        "rollback_head_identity": rollback_head,
+        "rollback_head_identity_status": rollback_status,
+        "rollback_head_identity_digest": rollback_digest,
+        "cross_worker_control_plane_head_digest": vector_digest,
+    }
+
 
 def _trusted_dependency_authority_control(
     state: dict[str, Any],
@@ -379,6 +449,7 @@ def _trusted_dependency_authority_control(
         "evaluation_time": evaluation_time,
         "rollback_requested": raw.get("rollback_requested") is True,
     }
+    head_observability = _dependency_authority_head_observability(raw)
     return control, {
         "status": "RESOLVED",
         "source": "application_runtime_deps",
@@ -386,8 +457,10 @@ def _trusted_dependency_authority_control(
         "has_runtime_activation": control["runtime_activation"] is not None,
         "has_evaluation_time": control["evaluation_time"] is not None,
         "rollback_requested": control["rollback_requested"],
+        **head_observability,
         "raw_control_exposed": False,
     }
+
 
 def build_pretool_execution_policy(
     *,
