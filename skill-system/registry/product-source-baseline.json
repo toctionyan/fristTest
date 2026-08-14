@@ -1,5 +1,5 @@
 {
-  "file_count": 574,
+  "file_count": 581,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -127,6 +127,11 @@
     "services/agent-service/src/agent_core/context/referent_sets.py": "6f35dd5fc3004e54aa8c1f46da5050725542d9064c5108143b5d8998b6d16963",
     "services/agent-service/src/agent_core/context/state_projection.py": "52a1bcf40b9d299804bf1562a21e420bd385a85793bfe8ab8161bb819e8707f7",
     "services/agent-service/src/agent_core/context/visible_result_refs.py": "c564d6f24ad7c7d9b379544924047eccb360097ca4555f2d9f5c9ed5760695cb",
+    "services/agent-service/src/agent_core/goal_graph/__init__.py": "7220bb2d3780dedf8474d60beaf5964cc5abd6968d8662a6f0b9f31a6964dbdd",
+    "services/agent-service/src/agent_core/goal_graph/capability_closure.py": "e5bad498c8933e331af76a67343e1a10b2fc4eead53033fddd6ba1177fc4c0b9",
+    "services/agent-service/src/agent_core/goal_graph/compiler.py": "80d598e470a030e4b47ac4ec54dbcee81576c2be1541db480adbcbff3c691f00",
+    "services/agent-service/src/agent_core/goal_graph/contracts.py": "25da46c2820bc3f3c268394e315043eef896a99e27b5eccf56865538503aa38e",
+    "services/agent-service/src/agent_core/goal_graph/verifier.py": "5256e4f88bcad5b1c602755228c70bb83e5efb336592ab8b65a32da56d8481cb",
     "services/agent-service/src/agent_core/kernel/__init__.py": "036840c9e82f65ddc051070bbd6cce92132cae859c72352bc01b2b34d14eccfb",
     "services/agent-service/src/agent_core/kernel/capability.py": "1ca1e19450aef8f2369f3fb3687c707bc925129b8cbfd16cde6abb93331b8d67",
     "services/agent-service/src/agent_core/kernel/capability_registry.py": "982de48072fecbe92874e08a8a95ad61d9d246676bd2dda732758e61bc61f3ef",
@@ -415,6 +420,8 @@
     "services/agent-service/tests/architecture/test_storage_persistence_boundary_scc.py": "9663dfd0ec3c4fb30bc5c16e43b94e1eaf52fea8827d56acbf8cb2145e0b70fd",
     "services/agent-service/tests/architecture/test_systemic_operational_closure.py": "b68edda731890fa500ed9756c549d45b16d974c65cfa0291d15a53584b3179c2",
     "services/agent-service/tests/architecture/test_transaction_runtime_boundary_scc.py": "987308e87fe35e62a5da9d7364971c57e74e0d739ca0d5163eb93a1fe2dc1250",
+    "services/agent-service/tests/architecture/test_typed_goal_capability_closure.py": "10c404648be0688af1e5104d9b40425c2f86bcf16fd1ea05524ecad1d133794a",
+    "services/agent-service/tests/architecture/test_typed_goal_graph_foundation.py": "0b106196503954df89d78551e149d6da0cc39e4af5df4e323bf657eec5f9dd36",
     "services/agent-service/tests/architecture/test_utils_scc_extraction.py": "ce66c7f8e99363523d351642a7558b9a75fadb3ca6d754566360942623fb05d9",
     "services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py": "94794e4256edbe41bdb211c23ab40702c18f07780d36f2bd2c89c79a6f78d79d",
     "services/agent-service/tests/architecture/test_wp08_attempt7_semantic_capability_routing.py": "7b6655673c4e3f28663e8357b67fc7856b5a0af7a6f163372ad7723ef8b34af0",
@@ -576,8 +583,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-13T15:21:37Z",
-  "generated_from": "git:ddc9d676efc7fad6507e4af1d6bc7ac52e0a4e3e",
+  "generated_at": "2026-08-14T01:08:53Z",
+  "generated_from": "git:5b2ac7fdcb959169c77df50ec03b8719945d35c1",
   "protected_roots": [
     "services",
     "web",
