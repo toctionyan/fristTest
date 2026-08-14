@@ -13,7 +13,7 @@ permissions:
 jobs:
   targeted-regressions:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - name: Checkout diagnostic carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -59,56 +59,87 @@ jobs:
           cd services/agent-service
           uv sync --locked --all-groups
 
-      - name: Reproduce pending-action regression
+      - name: Reproduce pending-action under explicit local runtime profile
         working-directory: /tmp/v2018-targeted/services/agent-service
         shell: bash
+        env:
+          APP_ENV: dev
+          APP_PROFILE: local
+          AGENT_DB_BACKEND: sqlite
+          AGENT_DATABASE_URL: sqlite:////tmp/v2018-targeted/pending-action.sqlite3
+          DATABASE_URL: sqlite:////tmp/v2018-targeted/pending-action.sqlite3
+          SQLITE_DB_PATH: /tmp/v2018-targeted/pending-action.sqlite3
+          CHECKPOINT_BACKEND: memory
+          AGENT_BUSINESS_ADAPTER: ecommerce_http
         run: |
           set -u
           export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
-          log="${RUNNER_TEMP}/pending-action.log"
+          log="${RUNNER_TEMP}/pending-action-profiled.log"
           set +e
           .venv/bin/python -B -m pytest -vv -s -p no:cacheprovider \
             tests/context/test_dialogue_counterexamples.py::test_pending_action_goal_re_presents_card_without_second_model_call \
             2>&1 | tee "$log"
           rc=${PIPESTATUS[0]}
           set -e
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/pending-action.rc"
-          echo "PENDING_ACTION_RC=$rc"
-          tail -n 160 "$log"
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/pending-action-profiled.rc"
+          echo "PENDING_ACTION_PROFILED_RC=$rc"
+          tail -n 180 "$log"
 
-      - name: Reproduce multi-target cancel hang with stack dump
+      - name: Run semantic suite sequentially in one process with stack dumps
         working-directory: /tmp/v2018-targeted/services/agent-service
         shell: bash
         run: |
           set -u
           export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
-          log="${RUNNER_TEMP}/multi-target-cancel.log"
-          node='tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_multi_target_cancel_boundary]'
+          log="${RUNNER_TEMP}/semantic-suite-sequential.log"
           set +e
-          timeout --signal=TERM 90s .venv/bin/python -X faulthandler -B -m pytest -vv -s -p no:cacheprovider \
-            -o faulthandler_timeout=20 "$node" 2>&1 | tee "$log"
+          timeout --signal=TERM 210s .venv/bin/python -X faulthandler -B -m pytest -vv -s -p no:cacheprovider \
+            -o faulthandler_timeout=20 \
+            tests/context/test_semantic_goal_coverage_suite_execution.py \
+            2>&1 | tee "$log"
           rc=${PIPESTATUS[0]}
           set -e
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/multi-target-cancel.rc"
-          echo "MULTI_TARGET_CANCEL_RC=$rc"
-          tail -n 220 "$log"
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/semantic-suite-sequential.rc"
+          echo "SEMANTIC_SUITE_SEQUENTIAL_RC=$rc"
+          tail -n 260 "$log"
+
+      - name: Run prelude plus semantic multi-target in one process
+        working-directory: /tmp/v2018-targeted/services/agent-service
+        shell: bash
+        run: |
+          set -u
+          export PYTHONPATH='/tmp/v2018-targeted/services/agent-service/src:/tmp/v2018-targeted/services/agent-service'
+          log="${RUNNER_TEMP}/prelude-plus-multitarget.log"
+          target='tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_multi_target_cancel_boundary]'
+          set +e
+          timeout --signal=TERM 180s .venv/bin/python -X faulthandler -B -m pytest -vv -s -p no:cacheprovider \
+            -o faulthandler_timeout=20 \
+            tests/context/test_dialogue_counterexamples.py \
+            tests/context/test_scenario_topology.py \
+            "$target" \
+            2>&1 | tee "$log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/prelude-plus-multitarget.rc"
+          echo "PRELUDE_PLUS_MULTITARGET_RC=$rc"
+          tail -n 300 "$log"
 
       - name: Stage targeted evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p targeted-diagnostic
-          for name in pending-action multi-target-cancel; do
-            cp -f "${RUNNER_TEMP}/${name}.log" targeted-diagnostic/ 2>/dev/null || true
-            cp -f "${RUNNER_TEMP}/${name}.rc" targeted-diagnostic/ 2>/dev/null || true
+          mkdir -p targeted-diagnostic-v2
+          for name in pending-action-profiled semantic-suite-sequential prelude-plus-multitarget; do
+            cp -f "${RUNNER_TEMP}/${name}.log" targeted-diagnostic-v2/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${name}.rc" targeted-diagnostic-v2/ 2>/dev/null || true
           done
-          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > targeted-diagnostic/candidate-source-sha.txt
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > targeted-diagnostic-v2/candidate-source-sha.txt
 
       - name: Upload targeted evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-targeted-regression-diagnostic
-          path: targeted-diagnostic
+          name: v20.18-targeted-regression-diagnostic-v2
+          path: targeted-diagnostic-v2
           if-no-files-found: error
