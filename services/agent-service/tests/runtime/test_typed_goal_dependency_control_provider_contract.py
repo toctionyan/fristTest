@@ -49,7 +49,7 @@ def test_stage4h_contract_does_not_own_main_environment_or_model_configuration()
     )
 
 
-def test_stage4i_agent_service_composition_wires_only_disabled_provider(monkeypatch) -> None:
+def test_stage4k4_agent_service_default_composition_stays_disabled(monkeypatch) -> None:
     captured = {}
 
     def fake_runtime_deps(**kwargs):
@@ -62,7 +62,9 @@ def test_stage4i_agent_service_composition_wires_only_disabled_provider(monkeypa
     monkeypatch.setenv("OPENAI_MODEL", "main-shared-model")
     monkeypatch.setenv("OPENAI_API_BASE", "https://main-shared.example.invalid")
 
+    monkeypatch.delenv("DEPENDENCY_AUTHORITY_CONTROL_MODE", raising=False)
     service = AgentService.__new__(AgentService)
+    service.store_provider = object()
     service.transactions = "transactions"
     service.trace_logger = "trace-logger"
     service.runtime_registry = SimpleNamespace(capabilities="capability-registry")
@@ -73,6 +75,7 @@ def test_stage4i_agent_service_composition_wires_only_disabled_provider(monkeypa
         service.dependency_authority_control_provider,
         DisabledDependencyAuthorityControlProvider,
     )
+    assert service.dependency_authority_control_composition.mode == "disabled"
     assert runtime_deps.transactions == "transactions"
     assert captured["capability_registry"] == "capability-registry"
     assert captured["business_port"] == "business-port"

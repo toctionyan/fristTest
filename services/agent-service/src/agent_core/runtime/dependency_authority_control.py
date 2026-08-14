@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Stage 4H provider contract with Stage 4I default-disabled composition wiring.
+"""Dependency-authority provider contract with a default-disabled control seam.
 
-This module deliberately owns no environment or model configuration. Stage 4I
-allows ``AgentService`` to wire only the explicit disabled provider into the
-Stage 4F resolver ingress; no activation record is loaded or synthesized here.
-A later production activation remains a separate, explicitly authorized change.
+This core module deliberately owns no environment, model, database, or trust-root
+configuration. Stage4K4 application composition may select the persistent signed
+provider at process startup, but the customer-serving default remains the explicit
+fail-closed disabled provider.
 """
 
 from copy import deepcopy

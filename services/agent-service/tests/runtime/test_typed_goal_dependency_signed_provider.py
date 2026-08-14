@@ -17,6 +17,9 @@ from agent_core.runtime.dependency_authority_signed_provider import (
     dependency_authority_signed_record_signing_bytes,
 )
 from app.services.agent_service import AgentService
+from app.services.dependency_authority_composition import (
+    build_dependency_authority_control_composition,
+)
 
 
 _TEST_SECRET = b"stage4k1-test-only-signing-secret"
@@ -95,16 +98,17 @@ def test_stage4k1_module_owns_no_environment_model_or_signing_secret_configurati
     assert "_TEST_SECRET" not in source
 
 
-def test_stage4k1_production_signed_provider_is_not_wired_into_agent_service() -> None:
+def test_stage4k1_signed_provider_remains_indirect_and_default_disabled(monkeypatch) -> None:
     service_source = inspect.getsource(AgentService._compose_runtime_deps)
-    assert "DisabledDependencyAuthorityControlProvider" in service_source
+    assert "build_dependency_authority_control_composition" in service_source
     assert "SignedRecordDependencyAuthorityControlProvider" not in service_source
 
-    service = AgentService.__new__(AgentService)
-    provider = DisabledDependencyAuthorityControlProvider()
-    service.dependency_authority_control_provider = provider
+    monkeypatch.delenv("DEPENDENCY_AUTHORITY_CONTROL_MODE", raising=False)
+    composition = build_dependency_authority_control_composition(
+        store_provider=object()
+    )
     assert isinstance(
-        service.dependency_authority_control_provider,
+        composition.provider,
         DisabledDependencyAuthorityControlProvider,
     )
 

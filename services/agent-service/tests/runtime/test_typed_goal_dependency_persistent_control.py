@@ -21,6 +21,7 @@ from agent_core.runtime.dependency_authority_signed_provider import (
     dependency_authority_signed_record_signing_bytes,
 )
 from app.services.agent_service import AgentService
+import app.services.dependency_authority_composition as authority_composition
 
 
 _ACTIVATION_SECRET = b"stage4k2-activation-test-only"
@@ -213,7 +214,7 @@ def _provider(engine, *, activation_source=None, rollback_source=None, rollback_
     )
 
 
-def test_stage4k2_is_not_wired_and_owns_no_environment_or_model_configuration():
+def test_stage4k4_persistent_provider_is_wired_only_through_application_composition():
     source = inspect.getsource(persistent_control)
     assert "os.getenv" not in source
     assert "get_database_settings" not in source
@@ -221,9 +222,15 @@ def test_stage4k2_is_not_wired_and_owns_no_environment_or_model_configuration():
     assert "OPENAI_MODEL" not in source
 
     service_source = inspect.getsource(AgentService._compose_runtime_deps)
-    assert "DisabledDependencyAuthorityControlProvider" in service_source
+    assert "build_dependency_authority_control_composition" in service_source
     assert "PersistentDependencyAuthorityControlProvider" not in service_source
     assert "SqlAlchemyDependencyAuthoritySignedRecordSource" not in service_source
+
+    composition_source = inspect.getsource(authority_composition)
+    assert "PersistentDependencyAuthorityControlProvider" in composition_source
+    assert "SqlAlchemyDependencyAuthoritySignedRecordSource" in composition_source
+    assert "OPENAI_API_KEY" not in composition_source
+    assert "OPENAI_MODEL" not in composition_source
 
 
 def test_persisted_activation_resolves_only_after_k1_signature_verification(engine):

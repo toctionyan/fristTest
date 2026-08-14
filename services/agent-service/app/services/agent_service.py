@@ -30,9 +30,9 @@ from agent_core.ledger import append_entries, artifact_entry, find_handle, scope
 from agent_core.transaction.active_draft import get_active_draft_id
 from agent_core.transaction.focus import get_focused_draft_id
 from agent_core.transaction.interaction import interaction_response_contract, pending_transaction_summaries_from_state
-from agent_core.runtime.dependency_authority_control import (
-    DisabledDependencyAuthorityControlProvider,
-    dependency_authority_control_resolver,
+from agent_core.runtime.dependency_authority_control import dependency_authority_control_resolver
+from app.services.dependency_authority_composition import (
+    build_dependency_authority_control_composition,
 )
 from agent_core.runtime.deps import lifecycle_runtime_deps
 from agent_core.config import clear_checkpointer_cache
@@ -44,8 +44,12 @@ class AgentService:
     _turn_locks: dict[str, RLock] = {}
 
     def _compose_runtime_deps(self):
-        """Wire the trusted control seam while keeping production authority disabled."""
-        provider = DisabledDependencyAuthorityControlProvider()
+        """Compose dependency authority once; the customer-serving default stays disabled."""
+        composition = build_dependency_authority_control_composition(
+            store_provider=self.store_provider,
+        )
+        provider = composition.provider
+        self.dependency_authority_control_composition = composition
         self.dependency_authority_control_provider = provider
         return lifecycle_runtime_deps(
             transactions=self.transactions,
