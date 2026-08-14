@@ -1,0 +1,84 @@
+name: stage4k4-final-exact-head-dispatch-once
+
+on:
+  push:
+    branches:
+      - feat/stage4k4-production-composition-disabled-20260814
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  finalize-and-dispatch:
+    if: github.repository == 'toctionyan/fristTest' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Stage4K4 branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: feat/stage4k4-production-composition-disabled-20260814
+
+      - name: Verify Stage4K4 product tree before finalization
+        env:
+          BASE_SHA: d6ba4b034bb677ddadc817f599dc3a536b976d12
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "${BASE_SHA}" HEAD
+          python - <<'PY'
+          import subprocess
+
+          expected = {
+              'services/agent-service/.env.example',
+              'services/agent-service/app/services/agent_service.py',
+              'services/agent-service/app/services/dependency_authority_composition.py',
+              'services/agent-service/app/services/readiness_service.py',
+              'services/agent-service/pyproject.toml',
+              'services/agent-service/requirements.txt',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_control.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_persistent_control.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_signed_provider.py',
+              'services/agent-service/uv.lock',
+              'skill-system/registry/product-source-baseline.json',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', 'd6ba4b034bb677ddadc817f599dc3a536b976d12..HEAD', '--', 'services', 'web', 'contracts', 'skill-system/registry/product-source-baseline.json'],
+              text=True,
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit('unexpected_stage4k4_product_tree:' + ','.join(sorted(changed)))
+          PY
+
+      - name: Remove dispatcher and publish exact final head
+        id: final
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/stage4k4-final-exact-head-dispatch-once.yml
+          git diff --cached --check
+          git commit -m "Finalize Stage4K4 exact-head verification source"
+          git push origin HEAD:feat/stage4k4-production-composition-disabled-20260814
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch exact-head Quality and Skill verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: feat/stage4k4-production-composition-disabled-20260814
+        run: |
+          set -euo pipefail
+          for workflow in quality.yml skill-self-validation.yml; do
+            curl --fail-with-body -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
+              -d "{\"ref\":\"${BRANCH}\"}"
+          done
+          printf 'dispatched_exact_head=%s\n' "${{ steps.final.outputs.sha }}"
