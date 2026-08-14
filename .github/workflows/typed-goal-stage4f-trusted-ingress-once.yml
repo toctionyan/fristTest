@@ -1,0 +1,569 @@
+name: typed-goal-stage4f-trusted-ingress-once
+
+on:
+  push:
+    branches:
+      - feat/typed-goal-graph-foundation-20260814
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  stage4f:
+    runs-on: ubuntu-24.04
+    if: github.repository == 'toctionyan/fristTest'
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          ref: feat/typed-goal-graph-foundation-20260814
+
+      - name: Verify frozen Stage4E parent and one-shot surface
+        env:
+          BASE_SHA: 7395bd5fb9be8ae6f7f356702349b99a59cc6cbc
+          WORKFLOW_PATH: .github/workflows/typed-goal-stage4f-trusted-ingress-once.yml
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          python - <<'PY'
+          import os, subprocess
+          base = os.environ['BASE_SHA']
+          expected = {os.environ['WORKFLOW_PATH']}
+          changed = set(filter(None, subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}..HEAD'], text=True
+          ).splitlines()))
+          if changed != expected:
+              raise SystemExit('unexpected_pre_stage4f_surface:' + ','.join(sorted(changed)))
+          print({'status': 'PASS', 'changed': sorted(changed)})
+          PY
+
+      - name: Patch trusted application activation ingress fail-closed
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'replace_count:{path}:{count}')
+              target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # Runtime composition owns the only callable ingress. It is absent by
+          # default; no environment/user/model field can activate it implicitly.
+          replace_once(
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              '''    model_resolver: Callable[[], Any] | None = None\n''',
+              '''    model_resolver: Callable[[], Any] | None = None\n    # Stage 4F: trusted application-composition ingress for dependency-authority\n    # control. None is the production default. The resolver is a Python callable\n    # supplied by composition, never checkpoint/user/model data.\n    dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None\n''',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              '''    model_resolver: Callable[[], Any] | None = None,\n) -> LifecycleRuntimeDeps:\n''',
+              '''    model_resolver: Callable[[], Any] | None = None,\n    dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None,\n) -> LifecycleRuntimeDeps:\n''',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              '''        model_resolver=model_resolver,\n    )\n''',
+              '''        model_resolver=model_resolver,\n        dependency_authority_control_resolver=dependency_authority_control_resolver,\n    )\n''',
+          )
+
+          # Graph only transports the application-owned resolver to the node.
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/graph.py',
+              '''            model_resolver=runtime_deps.model_resolver,\n        ),\n''',
+              '''            model_resolver=runtime_deps.model_resolver,\n            dependency_authority_control_resolver=runtime_deps.dependency_authority_control_resolver,\n        ),\n''',
+          )
+
+          # The node strips any checkpoint/user-provided value under the private
+          # key before injecting the callable from RuntimeDeps. Non-callables are
+          # never forwarded.
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/nodes.py',
+              '''from agent_core.lifecycle.dialogue_runtime import agent_loop_node as _dialogue_agent_loop_node\n''',
+              '''from agent_core.lifecycle.dialogue_runtime import agent_loop_node as _dialogue_agent_loop_node\nfrom agent_core.lifecycle.pretool_execution_policy import (\n    TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY,\n)\n''',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/nodes.py',
+              '''    capability_registry: CapabilityRegistry,\n    model_resolver: Callable[[], Any] = get_model,\n) -> dict[str, Any]:\n    \"\"\"Thin node wrapper retaining the explicit model injection seam.\"\"\"\n    return _dialogue_agent_loop_node(\n        state,\n        context_bundle_builder=context_bundle_builder,\n        capability_registry=capability_registry,\n        model_resolver=model_resolver,\n    )\n''',
+              '''    capability_registry: CapabilityRegistry,\n    model_resolver: Callable[[], Any] = get_model,\n    dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None,\n) -> dict[str, Any]:\n    \"\"\"Thin node wrapper retaining explicit model and authority-control seams.\n\n    Checkpoint/user/model state is never trusted as dependency-activation\n    authority. The private key is stripped on every call and can only be\n    reintroduced as an in-process callable supplied by LifecycleRuntimeDeps.\n    \"\"\"\n    runtime_state = dict(state)\n    runtime_state.pop(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY, None)\n    if callable(dependency_authority_control_resolver):\n        runtime_state[TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] = (\n            dependency_authority_control_resolver\n        )\n    return _dialogue_agent_loop_node(\n        runtime_state,\n        context_bundle_builder=context_bundle_builder,\n        capability_registry=capability_registry,\n        model_resolver=model_resolver,\n    )\n''',
+          )
+
+          # Pre-tool policy consumes only a callable ingress. A JSON/dict value
+          # under the private state key is explicitly ignored. Resolver errors,
+          # malformed payloads and bad times all fail closed to selector defaults.
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              '''PRETOOL_EXECUTION_POLICY_VERSION = \"pretool-execution-policy@1\"\nTYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION = \"typed-dependency-authority-shadow@1\"\n''',
+              '''PRETOOL_EXECUTION_POLICY_VERSION = \"pretool-execution-policy@1\"\nTYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION = \"typed-dependency-authority-shadow@1\"\nTRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY = (\n    \"_trusted_dependency_authority_control_resolver\"\n)\n''',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              '''    This is migration evidence only. The current provider frontier continues to\n    use ``depends_on_goal_ids`` until a later explicit authority cutover.\n''',
+              '''    This is migration evidence only. Stage 4E's separate runtime selector owns\n    any explicit authority choice; the shadow itself never changes enforcement.\n''',
+          )
+          helper = r'''
+
+def _trusted_dependency_authority_control(
+    state: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve application-owned authority control without trusting state data.
+
+    Only an in-process callable injected by ``LifecycleRuntimeDeps`` is accepted.
+    JSON/checkpoint/user/model values cannot satisfy ``callable`` and are ignored.
+    Raw grant/preflight records are never copied into the observable ingress
+    summary; the downstream selector validates all sealed records independently.
+    """
+
+    resolver = state.get(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY)
+    if resolver is None:
+        return {}, {
+            "status": "DISABLED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    if not callable(resolver):
+        return {}, {
+            "status": "UNTRUSTED_STATE_VALUE_IGNORED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    try:
+        raw = resolver()
+    except Exception as exc:
+        return {}, {
+            "status": "RESOLVER_ERROR_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "error_type": exc.__class__.__name__,
+            "raw_control_exposed": False,
+        }
+    if raw is None:
+        return {}, {
+            "status": "NO_CONTROL_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    if not isinstance(raw, dict):
+        return {}, {
+            "status": "INVALID_CONTROL_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+
+    evaluation_time = raw.get("evaluation_time")
+    if evaluation_time is not None:
+        try:
+            evaluation_time = float(evaluation_time)
+        except (TypeError, ValueError):
+            evaluation_time = None
+    control = {
+        "activation_preflight": (
+            deepcopy(raw.get("activation_preflight"))
+            if isinstance(raw.get("activation_preflight"), dict)
+            else None
+        ),
+        "runtime_activation": (
+            deepcopy(raw.get("runtime_activation"))
+            if isinstance(raw.get("runtime_activation"), dict)
+            else None
+        ),
+        "evaluation_time": evaluation_time,
+        "rollback_requested": raw.get("rollback_requested") is True,
+    }
+    return control, {
+        "status": "RESOLVED",
+        "source": "application_runtime_deps",
+        "has_activation_preflight": control["activation_preflight"] is not None,
+        "has_runtime_activation": control["runtime_activation"] is not None,
+        "has_evaluation_time": control["evaluation_time"] is not None,
+        "rollback_requested": control["rollback_requested"],
+        "raw_control_exposed": False,
+    }
+'''
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              '\ndef build_pretool_execution_policy(\n',
+              helper + '\ndef build_pretool_execution_policy(\n',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              '''    dependency_runtime_selection = select_runtime_dependency_authority(\n        preflight=dependency_activation_preflight,\n        activation=dependency_runtime_activation,\n        current_identity=dependency_current_identity,\n        evaluation_time=dependency_authority_evaluation_time,\n        rollback_requested=dependency_authority_rollback_requested,\n    )\n''',
+              '''    dependency_authority_control, dependency_authority_ingress = (\n        _trusted_dependency_authority_control(state)\n    )\n    if dependency_activation_preflight is None:\n        dependency_activation_preflight = dependency_authority_control.get(\n            \"activation_preflight\"\n        )\n    if dependency_runtime_activation is None:\n        dependency_runtime_activation = dependency_authority_control.get(\n            \"runtime_activation\"\n        )\n    if dependency_authority_evaluation_time is None:\n        dependency_authority_evaluation_time = dependency_authority_control.get(\n            \"evaluation_time\"\n        )\n    dependency_authority_rollback_requested = bool(\n        dependency_authority_rollback_requested\n        or dependency_authority_control.get(\"rollback_requested\") is True\n    )\n    dependency_runtime_selection = select_runtime_dependency_authority(\n        preflight=dependency_activation_preflight,\n        activation=dependency_runtime_activation,\n        current_identity=dependency_current_identity,\n        evaluation_time=dependency_authority_evaluation_time,\n        rollback_requested=dependency_authority_rollback_requested,\n    )\n''',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              '''        \"selected_dependency_authority\": selected_dependency_authority,\n        \"dependency_runtime_authority_selection\": dependency_runtime_selection,\n''',
+              '''        \"selected_dependency_authority\": selected_dependency_authority,\n        \"dependency_runtime_authority_selection\": dependency_runtime_selection,\n        \"dependency_authority_ingress\": dependency_authority_ingress,\n''',
+          )
+
+          test_path = Path('services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py')
+          if test_path.exists():
+              raise SystemExit('stage4f_test_already_exists')
+          test_path.write_text(r'''from __future__ import annotations
+
+import inspect
+
+from agent_core.goal_graph.cutover_gate import (
+    LEGACY_DEPENDENCY_AUTHORITY,
+    TYPED_DEPENDENCY_AUTHORITY,
+)
+from agent_core.lifecycle.pretool_execution_policy import (
+    TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY,
+    build_pretool_execution_policy,
+)
+from agent_core.runtime.deps import lifecycle_runtime_deps
+from app.services.agent_service import AgentService
+from tests.runtime.test_pretool_execution_policy import _contract, _goal, _registry
+from tests.runtime.test_typed_goal_dependency_runtime_authority import (
+    _identity,
+    _ready_preflight,
+    _runtime_activation,
+)
+
+
+def _policy_fixture():
+    contract = _contract([_goal("details", domain="order", operation="query_details")])
+    state = {
+        "frozen_semantic_contract": contract,
+        "current_tenant_id": "tenant-1",
+        "current_user_id": "u001",
+        "current_thread_id": "web-u001-stage4f",
+        "goal_records": [],
+    }
+    registry = _registry()
+    baseline = build_pretool_execution_policy(
+        state=state,
+        capability_registry=registry,
+    )
+    return state, registry, baseline
+
+
+def test_default_runtime_composition_has_no_activation_control_resolver() -> None:
+    parameter = inspect.signature(lifecycle_runtime_deps).parameters[
+        "dependency_authority_control_resolver"
+    ]
+    assert parameter.default is None
+    assert "dependency_authority_control_resolver=" not in inspect.getsource(
+        AgentService.__init__
+    )
+
+
+def test_untrusted_checkpoint_value_cannot_activate_dependency_authority() -> None:
+    state, registry, _baseline = _policy_fixture()
+    state[TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] = {
+        "runtime_activation": {"status": "ACTIVATED"},
+        "evaluation_time": 1000.0,
+    }
+
+    policy = build_pretool_execution_policy(
+        state=state,
+        capability_registry=registry,
+    )
+
+    assert policy["selected_dependency_authority"] == LEGACY_DEPENDENCY_AUTHORITY
+    assert policy["dependency_runtime_authority_selection"]["status"] == "LEGACY_DEFAULT"
+    assert policy["dependency_authority_ingress"]["status"] == "UNTRUSTED_STATE_VALUE_IGNORED"
+    assert policy["dependency_authority_ingress"]["raw_control_exposed"] is False
+
+
+def test_trusted_runtime_resolver_can_feed_exact_stage4e_selector_without_widening_tools() -> None:
+    state, registry, baseline = _policy_fixture()
+    attestation = baseline["typed_dependency_authority_attestation"]
+    preflight = _ready_preflight(attestation)
+    activation = _runtime_activation(attestation=attestation, preflight=preflight)
+
+    def resolve_control():
+        return {
+            "activation_preflight": preflight,
+            "runtime_activation": activation,
+            "evaluation_time": 1000.0,
+            "rollback_requested": False,
+        }
+
+    activated = build_pretool_execution_policy(
+        state={
+            **state,
+            TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: resolve_control,
+        },
+        capability_registry=registry,
+    )
+
+    assert activated["selected_dependency_authority"] == TYPED_DEPENDENCY_AUTHORITY
+    assert activated["dependency_runtime_authority_selection"]["status"] == "TYPED_AUTHORITY_ACTIVE"
+    assert activated["allowed_capability_tools"] == baseline["allowed_capability_tools"]
+    assert activated["creates_permit"] is False
+    assert activated["dispatches_tools"] is False
+    assert activated["dependency_authority_ingress"] == {
+        "status": "RESOLVED",
+        "source": "application_runtime_deps",
+        "has_activation_preflight": True,
+        "has_runtime_activation": True,
+        "has_evaluation_time": True,
+        "rollback_requested": False,
+        "raw_control_exposed": False,
+    }
+
+
+def test_trusted_resolver_error_fails_closed_without_exposing_exception_text() -> None:
+    state, registry, _baseline = _policy_fixture()
+
+    def broken_control():
+        raise RuntimeError("do-not-project-this-secret")
+
+    policy = build_pretool_execution_policy(
+        state={
+            **state,
+            TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: broken_control,
+        },
+        capability_registry=registry,
+    )
+
+    assert policy["selected_dependency_authority"] == LEGACY_DEPENDENCY_AUTHORITY
+    ingress = policy["dependency_authority_ingress"]
+    assert ingress["status"] == "RESOLVER_ERROR_FAIL_CLOSED"
+    assert ingress["error_type"] == "RuntimeError"
+    assert "do-not-project-this-secret" not in str(ingress)
+
+
+def test_trusted_resolver_rollback_reselects_legacy_single_authority() -> None:
+    state, registry, baseline = _policy_fixture()
+    attestation = baseline["typed_dependency_authority_attestation"]
+    preflight = _ready_preflight(attestation)
+    activation = _runtime_activation(attestation=attestation, preflight=preflight)
+
+    policy = build_pretool_execution_policy(
+        state={
+            **state,
+            TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: lambda: {
+                "activation_preflight": preflight,
+                "runtime_activation": activation,
+                "evaluation_time": 1000.0,
+                "rollback_requested": True,
+            },
+        },
+        capability_registry=registry,
+    )
+
+    selection = policy["dependency_runtime_authority_selection"]
+    assert policy["selected_dependency_authority"] == LEGACY_DEPENDENCY_AUTHORITY
+    assert selection["status"] == "ROLLED_BACK_TO_LEGACY"
+    assert selection["selected_authority_count"] == 1
+    assert selection["runtime_reversion_performed"] is True
+
+
+def test_agent_loop_wrapper_strips_state_injected_resolver_and_only_accepts_runtime_dep(monkeypatch) -> None:
+    import agent_core.lifecycle.nodes as nodes
+
+    captured = []
+
+    def fake_dialogue(state, **_kwargs):
+        captured.append(state)
+        return {"status": "captured"}
+
+    monkeypatch.setattr(nodes, "_dialogue_agent_loop_node", fake_dialogue)
+    attacker = lambda: {"runtime_activation": {"status": "ACTIVATED"}}
+
+    nodes.agent_loop_node(
+        {TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: attacker},
+        context_bundle_builder=object(),
+        capability_registry=object(),
+        model_resolver=lambda: object(),
+    )
+    assert TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY not in captured[-1]
+
+    trusted = lambda: None
+    nodes.agent_loop_node(
+        {TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: attacker},
+        context_bundle_builder=object(),
+        capability_registry=object(),
+        model_resolver=lambda: object(),
+        dependency_authority_control_resolver=trusted,
+    )
+    assert captured[-1][TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] is trusted
+''', encoding='utf-8')
+          PY
+
+          python -m compileall -q \
+            services/agent-service/src/agent_core/runtime/deps.py \
+            services/agent-service/src/agent_core/lifecycle/graph.py \
+            services/agent-service/src/agent_core/lifecycle/nodes.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py
+
+          python - <<'PY'
+          import subprocess
+          expected = {
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              'services/agent-service/src/agent_core/lifecycle/graph.py',
+              'services/agent-service/src/agent_core/lifecycle/nodes.py',
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py',
+          }
+          changed = set(filter(None, subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()))
+          if changed != expected:
+              raise SystemExit('unexpected_stage4f_patch_surface:' + ','.join(sorted(changed)))
+          print({'status': 'PASS', 'changed': sorted(changed)})
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: |
+          "${pythonLocation}/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Run Stage4F targeted regressions before source freeze
+        run: |
+          cd services/agent-service
+          uv sync --locked --all-groups
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_typed_goal_dependency_activation_ingress.py \
+            tests/runtime/test_typed_goal_dependency_runtime_authority.py \
+            tests/runtime/test_pretool_execution_policy.py
+
+      - name: Freeze Stage4F protected source commit
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/src/agent_core/runtime/deps.py \
+            services/agent-service/src/agent_core/lifecycle/graph.py \
+            services/agent-service/src/agent_core/lifecycle/nodes.py \
+            services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py
+          git diff --cached --check
+          git commit -m "Add trusted Stage4F dependency authority ingress seam"
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Refresh Stage4F protected baseline fail-closed
+        env:
+          BASE_SHA: 7395bd5fb9be8ae6f7f356702349b99a59cc6cbc
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          source_sha = os.environ['SOURCE_SHA'].strip()
+          base_sha = os.environ['BASE_SHA'].strip()
+          if len(source_sha) != 40:
+              raise SystemExit('source_sha_identity_missing')
+          subprocess.run(['git', 'merge-base', '--is-ancestor', base_sha, source_sha], check=True)
+          protected_diff = subprocess.run(
+              ['git', 'diff', '--quiet', f'{source_sha}..HEAD', '--', 'services', 'web', 'contracts'],
+              check=False,
+          )
+          if protected_diff.returncode != 0:
+              raise SystemExit('protected_sources_changed_after_frozen_source_sha')
+
+          expected_changed = {
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              'services/agent-service/src/agent_core/lifecycle/graph.py',
+              'services/agent-service/src/agent_core/lifecycle/nodes.py',
+              'services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py',
+          }
+          expected_added = {
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py',
+          }
+          actual_protected = set(filter(None, subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base_sha}..{source_sha}', '--', 'services', 'web', 'contracts'],
+              text=True,
+          ).splitlines()))
+          if actual_protected != expected_changed | expected_added:
+              raise SystemExit('unexpected_source_protected_surface:' + ','.join(sorted(actual_protected)))
+
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          previous = {str(k): str(v) for k, v in (payload.get('files') or {}).items()}
+          if int(payload.get('file_count') or 0) != 593 or len(previous) != 593:
+              raise SystemExit(f"unexpected_previous_baseline:{payload.get('file_count')}/{len(previous)}")
+          protected_roots = tuple(str(v) for v in payload.get('protected_roots') or ())
+          if protected_roots != ('services', 'web', 'contracts'):
+              raise SystemExit(f'unexpected_protected_roots:{protected_roots!r}')
+
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots])
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          if len(current) != 594:
+              raise SystemExit(f'unexpected_protected_file_count:{len(current)}')
+
+          changed = {path for path in set(current) & set(previous) if current[path] != previous[path]}
+          added = set(current) - set(previous)
+          removed = set(previous) - set(current)
+          if changed != expected_changed:
+              raise SystemExit('unexpected_changed_existing:' + ','.join(sorted(changed)))
+          if added != expected_added:
+              raise SystemExit('unexpected_added:' + ','.join(sorted(added)))
+          if removed:
+              raise SystemExit('unexpected_removed:' + ','.join(sorted(removed)))
+
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['generated_from'] = 'git:' + source_sha
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({
+              'status': 'PASS',
+              'file_count': len(current),
+              'generated_from': payload['generated_from'],
+              'changed': sorted(changed),
+              'added': sorted(added),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify baseline and cumulative authority regressions
+        run: |
+          python skill-system/tests/test_product_source_baseline_binding.py
+          cd services/agent-service
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_pretool_execution_policy.py \
+            tests/runtime/test_typed_goal_dependency_authority_shadow.py \
+            tests/runtime/test_typed_goal_dependency_cutover_gate.py \
+            tests/runtime/test_typed_goal_dependency_handoff_simulation.py \
+            tests/runtime/test_typed_goal_dependency_activation_preflight.py \
+            tests/runtime/test_typed_goal_dependency_runtime_authority.py \
+            tests/runtime/test_typed_goal_dependency_activation_ingress.py
+
+      - name: Commit baseline, remove one-shot workflow, and push
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/typed-goal-stage4f-trusted-ingress-once.yml
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m "Refresh typed goal Stage4F protected baseline"
+          git push origin HEAD:feat/typed-goal-graph-foundation-20260814
+          echo "FINAL_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Dispatch final exact-SHA verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for workflow in quality.yml skill-self-validation.yml; do
+            curl --fail-with-body -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
+              -d '{"ref":"feat/typed-goal-graph-foundation-20260814"}'
+          done
+          echo "Stage4F final SHA: ${FINAL_SHA}"
