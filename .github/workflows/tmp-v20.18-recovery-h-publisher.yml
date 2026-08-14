@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-closure-d2
+name: tmp-v20.18-governance-recovery-closure-d2b-export
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  closure-d2-verify-and-close:
+  closure-d2b-export-bound-governance:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -34,13 +34,14 @@ jobs:
       - name: Reproduce D1d then deterministically verify and close successor
         run: python3 -B .github/recovery_d2_runner.py
 
-      - name: Stage Closure-D2 evidence
+      - name: Stage Closure-D2b bound governance evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          out="${GITHUB_WORKSPACE}/recovery-d2-artifact"
+          out="${GITHUB_WORKSPACE}/recovery-d2b-artifact"
           rm -rf "$out" && mkdir -p "$out"
+          old='migration-v20.18-semantic-single-writer-output-coverage'
           successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
           cp "${RUNNER_TEMP}/recovery-d2-summary.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-d2-contract-verify.log" "$out/" 2>/dev/null || true
@@ -50,16 +51,44 @@ jobs:
           cp "${RUNNER_TEMP}/recovery-h3-readonly-diff-proof.json" "$out/" 2>/dev/null || true
           cp -a "${RUNNER_TEMP}/recovery-h3-focused" "$out/focused-pre-closure" 2>/dev/null || true
           cp /tmp/v2018-baseline/governance/active-change.json "$out/successor-closed-contract.json" 2>/dev/null || true
+          cp -a /tmp/v2018-baseline/governance/change-history/${old} "$out/predecessor-change-history" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/replan-evidence/v20.18-invalid-frozen-target.json "$out/predecessor-replan-evidence.json" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/targets/${successor}.md "$out/successor-target.md" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/claims/${successor}.json "$out/successor-claim.json" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/decisions/${successor}.json "$out/successor-decision.json" 2>/dev/null || true
           cp -a /tmp/v2018-baseline/governance/repair-cases/${successor} "$out/successor-repair-case" 2>/dev/null || true
           cp -a /tmp/v2018-baseline/.quality/product-control-plane/${successor} "$out/product-control-plane" 2>/dev/null || true
           cp -a /tmp/v2018-baseline/.quality/profile-runs "$out/profile-runs" 2>/dev/null || true
           quick="$(cat "${RUNNER_TEMP}/quick-summary-path.txt" 2>/dev/null || true)"
           if [ -n "$quick" ] && [ -f "/tmp/v2018-baseline/$quick" ]; then cp "/tmp/v2018-baseline/$quick" "$out/quick-run-summary.json"; fi
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          out=Path('recovery-d2b-artifact')
+          closed=json.loads((out/'successor-closed-contract.json').read_text())
+          replan=out/'predecessor-change-history/replan.json'
+          assert replan.is_file()
+          sha=hashlib.sha256(replan.read_bytes()).hexdigest()
+          assert closed['replan_record_sha256']==sha, (closed['replan_record_sha256'], sha)
+          before=json.loads((out/'predecessor-change-history/contract-before-replan.json').read_text())
+          assert before['change_id']=='migration-v20.18-semantic-single-writer-output-coverage'
+          assert before['status']=='implementing' and before['result']=='PENDING'
+          assert closed['status']=='closed' and closed['result']=='CONVERGED'
+          (out/'bound-export-summary.json').write_text(json.dumps({
+              'schema_version':1,
+              'status':'PASS',
+              'predecessor_contract_before_sha256':hashlib.sha256((out/'predecessor-change-history/contract-before-replan.json').read_bytes()).hexdigest(),
+              'replan_record_sha256':sha,
+              'closed_contract_replan_record_sha256':closed['replan_record_sha256'],
+              'successor_status':closed['status'],
+              'successor_result':closed['result'],
+          },indent=2)+'\n')
+          PY
 
-      - name: Upload Closure-D2 evidence
+      - name: Upload Closure-D2b bound governance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-closure-d2
-          path: recovery-d2-artifact
+          name: v20.18-governance-recovery-closure-d2b-bound-export
+          path: recovery-d2b-artifact
           if-no-files-found: error
