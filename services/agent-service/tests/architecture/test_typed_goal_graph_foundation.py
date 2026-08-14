@@ -595,3 +595,15 @@ def test_one_input_cannot_have_verified_binding_and_verified_edge_as_parallel_au
     closure = dataflow_closure(graph)
     assert closure["ok"] is False
     assert any(error.startswith("REQUIRED_INPUT_MULTIPLE_AUTHORITIES:g2:") for error in closure["errors"])
+
+
+def test_graph_scope_must_be_complete_and_cannot_validate_as_all_empty() -> None:
+    graph = compile_frozen_semantic_contract(
+        _contract([_goal("g1", "order.collection", cardinality="collection")]),
+        scope={},
+    )
+    check = graph_structural_integrity(graph)
+    assert check["ok"] is False
+    assert "GOAL_GRAPH_SCOPE_REQUIRED:tenant_id" in check["errors"]
+    assert "GOAL_GRAPH_SCOPE_REQUIRED:user_id" in check["errors"]
+    assert "GOAL_GRAPH_SCOPE_REQUIRED:thread_id" in check["errors"]

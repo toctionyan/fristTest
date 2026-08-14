@@ -44,6 +44,37 @@ def _digest(value: Any) -> str:
     return sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _authority_matches(required: str, actual: str) -> bool:
+    required_value = _text(required, limit=200)
+    actual_value = _text(actual, limit=200)
+    return bool(required_value and actual_value and required_value == actual_value)
+
+
+def _freshness_reason(
+    *,
+    freshness_seconds: int | None,
+    expires_at: Any,
+    evaluation_time: float | None,
+) -> str | None:
+    if freshness_seconds is None:
+        return None
+    try:
+        required_seconds = int(freshness_seconds)
+    except (TypeError, ValueError):
+        return "INPUT_FRESHNESS_CONTRACT_INVALID"
+    if required_seconds <= 0:
+        return "INPUT_FRESHNESS_CONTRACT_INVALID"
+    if evaluation_time is None:
+        return "FRESHNESS_EVALUATION_TIME_REQUIRED"
+    try:
+        expiry = float(expires_at)
+    except (TypeError, ValueError):
+        return "INPUT_FRESHNESS_PROOF_REQUIRED"
+    if expiry <= 0:
+        return "INPUT_FRESHNESS_PROOF_REQUIRED"
+    return "INPUT_EVIDENCE_EXPIRED" if float(evaluation_time) >= expiry else None
+
+
 def _goal_index(graph: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
         _text(row.get("goal_id"), limit=200): row
@@ -119,6 +150,8 @@ def _target_evidence(goal: dict[str, Any], graph: dict[str, Any]) -> dict[str, A
                 "cardinality": normalize_cardinality(binding.get("cardinality")),
                 "logical_type_name": None,
                 "proof_ref": _text(binding.get("binding_digest"), limit=256),
+                "authority_by_source": {source: "authoritative" for source in source_types},
+                "expires_at": None,
                 "provenance": "verified_target_binding",
             }
         )
@@ -139,6 +172,11 @@ def _target_evidence(goal: dict[str, Any], graph: dict[str, Any]) -> dict[str, A
                 "cardinality": normalize_cardinality(artifact.get("cardinality")),
                 "logical_type_name": _text(artifact.get("type_name"), limit=240) or None,
                 "proof_ref": _text(edge.get("edge_id"), limit=500),
+                "authority_by_source": {
+                    "capability_output": _text(artifact.get("authority"), limit=200),
+                    "target_resolver": "authoritative",
+                },
+                "expires_at": artifact.get("expires_at"),
                 "provenance": "verified_dataflow_edge",
             }
         )
@@ -169,6 +207,8 @@ def _target_evidence(goal: dict[str, Any], graph: dict[str, Any]) -> dict[str, A
         "resource_type": authority["resource_type"] or None,
         "cardinality": authority["cardinality"],
         "logical_type_name": authority.get("logical_type_name"),
+        "authority_by_source": deepcopy(authority.get("authority_by_source") or {}),
+        "expires_at": authority.get("expires_at"),
         "proof_refs": [authority["proof_ref"]] if authority.get("proof_ref") else [],
         "provenance": authority["provenance"],
     }
@@ -210,7 +250,14 @@ def _prove_target_contract(goal: dict[str, Any], graph: dict[str, Any], target_c
             )
             if selected_source is None:
                 reasons.append("CAPABILITY_TARGET_BINDING_SOURCE_MISMATCH")
-            evidence = {**evidence, "selected_source_type": selected_source}
+            selected_authority = _text(
+                (evidence.get("authority_by_source") or {}).get(selected_source), limit=200
+            ) if selected_source else ""
+            evidence = {
+                **evidence,
+                "selected_source_type": selected_source,
+                "selected_authority": selected_authority or None,
+            }
 
     return {
         "ok": not reasons,
@@ -268,6 +315,7 @@ def _prove_required_inputs(
     planning_contract: Any,
     target_proof: dict[str, Any],
     available_input_evidence: tuple[dict[str, Any], ...],
+    evaluation_time: float | None,
 ) -> dict[str, Any]:
     goal_id = _text(goal.get("goal_id"), limit=200)
     target_sources = {
@@ -289,9 +337,13 @@ def _prove_required_inputs(
             for value in tuple(getattr(required, "source_types", ()) or ())
             if _text(value, limit=120)
         }
+        required_authority = _text(getattr(required, "authority", ""), limit=200)
+        required_freshness = getattr(required, "freshness_seconds", None)
         status = "UNPROVEN"
         proof_refs: list[str] = []
         reason = "REQUIRED_INPUT_NOT_BOUND"
+        evidence_authority = ""
+        evidence_expires_at: Any = None
 
         # A capability may name its target input differently (for example
         # ``target_binding``).  The structural relation is declared by the
@@ -306,26 +358,44 @@ def _prove_required_inputs(
             and selected_target_source in sources
         )
         if target_can_supply_input:
-            target_logical_type = _text(
-                (target_proof.get("evidence") or {}).get("logical_type_name"), limit=240
-            )
-            if (
-                target_proof.get("ok")
-                and (selected_target_source != "capability_output" or target_logical_type == type_name)
-            ):
-                status = "SATISFIED_BY_TARGET"
-                proof_refs = list((target_proof.get("evidence") or {}).get("proof_refs") or [])
-                reason = "TARGET_CONTRACT_PROOF"
-            elif target_proof.get("ok") and selected_target_source == "capability_output":
-                reason = "TARGET_CAPABILITY_OUTPUT_TYPE_MISMATCH"
-            else:
+            target_evidence = target_proof.get("evidence") or {}
+            target_logical_type = _text(target_evidence.get("logical_type_name"), limit=240)
+            evidence_authority = _text(target_evidence.get("selected_authority"), limit=200)
+            evidence_expires_at = target_evidence.get("expires_at")
+            if not target_proof.get("ok"):
                 reason = "TARGET_CONTRACT_NOT_CLOSED"
+            elif selected_target_source == "capability_output" and target_logical_type != type_name:
+                reason = "TARGET_CAPABILITY_OUTPUT_TYPE_MISMATCH"
+            elif not _authority_matches(required_authority, evidence_authority):
+                reason = "TARGET_INPUT_AUTHORITY_MISMATCH"
+            elif (freshness_reason := _freshness_reason(
+                freshness_seconds=required_freshness,
+                expires_at=evidence_expires_at,
+                evaluation_time=evaluation_time,
+            )) is not None:
+                reason = freshness_reason
+            else:
+                status = "SATISFIED_BY_TARGET"
+                proof_refs = list(target_evidence.get("proof_refs") or [])
+                reason = "TARGET_CONTRACT_PROOF"
         elif sources & _UPSTREAM_INPUT_SOURCES:
             matches = _matching_upstream_edges(graph, goal_id=goal_id, type_name=type_name)
             if len(matches) == 1:
-                status = "SATISFIED_BY_UPSTREAM_OUTPUT"
-                proof_refs = [_text(matches[0].get("edge_id"), limit=500)]
-                reason = "EXACT_TYPED_UPSTREAM_OUTPUT"
+                artifact = matches[0].get("artifact_ref") if isinstance(matches[0].get("artifact_ref"), dict) else {}
+                evidence_authority = _text(artifact.get("authority"), limit=200)
+                evidence_expires_at = artifact.get("expires_at")
+                if not _authority_matches(required_authority, evidence_authority):
+                    reason = "UPSTREAM_INPUT_AUTHORITY_MISMATCH"
+                elif (freshness_reason := _freshness_reason(
+                    freshness_seconds=required_freshness,
+                    expires_at=evidence_expires_at,
+                    evaluation_time=evaluation_time,
+                )) is not None:
+                    reason = freshness_reason
+                else:
+                    status = "SATISFIED_BY_UPSTREAM_OUTPUT"
+                    proof_refs = [_text(matches[0].get("edge_id"), limit=500)]
+                    reason = "EXACT_TYPED_UPSTREAM_OUTPUT"
             elif len(matches) > 1:
                 reason = "MULTIPLE_UPSTREAM_INPUT_AUTHORITIES"
             else:
@@ -338,9 +408,20 @@ def _prove_required_inputs(
                 available_input_evidence=available_input_evidence,
             )
             if len(evidence_matches) == 1:
-                status = "SATISFIED_BY_TYPED_EVIDENCE"
-                proof_refs = [_text(evidence_matches[0].get("proof_ref"), limit=500)]
-                reason = "EXACT_TYPED_INPUT_EVIDENCE"
+                evidence_authority = _text(evidence_matches[0].get("authority"), limit=200)
+                evidence_expires_at = evidence_matches[0].get("expires_at")
+                if not _authority_matches(required_authority, evidence_authority):
+                    reason = "TYPED_INPUT_AUTHORITY_MISMATCH"
+                elif (freshness_reason := _freshness_reason(
+                    freshness_seconds=required_freshness,
+                    expires_at=evidence_expires_at,
+                    evaluation_time=evaluation_time,
+                )) is not None:
+                    reason = freshness_reason
+                else:
+                    status = "SATISFIED_BY_TYPED_EVIDENCE"
+                    proof_refs = [_text(evidence_matches[0].get("proof_ref"), limit=500)]
+                    reason = "EXACT_TYPED_INPUT_EVIDENCE"
             elif len(evidence_matches) > 1:
                 reason = "MULTIPLE_TYPED_INPUT_AUTHORITIES"
             elif sources & _INTERACTIVE_INPUT_SOURCES:
@@ -353,7 +434,10 @@ def _prove_required_inputs(
             "name": name,
             "type_name": type_name,
             "source_types": sorted(sources),
-            "authority": _text(getattr(required, "authority", ""), limit=200),
+            "authority": required_authority,
+            "freshness_seconds": required_freshness,
+            "evidence_authority": evidence_authority or None,
+            "evidence_expires_at": evidence_expires_at,
             "status": status,
             "reason": reason,
             "proof_refs": proof_refs,
@@ -384,6 +468,7 @@ def _candidate_proof(
     tool_name: str,
     contract: Any,
     available_input_evidence: tuple[dict[str, Any], ...],
+    evaluation_time: float | None,
 ) -> dict[str, Any]:
     requested_identity = canonical_effect_identity(goal.get("requested_effect"))
     completion = set(completion_effects_for_contract(contract))
@@ -412,6 +497,7 @@ def _candidate_proof(
             planning_contract=planning,
             target_proof=target_proof,
             available_input_evidence=available_input_evidence,
+            evaluation_time=evaluation_time,
         )
         if not input_proof["ok"]:
             reasons.append("CAPABILITY_REQUIRED_INPUTS_UNCLOSED")
@@ -469,6 +555,7 @@ def build_typed_goal_capability_coverage(
     capability_registry: CapabilityRegistry,
     frozen_contract: dict[str, Any] | None = None,
     available_input_evidence: tuple[dict[str, Any], ...] = (),
+    evaluation_time: float | None = None,
 ) -> dict[str, Any]:
     """Build a typed compatibility proof without selecting or dispatching Tools."""
 
@@ -493,6 +580,7 @@ def build_typed_goal_capability_coverage(
             "semantic_contract_id": source.get("semantic_contract_id"),
             "semantic_digest": source.get("semantic_digest"),
             "capability_registry_version": capability_registry.version,
+            "evaluation_time": evaluation_time,
             "coverage_status": "STRUCTURAL_INVALID",
             "dataflow_status": closure.get("code"),
             "goals": [],
@@ -529,6 +617,7 @@ def build_typed_goal_capability_coverage(
                     tool_name=tool_name,
                     contract=contract,
                     available_input_evidence=tuple(available_input_evidence or ()),
+                    evaluation_time=evaluation_time,
                 )
             )
 
@@ -572,6 +661,7 @@ def build_typed_goal_capability_coverage(
         "semantic_contract_id": source.get("semantic_contract_id"),
         "semantic_digest": source.get("semantic_digest"),
         "capability_registry_version": capability_registry.version,
+        "evaluation_time": evaluation_time,
         "coverage_status": coverage_status,
         "dataflow_status": closure.get("code"),
         "dataflow_errors": list(closure.get("errors") or []),

@@ -126,6 +126,7 @@ class _Input:
     source_types: tuple[str, ...]
     authority: str = "authoritative"
     required: bool = True
+    freshness_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -341,7 +342,7 @@ def test_capability_output_input_requires_exact_typed_upstream_artifact(monkeypa
 
     capability = _refund_capability(
         extra_inputs=(
-            _Input("eligibility_assessment", "RefundEligibilityAssessment", ("capability_output",)),
+            _Input("eligibility_assessment", "RefundEligibilityAssessment", ("capability_output",), "verified_ledger"),
         )
     )
     before = build_typed_goal_capability_coverage(graph=graph, capability_registry=_Registry(capability))
@@ -360,6 +361,7 @@ def test_capability_output_input_requires_exact_typed_upstream_artifact(monkeypa
         semantic_digest=graph["source_semantic_contract"]["semantic_digest"],
         source_ref_id="goal-output:eligibility:1",
         proof_digest="artifact-proof",
+        authority="verified_ledger",
     )
     edge = make_verified_dataflow_edge(
         graph=graph,
@@ -413,6 +415,7 @@ def test_wrong_upstream_logical_type_does_not_satisfy_capability_input(monkeypat
         semantic_digest=graph["source_semantic_contract"]["semantic_digest"],
         source_ref_id="goal-output:wrong:1",
         proof_digest="artifact-proof",
+        authority="verified_ledger",
     )
     graph = with_verified_dataflow_edge(
         graph,
@@ -427,7 +430,7 @@ def test_wrong_upstream_logical_type_does_not_satisfy_capability_input(monkeypat
         ),
     )
     capability = _refund_capability(
-        extra_inputs=(_Input("eligibility_assessment", "RefundEligibilityAssessment", ("capability_output",)),)
+        extra_inputs=(_Input("eligibility_assessment", "RefundEligibilityAssessment", ("capability_output",), "verified_ledger"),)
     )
     proof = {
         row["goal_id"]: row for row in build_typed_goal_capability_coverage(
@@ -573,6 +576,7 @@ def test_verified_context_input_can_be_satisfied_by_exact_typed_evidence(monkeyp
         "source_type": "verified_context",
         "type_name": "VerifiedConversationScope",
         "proof_ref": "context-snapshot:83",
+        "authority": "authoritative",
         "scope": _scope(),
     },)
     coverage = build_typed_goal_capability_coverage(
@@ -611,6 +615,7 @@ def test_typed_input_evidence_must_be_verified_scoped_and_exact_type(monkeypatch
             "source_type": "verified_context",
             "type_name": "VerifiedConversationScope",
             "proof_ref": "context:unverified",
+            "authority": "authoritative",
             "scope": _scope(),
         },
         {
@@ -618,6 +623,7 @@ def test_typed_input_evidence_must_be_verified_scoped_and_exact_type(monkeypatch
             "source_type": "verified_context",
             "type_name": "WrongType",
             "proof_ref": "context:wrong-type",
+            "authority": "authoritative",
             "scope": _scope(),
         },
         {
@@ -625,6 +631,7 @@ def test_typed_input_evidence_must_be_verified_scoped_and_exact_type(monkeypatch
             "source_type": "verified_context",
             "type_name": "VerifiedConversationScope",
             "proof_ref": "context:wrong-scope",
+            "authority": "authoritative",
             "scope": {**_scope(), "thread_id": "other-thread"},
         },
     )
@@ -715,6 +722,7 @@ def test_capability_output_can_supply_both_target_and_exact_typed_required_input
         semantic_digest=graph["source_semantic_contract"]["semantic_digest"],
         source_ref_id="goal-output:eligibility:1",
         proof_digest="artifact-proof",
+        authority="verified_ledger",
     )
     graph = with_verified_dataflow_edge(
         graph,
@@ -774,3 +782,177 @@ def test_capability_output_can_supply_both_target_and_exact_typed_required_input
     eligibility = next(row for row in proof["input_proof"]["inputs"] if row["name"] == "eligibility_assessment")
     assert eligibility["status"] == "SATISFIED_BY_TARGET"
     assert proof["status"] == "NEEDS_INTERACTION"
+
+
+def test_typed_input_authority_mismatch_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = compile_frozen_semantic_contract(
+        _contract([_goal("g1", "runtime.transaction_status", subject_type="runtime")]),
+        scope=_scope(),
+    )
+    capability = _Capability(
+        key="demo.runtime.status.authority",
+        tool_name="query_demo_runtime_status_authority",
+        semantic_effects=(_semantic_identity("runtime.transaction_status"),),
+        planning_contract=_Planning(
+            target=_Target((), "none", ("verified_context",)),
+            requires=(
+                _Input("conversation_scope", "VerifiedConversationScope", ("verified_context",), "authoritative"),
+            ),
+        ),
+    )
+    evidence = ({
+        "verified": True,
+        "source_type": "verified_context",
+        "type_name": "VerifiedConversationScope",
+        "authority": "candidate",
+        "proof_ref": "context:wrong-authority",
+        "scope": _scope(),
+    },)
+    proof = build_typed_goal_capability_coverage(
+        graph=graph,
+        capability_registry=_Registry(capability),
+        available_input_evidence=evidence,
+    )["goals"][0]["candidate_proofs"][0]
+
+    assert proof["status"] == "BLOCKED_INPUT"
+    row = proof["input_proof"]["inputs"][0]
+    assert row["reason"] == "TYPED_INPUT_AUTHORITY_MISMATCH"
+    assert row["evidence_authority"] == "candidate"
+
+
+def test_upstream_output_authority_must_match_required_input_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = compile_frozen_semantic_contract(
+        _contract([
+            _goal("g1", "refund.eligibility", reference=_verified_reference()),
+            _goal("g2", "refund.request", depends_on=("g1",), reference=_verified_reference()),
+        ]),
+        scope=_scope(),
+    )
+    g2 = next(row for row in graph["goals"] if row["goal_id"] == "g2")
+    g2["input_ports"].append(make_goal_port(
+        goal_id="g2", name="eligibility_assessment", direction="input",
+        type_name="order", cardinality="exactly_one", required=True,
+    ))
+    graph = seal_goal_graph(graph)
+    goals = {row["goal_id"]: row for row in graph["goals"]}
+    artifact = make_verified_artifact_ref(
+        artifact_ref="artifact:eligibility:authority",
+        type_name="RefundEligibilityAssessment",
+        resource_type="order",
+        cardinality="exactly_one",
+        producer_goal_id="g1",
+        scope=_scope(),
+        semantic_contract_id=graph["source_semantic_contract"]["semantic_contract_id"],
+        semantic_digest=graph["source_semantic_contract"]["semantic_digest"],
+        source_ref_id="goal-output:eligibility:authority",
+        proof_digest="artifact-proof",
+        authority="verified_tool_output",
+    )
+    graph = with_verified_dataflow_edge(graph, make_verified_dataflow_edge(
+        graph=graph,
+        producer_goal_id="g1",
+        producer_port_id=goals["g1"]["output_ports"][0]["port_id"],
+        consumer_goal_id="g2",
+        consumer_port_id=next(row["port_id"] for row in goals["g2"]["input_ports"] if row["name"] == "eligibility_assessment"),
+        artifact_ref=artifact,
+        verification_proof_digest="edge-proof",
+    ))
+    capability = _refund_capability(extra_inputs=(
+        _Input("eligibility_assessment", "RefundEligibilityAssessment", ("capability_output",), "verified_ledger"),
+    ))
+    proof = {row["goal_id"]: row for row in build_typed_goal_capability_coverage(
+        graph=graph, capability_registry=_Registry(capability)
+    )["goals"]}["g2"]["candidate_proofs"][0]
+
+    assert proof["status"] == "BLOCKED_INPUT"
+    typed_input = next(row for row in proof["input_proof"]["inputs"] if row["name"] == "eligibility_assessment")
+    assert typed_input["reason"] == "UPSTREAM_INPUT_AUTHORITY_MISMATCH"
+
+
+def _fresh_eligibility_graph(*, expires_at: float | None) -> dict:
+    graph = compile_frozen_semantic_contract(
+        _contract([
+            _goal("g1", "refund.eligibility", reference=_verified_reference()),
+            _goal("g2", "refund.request", depends_on=("g1",), reference=_verified_reference()),
+        ]),
+        scope=_scope(),
+    )
+    g2 = next(row for row in graph["goals"] if row["goal_id"] == "g2")
+    g2["input_ports"].append(make_goal_port(
+        goal_id="g2", name="eligibility_assessment", direction="input",
+        type_name="order", cardinality="exactly_one", required=True,
+    ))
+    graph = seal_goal_graph(graph)
+    goals = {row["goal_id"]: row for row in graph["goals"]}
+    kwargs = {} if expires_at is None else {"expires_at": expires_at}
+    artifact = make_verified_artifact_ref(
+        artifact_ref="artifact:eligibility:freshness",
+        type_name="RefundEligibilityAssessment",
+        resource_type="order",
+        cardinality="exactly_one",
+        producer_goal_id="g1",
+        scope=_scope(),
+        semantic_contract_id=graph["source_semantic_contract"]["semantic_contract_id"],
+        semantic_digest=graph["source_semantic_contract"]["semantic_digest"],
+        source_ref_id="goal-output:eligibility:freshness",
+        proof_digest="artifact-proof",
+        authority="verified_ledger",
+        **kwargs,
+    )
+    return with_verified_dataflow_edge(graph, make_verified_dataflow_edge(
+        graph=graph,
+        producer_goal_id="g1",
+        producer_port_id=goals["g1"]["output_ports"][0]["port_id"],
+        consumer_goal_id="g2",
+        consumer_port_id=next(row["port_id"] for row in goals["g2"]["input_ports"] if row["name"] == "eligibility_assessment"),
+        artifact_ref=artifact,
+        verification_proof_digest="edge-proof",
+    ))
+
+
+def _freshness_capability() -> _Capability:
+    return _refund_capability(extra_inputs=(
+        _Input(
+            "eligibility_assessment",
+            "RefundEligibilityAssessment",
+            ("capability_output",),
+            "verified_ledger",
+            True,
+            300,
+        ),
+    ))
+
+
+def test_freshness_required_input_requires_explicit_evaluation_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = _fresh_eligibility_graph(expires_at=2000.0)
+    proof = {row["goal_id"]: row for row in build_typed_goal_capability_coverage(
+        graph=graph, capability_registry=_Registry(_freshness_capability())
+    )["goals"]}["g2"]["candidate_proofs"][0]
+    typed_input = next(row for row in proof["input_proof"]["inputs"] if row["name"] == "eligibility_assessment")
+    assert proof["status"] == "BLOCKED_INPUT"
+    assert typed_input["reason"] == "FRESHNESS_EVALUATION_TIME_REQUIRED"
+
+
+def test_freshness_required_input_rejects_expired_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = _fresh_eligibility_graph(expires_at=1000.0)
+    proof = {row["goal_id"]: row for row in build_typed_goal_capability_coverage(
+        graph=graph, capability_registry=_Registry(_freshness_capability()), evaluation_time=1000.0
+    )["goals"]}["g2"]["candidate_proofs"][0]
+    typed_input = next(row for row in proof["input_proof"]["inputs"] if row["name"] == "eligibility_assessment")
+    assert proof["status"] == "BLOCKED_INPUT"
+    assert typed_input["reason"] == "INPUT_EVIDENCE_EXPIRED"
+
+
+def test_freshness_required_input_accepts_unexpired_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = _fresh_eligibility_graph(expires_at=1301.0)
+    proof = {row["goal_id"]: row for row in build_typed_goal_capability_coverage(
+        graph=graph, capability_registry=_Registry(_freshness_capability()), evaluation_time=1000.0
+    )["goals"]}["g2"]["candidate_proofs"][0]
+    typed_input = next(row for row in proof["input_proof"]["inputs"] if row["name"] == "eligibility_assessment")
+    assert typed_input["status"] == "SATISFIED_BY_UPSTREAM_OUTPUT"
+    assert typed_input["evidence_expires_at"] == 1301.0
