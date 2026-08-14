@@ -37,6 +37,16 @@ from .dependency_authority import (
     build_dependency_authority_attestation,
     dependency_authority_attestation_integrity,
 )
+from .runtime_authority import (
+    DEPENDENCY_RUNTIME_ACTIVATION_AUTHORITY,
+    DEPENDENCY_RUNTIME_ACTIVATION_VERSION,
+    DEPENDENCY_RUNTIME_SELECTION_AUTHORITY,
+    DEPENDENCY_RUNTIME_SELECTION_VERSION,
+    dependency_runtime_activation_integrity,
+    dependency_runtime_selection_integrity,
+    select_runtime_dependency_authority,
+    selected_dependency_goal_ids,
+)
 from .contracts import (
     CANONICAL_GOAL_GRAPH_VERSION,
     GOAL_PORT_VERSION,
@@ -67,6 +77,10 @@ __all__ = [
     "DEPENDENCY_CUTOVER_GRANT_AUTHORITY",
     "DEPENDENCY_CUTOVER_GRANT_VERSION",
     "DEPENDENCY_ROLLBACK_CONTRACT_VERSION",
+    "DEPENDENCY_RUNTIME_ACTIVATION_AUTHORITY",
+    "DEPENDENCY_RUNTIME_ACTIVATION_VERSION",
+    "DEPENDENCY_RUNTIME_SELECTION_AUTHORITY",
+    "DEPENDENCY_RUNTIME_SELECTION_VERSION",
     "LEGACY_DEPENDENCY_AUTHORITY",
     "TYPED_DEPENDENCY_AUTHORITY",
     "compile_frozen_semantic_contract",
@@ -81,6 +95,10 @@ __all__ = [
     "dependency_cutover_gate_integrity",
     "dependency_cutover_grant_integrity",
     "evaluate_dependency_cutover_gate",
+    "dependency_runtime_activation_integrity",
+    "dependency_runtime_selection_integrity",
+    "select_runtime_dependency_authority",
+    "selected_dependency_goal_ids",
     "dataflow_closure",
     "graph_structural_integrity",
     "make_verified_artifact_ref",
