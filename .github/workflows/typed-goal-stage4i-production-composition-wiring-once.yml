@@ -1,0 +1,282 @@
+name: typed-goal-stage4i-production-composition-wiring-once
+
+on:
+  push:
+    branches:
+      - feat/typed-goal-graph-foundation-20260814
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  stage4i-production-composition-wiring:
+    runs-on: ubuntu-24.04
+    if: github.repository == 'toctionyan/fristTest'
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          ref: feat/typed-goal-graph-foundation-20260814
+
+      - name: Verify exact Stage4H parent and bootstrap surface
+        env:
+          BASE_SHA: cfdac4d16aef9833530cd5245f609564790e04a7
+          WORKFLOW_PATH: .github/workflows/typed-goal-stage4i-production-composition-wiring-once.yml
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          python - <<'PY'
+          import os, subprocess
+          base = os.environ['BASE_SHA']
+          expected = {os.environ['WORKFLOW_PATH']}
+          changed = set(filter(None, subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base}..HEAD'], text=True
+          ).splitlines()))
+          if changed != expected:
+              raise SystemExit('unexpected_stage4i_bootstrap_surface:' + ','.join(sorted(changed)))
+          print({'status': 'PASS', 'changed': sorted(changed)})
+          PY
+
+      - name: Wire explicit disabled provider into AgentService composition
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one replacement, found {count}')
+              target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'services/agent-service/src/agent_core/runtime/dependency_authority_control.py',
+              '''"""Stage 4H trusted dependency-authority control-provider contract.\n\nThis module deliberately owns no environment or model configuration and is not\nwired into ``AgentService``. It only defines the application-owned provider\nshape that a later, separately authorized production composition may supply to\nthe Stage 4F resolver ingress.\n"""''',
+              '''"""Stage 4H provider contract with Stage 4I default-disabled composition wiring.\n\nThis module deliberately owns no environment or model configuration. Stage 4I\nallows ``AgentService`` to wire only the explicit disabled provider into the\nStage 4F resolver ingress; no activation record is loaded or synthesized here.\nA later production activation remains a separate, explicitly authorized change.\n"""''',
+          )
+          replace_once(
+              'services/agent-service/src/agent_core/runtime/dependency_authority_control.py',
+              '''    """Explicit fail-closed provider used until production wiring is authorized."""''',
+              '''    """Production composition default: explicit fail-closed, no activation control."""''',
+          )
+
+          replace_once(
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              '''    # Stage 4F: trusted application-composition ingress for dependency-authority\n    # control. None is the production default. The resolver is a Python callable\n    # supplied by composition, never checkpoint/user/model data.''',
+              '''    # Stage 4F: trusted application-composition ingress for dependency-authority\n    # control. None remains the generic factory default; Stage 4I production\n    # composition supplies an explicit disabled callable. Never checkpoint/user/model data.''',
+          )
+
+          replace_once(
+              'services/agent-service/app/services/agent_service.py',
+              '''from agent_core.runtime.deps import lifecycle_runtime_deps\nfrom agent_core.config import clear_checkpointer_cache''',
+              '''from agent_core.runtime.dependency_authority_control import (\n    DisabledDependencyAuthorityControlProvider,\n    dependency_authority_control_resolver,\n)\nfrom agent_core.runtime.deps import lifecycle_runtime_deps\nfrom agent_core.config import clear_checkpointer_cache''',
+          )
+          replace_once(
+              'services/agent-service/app/services/agent_service.py',
+              '''    _turn_locks: dict[str, RLock] = {}\n\n    def __init__(self):''',
+              '''    _turn_locks: dict[str, RLock] = {}\n\n    def _compose_runtime_deps(self):\n        """Wire the trusted control seam while keeping production authority disabled."""\n        provider = DisabledDependencyAuthorityControlProvider()\n        self.dependency_authority_control_provider = provider\n        return lifecycle_runtime_deps(\n            transactions=self.transactions,\n            capability_registry=self.runtime_registry.capabilities,\n            business_port=get_business_port(),\n            trace_logger=self.trace_logger,\n            dependency_authority_control_resolver=dependency_authority_control_resolver(provider),\n        )\n\n    def __init__(self):''',
+          )
+          replace_once(
+              'services/agent-service/app/services/agent_service.py',
+              '''        self.runtime_registry = get_runtime_registry()\n        self.runtime_deps = lifecycle_runtime_deps(\n            transactions=self.transactions,\n            capability_registry=self.runtime_registry.capabilities,\n            business_port=get_business_port(),\n            trace_logger=self.trace_logger,\n        )''',
+              '''        self.runtime_registry = get_runtime_registry()\n        self.runtime_deps = self._compose_runtime_deps()''',
+          )
+
+          provider_test = 'services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py'
+          replace_once(
+              provider_test,
+              '''import os\n\nimport agent_core.runtime.dependency_authority_control as control''',
+              '''import os\nfrom types import SimpleNamespace\n\nimport agent_core.runtime.dependency_authority_control as control\nimport app.services.agent_service as agent_service_module''',
+          )
+          replace_once(
+              provider_test,
+              '''    assert snapshot["owns_environment_configuration"] is False\n    assert snapshot["owns_model_configuration"] is False\n    assert "dependency_authority_control_resolver=" not in inspect.getsource(\n        AgentService.__init__\n    )\n\n\ndef test_disabled_provider_is_explicitly_fail_closed() -> None:''',
+              '''    assert snapshot["owns_environment_configuration"] is False\n    assert snapshot["owns_model_configuration"] is False\n    assert "self._compose_runtime_deps()" in inspect.getsource(AgentService.__init__)\n    assert "dependency_authority_control_resolver=" in inspect.getsource(\n        AgentService._compose_runtime_deps\n    )\n\n\ndef test_stage4i_agent_service_composition_wires_only_disabled_provider(monkeypatch) -> None:\n    captured = {}\n\n    def fake_runtime_deps(**kwargs):\n        captured.update(kwargs)\n        return SimpleNamespace(**kwargs)\n\n    monkeypatch.setattr(agent_service_module, "lifecycle_runtime_deps", fake_runtime_deps)\n    monkeypatch.setattr(agent_service_module, "get_business_port", lambda: "business-port")\n    monkeypatch.setenv("OPENAI_API_KEY", "main-shared-key")\n    monkeypatch.setenv("OPENAI_MODEL", "main-shared-model")\n    monkeypatch.setenv("OPENAI_API_BASE", "https://main-shared.example.invalid")\n\n    service = AgentService.__new__(AgentService)\n    service.transactions = "transactions"\n    service.trace_logger = "trace-logger"\n    service.runtime_registry = SimpleNamespace(capabilities="capability-registry")\n\n    runtime_deps = service._compose_runtime_deps()\n\n    assert isinstance(\n        service.dependency_authority_control_provider,\n        DisabledDependencyAuthorityControlProvider,\n    )\n    assert runtime_deps.transactions == "transactions"\n    assert captured["capability_registry"] == "capability-registry"\n    assert captured["business_port"] == "business-port"\n    assert captured["trace_logger"] == "trace-logger"\n    assert "model_resolver" not in captured\n    resolver = captured["dependency_authority_control_resolver"]\n    assert callable(resolver)\n    assert resolver() is None\n    assert os.environ["OPENAI_MODEL"] == "main-shared-model"\n\n\ndef test_disabled_provider_is_explicitly_fail_closed() -> None:''',
+          )
+
+          ingress_test = 'services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py'
+          replace_once(
+              ingress_test,
+              '''def test_default_runtime_composition_has_no_activation_control_resolver() -> None:\n    parameter = inspect.signature(lifecycle_runtime_deps).parameters[\n        "dependency_authority_control_resolver"\n    ]\n    assert parameter.default is None\n    assert "dependency_authority_control_resolver=" not in inspect.getsource(\n        AgentService.__init__\n    )\n\n\ndef test_untrusted_checkpoint_value_cannot_activate_dependency_authority() -> None:''',
+              '''def test_stage4i_runtime_factory_default_stays_none_but_agent_service_wires_disabled_resolver() -> None:\n    parameter = inspect.signature(lifecycle_runtime_deps).parameters[\n        "dependency_authority_control_resolver"\n    ]\n    assert parameter.default is None\n    assert "self._compose_runtime_deps()" in inspect.getsource(AgentService.__init__)\n    assert "dependency_authority_control_resolver=" in inspect.getsource(\n        AgentService._compose_runtime_deps\n    )\n\n\ndef test_stage4i_wired_disabled_resolver_keeps_legacy_authority_and_tool_surface() -> None:\n    state, registry, baseline = _policy_fixture()\n    policy = build_pretool_execution_policy(\n        state={\n            **state,\n            TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: lambda: None,\n        },\n        capability_registry=registry,\n    )\n    assert policy["selected_dependency_authority"] == LEGACY_DEPENDENCY_AUTHORITY\n    assert policy["dependency_runtime_authority_selection"]["status"] == "LEGACY_DEFAULT"\n    assert policy["dependency_runtime_authority_selection"]["selected_authority_count"] == 1\n    assert policy["dependency_authority_ingress"]["status"] == "NO_CONTROL_FAIL_CLOSED"\n    assert policy["allowed_capability_tools"] == baseline["allowed_capability_tools"]\n    assert policy["creates_permit"] is False\n    assert policy["dispatches_tools"] is False\n\n\ndef test_untrusted_checkpoint_value_cannot_activate_dependency_authority() -> None:''',
+          )
+          PY
+
+          python -m compileall -q \
+            services/agent-service/src/agent_core/runtime/dependency_authority_control.py \
+            services/agent-service/src/agent_core/runtime/deps.py \
+            services/agent-service/app/services/agent_service.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py
+          git diff --check
+
+      - name: Verify Stage4I never changed main-shared model environment examples
+        env:
+          BASE_SHA: cfdac4d16aef9833530cd5245f609564790e04a7
+        run: |
+          set -euo pipefail
+          git diff --quiet "$BASE_SHA" -- services/agent-service/.env.example
+          git diff --quiet "$BASE_SHA" -- deployment/.env.example
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked Python environment
+        run: |
+          "${pythonLocation}/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Verify Stage4I composition and preserved Stage4E-F-H boundaries
+        run: |
+          cd services/agent-service
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_typed_goal_dependency_control_provider_contract.py \
+            tests/runtime/test_typed_goal_dependency_activation_ingress.py \
+            tests/runtime/test_typed_goal_dependency_runtime_authority.py \
+            tests/runtime/test_typed_goal_dependency_activation_preflight.py \
+            tests/runtime/test_typed_goal_dependency_handoff_simulation.py \
+            tests/runtime/test_typed_goal_dependency_cutover_gate.py \
+            tests/runtime/test_typed_goal_dependency_authority_shadow.py \
+            tests/runtime/test_pretool_execution_policy.py
+
+      - name: Freeze Stage4I protected source SHA
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/agent-service/app/services/agent_service.py \
+            services/agent-service/src/agent_core/runtime/dependency_authority_control.py \
+            services/agent-service/src/agent_core/runtime/deps.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py \
+            services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py
+          git diff --cached --check
+          git commit -m "Wire disabled dependency authority provider into AgentService"
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Refresh protected baseline for Stage4I source
+        env:
+          BASE_SHA: cfdac4d16aef9833530cd5245f609564790e04a7
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          source_sha = os.environ['SOURCE_SHA'].strip()
+          base_sha = os.environ['BASE_SHA'].strip()
+          if len(source_sha) != 40:
+              raise SystemExit('source_sha_identity_missing')
+          subprocess.run(['git', 'merge-base', '--is-ancestor', base_sha, source_sha], check=True)
+          if subprocess.run(
+              ['git', 'diff', '--quiet', f'{source_sha}..HEAD', '--', 'services', 'web', 'contracts'],
+              check=False,
+          ).returncode != 0:
+              raise SystemExit('protected_sources_changed_after_stage4i_source_sha')
+
+          expected_changed = {
+              'services/agent-service/app/services/agent_service.py',
+              'services/agent-service/src/agent_core/runtime/dependency_authority_control.py',
+              'services/agent-service/src/agent_core/runtime/deps.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py',
+              'services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py',
+          }
+          actual = set(filter(None, subprocess.check_output(
+              ['git', 'diff', '--name-only', f'{base_sha}..{source_sha}', '--', 'services', 'web', 'contracts'],
+              text=True,
+          ).splitlines()))
+          if actual != expected_changed:
+              raise SystemExit('unexpected_stage4i_protected_surface:' + ','.join(sorted(actual)))
+
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          previous = {str(k): str(v) for k, v in (payload.get('files') or {}).items()}
+          if int(payload.get('file_count') or 0) != 596 or len(previous) != 596:
+              raise SystemExit(f"unexpected_previous_baseline:{payload.get('file_count')}/{len(previous)}")
+          protected_roots = tuple(str(v) for v in payload.get('protected_roots') or ())
+          if protected_roots != ('services', 'web', 'contracts'):
+              raise SystemExit(f'unexpected_protected_roots:{protected_roots!r}')
+
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots])
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          if len(current) != 596:
+              raise SystemExit(f'unexpected_protected_file_count:{len(current)}')
+          changed = {p for p in set(current) & set(previous) if current[p] != previous[p]}
+          added = set(current) - set(previous)
+          removed = set(previous) - set(current)
+          if changed != expected_changed:
+              raise SystemExit('unexpected_changed_paths:' + ','.join(sorted(changed)))
+          if added:
+              raise SystemExit('unexpected_added_paths:' + ','.join(sorted(added)))
+          if removed:
+              raise SystemExit('unexpected_removed_paths:' + ','.join(sorted(removed)))
+
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['generated_from'] = 'git:' + source_sha
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({
+              'status': 'PASS',
+              'generated_from': payload['generated_from'],
+              'changed': sorted(changed),
+              'file_count': len(current),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify baseline and Skill control plane before push
+        run: |
+          python skill-system/tests/test_product_source_baseline_binding.py
+          services/agent-service/.venv/bin/python -B skill-system/controller/profile_runner.py skill-control-plane
+          cd services/agent-service
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_typed_goal_dependency_control_provider_contract.py \
+            tests/runtime/test_typed_goal_dependency_activation_ingress.py \
+            tests/runtime/test_typed_goal_dependency_runtime_authority.py \
+            tests/runtime/test_typed_goal_dependency_activation_preflight.py \
+            tests/runtime/test_typed_goal_dependency_handoff_simulation.py \
+            tests/runtime/test_typed_goal_dependency_cutover_gate.py \
+            tests/runtime/test_typed_goal_dependency_authority_shadow.py \
+            tests/runtime/test_pretool_execution_policy.py
+
+      - name: Commit baseline, remove bootstrap workflow, and push
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/typed-goal-stage4i-production-composition-wiring-once.yml
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m "Refresh Stage4I protected baseline"
+          git push origin HEAD:feat/typed-goal-graph-foundation-20260814
+          echo "FINAL_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Dispatch final exact-SHA verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for workflow in quality.yml skill-self-validation.yml; do
+            curl --fail-with-body -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
+              -d '{"ref":"feat/typed-goal-graph-foundation-20260814"}'
+          done
+          echo "Stage4I final SHA: ${FINAL_SHA}"
