@@ -241,6 +241,12 @@ def test_persisted_activation_resolves_only_after_k1_signature_verification(engi
         "runtime_activation": {"activation_digest": "c" * 64},
         "evaluation_time": 1000.0,
         "rollback_requested": False,
+        "control_head_identity": {
+            "control_epoch": 7,
+            "revision": "control-rev-0007",
+            "snapshot_digest": record["record_digest"],
+        },
+        "rollback_head_identity": None,
     }
 
 
@@ -254,6 +260,12 @@ def test_independent_verified_rollback_wins_without_touching_activation_source(e
         "runtime_activation": None,
         "evaluation_time": None,
         "rollback_requested": True,
+        "control_head_identity": None,
+        "rollback_head_identity": {
+            "rollback_epoch": 1,
+            "revision": "rollback-rev-0001",
+            "snapshot_digest": directive["directive_digest"],
+        },
     }
 
 
@@ -270,19 +282,28 @@ def test_invalid_rollback_signature_fails_closed_instead_of_falling_through(engi
     assert provider.resolve() is None
 
 
-def test_signed_clear_rollback_directive_allows_verified_activation(engine):
-    _insert_activation(engine, _activation_record())
-    _insert_rollback(
-        engine,
-        _rollback_directive(
-            rollback_requested=False,
-            reason_code="operator-cleared-after-verification",
-        ),
+def test_signed_clear_rollback_directive_allows_verified_activation_and_preserves_both_heads(engine):
+    record = _activation_record()
+    directive = _rollback_directive(
+        rollback_requested=False,
+        reason_code="operator-cleared-after-verification",
     )
+    _insert_activation(engine, record)
+    _insert_rollback(engine, directive)
     resolved = _provider(engine).resolve()
     assert resolved is not None
     assert resolved["rollback_requested"] is False
     assert resolved["runtime_activation"]["activation_digest"] == "c" * 64
+    assert resolved["control_head_identity"] == {
+        "control_epoch": 7,
+        "revision": "control-rev-0007",
+        "snapshot_digest": record["record_digest"],
+    }
+    assert resolved["rollback_head_identity"] == {
+        "rollback_epoch": 1,
+        "revision": "rollback-rev-0001",
+        "snapshot_digest": directive["directive_digest"],
+    }
 
 
 def test_workers_and_restart_read_same_highest_epoch_and_ignore_late_stale_rows(engine):
@@ -306,11 +327,13 @@ def test_workers_and_restart_read_same_highest_epoch_and_ignore_late_stale_rows(
     restarted_worker = SqlAlchemyDependencyAuthoritySignedRecordSource(
         engine=engine, sa=sa
     )
-    assert restarted_worker.load_head_identity() == {
+    expected_head = {
         "control_epoch": 8,
         "revision": "control-rev-0008",
         "snapshot_digest": epoch8["record_digest"],
     }
+    assert restarted_worker.load_head_identity() == expected_head
+    assert _provider(engine).resolve()["control_head_identity"] == expected_head
 
     stale = _activation_record(
         control_epoch=6,
@@ -320,6 +343,7 @@ def test_workers_and_restart_read_same_highest_epoch_and_ignore_late_stale_rows(
     _insert_activation(engine, stale)
     assert worker_a.load_signed_record()["control_epoch"] == 8
     assert restarted_worker.load_signed_record()["control_epoch"] == 8
+    assert _provider(engine).resolve()["control_head_identity"] == expected_head
 
 
 def test_conflicting_same_epoch_cannot_be_appended(engine):

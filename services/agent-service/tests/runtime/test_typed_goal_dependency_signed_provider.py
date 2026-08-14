@@ -109,14 +109,23 @@ def test_stage4k1_production_signed_provider_is_not_wired_into_agent_service() -
     )
 
 
-def test_valid_cryptographically_verified_record_resolves_only_stage4f_control_fields() -> None:
-    resolved = _provider(_record()).resolve()
+def test_valid_cryptographically_verified_record_resolves_stage4f_control_and_head_identity() -> None:
+    record = _record()
+    resolved = _provider(record).resolve()
     assert resolved == {
         "activation_preflight": {"preflight_digest": "b" * 64},
         "runtime_activation": {"activation_digest": "c" * 64},
         "evaluation_time": 1000.0,
         "rollback_requested": False,
+        "control_head_identity": {
+            "control_epoch": 7,
+            "revision": "rev-0002",
+            "snapshot_digest": record["record_digest"],
+        },
     }
+    assert "signer_id" not in resolved
+    assert "signature" not in resolved
+    assert "provider_id" not in resolved
 
 
 def test_provider_uses_trusted_clock_not_signed_record_for_evaluation_time() -> None:
@@ -241,7 +250,7 @@ def test_model_environment_changes_do_not_change_signed_provider_resolution(monk
     assert os.environ["OPENAI_MODEL"] == "different-model"
 
 
-def test_rollback_record_remains_control_only_and_does_not_create_runtime_authority() -> None:
+def test_rollback_record_remains_control_only_and_preserves_verified_head_identity() -> None:
     record = _record(
         activation_preflight=None,
         runtime_activation=None,
@@ -253,4 +262,9 @@ def test_rollback_record_remains_control_only_and_does_not_create_runtime_author
         "runtime_activation": None,
         "evaluation_time": 1000.0,
         "rollback_requested": True,
+        "control_head_identity": {
+            "control_epoch": 7,
+            "revision": "rev-0002",
+            "snapshot_digest": record["record_digest"],
+        },
     }

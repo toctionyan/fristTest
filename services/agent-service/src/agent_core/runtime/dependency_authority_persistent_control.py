@@ -93,6 +93,16 @@ def _rollback_payload(directive: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _verified_rollback_head_identity(directive: dict[str, Any]) -> dict[str, Any]:
+    """Project only the verified rollback head needed for worker diagnostics."""
+
+    return {
+        "rollback_epoch": int(directive["rollback_epoch"]),
+        "revision": str(directive["revision"]),
+        "snapshot_digest": str(directive["directive_digest"]),
+    }
+
+
 def build_dependency_authority_rollback_directive(
     *,
     rollback_epoch: int,
@@ -390,14 +400,25 @@ class PersistentDependencyAuthorityControlProvider:
             return None
         if rollback is None:
             return None
+        rollback_head_identity = (
+            _verified_rollback_head_identity(rollback) if rollback else None
+        )
         if rollback.get("rollback_requested") is True:
             return {
                 "activation_preflight": None,
                 "runtime_activation": None,
                 "evaluation_time": None,
                 "rollback_requested": True,
+                "control_head_identity": None,
+                "rollback_head_identity": rollback_head_identity,
             }
-        return self._activation_provider.resolve()
+        activation = self._activation_provider.resolve()
+        if activation is None:
+            return None
+        return {
+            **activation,
+            "rollback_head_identity": rollback_head_identity,
+        }
 
 
 __all__ = [

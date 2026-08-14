@@ -94,6 +94,21 @@ def _record_payload(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _verified_control_head_identity(record: dict[str, Any]) -> dict[str, Any]:
+    """Project only the verified monotonic head identity needed for observability.
+
+    The identity is derived after structural, cryptographic and expiry checks. It
+    deliberately excludes signer IDs, signatures and the raw signed record so it
+    cannot become a second authorization channel.
+    """
+
+    return {
+        "control_epoch": int(record["control_epoch"]),
+        "revision": str(record["revision"]),
+        "snapshot_digest": str(record["record_digest"]),
+    }
+
+
 def build_dependency_authority_signed_record(
     *,
     provider_id: str,
@@ -338,7 +353,13 @@ class SignedRecordDependencyAuthorityControlProvider:
             evaluation_time=now,
             rollback_requested=control.get("rollback_requested") is True,
         )
-        return StaticVerifiedDependencyAuthorityControlProvider(snapshot).resolve()
+        resolved = StaticVerifiedDependencyAuthorityControlProvider(snapshot).resolve()
+        if resolved is None:
+            return None
+        return {
+            **resolved,
+            "control_head_identity": _verified_control_head_identity(record),
+        }
 
 
 __all__ = [

@@ -36,6 +36,21 @@ def _policy_fixture():
     return state, registry, baseline
 
 
+def _verified_control(*, preflight, activation, control_epoch=7):
+    return {
+        "activation_preflight": preflight,
+        "runtime_activation": activation,
+        "evaluation_time": 1000.0,
+        "rollback_requested": False,
+        "control_head_identity": {
+            "control_epoch": control_epoch,
+            "revision": f"control-rev-{control_epoch:04d}",
+            "snapshot_digest": ("a" if control_epoch == 7 else "b") * 64,
+        },
+        "rollback_head_identity": None,
+    }
+
+
 def test_stage4i_runtime_factory_default_stays_none_but_agent_service_wires_disabled_resolver() -> None:
     parameter = inspect.signature(lifecycle_runtime_deps).parameters[
         "dependency_authority_control_resolver"
@@ -90,12 +105,7 @@ def test_trusted_runtime_resolver_can_feed_exact_stage4e_selector_without_wideni
     activation = _runtime_activation(attestation=attestation, preflight=preflight)
 
     def resolve_control():
-        return {
-            "activation_preflight": preflight,
-            "runtime_activation": activation,
-            "evaluation_time": 1000.0,
-            "rollback_requested": False,
-        }
+        return _verified_control(preflight=preflight, activation=activation)
 
     activated = build_pretool_execution_policy(
         state={
@@ -110,15 +120,95 @@ def test_trusted_runtime_resolver_can_feed_exact_stage4e_selector_without_wideni
     assert activated["allowed_capability_tools"] == baseline["allowed_capability_tools"]
     assert activated["creates_permit"] is False
     assert activated["dispatches_tools"] is False
-    assert activated["dependency_authority_ingress"] == {
-        "status": "RESOLVED",
-        "source": "application_runtime_deps",
-        "has_activation_preflight": True,
-        "has_runtime_activation": True,
-        "has_evaluation_time": True,
-        "rollback_requested": False,
-        "raw_control_exposed": False,
+    ingress = activated["dependency_authority_ingress"]
+    assert ingress["status"] == "RESOLVED"
+    assert ingress["source"] == "application_runtime_deps"
+    assert ingress["has_activation_preflight"] is True
+    assert ingress["has_runtime_activation"] is True
+    assert ingress["has_evaluation_time"] is True
+    assert ingress["rollback_requested"] is False
+    assert ingress["control_head_identity"] == {
+        "control_epoch": 7,
+        "revision": "control-rev-0007",
+        "snapshot_digest": "a" * 64,
     }
+    assert ingress["control_head_identity_status"] == "RESOLVED_TRUSTED"
+    assert len(ingress["control_head_identity_digest"]) == 64
+    assert ingress["rollback_head_identity"] is None
+    assert ingress["rollback_head_identity_status"] == "UNAVAILABLE"
+    assert ingress["rollback_head_identity_digest"] is None
+    assert len(ingress["cross_worker_control_plane_head_digest"]) == 64
+    assert ingress["raw_control_exposed"] is False
+
+
+def test_runtime_head_digest_is_stable_across_workers_and_changes_with_epoch_only_as_observability() -> None:
+    state, registry, baseline = _policy_fixture()
+    attestation = baseline["typed_dependency_authority_attestation"]
+    preflight = _ready_preflight(attestation)
+    activation = _runtime_activation(attestation=attestation, preflight=preflight)
+
+    def policy_for_epoch(epoch):
+        return build_pretool_execution_policy(
+            state={
+                **state,
+                TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: lambda: _verified_control(
+                    preflight=preflight,
+                    activation=activation,
+                    control_epoch=epoch,
+                ),
+            },
+            capability_registry=registry,
+        )
+
+    worker_a = policy_for_epoch(7)
+    worker_b = policy_for_epoch(7)
+    advanced = policy_for_epoch(8)
+
+    digest_a = worker_a["dependency_authority_ingress"][
+        "cross_worker_control_plane_head_digest"
+    ]
+    digest_b = worker_b["dependency_authority_ingress"][
+        "cross_worker_control_plane_head_digest"
+    ]
+    digest_advanced = advanced["dependency_authority_ingress"][
+        "cross_worker_control_plane_head_digest"
+    ]
+    assert digest_a == digest_b
+    assert digest_advanced != digest_a
+    assert worker_a["selected_dependency_authority"] == TYPED_DEPENDENCY_AUTHORITY
+    assert advanced["selected_dependency_authority"] == TYPED_DEPENDENCY_AUTHORITY
+    assert worker_a["allowed_capability_tools"] == advanced["allowed_capability_tools"]
+
+
+def test_malformed_head_observability_is_ignored_without_changing_authority_selection() -> None:
+    state, registry, baseline = _policy_fixture()
+    attestation = baseline["typed_dependency_authority_attestation"]
+    preflight = _ready_preflight(attestation)
+    activation = _runtime_activation(attestation=attestation, preflight=preflight)
+
+    control = _verified_control(preflight=preflight, activation=activation)
+    control["control_head_identity"] = {
+        "control_epoch": 7,
+        "revision": "control-rev-0007",
+        "snapshot_digest": "a" * 64,
+        "signature": "must-not-escape",
+    }
+    policy = build_pretool_execution_policy(
+        state={
+            **state,
+            TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: lambda: control,
+        },
+        capability_registry=registry,
+    )
+
+    assert policy["selected_dependency_authority"] == TYPED_DEPENDENCY_AUTHORITY
+    assert policy["allowed_capability_tools"] == baseline["allowed_capability_tools"]
+    ingress = policy["dependency_authority_ingress"]
+    assert ingress["control_head_identity"] is None
+    assert ingress["control_head_identity_status"] == "INVALID_IGNORED"
+    assert ingress["control_head_identity_digest"] is None
+    assert ingress["cross_worker_control_plane_head_digest"] is None
+    assert "must-not-escape" not in str(ingress)
 
 
 def test_trusted_resolver_error_fails_closed_without_exposing_exception_text() -> None:
@@ -156,6 +246,16 @@ def test_trusted_resolver_rollback_reselects_legacy_single_authority() -> None:
                 "runtime_activation": activation,
                 "evaluation_time": 1000.0,
                 "rollback_requested": True,
+                "control_head_identity": {
+                    "control_epoch": 7,
+                    "revision": "control-rev-0007",
+                    "snapshot_digest": "a" * 64,
+                },
+                "rollback_head_identity": {
+                    "rollback_epoch": 2,
+                    "revision": "rollback-rev-0002",
+                    "snapshot_digest": "c" * 64,
+                },
             },
         },
         capability_registry=registry,
@@ -166,6 +266,10 @@ def test_trusted_resolver_rollback_reselects_legacy_single_authority() -> None:
     assert selection["status"] == "ROLLED_BACK_TO_LEGACY"
     assert selection["selected_authority_count"] == 1
     assert selection["runtime_reversion_performed"] is True
+    ingress = policy["dependency_authority_ingress"]
+    assert ingress["rollback_head_identity"]["rollback_epoch"] == 2
+    assert ingress["rollback_head_identity_status"] == "RESOLVED_TRUSTED"
+    assert len(ingress["cross_worker_control_plane_head_digest"]) == 64
 
 
 def test_agent_loop_wrapper_strips_state_injected_resolver_and_only_accepts_runtime_dep(monkeypatch) -> None:
