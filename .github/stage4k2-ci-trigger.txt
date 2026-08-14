@@ -1,1 +1,0 @@
-Stage4K2 exact-head CI trigger after migration-head baseline refresh. Temporary and outside protected product roots.
