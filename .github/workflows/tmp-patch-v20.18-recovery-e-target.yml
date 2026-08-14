@@ -1,52 +1,108 @@
-name: tmp-patch-v20.18-recovery-e-target
+name: tmp-v20.18-successor-hang-diagnostic
 
 on:
   push:
     branches:
       - tmp/v20.18-governance-recovery-20260814
+    paths:
+      - .github/workflows/tmp-patch-v20.18-recovery-e-target.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-once:
+  agent-pytest-hang-diagnostic:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Checkout temporary recovery branch
+      - name: Checkout diagnostic carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
-      - name: Restore exact Recovery-D Target text once
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Reconstruct exact Recovery-F product candidate
         shell: bash
         run: |
           set -euo pipefail
-          path='.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml'
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml')
-          old = 'Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. This successor uses new Target/Claim/baseline/permit identities and does not reuse the invalid predecessor baseline identity.'
-          new = 'Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. This successor uses a new Target/Claim/baseline identity and does not reuse the invalid predecessor baseline identity.'
-          text = path.read_text(encoding='utf-8')
-          count = text.count(old)
-          if count == 0:
-              assert new in text, 'neither expected old nor restored Recovery-D text is present'
-              print('already patched')
-          else:
-              assert count == 1, f'expected exactly one old Target text, got {count}'
-              path.write_text(text.replace(old, new, 1), encoding='utf-8')
-              print('patched exactly one Target baseline-description string')
-          PY
-          changed="$(git diff --name-only)"
-          if [ -z "$changed" ]; then
-            echo 'No patch commit required.'
-            exit 0
+          baseline_sha='aeb9a445001d4922e13a032e4cccc12f8ff34e9a'
+          candidate_sha='55403a01f957257fbbefead32bcde21b7d866001'
+          rm -rf /tmp/v2018-hang
+          mkdir -p /tmp/v2018-hang
+          git archive "$baseline_sha" | tar -x -C /tmp/v2018-hang
+          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-hang/governance/active-change.json').read_text())['allowed_paths']))")
+          test "${#allowed[@]}" -eq 17
+          for path in "${allowed[@]}"; do
+            target="/tmp/v2018-hang/$path"
+            if git cat-file -e "${candidate_sha}:${path}" 2>/dev/null; then
+              mkdir -p "$(dirname "$target")"
+              git show "${candidate_sha}:${path}" > "$target"
+            else
+              rm -f "$target"
+            fi
+          done
+          src="${RUNNER_TEMP}/red-oracle.py"
+          dst="/tmp/v2018-hang/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
+          git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
+          sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
+          grep -q 'test_goal_declaration_prompt_is_capability_blind_before_freeze' "$dst"
+          echo 'reconstructed exact 17-path Recovery-F product candidate plus immutable PR551 oracle'
+
+      - name: Bootstrap locked Agent validation environment
+        working-directory: /tmp/v2018-hang
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Run bounded verbose Agent standard suite
+        working-directory: /tmp/v2018-hang/services/agent-service
+        shell: bash
+        run: |
+          set -u
+          py='.venv/bin/python'
+          log="${RUNNER_TEMP}/agent-standard-vv.log"
+          set +e
+          timeout --signal=TERM 430s stdbuf -oL -eL "$py" -B -m pytest -vv -ra -p no:cacheprovider \
+            -m 'not integration and not preprod' \
+            --cov=agent_core --cov=app \
+            --cov-report=term \
+            2>&1 | tee "$log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/agent-standard-vv.rc"
+          echo '--- diagnostic tail ---'
+          tail -n 120 "$log"
+          echo "diagnostic pytest exit=$rc"
+          if [ "$rc" -eq 0 ]; then
+            echo 'DIAGNOSTIC_RESULT=SUITE_COMPLETED_WITHIN_430S'
+          elif [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+            echo 'DIAGNOSTIC_RESULT=BOUNDED_TIMEOUT_LAST_TEST_VISIBLE_ABOVE'
+          else
+            echo 'DIAGNOSTIC_RESULT=TEST_FAILURE_LAST_FAILURE_VISIBLE_ABOVE'
           fi
-          test "$changed" = "$path"
-          grep -Fq 'This successor uses a new Target/Claim/baseline identity and does not reuse the invalid predecessor baseline identity.' "$path"
-          ! grep -Fq 'This successor uses new Target/Claim/baseline/permit identities and does not reuse the invalid predecessor baseline identity.' "$path"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- "$path"
-          git commit -m 'Restore Recovery-D successor Target identity'
-          git push origin HEAD:tmp/v20.18-governance-recovery-20260814
+
+      - name: Stage diagnostic evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p hang-diagnostic
+          cp -f "${RUNNER_TEMP}/agent-standard-vv.log" hang-diagnostic/ 2>/dev/null || true
+          cp -f "${RUNNER_TEMP}/agent-standard-vv.rc" hang-diagnostic/ 2>/dev/null || true
+          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > hang-diagnostic/baseline-source-sha.txt
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > hang-diagnostic/candidate-source-sha.txt
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v20.18-successor-agent-pytest-hang-diagnostic
+          path: hang-diagnostic
+          if-no-files-found: error
