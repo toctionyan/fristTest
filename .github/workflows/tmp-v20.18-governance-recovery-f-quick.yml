@@ -1,0 +1,384 @@
+name: tmp-v20.18-governance-recovery-f-quick
+
+on:
+  push:
+    branches:
+      - tmp/v20.18-governance-recovery-20260814
+    paths:
+      - .github/workflows/tmp-v20.18-governance-recovery-f-quick.yml
+
+permissions:
+  contents: read
+
+jobs:
+  successor-quick:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout recovery carrier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Reconstruct exact historical authority views
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_sha="aeb9a445001d4922e13a032e4cccc12f8ff34e9a"
+          candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"
+          controller_sha="252c2267508d4d31290af4e9e00fef60acaea698"
+          for sha in "$baseline_sha" "$candidate_sha" "$controller_sha"; do
+            git cat-file -e "${sha}^{commit}"
+          done
+          rm -rf /tmp/v2018-f /tmp/v2018-f-predecessor /tmp/v2018-f-control
+          mkdir -p /tmp/v2018-f /tmp/v2018-f-predecessor /tmp/v2018-f-control
+          git archive "$baseline_sha" | tar -x -C /tmp/v2018-f
+          git archive "$candidate_sha" | tar -x -C /tmp/v2018-f-predecessor
+          git archive "$controller_sha" | tar -x -C /tmp/v2018-f-control
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          old='migration-v20.18-semantic-single-writer-output-coverage'
+          b=json.loads(Path('/tmp/v2018-f/governance/active-change.json').read_text())
+          p=json.loads(Path('/tmp/v2018-f-predecessor/governance/active-change.json').read_text())
+          assert b['change_id']==p['change_id']==old
+          assert b['status']=='approved'
+          assert p['status']=='implementing' and p['result']=='PENDING'
+          assert p['repair_governance_permit_digest']=='1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c'
+          assert b['allowed_paths']==p['allowed_paths'] and len(p['allowed_paths'])==17
+          PY
+
+      - name: Legally replan invalid predecessor and restore successor binding to baseline
+        working-directory: /tmp/v2018-f-predecessor
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="migration-v20.18-semantic-single-writer-output-coverage"
+          successor="${old}-r1"
+          mkdir -p governance/replan-evidence
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          from scripts.quality_control.contracts import _parse_target
+          old='migration-v20.18-semantic-single-writer-output-coverage'
+          successor=old+'-r1'
+          target=Path('governance/targets')/f'{old}.md'
+          try:
+              _parse_target(target, workspace=Path('.').resolve())
+          except ValueError as exc:
+              error=str(exc)
+          else:
+              raise AssertionError('predecessor target unexpectedly parsed')
+          assert error=='target record must declare 执行上下文：local-change or ci', error
+          payload={
+            'schema_version':1,
+            'stage':'V20.18-GOVERNANCE-RECOVERY-F',
+            'verdict':'PREDECESSOR_TARGET_INVALID_REPLAN_REQUIRED',
+            'predecessor_change_id':old,
+            'successor_change_id':successor,
+            'predecessor_candidate_sha':'55403a01f957257fbbefead32bcde21b7d866001',
+            'original_permit_baseline_sha':'aeb9a445001d4922e13a032e4cccc12f8ff34e9a',
+            'predecessor_permit_digest':'1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c',
+            'target_path':target.as_posix(),
+            'target_content_sha256':hashlib.sha256(target.read_bytes()).hexdigest(),
+            'deterministic_parser_error':error,
+            'additional_missing_machine_fields':['新增抽象记录','声明清单','验收 ID'],
+            'successor_rules':['preserve exact 17-path product/test scope','do not mutate predecessor Target','new Target/Claim/baseline/permit identities','no production activation'],
+          }
+          Path('governance/replan-evidence/v20.18-invalid-frozen-target.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n')
+          PY
+          python3 -B /tmp/v2018-f-control/skill-system/controller/contract_replan_cli.py replan \
+            --successor-change-id "$successor" \
+            --reason "Frozen predecessor Target is machine-invalid. Successor preserves the exact A2/B product scope while creating new valid Target, Claim, baseline, Decision and ChangePermit identities." \
+            --evidence governance/replan-evidence/v20.18-invalid-frozen-target.json
+          test ! -e governance/active-change.json
+          python3 -c "import json,pathlib; p=pathlib.Path('/tmp/v2018-f/governance/active-change.json'); d=json.loads(p.read_text()); assert d['change_id']=='migration-v20.18-semantic-single-writer-output-coverage' and d['status']=='approved'; p.unlink()"
+          mkdir -p /tmp/v2018-f/governance/change-history /tmp/v2018-f/governance/replan-evidence
+          cp -a "governance/change-history/${old}" /tmp/v2018-f/governance/change-history/
+          cp governance/pending-replan.json /tmp/v2018-f/governance/
+          cp governance/replan-evidence/v20.18-invalid-frozen-target.json /tmp/v2018-f/governance/replan-evidence/
+
+      - name: Restore immutable PR551 RED oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="${RUNNER_TEMP}/red-oracle.py"
+          dst="/tmp/v2018-f/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
+          git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
+          sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
+          grep -q 'test_goal_declaration_prompt_is_capability_blind_before_freeze' "$dst"
+          grep -q 'test_static_semantic_writer_contract_does_not_require_registry_identity_alignment' "$dst"
+
+      - name: Generate valid successor Target Claim Decision and Contract
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          old="migration-v20.18-semantic-single-writer-output-coverage"
+          successor="${old}-r1"
+          mapfile -t allowed < <(python3 -c "import json,pathlib; d=json.loads((pathlib.Path('governance/change-history')/'${old}'/'contract-before-replan.json').read_text()); print('\\n'.join(d['allowed_paths']))")
+          cmd=(python3 -B skillctl.py product-scaffold \
+            --change-id "$successor" \
+            --target-kind migration \
+            --goal "Recover deterministic governance closure for the already-implemented V20.18 A2/B single-writer migration without changing its product scope." \
+            --minimum-mode quick \
+            --claim-id V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT \
+            --claim-statement "The pre-freeze Semantic Writer remains capability-blind and registry-identity independent while frozen semantics remain the sole formal authority and post-freeze capability execution uses exact requested-output coverage." \
+            --risk P1 \
+            --evidence-kind counterexample \
+            --required-gate python-test-suites \
+            --evidence-ref gate-log:python-test-suites \
+            --owner semantic-core \
+            --new-abstraction-record docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md \
+            --forbidden-description "Do not modify predecessor Target/Claim/Baseline, Quality/Judge/Skill, Business Service, transaction authority, frontend, Phase C, WP-08, or production activation to obtain a pass." \
+            --acceptance-description "The immutable PR #551 RED oracle must fail on exact baseline aeb9a445001d4922e13a032e4cccc12f8ff34e9a and pass on historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001; full Quick must converge without scope expansion." \
+            --baseline-description "Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. Successor governance authority is frozen before this machine RED baseline." \
+            --max-rounds 8)
+          for path in "${allowed[@]}"; do cmd+=(--allow "$path"); done
+          "${cmd[@]}"
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          old='migration-v20.18-semantic-single-writer-output-coverage'
+          successor=old+'-r1'
+          src=Path('governance/decisions')/f'{old}.json'
+          dst=Path('governance/decisions')/f'{successor}.json'
+          d=json.loads(src.read_text())
+          d['decision_id']='adr-v20.18-semantic-single-writer-output-coverage-r1'
+          d['change_id']=successor
+          d['predecessor_change_id']=old
+          d['replan_record']=f'governance/change-history/{old}/replan.json'
+          d['recovery_note']='Governance-identity successor only; selected architecture and A2/B product scope are unchanged.'
+          dst.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n')
+          predecessor=json.loads((Path('governance/change-history')/old/'contract-before-replan.json').read_text())
+          cmd=['python3','-B','/tmp/v2018-f-control/skill-system/controller/contract_replan_cli.py','init-successor','--profile','product-code','--change-id',successor,'--goal','Recover and close the already-implemented V20.18 A2/B migration under a machine-valid successor governance identity without changing its product scope.','--target-kind','migration','--minimum-mode','quick','--quality-target',f'governance/targets/{successor}.md','--repair-governance',f'governance/repair-cases/{successor}','--decision-record',f'governance/decisions/{successor}.json','--approve']
+          for v in predecessor['allowed_paths']: cmd += ['--allow',v]
+          for v in predecessor.get('forbidden_paths',[]): cmd += ['--forbid',v]
+          for v in predecessor.get('affected_modules',[]): cmd += ['--affected-module',v]
+          for v in predecessor.get('invariants',[]): cmd += ['--invariant',v]
+          subprocess.run(cmd,check=True)
+          PY
+          python3 -B skillctl.py contract-validate
+          python3 -c "from pathlib import Path; from scripts.quality_control.contracts import _parse_target; s='migration-v20.18-semantic-single-writer-output-coverage-r1'; t=_parse_target(Path('governance/targets')/f'{s}.md',workspace=Path('.').resolve()); assert t['fingerprint']=='66cfe571ae1ad96b2e0c12c6e4b83b7c456b327c539b9c09df09be6a78dba625'; assert t['claim_manifest_fingerprint']=='e556ea97999459438e53f79a324f6c3a2725cf6c18ed07d054b053c2d84640fe'; assert len(t['allowed_paths'])==17"
+
+      - name: Bootstrap locked validation environments
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Freeze successor repair governance and fresh ChangePermit before product baseline
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="services/agent-service/.venv/bin/python"
+          python3 - <<'PY'
+          import copy, hashlib, json
+          from pathlib import Path
+          old='migration-v20.18-semantic-single-writer-output-coverage'
+          successor=old+'-r1'
+          old_dir=Path('governance/repair-cases')/old
+          new_dir=Path('governance/repair-cases')/successor
+          oracle='services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py'
+          red='governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/evidence/red-baseline.md'
+          def load(name): return json.loads((old_dir/name).read_text())
+          def write(name,data):
+              p=new_dir/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n'); return p
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          failure=copy.deepcopy(load('failure-case.json'))
+          failure['change_id']=successor
+          failure['replan_predecessor']=old
+          failure['reproduction']['evidence_refs']=[red,oracle,'governance/replan-evidence/v20.18-invalid-frozen-target.json','services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py','services/agent-service/src/agent_core/lifecycle/protocol.py','services/agent-service/src/agent_core/runtime/capability_effects.py']
+          failure['reproduction']['actual']='Immutable PR #551 RED evidence and the exact baseline source reproduce the two pre-freeze single-writer violations while preserving positive controls.'
+          failure['reproduction']['expected']='Historical A2/B candidate 55403 must turn the same oracle green without widening product scope or weakening authority boundaries.'
+          fp=write('failure-case.json',failure)
+          root=copy.deepcopy(load('root-cause-proof.json'))
+          root['change_id']=successor; root['failure_case_sha256']=sha(fp); root['replan_predecessor']=old
+          root['evidence_refs']=[red,oracle,'governance/replan-evidence/v20.18-invalid-frozen-target.json','services/agent-service/src/agent_core/runtime/capability_effects.py','services/agent-service/src/agent_core/lifecycle/semantic_contract.py','services/agent-service/src/agent_core/modules/registry.py']
+          rp=write('root-cause-proof.json',root)
+          plan=copy.deepcopy(load('repair-plan.json'))
+          plan['change_id']=successor; plan['root_cause_proof_sha256']=sha(rp); plan['replan_predecessor']=old
+          plan['strategy']='Replay the already-approved A2/B atomic migration under a machine-valid successor governance identity: exact predecessor 17-path scope, exact aeb9 RED source, exact historical 55403 candidate; no new product design or production activation.'
+          for row in plan['changes']: row['reason']='V20.18 successor recovery of the exact predecessor A2/B atomic scope'
+          pp=write('repair-plan.json',plan)
+          review=copy.deepcopy(load('plan-review.json'))
+          review['change_id']=successor; review['repair_plan_sha256']=sha(pp); review['replan_predecessor']=old
+          review['review_findings']=list(review.get('review_findings') or [])+['Successor preserves the exact predecessor 17-path product/test scope; only governance identity is refreshed because predecessor Target was invalid.']
+          pr=write('plan-review.json',review)
+          contract=json.loads(Path('governance/active-change.json').read_text())
+          assert review['decision']=='APPROVED'
+          assert review['approved_paths']==contract['allowed_paths'] and len(review['approved_paths'])==17
+          assert [r['path'] for r in plan['changes']]==contract['allowed_paths']
+          PY
+          "$py" -B skillctl.py repair-permit
+          "$py" -B skillctl.py repair-governance-validate --stage permit
+          successor="migration-v20.18-semantic-single-writer-output-coverage-r1"
+          fresh="$($py -c "import json,pathlib; print(json.loads(pathlib.Path('governance/repair-cases/${successor}/change-permit.json').read_text())['permit_digest'])")"
+          test -n "$fresh" && test "$fresh" != "1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c"
+          printf '%s\n' "$fresh" > "${RUNNER_TEMP}/fresh-permit-digest-f.txt"
+          "$py" -c "import json,pathlib; s='migration-v20.18-semantic-single-writer-output-coverage-r1'; d=json.loads((pathlib.Path('governance/repair-cases')/s/'change-permit.json').read_text()); assert d['status']=='ACTIVE' and len(d['allowed_paths'])==17; print(json.dumps({'permit_digest':d['permit_digest'],'baseline_source_fingerprint':d['baseline_source_fingerprint']},indent=2))"
+
+      - name: Establish machine RED baseline with governance already frozen
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="services/agent-service/.venv/bin/python"
+          successor="migration-v20.18-semantic-single-writer-output-coverage-r1"
+          "$py" -B skillctl.py product-baseline | tee "${RUNNER_TEMP}/successor-product-baseline-f.log"
+          summary=".quality/product-code/${successor}/baseline/run-summary.json"
+          record=".quality/product-code/${successor}/baseline/baseline-record.json"
+          test -f "$summary" && test -f "$record"
+          "$py" - <<'PY'
+          import json
+          from pathlib import Path
+          s='migration-v20.18-semantic-single-writer-output-coverage-r1'
+          d=Path('.quality/product-code')/s/'baseline'
+          summary=json.loads((d/'run-summary.json').read_text())
+          record=json.loads((d/'baseline-record.json').read_text())
+          assert summary['decision']=='FAIL' and summary['loop_status']=='BASELINE_RECORDED'
+          assert summary['unverified_claim_ids']==['V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT']
+          gates={r['id']:r for r in summary['results']}
+          assert gates['python-test-suites']['status']=='FAIL'
+          suites={r['name']:r for r in gates['python-test-suites']['metadata']['structured_assessment']['suites']}
+          assert suites['agent-service-pytest']['summary']['tests']==1584
+          assert suites['agent-service-pytest']['summary']['failures']==2
+          assert suites['business-service-pytest']['summary']['tests']==38
+          claims={r['id']:r for r in summary['claim_results']}
+          assert claims['V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT']['status']=='FAILED'
+          print(json.dumps({'status':'RED_BASELINE_RECORDED','workspace_snapshot':record['workspace_snapshot_fingerprint']},indent=2))
+          PY
+
+      - name: Enter implementing only after baseline is frozen
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="services/agent-service/.venv/bin/python"
+          "$py" -B skillctl.py contract-begin
+          "$py" - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads(Path('governance/active-change.json').read_text())
+          fresh=(Path(os.environ['RUNNER_TEMP'])/'fresh-permit-digest-f.txt').read_text().strip()
+          assert d['status']=='implementing' and d['repair_governance_permit_digest']==fresh
+          PY
+
+      - name: Overlay exact historical A2B candidate within permit
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_sha="55403a01f957257fbbefead32bcde21b7d866001"
+          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-f/governance/active-change.json').read_text())['allowed_paths']))")
+          for path in "${allowed[@]}"; do
+            target="/tmp/v2018-f/$path"
+            if git cat-file -e "${candidate_sha}:${path}" 2>/dev/null; then
+              mkdir -p "$(dirname "$target")"
+              git show "${candidate_sha}:${path}" > "$target"
+            else
+              rm -f "$target"
+            fi
+          done
+
+      - name: Run focused negative and authority tests without workspace writes
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="services/agent-service/.venv/bin/python"
+          export PYTHONPATH="services/agent-service/src:services/agent-service:${PYTHONPATH:-}"
+          mkdir -p "${RUNNER_TEMP}/v2018-f-focused"
+          "$py" -m pytest -q services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py services/agent-service/tests/runtime/test_semantic_output_coverage.py services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py | tee "${RUNNER_TEMP}/v2018-f-focused/focused.log"
+          "$py" -m pytest -q services/agent-service/tests/runtime/test_semantic_output_coverage.py services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py | tee "${RUNNER_TEMP}/v2018-f-focused/negative.log"
+
+      - name: Run full successor Quick and prove RED to GREEN transition
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="services/agent-service/.venv/bin/python"
+          successor="migration-v20.18-semantic-single-writer-output-coverage-r1"
+          "$py" -B skillctl.py product-verify --mode quick | tee "${RUNNER_TEMP}/successor-product-verify-quick-f.log"
+          verification_dir="$(find ".quality/product-code/${successor}" -maxdepth 1 -type d -name 'verification-quick-*' | sort | tail -n 1)"
+          test -n "$verification_dir" && test -f "$verification_dir/run-summary.json"
+          printf '%s\n' "$verification_dir/run-summary.json" > "${RUNNER_TEMP}/quick-summary-path-f.txt"
+          "$py" - <<'PY'
+          import json, os
+          from pathlib import Path
+          path=Path((Path(os.environ['RUNNER_TEMP'])/'quick-summary-path-f.txt').read_text().strip())
+          d=json.loads(path.read_text())
+          assert d['decision']=='PASS',d
+          assert d['loop_status']=='CONVERGED',d
+          assert d['completion_eligible'] is True,d
+          assert d.get('missing_prerequisites')==[],d
+          assert d.get('unverified_claim_ids')==[],d
+          assert d.get('baseline_transition_unverified_claim_ids')==[],d
+          c={r['id']:r for r in d.get('claim_results',[])}['V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT']
+          assert c['gate_statuses']=={'python-test-suites':'PASS'},c
+          print(json.dumps({'status':'GREEN','decision':d['decision'],'loop_status':d['loop_status'],'claim_status':c['status']},indent=2))
+          PY
+
+      - name: Freeze deterministic diff review after Quick
+        working-directory: /tmp/v2018-f
+        shell: bash
+        run: |
+          set -euo pipefail
+          py="services/agent-service/.venv/bin/python"
+          successor="migration-v20.18-semantic-single-writer-output-coverage-r1"
+          "$py" -B skillctl.py repair-diff-review --decision PASS
+          "$py" - <<'PY'
+          import json
+          from pathlib import Path
+          s='migration-v20.18-semantic-single-writer-output-coverage-r1'
+          d=json.loads((Path('governance/repair-cases')/s/'diff-review.json').read_text())
+          assert d['decision']=='PASS'
+          assert len(d['changed_paths'])==14
+          assert d['out_of_scope_paths']==[] and d['deterministic_findings']==[] and d['test_integrity_findings']==[]
+          print(json.dumps({'status':'PASS','changed_paths':d['changed_paths'],'candidate_source_fingerprint':d['candidate_source_fingerprint']},indent=2))
+          PY
+
+      - name: Stage Recovery-F evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="recovery-f-artifact"
+          rm -rf "$out" && mkdir -p "$out"
+          cp -f "${RUNNER_TEMP}/successor-product-baseline-f.log" "$out/" 2>/dev/null || true
+          cp -f "${RUNNER_TEMP}/successor-product-verify-quick-f.log" "$out/" 2>/dev/null || true
+          cp -a "${RUNNER_TEMP}/v2018-f-focused" "$out/" 2>/dev/null || true
+          s="migration-v20.18-semantic-single-writer-output-coverage-r1"
+          cp -f "/tmp/v2018-f/governance/active-change.json" "$out/successor-contract.json" 2>/dev/null || true
+          cp -f "/tmp/v2018-f/governance/targets/${s}.md" "$out/successor-target.md" 2>/dev/null || true
+          cp -f "/tmp/v2018-f/governance/claims/${s}.json" "$out/successor-claims.json" 2>/dev/null || true
+          cp -a "/tmp/v2018-f/governance/repair-cases/${s}" "$out/successor-repair-case" 2>/dev/null || true
+          cp -a "/tmp/v2018-f/.quality/product-code/${s}/baseline" "$out/product-baseline" 2>/dev/null || true
+          q="$(cat "${RUNNER_TEMP}/quick-summary-path-f.txt" 2>/dev/null || true)"
+          if [ -n "$q" ] && [ -f "/tmp/v2018-f/$q" ]; then cp -a "$(dirname "/tmp/v2018-f/$q")" "$out/product-quick"; fi
+          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > "$out/baseline-source-sha.txt"
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/historical-candidate-sha.txt"
+
+      - name: Upload Recovery-F artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v20.18-governance-recovery-f-quick
+          path: recovery-f-artifact
+          if-no-files-found: error
