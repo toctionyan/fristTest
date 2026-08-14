@@ -1,4 +1,4 @@
-name: tmp-v20.18-successor-hang-diagnostic
+name: tmp-v20.18-successor-focused-diagnostic
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  agent-pytest-hang-diagnostic:
+  focused-agent-diagnostic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - name: Checkout diagnostic carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -31,13 +31,13 @@ jobs:
           set -euo pipefail
           baseline_sha='aeb9a445001d4922e13a032e4cccc12f8ff34e9a'
           candidate_sha='55403a01f957257fbbefead32bcde21b7d866001'
-          rm -rf /tmp/v2018-hang
-          mkdir -p /tmp/v2018-hang
-          git archive "$baseline_sha" | tar -x -C /tmp/v2018-hang
-          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-hang/governance/active-change.json').read_text())['allowed_paths']))")
+          rm -rf /tmp/v2018-focused
+          mkdir -p /tmp/v2018-focused
+          git archive "$baseline_sha" | tar -x -C /tmp/v2018-focused
+          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-focused/governance/active-change.json').read_text())['allowed_paths']))")
           test "${#allowed[@]}" -eq 17
           for path in "${allowed[@]}"; do
-            target="/tmp/v2018-hang/$path"
+            target="/tmp/v2018-focused/$path"
             if git cat-file -e "${candidate_sha}:${path}" 2>/dev/null; then
               mkdir -p "$(dirname "$target")"
               git show "${candidate_sha}:${path}" > "$target"
@@ -46,14 +46,14 @@ jobs:
             fi
           done
           src="${RUNNER_TEMP}/red-oracle.py"
-          dst="/tmp/v2018-hang/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
+          dst="/tmp/v2018-focused/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
           git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
           sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
           grep -q 'test_goal_declaration_prompt_is_capability_blind_before_freeze' "$dst"
           echo 'reconstructed exact 17-path Recovery-F product candidate plus immutable PR551 oracle'
 
       - name: Bootstrap locked Agent validation environment
-        working-directory: /tmp/v2018-hang
+        working-directory: /tmp/v2018-focused
         shell: bash
         run: |
           set -euo pipefail
@@ -61,49 +61,66 @@ jobs:
           cd services/agent-service
           uv sync --locked --all-groups
 
-      - name: Run bounded verbose Agent standard suite
-        working-directory: /tmp/v2018-hang/services/agent-service
+      - name: Isolate pending-action regression
+        working-directory: /tmp/v2018-focused/services/agent-service
         shell: bash
         run: |
           set -u
           py='.venv/bin/python'
-          log="${RUNNER_TEMP}/agent-standard-vv.log"
-          export PYTHONPATH='/tmp/v2018-hang/services/agent-service/src:/tmp/v2018-hang/services/agent-service'
+          export PYTHONPATH='/tmp/v2018-focused/services/agent-service/src:/tmp/v2018-focused/services/agent-service'
+          log="${RUNNER_TEMP}/pending-action-regression.log"
+          started="$(date +%s)"
           set +e
-          timeout --signal=TERM 430s stdbuf -oL -eL "$py" -B -m pytest -vv -ra -p no:cacheprovider \
-            -m 'not integration and not preprod' \
-            --cov=agent_core --cov=app \
-            --cov-report=term \
+          timeout --signal=TERM --kill-after=10s 120s stdbuf -oL -eL "$py" -B -m pytest -vv -s --tb=long -p no:cacheprovider --durations=10 \
+            'tests/context/test_dialogue_counterexamples.py::test_pending_action_goal_re_presents_card_without_second_model_call' \
             2>&1 | tee "$log"
           rc=${PIPESTATUS[0]}
           set -e
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/agent-standard-vv.rc"
-          echo '--- diagnostic tail ---'
+          elapsed="$(( $(date +%s) - started ))"
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/pending-action-regression.rc"
+          printf '%s\n' "$elapsed" > "${RUNNER_TEMP}/pending-action-regression.seconds"
+          echo "PENDING_ACTION_RC=$rc ELAPSED=${elapsed}s"
           tail -n 120 "$log"
-          echo "diagnostic pytest exit=$rc"
-          if [ "$rc" -eq 0 ]; then
-            echo 'DIAGNOSTIC_RESULT=SUITE_COMPLETED_WITHIN_430S'
-          elif [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
-            echo 'DIAGNOSTIC_RESULT=BOUNDED_TIMEOUT_LAST_TEST_VISIBLE_ABOVE'
-          else
-            echo 'DIAGNOSTIC_RESULT=TEST_FAILURE_LAST_FAILURE_VISIBLE_ABOVE'
-          fi
 
-      - name: Stage diagnostic evidence
+      - name: Isolate multi-target cancel boundary hang
+        working-directory: /tmp/v2018-focused/services/agent-service
+        shell: bash
+        run: |
+          set -u
+          py='.venv/bin/python'
+          export PYTHONPATH='/tmp/v2018-focused/services/agent-service/src:/tmp/v2018-focused/services/agent-service'
+          log="${RUNNER_TEMP}/multi-target-cancel-boundary.log"
+          started="$(date +%s)"
+          set +e
+          timeout --signal=TERM --kill-after=10s 180s stdbuf -oL -eL "$py" -B -m pytest -vv -s --tb=long -p no:cacheprovider --durations=10 \
+            'tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_multi_target_cancel_boundary]' \
+            2>&1 | tee "$log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          elapsed="$(( $(date +%s) - started ))"
+          printf '%s\n' "$rc" > "${RUNNER_TEMP}/multi-target-cancel-boundary.rc"
+          printf '%s\n' "$elapsed" > "${RUNNER_TEMP}/multi-target-cancel-boundary.seconds"
+          echo "MULTI_TARGET_CANCEL_RC=$rc ELAPSED=${elapsed}s"
+          tail -n 160 "$log"
+
+      - name: Stage focused diagnostic evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p hang-diagnostic
-          cp -f "${RUNNER_TEMP}/agent-standard-vv.log" hang-diagnostic/ 2>/dev/null || true
-          cp -f "${RUNNER_TEMP}/agent-standard-vv.rc" hang-diagnostic/ 2>/dev/null || true
-          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > hang-diagnostic/baseline-source-sha.txt
-          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > hang-diagnostic/candidate-source-sha.txt
+          mkdir -p focused-diagnostic
+          for name in pending-action-regression multi-target-cancel-boundary; do
+            cp -f "${RUNNER_TEMP}/${name}.log" focused-diagnostic/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${name}.rc" focused-diagnostic/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${name}.seconds" focused-diagnostic/ 2>/dev/null || true
+          done
+          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > focused-diagnostic/baseline-source-sha.txt
+          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > focused-diagnostic/candidate-source-sha.txt
 
-      - name: Upload diagnostic evidence
+      - name: Upload focused diagnostic evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-successor-agent-pytest-hang-diagnostic
-          path: hang-diagnostic
+          name: v20.18-successor-focused-diagnostic
+          path: focused-diagnostic
           if-no-files-found: error
