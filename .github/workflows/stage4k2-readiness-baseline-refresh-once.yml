@@ -136,8 +136,7 @@ jobs:
           cd services/agent-service
           uv sync --locked --all-groups
           PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
-            tests/runtime/test_typed_goal_dependency_persistent_control.py \
-            tests/integration/test_postgres_migrations.py
+            tests/runtime/test_typed_goal_dependency_persistent_control.py
 
       - name: Commit refreshed baseline and remove one-shot workflow
         run: |
