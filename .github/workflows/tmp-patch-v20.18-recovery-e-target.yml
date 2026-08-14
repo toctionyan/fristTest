@@ -1,4 +1,4 @@
-name: tmp-v20.18-successor-focused-diagnostic
+name: tmp-v20.18-successor-performance-diagnostic
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  focused-agent-diagnostic:
+  performance-diagnostic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 6
     steps:
       - name: Checkout diagnostic carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -25,19 +25,23 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Reconstruct exact Recovery-F product candidate
+      - name: Reconstruct governed A2/B candidate plus historical bounded performance repair
         shell: bash
         run: |
           set -euo pipefail
           baseline_sha='aeb9a445001d4922e13a032e4cccc12f8ff34e9a'
           candidate_sha='55403a01f957257fbbefead32bcde21b7d866001'
-          rm -rf /tmp/v2018-focused
-          mkdir -p /tmp/v2018-focused
-          git archive "$baseline_sha" | tar -x -C /tmp/v2018-focused
-          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('/tmp/v2018-focused/governance/active-change.json').read_text())['allowed_paths']))")
+          perf_sha='7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'
+          root='/tmp/v2018-perf'
+          rm -rf "$root"
+          mkdir -p "$root"
+          git archive "$baseline_sha" | tar -x -C "$root"
+          mapfile -t allowed < <(python3 -c "import json,pathlib; print('\\n'.join(json.loads(pathlib.Path('$root/governance/active-change.json').read_text())['allowed_paths']))")
           test "${#allowed[@]}" -eq 17
+          perf_path='services/agent-service/src/agent_core/runtime/capability_effects.py'
+          printf '%s\n' "${allowed[@]}" | grep -Fxq "$perf_path"
           for path in "${allowed[@]}"; do
-            target="/tmp/v2018-focused/$path"
+            target="$root/$path"
             if git cat-file -e "${candidate_sha}:${path}" 2>/dev/null; then
               mkdir -p "$(dirname "$target")"
               git show "${candidate_sha}:${path}" > "$target"
@@ -45,15 +49,21 @@ jobs:
               rm -f "$target"
             fi
           done
+          # Overlay only the independently validated #643 product repair.
+          git show "${perf_sha}:${perf_path}" > "$root/$perf_path"
+          test "$(git show "${perf_sha}:${perf_path}" | sha256sum | awk '{print $1}')" = "$(sha256sum "$root/$perf_path" | awk '{print $1}')"
+          # Preserve the immutable PR #551 RED oracle used by the successor lifecycle.
           src="${RUNNER_TEMP}/red-oracle.py"
-          dst="/tmp/v2018-focused/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
+          dst="$root/services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py"
           git show cd260a4af23dc0b061aff8386faee6bb1bff7727:skill-system/tests/test_semantic_single_writer_invariants.py > "$src"
           sed 's/parents\[2\]/parents[4]/' "$src" > "$dst"
           grep -q 'test_goal_declaration_prompt_is_capability_blind_before_freeze' "$dst"
-          echo 'reconstructed exact 17-path Recovery-F product candidate plus immutable PR551 oracle'
+          printf '%s\n' "$baseline_sha" > "${RUNNER_TEMP}/baseline-sha.txt"
+          printf '%s\n' "$candidate_sha" > "${RUNNER_TEMP}/candidate-sha.txt"
+          printf '%s\n' "$perf_sha" > "${RUNNER_TEMP}/performance-repair-sha.txt"
 
       - name: Bootstrap locked Agent validation environment
-        working-directory: /tmp/v2018-focused
+        working-directory: /tmp/v2018-perf
         shell: bash
         run: |
           set -euo pipefail
@@ -61,66 +71,61 @@ jobs:
           cd services/agent-service
           uv sync --locked --all-groups
 
-      - name: Isolate pending-action regression
-        working-directory: /tmp/v2018-focused/services/agent-service
+      - name: Validate semantic output coverage regressions
+        working-directory: /tmp/v2018-perf/services/agent-service
+        env:
+          PYTHONPATH: src:.
         shell: bash
         run: |
-          set -u
-          py='.venv/bin/python'
-          export PYTHONPATH='/tmp/v2018-focused/services/agent-service/src:/tmp/v2018-focused/services/agent-service'
-          log="${RUNNER_TEMP}/pending-action-regression.log"
-          started="$(date +%s)"
-          set +e
-          timeout --signal=TERM --kill-after=10s 120s stdbuf -oL -eL "$py" -B -m pytest -vv -s --tb=long -p no:cacheprovider --durations=10 \
-            'tests/context/test_dialogue_counterexamples.py::test_pending_action_goal_re_presents_card_without_second_model_call' \
-            2>&1 | tee "$log"
-          rc=${PIPESTATUS[0]}
-          set -e
-          elapsed="$(( $(date +%s) - started ))"
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/pending-action-regression.rc"
-          printf '%s\n' "$elapsed" > "${RUNNER_TEMP}/pending-action-regression.seconds"
-          echo "PENDING_ACTION_RC=$rc ELAPSED=${elapsed}s"
-          tail -n 120 "$log"
+          set -euo pipefail
+          start=$(date +%s%3N)
+          timeout --signal=TERM --kill-after=5s 60s .venv/bin/python -B -m pytest -q --disable-warnings --tb=short -p no:cacheprovider tests/runtime/test_semantic_output_coverage.py | tee "${RUNNER_TEMP}/semantic-output.log"
+          end=$(date +%s%3N)
+          echo "SEMANTIC_OUTPUT_DURATION_MS=$((end-start))" | tee "${RUNNER_TEMP}/semantic-output-duration.txt"
 
-      - name: Isolate multi-target cancel boundary hang
-        working-directory: /tmp/v2018-focused/services/agent-service
+      - name: Time historically known slow real-lifecycle scenario
+        working-directory: /tmp/v2018-perf/services/agent-service
+        env:
+          PYTHONPATH: src:.
         shell: bash
         run: |
-          set -u
-          py='.venv/bin/python'
-          export PYTHONPATH='/tmp/v2018-focused/services/agent-service/src:/tmp/v2018-focused/services/agent-service'
-          log="${RUNNER_TEMP}/multi-target-cancel-boundary.log"
-          started="$(date +%s)"
-          set +e
-          timeout --signal=TERM --kill-after=10s 180s stdbuf -oL -eL "$py" -B -m pytest -vv -s --tb=long -p no:cacheprovider --durations=10 \
-            'tests/context/test_semantic_goal_coverage_suite_execution.py::test_semantic_goal_oracle_and_runtime_are_both_satisfied[semantic_multi_target_cancel_boundary]' \
-            2>&1 | tee "$log"
-          rc=${PIPESTATUS[0]}
-          set -e
-          elapsed="$(( $(date +%s) - started ))"
-          printf '%s\n' "$rc" > "${RUNNER_TEMP}/multi-target-cancel-boundary.rc"
-          printf '%s\n' "$elapsed" > "${RUNNER_TEMP}/multi-target-cancel-boundary.seconds"
-          echo "MULTI_TARGET_CANCEL_RC=$rc ELAPSED=${elapsed}s"
-          tail -n 160 "$log"
+          set -euo pipefail
+          start=$(date +%s%3N)
+          timeout --signal=TERM --kill-after=5s 60s .venv/bin/python -B -m pytest -q --disable-warnings --tb=short -p no:cacheprovider \
+            'tests/context/test_conversation_regression_suite_execution.py::test_conversation_case_executes_real_lifecycle_contract[visible_superlative_cheapest]' \
+            | tee "${RUNNER_TEMP}/slow-case.log"
+          end=$(date +%s%3N)
+          echo "SLOW_CASE_DURATION_MS=$((end-start))" | tee "${RUNNER_TEMP}/slow-case-duration.txt"
 
-      - name: Stage focused diagnostic evidence
+      - name: Run full conversation regression suite under bounded budget
+        working-directory: /tmp/v2018-perf/services/agent-service
+        env:
+          PYTHONPATH: src:.
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$(date +%s%3N)
+          timeout --signal=TERM --kill-after=5s 120s .venv/bin/python -B -m pytest -q --disable-warnings --tb=short -p no:cacheprovider \
+            tests/context/test_conversation_regression_suite_execution.py \
+            | tee "${RUNNER_TEMP}/conversation-regression.log"
+          end=$(date +%s%3N)
+          echo "CONVERSATION_REGRESSION_DURATION_MS=$((end-start))" | tee "${RUNNER_TEMP}/conversation-regression-duration.txt"
+
+      - name: Stage performance evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p focused-diagnostic
-          for name in pending-action-regression multi-target-cancel-boundary; do
-            cp -f "${RUNNER_TEMP}/${name}.log" focused-diagnostic/ 2>/dev/null || true
-            cp -f "${RUNNER_TEMP}/${name}.rc" focused-diagnostic/ 2>/dev/null || true
-            cp -f "${RUNNER_TEMP}/${name}.seconds" focused-diagnostic/ 2>/dev/null || true
+          mkdir -p performance-diagnostic
+          for file in baseline-sha candidate-sha performance-repair-sha semantic-output semantic-output-duration slow-case slow-case-duration conversation-regression conversation-regression-duration; do
+            cp -f "${RUNNER_TEMP}/${file}.txt" performance-diagnostic/ 2>/dev/null || true
+            cp -f "${RUNNER_TEMP}/${file}.log" performance-diagnostic/ 2>/dev/null || true
           done
-          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > focused-diagnostic/baseline-source-sha.txt
-          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > focused-diagnostic/candidate-source-sha.txt
 
-      - name: Upload focused diagnostic evidence
+      - name: Upload performance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-successor-focused-diagnostic
-          path: focused-diagnostic
+          name: v20.18-successor-performance-diagnostic
+          path: performance-diagnostic
           if-no-files-found: error
