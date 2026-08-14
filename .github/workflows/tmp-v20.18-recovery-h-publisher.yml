@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-d3-reconciliation-simulation
+name: tmp-v20.18-governance-recovery-d4-reconciliation-publisher
 
 on:
   push:
@@ -8,13 +8,13 @@ on:
       - .github/workflows/tmp-v20.18-recovery-h-publisher.yml
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
-  d3-exact-main-reconciliation-simulation:
+  d4-governance-reconciliation-branch-publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout exact carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -45,16 +45,23 @@ jobs:
           unzip -q "$zip" -d "$out"
           test -f "$out/bound-export-summary.json"
 
-      - name: Simulate exact-main archival reconciliation only
+      - name: Revalidate exact-main D3 simulation before publish
         env:
           D2B_ARTIFACT_DIR: ${{ runner.temp }}/d2b-bound-export
-          D3_OUT_DIR: ${{ github.workspace }}/recovery-d3-simulation-artifact
+          D3_OUT_DIR: ${{ runner.temp }}/recovery-d3-revalidated
         run: python3 -B .github/recovery_d3_reconciliation_sim.py
 
-      - name: Upload D3 simulation evidence
+      - name: Publish one governance-only reconciliation branch
+        env:
+          D2B_ARTIFACT_DIR: ${{ runner.temp }}/d2b-bound-export
+          D3_OUT_DIR: ${{ runner.temp }}/recovery-d3-revalidated
+          D4_OUT_DIR: ${{ github.workspace }}/recovery-d4-publish-artifact
+        run: python3 -B .github/recovery_d4_reconciliation_publish.py
+
+      - name: Upload D4 reconciliation publish evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-d3-reconciliation-simulation
-          path: recovery-d3-simulation-artifact
+          name: v20.18-governance-recovery-d4-reconciliation-publish
+          path: recovery-d4-publish-artifact
           if-no-files-found: error
