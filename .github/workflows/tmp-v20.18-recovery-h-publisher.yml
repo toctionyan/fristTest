@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-closure-d1b
+name: tmp-v20.18-governance-recovery-closure-d1c
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  closure-d1b-evidence-and-diff:
+  closure-d1c-evidence-and-diff:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -31,19 +31,19 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Reproduce H5 and validate Closure-D1b only
-        run: python3 -B .github/recovery_d1b_wrapper.py
+      - name: Reproduce H5 and validate Closure-D1c only
+        run: python3 -B .github/recovery_d1c_wrapper.py
 
-      - name: Stage Closure-D1b evidence
+      - name: Stage Closure-D1c evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          out="${GITHUB_WORKSPACE}/recovery-d1b-artifact"
+          out="${GITHUB_WORKSPACE}/recovery-d1c-artifact"
           rm -rf "$out" && mkdir -p "$out"
           successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
-          cp "${RUNNER_TEMP}/recovery-d1-summary.json" "$out/recovery-d1b-summary.json" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/recovery-d1b-runtime-hygiene.json" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/recovery-d1-summary.json" "$out/recovery-d1c-summary.json" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/recovery-d1c-runtime-hygiene.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-h3-execution.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-h3-readonly-diff-proof.json" "$out/" 2>/dev/null || true
           cp -a "${RUNNER_TEMP}/recovery-h3-focused" "$out/focused-pre-closure" 2>/dev/null || true
@@ -55,10 +55,10 @@ jobs:
           quick="$(cat "${RUNNER_TEMP}/quick-summary-path.txt" 2>/dev/null || true)"
           if [ -n "$quick" ] && [ -f "/tmp/v2018-baseline/$quick" ]; then cp "/tmp/v2018-baseline/$quick" "$out/quick-run-summary.json"; fi
 
-      - name: Upload Closure-D1b evidence
+      - name: Upload Closure-D1c evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-closure-d1b
-          path: recovery-d1b-artifact
+          name: v20.18-governance-recovery-closure-d1c
+          path: recovery-d1c-artifact
           if-no-files-found: error
