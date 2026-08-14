@@ -40,7 +40,6 @@ jobs:
           git archive "$target_sha" | tar -x -C /tmp/v2018-recovery
           change_id="$(python3 -c "import json,pathlib; print(json.loads(pathlib.Path('/tmp/v2018-recovery/governance/active-change.json').read_text())['change_id'])")"
           test "$change_id" = "migration-v20.18-semantic-single-writer-output-coverage"
-          printf '%s\n' "$target_sha" > /tmp/v2018-recovery/.historical-candidate-sha
 
       - name: Bootstrap locked uv
         working-directory: /tmp/v2018-recovery
