@@ -1,0 +1,169 @@
+name: typed-goal-stage4d-baseline-refresh-once
+
+on:
+  push:
+    branches:
+      - feat/typed-goal-graph-foundation-20260814
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  refresh-baseline:
+    runs-on: ubuntu-24.04
+    if: github.repository == 'toctionyan/fristTest'
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          ref: feat/typed-goal-graph-foundation-20260814
+
+      - name: Refresh protected source baseline fail-closed
+        env:
+          SOURCE_SHA: 124e3e27e29182baf4f58f355d709452c76878ed
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          source_sha = os.environ["SOURCE_SHA"].strip()
+          if len(source_sha) != 40:
+              raise SystemExit("source_sha_identity_missing")
+
+          subprocess.run(
+              ["git", "merge-base", "--is-ancestor", source_sha, "HEAD"],
+              cwd=root,
+              check=True,
+          )
+          protected_diff = subprocess.run(
+              ["git", "diff", "--quiet", f"{source_sha}..HEAD", "--", "services", "web", "contracts"],
+              cwd=root,
+              check=False,
+          )
+          if protected_diff.returncode != 0:
+              raise SystemExit("protected_sources_changed_after_frozen_source_sha")
+
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          previous = {str(k): str(v) for k, v in (payload.get("files") or {}).items()}
+          if int(payload.get("file_count") or 0) != 589 or len(previous) != 589:
+              raise SystemExit(
+                  f"unexpected_previous_baseline:{payload.get('file_count')}/{len(previous)}"
+              )
+          protected_roots = tuple(str(v) for v in payload.get("protected_roots") or ())
+          if protected_roots != ("services", "web", "contracts"):
+              raise SystemExit(f"unexpected_protected_roots:{protected_roots!r}")
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z", "--", *protected_roots], cwd=root
+          )
+          tracked = sorted(item.decode("utf-8") for item in raw.split(b"\0") if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          if len(current) != 591:
+              raise SystemExit(f"unexpected_protected_file_count:{len(current)}")
+
+          changed = {
+              path
+              for path in set(current) & set(previous)
+              if current[path] != previous[path]
+          }
+          added = set(current) - set(previous)
+          removed = set(previous) - set(current)
+          expected_changed = {
+              "services/agent-service/src/agent_core/goal_graph/__init__.py",
+          }
+          expected_added = {
+              "services/agent-service/src/agent_core/goal_graph/activation_preflight.py",
+              "services/agent-service/tests/runtime/test_typed_goal_dependency_activation_preflight.py",
+          }
+          if changed != expected_changed:
+              raise SystemExit("unexpected_changed_existing:" + ",".join(sorted(changed)))
+          if added != expected_added:
+              raise SystemExit("unexpected_added:" + ",".join(sorted(added)))
+          if removed:
+              raise SystemExit("unexpected_removed:" + ",".join(sorted(removed)))
+
+          payload["file_count"] = len(current)
+          payload["files"] = dict(sorted(current.items()))
+          payload["generated_at"] = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          payload["generated_from"] = "git:" + source_sha
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "status": "PASS",
+              "file_count": len(current),
+              "generated_from": payload["generated_from"],
+              "changed": sorted(changed),
+              "added": sorted(added),
+              "removed": sorted(removed),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Verify refreshed baseline contract
+        run: python skill-system/tests/test_product_source_baseline_binding.py
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Bootstrap locked uv
+        run: |
+          "${pythonLocation}/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --require-hashes \
+            --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Run Stage4B-4D targeted regressions
+        run: |
+          cd services/agent-service
+          uv sync --locked --all-groups
+          .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_typed_goal_dependency_cutover_gate.py \
+            tests/runtime/test_typed_goal_dependency_handoff_simulation.py \
+            tests/runtime/test_typed_goal_dependency_activation_preflight.py
+
+      - name: Commit refreshed baseline and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/typed-goal-stage4d-baseline-refresh-once.yml
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m "Refresh typed goal Stage4D protected baseline"
+          git push origin HEAD:feat/typed-goal-graph-foundation-20260814
+
+      - name: Dispatch final quality verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for workflow in quality.yml skill-self-validation.yml; do
+            curl --fail-with-body -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" \
+              -d '{"ref":"feat/typed-goal-graph-foundation-20260814"}'
+          done
