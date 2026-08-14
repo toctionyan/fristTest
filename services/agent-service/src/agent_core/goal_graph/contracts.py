@@ -232,6 +232,7 @@ def make_verified_artifact_ref(
     source_ref_id: str,
     proof_digest: str,
     authority: str = "verified_tool_output",
+    expires_at: float | None = None,
 ) -> dict[str, Any]:
     if not _text(artifact_ref, limit=500):
         raise ValueError("VERIFIED_ARTIFACT_REF_REQUIRED")
@@ -269,6 +270,14 @@ def make_verified_artifact_ref(
             "business_facts_copied": False,
         },
     }
+    if expires_at is not None:
+        try:
+            normalized_expires_at = float(expires_at)
+        except (TypeError, ValueError):
+            raise ValueError("VERIFIED_ARTIFACT_EXPIRY_INVALID")
+        if normalized_expires_at <= 0:
+            raise ValueError("VERIFIED_ARTIFACT_EXPIRY_INVALID")
+        ref["expires_at"] = normalized_expires_at
     unsigned = deepcopy(ref)
     ref["ref_digest"] = canonical_digest(unsigned)
     return ref
