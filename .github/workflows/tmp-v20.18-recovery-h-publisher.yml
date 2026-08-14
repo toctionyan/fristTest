@@ -6,6 +6,7 @@ on:
       - tmp/v20.18-governance-recovery-20260814
     paths:
       - .github/workflows/tmp-v20.18-recovery-h-publisher.yml
+      - .github/recovery_d4_reconciliation_publish.py
 
 permissions:
   contents: write
