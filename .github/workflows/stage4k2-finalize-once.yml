@@ -53,6 +53,8 @@ jobs:
 
       - name: Run Stage4K2 focused contracts
         working-directory: services/agent-service
+        env:
+          PYTHONPATH: src:.
         run: >-
           .venv/bin/python -B -m pytest -q
           tests/runtime/test_typed_goal_dependency_persistent_control.py
