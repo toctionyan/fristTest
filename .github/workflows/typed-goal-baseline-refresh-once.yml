@@ -1,0 +1,142 @@
+name: Typed Goal Baseline Refresh Once
+
+on:
+  push:
+    branches:
+      - feat/typed-goal-graph-foundation-20260814
+    paths:
+      - .github/workflows/typed-goal-baseline-refresh-once.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: typed-goal-baseline-refresh-once
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.repository == 'toctionyan/fristTest' && github.ref_name == 'feat/typed-goal-graph-foundation-20260814'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat/typed-goal-graph-foundation-20260814
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Refresh git-tracked protected baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          baseline_path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(baseline_path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in payload.get('protected_roots') or ())
+          if protected_roots != ('services', 'web', 'contracts'):
+              raise SystemExit(f'unexpected_protected_roots:{protected_roots!r}')
+
+          raw = subprocess.check_output(
+              ['git', 'ls-files', '-z', '--', *protected_roots],
+              cwd=root,
+          )
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          if len(current) != 581:
+              raise SystemExit(f'unexpected_protected_file_count:{len(current)}')
+
+          required_new = {
+              'services/agent-service/src/agent_core/goal_graph/__init__.py',
+              'services/agent-service/src/agent_core/goal_graph/compiler.py',
+              'services/agent-service/src/agent_core/goal_graph/contracts.py',
+              'services/agent-service/src/agent_core/goal_graph/verifier.py',
+              'services/agent-service/src/agent_core/goal_graph/capability_closure.py',
+              'services/agent-service/tests/architecture/test_typed_goal_graph_foundation.py',
+              'services/agent-service/tests/architecture/test_typed_goal_capability_closure.py',
+          }
+          previous = {str(k): str(v) for k, v in (payload.get('files') or {}).items()}
+          added = set(current) - set(previous)
+          changed_existing = {
+              path for path in set(current) & set(previous)
+              if current[path] != previous[path]
+          }
+          removed = set(previous) - set(current)
+          if added != required_new:
+              raise SystemExit('unexpected_added_protected_paths:' + ','.join(sorted(added)))
+          if changed_existing:
+              raise SystemExit('unexpected_changed_existing_protected_paths:' + ','.join(sorted(changed_existing)))
+          if removed:
+              raise SystemExit('unexpected_removed_protected_paths:' + ','.join(sorted(removed)))
+
+          expected_new_hashes = {
+              'services/agent-service/src/agent_core/goal_graph/__init__.py': '7220bb2d3780dedf8474d60beaf5964cc5abd6968d8662a6f0b9f31a6964dbdd',
+              'services/agent-service/src/agent_core/goal_graph/compiler.py': '80d598e470a030e4b47ac4ec54dbcee81576c2be1541db480adbcbff3c691f00',
+              'services/agent-service/src/agent_core/goal_graph/contracts.py': '25da46c2820bc3f3c268394e315043eef896a99e27b5eccf56865538503aa38e',
+              'services/agent-service/src/agent_core/goal_graph/verifier.py': '5256e4f88bcad5b1c602755228c70bb83e5efb336592ab8b65a32da56d8481cb',
+              'services/agent-service/src/agent_core/goal_graph/capability_closure.py': 'e5bad498c8933e331af76a67343e1a10b2fc4eead53033fddd6ba1177fc4c0b9',
+              'services/agent-service/tests/architecture/test_typed_goal_graph_foundation.py': '0b106196503954df89d78551e149d6da0cc39e4af5df4e323bf657eec5f9dd36',
+              'services/agent-service/tests/architecture/test_typed_goal_capability_closure.py': '10c404648be0688af1e5104d9b40425c2f86bcf16fd1ea05524ecad1d133794a',
+          }
+          mismatched = {
+              path: {'expected': expected, 'actual': current.get(path)}
+              for path, expected in expected_new_hashes.items()
+              if current.get(path) != expected
+          }
+          if mismatched:
+              raise SystemExit('new_protected_hash_mismatch:' + json.dumps(mismatched, sort_keys=True))
+
+          source_head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['generated_from'] = 'git:' + source_head
+          baseline_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({
+              'status': 'PASS',
+              'source_head': source_head,
+              'file_count': len(current),
+              'added': sorted(added),
+              'changed_existing': sorted(changed_existing),
+              'removed': sorted(removed),
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Publish baseline and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/typed-goal-baseline-refresh-once.yml
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add skill-system/registry/product-source-baseline.json .github/workflows/typed-goal-baseline-refresh-once.yml
+          git diff --cached --check
+          git commit -m 'Refresh typed goal protected product-source baseline'
+          git push origin HEAD:feat/typed-goal-graph-foundation-20260814
+          echo "FINAL_HEAD=$(git rev-parse HEAD)"
+
+      - name: Dispatch formal gates on final head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 3
+          gh workflow run quality.yml --ref feat/typed-goal-graph-foundation-20260814
+          gh workflow run skill-self-validation.yml --ref feat/typed-goal-graph-foundation-20260814
