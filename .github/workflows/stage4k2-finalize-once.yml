@@ -52,12 +52,13 @@ jobs:
         run: cd services/agent-service && uv sync --locked --all-groups
 
       - name: Run Stage4K2 focused contracts
+        working-directory: services/agent-service
         run: >-
-          services/agent-service/.venv/bin/python -B -m pytest -q
-          services/agent-service/tests/runtime/test_typed_goal_dependency_persistent_control.py
-          services/agent-service/tests/runtime/test_typed_goal_dependency_signed_provider.py
-          services/agent-service/tests/runtime/test_typed_goal_dependency_control_provider_contract.py
-          services/agent-service/tests/runtime/test_typed_goal_dependency_activation_ingress.py
+          .venv/bin/python -B -m pytest -q
+          tests/runtime/test_typed_goal_dependency_persistent_control.py
+          tests/runtime/test_typed_goal_dependency_signed_provider.py
+          tests/runtime/test_typed_goal_dependency_control_provider_contract.py
+          tests/runtime/test_typed_goal_dependency_activation_ingress.py
 
       - name: Assert focused tests did not mutate tracked source
         run: git diff --exit-code -- . ':!skill-system/registry/product-source-baseline.json'
