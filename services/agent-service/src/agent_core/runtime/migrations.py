@@ -11,7 +11,7 @@ from typing import Any
 
 
 def required_agent_revision() -> str:
-    return os.getenv("AGENT_REQUIRED_ALEMBIC_REVISION", "0005_production_integrity").strip()
+    return os.getenv("AGENT_REQUIRED_ALEMBIC_REVISION", "0006_dependency_auth_control").strip()
 
 
 def verify_agent_migration() -> dict[str, Any]:
