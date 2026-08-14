@@ -1,0 +1,14 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+D1_PATH = Path(__file__).with_name("recovery_d1_runner.py")
+source = D1_PATH.read_text(encoding="utf-8")
+
+needle = '''# Post-Quick only: freeze the canonical deterministic diff review.\nrun(str(py), "-B", "skillctl.py", "repair-diff-review", "--decision", "PASS")\n'''
+replacement = '''# Post-Quick only: prove and remove the one machine-local runtime artifact\n# created by the formal Quick before freezing the canonical deterministic diff.\n# This is not a scope exclusion: any other path still reaches repair-diff-review\n# and remains fail-closed.\npre_diff = load(runner_temp / "recovery-h3-readonly-diff-proof.json")\nassert pre_diff["status"] == "PASS", pre_diff\nassert pre_diff["changed_paths"] == EXPECTED_CHANGED_PATHS, pre_diff\nassert pre_diff["out_of_scope_paths"] == [], pre_diff\n\nruntime_rel = "services/agent-service/runtime/vector-store/vector_store.db"\nruntime_db = ROOT / runtime_rel\nignore_file = ROOT / "services/agent-service/.gitignore"\nignore_text = ignore_file.read_text(encoding="utf-8")\nassert "# Runtime state is machine-local and never belongs to source or a release archive." in ignore_text\nassert "runtime/**" in ignore_text\nassert runtime_db.is_file(), f"expected formal-Quick runtime artifact missing: {runtime_rel}"\nignored = subprocess.run(["git", "check-ignore", "-q", runtime_rel], cwd=ROOT).returncode\nassert ignored == 0, f"runtime artifact is not covered by repository ignore policy: {runtime_rel}"\ntracked = subprocess.run(["git", "ls-files", "--error-unmatch", runtime_rel], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode\nassert tracked != 0, f"runtime artifact unexpectedly tracked: {runtime_rel}"\n\ncleanup_record = {\n    "schema_version": 1,\n    "phase": "Closure-D1b-runtime-hygiene",\n    "status": "PASS",\n    "path": runtime_rel,\n    "git_ignored": True,\n    "git_tracked": False,\n    "pre_quick_candidate_paths": pre_diff["changed_paths"],\n    "pre_quick_out_of_scope_paths": pre_diff["out_of_scope_paths"],\n    "policy": "services/agent-service/.gitignore: runtime/** is machine-local and not source/release state",\n}\n(runner_temp / "recovery-d1b-runtime-hygiene.json").write_text(json.dumps(cleanup_record, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")\nruntime_db.unlink()\n\n# Freeze the unchanged canonical deterministic diff review after restoring the\n# source view to the repository-defined source/release boundary.\nrun(str(py), "-B", "skillctl.py", "repair-diff-review", "--decision", "PASS")\n'''
+
+if needle not in source:
+    raise SystemExit("D1 post-Quick diff-review insertion point changed; fail closed")
+patched = source.replace(needle, replacement, 1)
+exec(compile(patched, str(D1_PATH) + "[D1b]", "exec"), {"__name__": "__main__", "__file__": str(D1_PATH)})
