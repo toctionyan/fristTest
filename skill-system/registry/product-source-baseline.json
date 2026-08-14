@@ -1,5 +1,5 @@
 {
-  "file_count": 589,
+  "file_count": 591,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -127,7 +127,8 @@
     "services/agent-service/src/agent_core/context/referent_sets.py": "6f35dd5fc3004e54aa8c1f46da5050725542d9064c5108143b5d8998b6d16963",
     "services/agent-service/src/agent_core/context/state_projection.py": "52a1bcf40b9d299804bf1562a21e420bd385a85793bfe8ab8161bb819e8707f7",
     "services/agent-service/src/agent_core/context/visible_result_refs.py": "c564d6f24ad7c7d9b379544924047eccb360097ca4555f2d9f5c9ed5760695cb",
-    "services/agent-service/src/agent_core/goal_graph/__init__.py": "dce4979db19ea83cbdc78ec3d4dc312d754b96f4a7fe3cff838ead6dc17edcbc",
+    "services/agent-service/src/agent_core/goal_graph/__init__.py": "4539903965c54abe1b550e54e606eab32faedefa583efd790061e25b33d29455",
+    "services/agent-service/src/agent_core/goal_graph/activation_preflight.py": "6d6963b6e61d5d413e0c5a88e08a1a9bc568982e21657418f65efdcd676f1620",
     "services/agent-service/src/agent_core/goal_graph/capability_closure.py": "e5bad498c8933e331af76a67343e1a10b2fc4eead53033fddd6ba1177fc4c0b9",
     "services/agent-service/src/agent_core/goal_graph/compiler.py": "80d598e470a030e4b47ac4ec54dbcee81576c2be1541db480adbcbff3c691f00",
     "services/agent-service/src/agent_core/goal_graph/contracts.py": "25da46c2820bc3f3c268394e315043eef896a99e27b5eccf56865538503aa38e",
@@ -519,6 +520,7 @@
     "services/agent-service/tests/runtime/test_state_v2_retired_field_quarantine.py": "df00242c38fa05128ec583eff56da180142f1f2810babf91d5710de2f3cd1263",
     "services/agent-service/tests/runtime/test_transaction_reconciliation_guard.py": "e62aefb6b35d4cc6f8d8e41a820ac5e7c392377d13b6c6033effa0f83a4c1382",
     "services/agent-service/tests/runtime/test_typed_goal_coverage_shadow_integration.py": "62c83ebaec7f15df4c5faa3b48e6ba57e93ff07d7a86e89389c345d59ddceb4b",
+    "services/agent-service/tests/runtime/test_typed_goal_dependency_activation_preflight.py": "dcdfd6189bc072cf2a4f950b4dc2d34b149e9cc59416f57c6445e708bcef56c6",
     "services/agent-service/tests/runtime/test_typed_goal_dependency_authority_attestation.py": "05eea0fef38ac2286516026cdee01ac1c5379453a375fc63cfb956088339779f",
     "services/agent-service/tests/runtime/test_typed_goal_dependency_authority_shadow.py": "28dcff8d878645edabadbc2aa863c5e2cfaa01c723ca2da4002c3f045d954523",
     "services/agent-service/tests/runtime/test_typed_goal_dependency_cutover_gate.py": "044e74d5573d1bf0019f86d4b86b3dc3f520b231682b70cfb975157b91edfa51",
@@ -591,8 +593,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-14T05:14:47Z",
-  "generated_from": "git:c0c78a04003020f991f96e740a2cfeba6aead7e7",
+  "generated_at": "2026-08-14T05:34:10Z",
+  "generated_from": "git:124e3e27e29182baf4f58f355d709452c76878ed",
   "protected_roots": [
     "services",
     "web",
