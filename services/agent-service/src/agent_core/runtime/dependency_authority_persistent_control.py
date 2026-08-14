@@ -2,13 +2,12 @@ from __future__ import annotations
 
 """Stage 4K2 persistent dependency-authority control contracts.
 
-This module is deliberately production-capable but not production-wired.
-It adds an append-only persistent activation source, an independent signed
-emergency-rollback source, and a fail-closed composite provider.  AgentService
-continues to use DisabledDependencyAuthorityControlProvider until a later,
-separately authorized production-activation change.
+The module provides append-only activation reads, an independent signed emergency
+rollback source, and a fail-closed composite provider. Stage4K4 may compose it
+through the application layer only when persistent mode is explicitly selected;
+the default AgentService composition remains disabled.
 
-The runtime process owns no write API for either control table.  Production
+The runtime process owns no write API for either control table. Production
 operator/governance tooling is expected to append immutable rows under separate
 database privileges.
 """

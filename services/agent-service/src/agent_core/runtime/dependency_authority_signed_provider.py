@@ -2,11 +2,10 @@ from __future__ import annotations
 
 """Stage 4K1 signed-record provider contract for dependency-authority control.
 
-This module is production-capable but deliberately not wired into ``AgentService``.
-It owns neither model/environment configuration nor signing secrets.  A trusted
-application composition must supply both the signed-record source and the
-cryptographic verifier.  Until that later composition is explicitly authorized,
-Stage 4I keeps the disabled provider active.
+The provider owns neither model/environment configuration nor signing secrets.
+Stage4K4 application composition may reach it through the persistent provider only
+after explicit startup configuration supplies a record source and cryptographic
+public-key verifier; default customer-serving composition remains disabled.
 """
 
 from copy import deepcopy

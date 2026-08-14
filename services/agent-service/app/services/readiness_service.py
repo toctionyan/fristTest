@@ -128,6 +128,44 @@ def readiness_report(*, app: Any | None = None) -> dict[str, Any]:
     except Exception as exc:
         checks.append(_failed("business_service", str(exc)) if strict else _degraded("business_service", str(exc)))
 
+    if app is not None:
+        try:
+            from app.services.dependency_authority_composition import (
+                dependency_authority_composition_readiness,
+            )
+
+            service = getattr(getattr(app, "state", None), "agent_service", None)
+            composition = getattr(
+                service, "dependency_authority_control_composition", None
+            )
+            if composition is None:
+                checks.append(
+                    _failed(
+                        "dependency_authority_control",
+                        "dependency-authority application composition is missing",
+                    )
+                    if strict
+                    else _degraded(
+                        "dependency_authority_control",
+                        "dependency-authority application composition is missing",
+                    )
+                )
+            else:
+                authority = dependency_authority_composition_readiness(composition)
+                detail = f"{authority.get('mode')}:{authority.get('status')}"
+                if authority.get("ready"):
+                    checks.append(_ok("dependency_authority_control", detail))
+                else:
+                    checks.append(_failed("dependency_authority_control", detail))
+        except Exception as exc:
+            checks.append(
+                _failed("dependency_authority_control", exc.__class__.__name__)
+                if strict
+                else _degraded(
+                    "dependency_authority_control", exc.__class__.__name__
+                )
+            )
+
     failed = [item.name for item in checks if item.required and item.status != "ok"]
     degraded = [item.name for item in checks if item.status == "degraded"]
     return {
