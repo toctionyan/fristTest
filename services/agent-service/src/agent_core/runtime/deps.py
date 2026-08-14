@@ -29,8 +29,8 @@ class LifecycleRuntimeDeps:
     # resolver to exercise the compiled lifecycle graph without network I/O.
     model_resolver: Callable[[], Any] | None = None
     # Stage 4F: trusted application-composition ingress for dependency-authority
-    # control. None is the production default. The resolver is a Python callable
-    # supplied by composition, never checkpoint/user/model data.
+    # control. None remains the generic factory default; Stage 4I production
+    # composition supplies an explicit disabled callable. Never checkpoint/user/model data.
     dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None
 
 

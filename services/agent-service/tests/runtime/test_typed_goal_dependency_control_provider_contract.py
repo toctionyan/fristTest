@@ -3,8 +3,10 @@ from __future__ import annotations
 import inspect
 import json
 import os
+from types import SimpleNamespace
 
 import agent_core.runtime.dependency_authority_control as control
+import app.services.agent_service as agent_service_module
 from agent_core.runtime.dependency_authority_control import (
     DisabledDependencyAuthorityControlProvider,
     StaticVerifiedDependencyAuthorityControlProvider,
@@ -41,9 +43,45 @@ def test_stage4h_contract_does_not_own_main_environment_or_model_configuration()
     snapshot = _snapshot()
     assert snapshot["owns_environment_configuration"] is False
     assert snapshot["owns_model_configuration"] is False
-    assert "dependency_authority_control_resolver=" not in inspect.getsource(
-        AgentService.__init__
+    assert "self._compose_runtime_deps()" in inspect.getsource(AgentService.__init__)
+    assert "dependency_authority_control_resolver=" in inspect.getsource(
+        AgentService._compose_runtime_deps
     )
+
+
+def test_stage4i_agent_service_composition_wires_only_disabled_provider(monkeypatch) -> None:
+    captured = {}
+
+    def fake_runtime_deps(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr(agent_service_module, "lifecycle_runtime_deps", fake_runtime_deps)
+    monkeypatch.setattr(agent_service_module, "get_business_port", lambda: "business-port")
+    monkeypatch.setenv("OPENAI_API_KEY", "main-shared-key")
+    monkeypatch.setenv("OPENAI_MODEL", "main-shared-model")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://main-shared.example.invalid")
+
+    service = AgentService.__new__(AgentService)
+    service.transactions = "transactions"
+    service.trace_logger = "trace-logger"
+    service.runtime_registry = SimpleNamespace(capabilities="capability-registry")
+
+    runtime_deps = service._compose_runtime_deps()
+
+    assert isinstance(
+        service.dependency_authority_control_provider,
+        DisabledDependencyAuthorityControlProvider,
+    )
+    assert runtime_deps.transactions == "transactions"
+    assert captured["capability_registry"] == "capability-registry"
+    assert captured["business_port"] == "business-port"
+    assert captured["trace_logger"] == "trace-logger"
+    assert "model_resolver" not in captured
+    resolver = captured["dependency_authority_control_resolver"]
+    assert callable(resolver)
+    assert resolver() is None
+    assert os.environ["OPENAI_MODEL"] == "main-shared-model"
 
 
 def test_disabled_provider_is_explicitly_fail_closed() -> None:

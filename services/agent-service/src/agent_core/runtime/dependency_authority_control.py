@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Stage 4H trusted dependency-authority control-provider contract.
+"""Stage 4H provider contract with Stage 4I default-disabled composition wiring.
 
-This module deliberately owns no environment or model configuration and is not
-wired into ``AgentService``. It only defines the application-owned provider
-shape that a later, separately authorized production composition may supply to
-the Stage 4F resolver ingress.
+This module deliberately owns no environment or model configuration. Stage 4I
+allows ``AgentService`` to wire only the explicit disabled provider into the
+Stage 4F resolver ingress; no activation record is loaded or synthesized here.
+A later production activation remains a separate, explicitly authorized change.
 """
 
 from copy import deepcopy
@@ -152,7 +152,7 @@ class DependencyAuthorityControlProvider(Protocol):
 
 
 class DisabledDependencyAuthorityControlProvider:
-    """Explicit fail-closed provider used until production wiring is authorized."""
+    """Production composition default: explicit fail-closed, no activation control."""
 
     def resolve(self) -> None:
         return None

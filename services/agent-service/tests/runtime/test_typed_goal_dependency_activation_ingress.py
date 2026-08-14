@@ -36,14 +36,33 @@ def _policy_fixture():
     return state, registry, baseline
 
 
-def test_default_runtime_composition_has_no_activation_control_resolver() -> None:
+def test_stage4i_runtime_factory_default_stays_none_but_agent_service_wires_disabled_resolver() -> None:
     parameter = inspect.signature(lifecycle_runtime_deps).parameters[
         "dependency_authority_control_resolver"
     ]
     assert parameter.default is None
-    assert "dependency_authority_control_resolver=" not in inspect.getsource(
-        AgentService.__init__
+    assert "self._compose_runtime_deps()" in inspect.getsource(AgentService.__init__)
+    assert "dependency_authority_control_resolver=" in inspect.getsource(
+        AgentService._compose_runtime_deps
     )
+
+
+def test_stage4i_wired_disabled_resolver_keeps_legacy_authority_and_tool_surface() -> None:
+    state, registry, baseline = _policy_fixture()
+    policy = build_pretool_execution_policy(
+        state={
+            **state,
+            TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY: lambda: None,
+        },
+        capability_registry=registry,
+    )
+    assert policy["selected_dependency_authority"] == LEGACY_DEPENDENCY_AUTHORITY
+    assert policy["dependency_runtime_authority_selection"]["status"] == "LEGACY_DEFAULT"
+    assert policy["dependency_runtime_authority_selection"]["selected_authority_count"] == 1
+    assert policy["dependency_authority_ingress"]["status"] == "NO_CONTROL_FAIL_CLOSED"
+    assert policy["allowed_capability_tools"] == baseline["allowed_capability_tools"]
+    assert policy["creates_permit"] is False
+    assert policy["dispatches_tools"] is False
 
 
 def test_untrusted_checkpoint_value_cannot_activate_dependency_authority() -> None:

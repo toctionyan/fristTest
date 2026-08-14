@@ -30,6 +30,10 @@ from agent_core.ledger import append_entries, artifact_entry, find_handle, scope
 from agent_core.transaction.active_draft import get_active_draft_id
 from agent_core.transaction.focus import get_focused_draft_id
 from agent_core.transaction.interaction import interaction_response_contract, pending_transaction_summaries_from_state
+from agent_core.runtime.dependency_authority_control import (
+    DisabledDependencyAuthorityControlProvider,
+    dependency_authority_control_resolver,
+)
 from agent_core.runtime.deps import lifecycle_runtime_deps
 from agent_core.config import clear_checkpointer_cache
 
@@ -38,6 +42,18 @@ class AgentService:
     # The durable lock below protects the same invariant across worker processes.
     _turn_locks_guard = Lock()
     _turn_locks: dict[str, RLock] = {}
+
+    def _compose_runtime_deps(self):
+        """Wire the trusted control seam while keeping production authority disabled."""
+        provider = DisabledDependencyAuthorityControlProvider()
+        self.dependency_authority_control_provider = provider
+        return lifecycle_runtime_deps(
+            transactions=self.transactions,
+            capability_registry=self.runtime_registry.capabilities,
+            business_port=get_business_port(),
+            trace_logger=self.trace_logger,
+            dependency_authority_control_resolver=dependency_authority_control_resolver(provider),
+        )
 
     def __init__(self):
         # Compose persistent dependencies before constructing the graph.  The
@@ -61,12 +77,7 @@ class AgentService:
         self.conversation_turn_service = ConversationTurnService(self)
         self.lifecycle_command_runner = LifecycleCommandRunner(self)
         self.runtime_registry = get_runtime_registry()
-        self.runtime_deps = lifecycle_runtime_deps(
-            transactions=self.transactions,
-            capability_registry=self.runtime_registry.capabilities,
-            business_port=get_business_port(),
-            trace_logger=self.trace_logger,
-        )
+        self.runtime_deps = self._compose_runtime_deps()
         # Keep the Customer Portal API available even when optional LangGraph
         # runtime dependencies are absent. Chat endpoints fail clearly at call
         # time; they never pretend to run without the declared dependencies.
