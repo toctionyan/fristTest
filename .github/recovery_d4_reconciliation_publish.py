@@ -17,10 +17,7 @@ ACTIVE = "governance/active-change.json"
 
 def run(*args: str, cwd: Path = REPO, capture: bool = False) -> str:
     result = subprocess.run(
-        list(args),
-        cwd=cwd,
-        check=True,
-        text=True,
+        list(args), cwd=cwd, check=True, text=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
     )
@@ -65,7 +62,6 @@ D3 = Path(d3_raw).resolve()
 OUT = Path(out_raw).resolve()
 assert ARTIFACT.is_dir() and D3.is_dir()
 
-# Make failure evidence uploadable before any publisher mutation/assertion occurs.
 if OUT.exists():
     shutil.rmtree(OUT)
 OUT.mkdir(parents=True)
@@ -80,11 +76,7 @@ assert summary["main_sha"] == MAIN_SHA
 assert summary["governance_only"] is True
 assert summary["main_mutated"] is False
 assert summary["release_or_production_mutated"] is False
-assert summary["pointer_state"] == {
-    "active_change_present": False,
-    "pending_replan_present": False,
-    "live_writer_count": 0,
-}
+assert summary["pointer_state"] == {"active_change_present": False, "pending_replan_present": False, "live_writer_count": 0}
 assert summary["successor"]["status"] == "closed"
 assert summary["successor"]["result"] == "CONVERGED"
 expected_changed = changed["changed_paths"]
@@ -96,22 +88,32 @@ assert all(path.startswith("governance/") for path in expected_changed)
 expected_added = [path for path in expected_changed if path != ACTIVE]
 assert set(expected_added) == set(hashes["files"])
 
-# Fail closed if main moved after D3. This publisher is valid only for the exact simulated main.
 remote_main = run("git", "ls-remote", "origin", "refs/heads/main", capture=True)
 parts = remote_main.split()
 assert len(parts) == 2 and parts[1] == "refs/heads/main", remote_main
 assert parts[0] == MAIN_SHA, {"expected_main": MAIN_SHA, "remote_main": parts[0]}
-
-# Never overwrite or force-update a pre-existing reconciliation branch.
 existing = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
 assert existing == "", f"refusing to overwrite existing branch {BRANCH}: {existing}"
+origin_url = run("git", "remote", "get-url", "origin", capture=True)
+assert origin_url
 
-worktree = Path("/tmp/v2018-main-reconciliation-publish")
+# Use a fully independent clone/index instead of a linked worktree. D4a-c proved that
+# the linked-worktree index did not expose the tracked active-change deletion even though
+# exact-main Git Tree and Contents APIs both prove the 100644 blob exists.
+worktree = Path("/tmp/v2018-main-reconciliation-independent-clone")
 if worktree.exists():
     shutil.rmtree(worktree)
-run("git", "worktree", "prune")
-run("git", "worktree", "add", "--detach", str(worktree), MAIN_SHA)
+run("git", "clone", "--no-local", "--no-checkout", str(REPO), str(worktree))
+run("git", "remote", "set-url", "origin", origin_url, cwd=worktree)
+run("git", "checkout", "--detach", MAIN_SHA, cwd=worktree)
+assert run("git", "rev-parse", "HEAD", cwd=worktree, capture=True) == MAIN_SHA
 
+# Prove the independent index sees the exact tracked stale pointer before mutation.
+tracked_before = run("git", "ls-files", "--stage", "--", ACTIVE, cwd=worktree, capture=True)
+assert tracked_before, "independent index does not contain the exact-main active-change path"
+fields = tracked_before.split()
+assert fields[0] == "100644", tracked_before
+assert fields[1] == "a39534b47bd2776abf17359e6efbf21b264111a6", tracked_before
 active = worktree / ACTIVE
 before = ARTIFACT / "predecessor-change-history/contract-before-replan.json"
 assert active.is_file()
@@ -127,41 +129,32 @@ for destination in expected_added:
     got = sha256(dst)
     assert got == hashes["files"][destination], (destination, got, hashes["files"][destination])
 
-# Remove the stale live pointer only after every immutable archive record is present and hash-verified.
 active.unlink()
 assert not active.exists()
 assert not (worktree / "governance/pending-replan.json").exists()
 
-# Stage exactly the D3-proven set. Archive files are added explicitly. The one stale
-# writer pointer is removed directly from the index with plumbing so linked-worktree
-# porcelain/index flags cannot silently suppress the tracked deletion.
 run("git", "add", "--", *expected_added, cwd=worktree)
-run("git", "update-index", "--force-remove", "--", ACTIVE, cwd=worktree)
-staged = run("git", "diff", "--cached", "--name-only", cwd=worktree, capture=True).splitlines()
-staged = sorted(path for path in staged if path)
+run("git", "rm", "--cached", "--ignore-unmatch", "--", ACTIVE, cwd=worktree)
+staged = sorted(filter(None, run("git", "diff", "--cached", "--name-only", cwd=worktree, capture=True).splitlines()))
 assert staged == expected_changed, {"staged": staged, "expected": expected_changed}
 assert all(path.startswith("governance/") for path in staged)
 assert not any(path.startswith(("services/", "deployment/", "contracts/", "web/")) for path in staged)
-
 added = run("git", "diff", "--cached", "--diff-filter=A", "--name-only", cwd=worktree, capture=True).splitlines()
 deleted = run("git", "diff", "--cached", "--diff-filter=D", "--name-only", cwd=worktree, capture=True).splitlines()
 modified = run("git", "diff", "--cached", "--diff-filter=M", "--name-only", cwd=worktree, capture=True).splitlines()
 assert sorted(added) == expected_added
 assert deleted == [ACTIVE]
 assert modified == []
+raw = run("git", "diff", "--cached", "--raw", "--", ACTIVE, cwd=worktree, capture=True)
+assert "a39534b" in raw and raw.rstrip().endswith(f"D\t{ACTIVE}"), raw
 
 run("git", "config", "user.name", "github-actions[bot]", cwd=worktree)
 run("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com", cwd=worktree)
-run(
-    "git", "commit", "-m",
-    "Archive V20.18 successor closure and release stale writer authority",
-    cwd=worktree,
-)
+run("git", "commit", "-m", "Archive V20.18 successor closure and release stale writer authority", cwd=worktree)
 commit_sha = run("git", "rev-parse", "HEAD", cwd=worktree, capture=True)
 parent_sha = run("git", "rev-parse", "HEAD^", cwd=worktree, capture=True)
 assert parent_sha == MAIN_SHA
 
-# Push exactly one new branch. No force and no main ref update are allowed.
 run("git", "push", "origin", f"HEAD:refs/heads/{BRANCH}", cwd=worktree)
 remote_branch = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
 rparts = remote_branch.split()
@@ -171,13 +164,14 @@ assert remote_main_after == MAIN_SHA, {"main_mutated": remote_main_after}
 
 result = {
     "schema_version": 1,
-    "phase": "D4-governance-reconciliation-branch-publish",
+    "phase": "D4d-governance-reconciliation-independent-clone-publish",
     "status": "PASS",
     "base_main_sha": MAIN_SHA,
     "main_sha_after_publish": remote_main_after,
     "branch": BRANCH,
     "commit_sha": commit_sha,
     "parent_sha": parent_sha,
+    "tracked_active_blob_before": "a39534b47bd2776abf17359e6efbf21b264111a6",
     "changed_paths": staged,
     "added_paths": sorted(added),
     "deleted_paths": deleted,
@@ -188,7 +182,5 @@ result = {
     "d3_summary_sha256": sha256(D3 / "d3-reconciliation-simulation-summary.json"),
     "d3_archive_hashes_sha256": sha256(D3 / "d3-archive-hashes.json"),
 }
-(OUT / "d4-reconciliation-publish-summary.json").write_text(
-    json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-)
+(OUT / "d4-reconciliation-publish-summary.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(result, ensure_ascii=False, indent=2))
