@@ -1,0 +1,1 @@
+Stage4K2 exact-head CI trigger. This file is temporary and intentionally outside protected product roots.
