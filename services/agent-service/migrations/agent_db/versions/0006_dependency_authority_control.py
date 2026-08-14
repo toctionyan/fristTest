@@ -1,6 +1,6 @@
 """add append-only dependency-authority control and rollback stores.
 
-Revision ID: 0006_dependency_authority_control
+Revision ID: 0006_dependency_auth_control
 Revises: 0005_production_integrity
 
 The customer-serving Agent has no write API for these tables. Production
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "0006_dependency_authority_control"
+revision = "0006_dependency_auth_control"
 down_revision = "0005_production_integrity"
 branch_labels = None
 depends_on = None
