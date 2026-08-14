@@ -51,7 +51,6 @@ jobs:
           text = source.read_text(encoding='utf-8')
           perf_sha = '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'
           candidate_sha = '55403a01f957257fbbefead32bcde21b7d866001'
-          perf_path = 'services/agent-service/src/agent_core/runtime/capability_effects.py'
 
           def extract_run(name: str) -> str:
               marker = f'      - name: {name}\n'
@@ -106,7 +105,14 @@ jobs:
                   assert old_strategy in script
                   script = script.replace(old_strategy, new_strategy, 1)
               elif name == 'Overlay exact historical A2B candidate only inside successor permit':
-                  script += f'''\nperf_sha={perf_sha!r}\nperf_path={perf_path!r}\nprintf '%s\\n' "${{allowed[@]}}" | grep -Fxq "$perf_path"\ngit show "${{perf_sha}}:${{perf_path}}" > "/tmp/v2018-baseline/${{perf_path}}"\ntest "$(git show "${{perf_sha}}:${{perf_path}}" | sha256sum | awk '{{print $1}}')" = "$(sha256sum "/tmp/v2018-baseline/${{perf_path}}" | awk '{{print $1}}')"\nprintf '%s\\n' "$perf_sha" > "${{RUNNER_TEMP}}/performance-repair-sha.txt"\n'''
+                  script += """
+perf_sha='7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8'
+perf_path='services/agent-service/src/agent_core/runtime/capability_effects.py'
+printf '%s\n' "${allowed[@]}" | grep -Fxq "$perf_path"
+git show "${perf_sha}:${perf_path}" > "/tmp/v2018-baseline/${perf_path}"
+test "$(git show "${perf_sha}:${perf_path}" | sha256sum | awk '{print $1}')" = "$(sha256sum "/tmp/v2018-baseline/${perf_path}" | awk '{print $1}')"
+printf '%s\n' "$perf_sha" > "${RUNNER_TEMP}/performance-repair-sha.txt"
+"""
               elif name == 'Run focused counterexample negative authority and runtime evidence':
                   old = f"'candidate_sha':'{candidate_sha}','recorded_at'"
                   new = f"'candidate_sha':'{candidate_sha}','performance_repair_sha':'{perf_sha}','recorded_at'"
