@@ -13,6 +13,7 @@ from hashlib import sha256
 import json
 from typing import Any, Iterable
 
+from agent_core.goal_graph.capability_closure import build_typed_goal_capability_coverage
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
 from agent_core.runtime.capability_effects import (
@@ -21,6 +22,7 @@ from agent_core.runtime.capability_effects import (
 )
 
 GOAL_CAPABILITY_COVERAGE_VERSION = "goal-capability-coverage@2"
+TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION = "typed-goal-capability-shadow-comparison@1"
 
 
 def _digest(value: Any) -> str:
@@ -376,11 +378,154 @@ def _select_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None
     return deepcopy(ranked[0])
 
 
+
+def _typed_shadow_comparison(
+    *,
+    legacy_goal_rows: list[dict[str, Any]],
+    typed_coverage: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare typed closure against legacy exact-effect coverage without changing selection."""
+
+    typed_by_goal = {
+        str(row.get("goal_id") or ""): row
+        for row in list(typed_coverage.get("goals") or [])
+        if isinstance(row, dict) and str(row.get("goal_id") or "")
+    }
+    divergences: list[dict[str, Any]] = []
+
+    if str(typed_coverage.get("coverage_status") or "") == "STRUCTURAL_INVALID":
+        divergences.append(
+            {
+                "code": "TYPED_GOAL_GRAPH_STRUCTURAL_INVALID",
+                "goal_id": None,
+                "typed_dataflow_status": typed_coverage.get("dataflow_status"),
+            }
+        )
+
+    for legacy in legacy_goal_rows:
+        goal_id = str(legacy.get("goal_id") or "")
+        legacy_tools = sorted(
+            {
+                str(value)
+                for value in list(legacy.get("completion_tools") or [])
+                if str(value)
+            }
+        )
+        typed_row = typed_by_goal.get(goal_id, {})
+        typed_tools = sorted(
+            {
+                str(value)
+                for value in list(typed_row.get("closed_capability_tools") or [])
+                if str(value)
+            }
+        )
+        if legacy_tools and not typed_tools:
+            divergences.append(
+                {
+                    "code": "LEGACY_COVERED_TYPED_UNCLOSED",
+                    "goal_id": goal_id,
+                    "legacy_completion_tools": legacy_tools,
+                    "typed_closed_capability_tools": [],
+                    "typed_status": str(typed_row.get("status") or "MISSING"),
+                }
+            )
+        typed_only = sorted(set(typed_tools) - set(legacy_tools))
+        if typed_only:
+            divergences.append(
+                {
+                    "code": "TYPED_CLOSED_LEGACY_UNCOVERED",
+                    "goal_id": goal_id,
+                    "legacy_completion_tools": legacy_tools,
+                    "typed_only_tools": typed_only,
+                    "typed_status": str(typed_row.get("status") or "UNKNOWN"),
+                }
+            )
+
+    legacy_dependencies = {
+        str(row.get("goal_id") or ""): sorted(
+            {
+                str(value)
+                for value in list(row.get("depends_on") or [])
+                if str(value)
+            }
+        )
+        for row in legacy_goal_rows
+        if str(row.get("goal_id") or "")
+    }
+    typed_dependencies = {
+        str(goal_id): sorted(
+            {
+                str(value)
+                for value in list(values or [])
+                if str(value)
+            }
+        )
+        for goal_id, values in dict(
+            typed_coverage.get("derived_dependencies") or {}
+        ).items()
+        if str(goal_id)
+    }
+    for goal_id in sorted(set(legacy_dependencies) | set(typed_dependencies)):
+        legacy_depends_on = legacy_dependencies.get(goal_id, [])
+        typed_depends_on = typed_dependencies.get(goal_id, [])
+        if legacy_depends_on != typed_depends_on:
+            divergences.append(
+                {
+                    "code": "LEGACY_DEPENDENCY_DIFFERS_FROM_VERIFIED_DATAFLOW",
+                    "goal_id": goal_id,
+                    "legacy_depends_on": legacy_depends_on,
+                    "typed_derived_dependencies": typed_depends_on,
+                }
+            )
+
+    if (
+        str(typed_coverage.get("coverage_status") or "") == "DATAFLOW_OPEN"
+        and not any(
+            row.get("code") == "LEGACY_DEPENDENCY_DIFFERS_FROM_VERIFIED_DATAFLOW"
+            for row in divergences
+        )
+    ):
+        divergences.append(
+            {
+                "code": "TYPED_DATAFLOW_OPEN",
+                "goal_id": None,
+                "typed_dataflow_status": typed_coverage.get("dataflow_status"),
+                "typed_dataflow_errors": list(
+                    typed_coverage.get("dataflow_errors") or []
+                ),
+            }
+        )
+
+    payload = {
+        "version": TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION,
+        "authority": "audit_only_legacy_selection_unchanged",
+        "status": "MATCHED" if not divergences else "DIVERGED",
+        "graph_id": typed_coverage.get("graph_id"),
+        "graph_digest": typed_coverage.get("graph_digest"),
+        "typed_coverage_digest": typed_coverage.get("coverage_digest"),
+        "capability_registry_version": typed_coverage.get(
+            "capability_registry_version"
+        ),
+        "divergences": divergences,
+        "typed_shadow_may_widen_legacy_coverage": False,
+        "legacy_selection_authority_unchanged": True,
+        "blocks_execution": False,
+        "creates_permit": False,
+        "mutates_semantics": False,
+        "mutates_plan_run": False,
+    }
+    payload["comparison_digest"] = _digest(payload)
+    return payload
+
 def build_goal_capability_coverage(
     *,
     goals: Iterable[dict[str, Any]],
     goal_plans: Iterable[dict[str, Any]],
     capability_registry: CapabilityRegistry,
+    typed_goal_graph: dict[str, Any] | None = None,
+    frozen_contract: dict[str, Any] | None = None,
+    available_input_evidence: tuple[dict[str, Any], ...] = (),
+    evaluation_time: float | None = None,
 ) -> dict[str, Any]:
     """Build global exact coverage without optimizing away Goal identity."""
 
@@ -519,11 +664,25 @@ def build_goal_capability_coverage(
         "mutates_semantics": False,
         "mutates_plan_run": False,
     }
+    if isinstance(typed_goal_graph, dict):
+        typed_shadow = build_typed_goal_capability_coverage(
+            graph=typed_goal_graph,
+            capability_registry=capability_registry,
+            frozen_contract=frozen_contract,
+            available_input_evidence=tuple(available_input_evidence or ()),
+            evaluation_time=evaluation_time,
+        )
+        payload["typed_goal_capability_shadow"] = typed_shadow
+        payload["typed_shadow_comparison"] = _typed_shadow_comparison(
+            legacy_goal_rows=per_goal,
+            typed_coverage=typed_shadow,
+        )
     payload["coverage_digest"] = _digest(payload)
     return payload
 
 
 __all__ = [
     "GOAL_CAPABILITY_COVERAGE_VERSION",
+    "TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION",
     "build_goal_capability_coverage",
 ]

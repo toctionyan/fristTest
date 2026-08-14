@@ -14,6 +14,7 @@ from hashlib import sha256
 import json
 from typing import Any, Iterable
 
+from agent_core.goal_graph.compiler import compile_frozen_semantic_contract
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage
 from agent_core.lifecycle.semantic_contract import (
@@ -302,10 +303,20 @@ def build_pretool_shadow_plan(
     else:
         status = "MIGRATION_GAP_SHADOW"
 
+    typed_goal_graph = compile_frozen_semantic_contract(
+        contract,
+        scope={
+            "tenant_id": state.get("current_tenant_id"),
+            "user_id": state.get("current_user_id"),
+            "thread_id": state.get("current_thread_id"),
+        },
+    )
     global_coverage = build_goal_capability_coverage(
         goals=goals,
         goal_plans=goal_plans,
         capability_registry=capability_registry,
+        typed_goal_graph=typed_goal_graph,
+        frozen_contract=contract,
     )
     snapshot = capability_registry.planning_contract_snapshot(sorted(set(all_candidate_tools)))
     payload: dict[str, Any] = {
@@ -319,6 +330,7 @@ def build_pretool_shadow_plan(
         "capability_surface": deepcopy(surface),
         "goal_plans": goal_plans,
         "goal_dependency_edges": dependency_edges,
+        "typed_goal_graph": typed_goal_graph,
         "global_goal_capability_coverage": global_coverage,
         "generated_before_model_tool_call": True,
         "observed_model_tool_calls": [],
