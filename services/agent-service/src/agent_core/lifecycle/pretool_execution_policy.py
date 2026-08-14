@@ -22,6 +22,15 @@ from hashlib import sha256
 import json
 from typing import Any
 
+from agent_core.goal_graph.cutover_gate import (
+    LEGACY_DEPENDENCY_AUTHORITY,
+    TYPED_DEPENDENCY_AUTHORITY,
+)
+from agent_core.goal_graph.dependency_authority import build_dependency_authority_attestation
+from agent_core.goal_graph.runtime_authority import (
+    select_runtime_dependency_authority,
+    selected_dependency_goal_ids,
+)
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.semantic_contract import semantic_goals
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
@@ -33,6 +42,10 @@ from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
 from agent_core.lifecycle.goal_outputs import reusable_goal_outputs_for_goal
 
 PRETOOL_EXECUTION_POLICY_VERSION = "pretool-execution-policy@1"
+TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION = "typed-dependency-authority-shadow@1"
+TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY = (
+    "_trusted_dependency_authority_control_resolver"
+)
 _PROGRESS_STEP_STATES = {"SUCCEEDED"}
 _COMPLETED_GOAL_LIFECYCLES = {"COMPLETED"}
 
@@ -176,11 +189,215 @@ def _legacy_exact_tools(surface_decision: dict[str, Any]) -> list[str]:
     )
 
 
+def _typed_dependency_authority_shadow(
+    *,
+    plan: dict[str, Any],
+    global_coverage: dict[str, Any],
+    completed_goal_ids: set[str],
+) -> dict[str, Any] | None:
+    """Audit legacy dependency blocking against verified Goal Graph dataflow.
+
+    This is migration evidence only. Stage 4E's separate runtime selector owns
+    any explicit authority choice; the shadow itself never changes enforcement.
+    """
+
+    typed = (
+        global_coverage.get("typed_goal_capability_shadow")
+        if isinstance(global_coverage.get("typed_goal_capability_shadow"), dict)
+        else None
+    )
+    if typed is None:
+        return None
+
+    evidence_errors: list[str] = []
+    stored_typed_digest = str(typed.get("coverage_digest") or "")
+    if not stored_typed_digest:
+        evidence_errors.append("TYPED_DEPENDENCY_SHADOW_COVERAGE_DIGEST_REQUIRED")
+    else:
+        typed_payload = deepcopy(typed)
+        typed_payload.pop("coverage_digest", None)
+        if stored_typed_digest != _digest(typed_payload):
+            evidence_errors.append("TYPED_DEPENDENCY_SHADOW_COVERAGE_DIGEST_INVALID")
+
+    legacy_dependencies = {
+        str(row.get("goal_id") or ""): sorted(
+            {
+                str(value)
+                for value in list(row.get("depends_on_goal_ids") or [])
+                if str(value)
+            }
+        )
+        for row in list(plan.get("goal_plans") or [])
+        if isinstance(row, dict) and str(row.get("goal_id") or "")
+    }
+    typed_dependencies = {
+        str(goal_id): sorted(
+            {
+                str(value)
+                for value in list(values or [])
+                if str(value)
+            }
+        )
+        for goal_id, values in dict(typed.get("derived_dependencies") or {}).items()
+        if str(goal_id)
+    }
+    dataflow_status = str(typed.get("dataflow_status") or "")
+    dataflow_closed = dataflow_status == "GOAL_GRAPH_DATAFLOW_CLOSED"
+
+    comparisons: list[dict[str, Any]] = []
+    divergence_codes: set[str] = set()
+    for goal_id in sorted(set(legacy_dependencies) | set(typed_dependencies)):
+        legacy = set(legacy_dependencies.get(goal_id, []))
+        verified = set(typed_dependencies.get(goal_id, []))
+        legacy_only = sorted(legacy - verified)
+        typed_only = sorted(verified - legacy)
+        codes: list[str] = []
+        if legacy_only:
+            codes.append("LEGACY_DEPENDENCY_NOT_VERIFIED_BY_DATAFLOW")
+        if typed_only:
+            codes.append("VERIFIED_DATAFLOW_DEPENDENCY_MISSING_FROM_LEGACY")
+        divergence_codes.update(codes)
+        legacy_missing = sorted(legacy - completed_goal_ids)
+        typed_missing = sorted(verified - completed_goal_ids)
+        comparisons.append(
+            {
+                "goal_id": goal_id,
+                "legacy_dependency_goal_ids": sorted(legacy),
+                "typed_derived_dependency_goal_ids": sorted(verified),
+                "legacy_only_dependency_goal_ids": legacy_only,
+                "typed_only_dependency_goal_ids": typed_only,
+                "legacy_missing_dependency_goal_ids": legacy_missing,
+                "typed_missing_dependency_goal_ids": typed_missing if dataflow_closed else [],
+                "current_legacy_would_block": bool(legacy_missing),
+                "typed_would_block": bool(typed_missing) if dataflow_closed else None,
+                "codes": codes or ["DEPENDENCY_SET_MATCHED"],
+            }
+        )
+
+    if evidence_errors:
+        status = "EVIDENCE_INVALID"
+    elif not dataflow_closed:
+        status = "NOT_READY_DATAFLOW_OPEN"
+    elif divergence_codes:
+        status = "DIVERGED"
+    else:
+        status = "MATCHED"
+
+    payload = {
+        "version": TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION,
+        "authority": "audit_only_current_dependency_enforcement_unchanged",
+        "status": status,
+        "current_dependency_authority": "legacy_declared_goal_dependencies",
+        "candidate_dependency_authority": "verified_dataflow_edges_only",
+        "typed_coverage_status": typed.get("coverage_status"),
+        "typed_dataflow_status": dataflow_status or None,
+        "typed_coverage_digest": stored_typed_digest or None,
+        "typed_graph_id": typed.get("graph_id"),
+        "typed_graph_digest": typed.get("graph_digest"),
+        "evidence_errors": evidence_errors,
+        "comparisons": comparisons,
+        "divergence_codes": sorted(divergence_codes),
+        "cutover_eligible": bool(
+            not evidence_errors and dataflow_closed and not divergence_codes
+        ),
+        "cutover_performed": False,
+        "changes_current_dependency_blocking": False,
+        "changes_allowed_capability_tools": False,
+        "blocks_execution": False,
+        "creates_permit": False,
+        "mutates_semantics": False,
+        "mutates_business_state": False,
+    }
+    payload["shadow_digest"] = _digest(payload)
+    return payload
+
+
+
+def _trusted_dependency_authority_control(
+    state: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve application-owned authority control without trusting state data.
+
+    Only an in-process callable injected by ``LifecycleRuntimeDeps`` is accepted.
+    JSON/checkpoint/user/model values cannot satisfy ``callable`` and are ignored.
+    Raw grant/preflight records are never copied into the observable ingress
+    summary; the downstream selector validates all sealed records independently.
+    """
+
+    resolver = state.get(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY)
+    if resolver is None:
+        return {}, {
+            "status": "DISABLED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    if not callable(resolver):
+        return {}, {
+            "status": "UNTRUSTED_STATE_VALUE_IGNORED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    try:
+        raw = resolver()
+    except Exception as exc:
+        return {}, {
+            "status": "RESOLVER_ERROR_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "error_type": exc.__class__.__name__,
+            "raw_control_exposed": False,
+        }
+    if raw is None:
+        return {}, {
+            "status": "NO_CONTROL_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+    if not isinstance(raw, dict):
+        return {}, {
+            "status": "INVALID_CONTROL_FAIL_CLOSED",
+            "source": "application_runtime_deps",
+            "raw_control_exposed": False,
+        }
+
+    evaluation_time = raw.get("evaluation_time")
+    if evaluation_time is not None:
+        try:
+            evaluation_time = float(evaluation_time)
+        except (TypeError, ValueError):
+            evaluation_time = None
+    control = {
+        "activation_preflight": (
+            deepcopy(raw.get("activation_preflight"))
+            if isinstance(raw.get("activation_preflight"), dict)
+            else None
+        ),
+        "runtime_activation": (
+            deepcopy(raw.get("runtime_activation"))
+            if isinstance(raw.get("runtime_activation"), dict)
+            else None
+        ),
+        "evaluation_time": evaluation_time,
+        "rollback_requested": raw.get("rollback_requested") is True,
+    }
+    return control, {
+        "status": "RESOLVED",
+        "source": "application_runtime_deps",
+        "has_activation_preflight": control["activation_preflight"] is not None,
+        "has_runtime_activation": control["runtime_activation"] is not None,
+        "has_evaluation_time": control["evaluation_time"] is not None,
+        "rollback_requested": control["rollback_requested"],
+        "raw_control_exposed": False,
+    }
+
 def build_pretool_execution_policy(
     *,
     state: dict[str, Any],
     capability_registry: CapabilityRegistry,
     shadow_plan: dict[str, Any] | None = None,
+    dependency_activation_preflight: dict[str, Any] | None = None,
+    dependency_runtime_activation: dict[str, Any] | None = None,
+    dependency_authority_evaluation_time: float | None = None,
+    dependency_authority_rollback_requested: bool = False,
 ) -> dict[str, Any]:
     """Build the provider capability frontier for the next model call.
 
@@ -202,6 +419,83 @@ def build_pretool_execution_policy(
     }
     completed_tools_by_goal, evidence_errors = _completed_tools_by_goal(state)
     completed_goal_ids = _completed_goal_ids(state)
+    global_coverage, coverage_evidence_errors = _validated_global_coverage(
+        plan, capability_registry=capability_registry
+    )
+    dependency_authority_shadow = _typed_dependency_authority_shadow(
+        plan=plan,
+        global_coverage=global_coverage,
+        completed_goal_ids=completed_goal_ids,
+    )
+    dependency_authority_attestation = (
+        build_dependency_authority_attestation(
+            dependency_shadow=dependency_authority_shadow,
+            semantic_contract_id=str(plan.get("formal_semantic_contract_id") or ""),
+            semantic_digest=str(plan.get("formal_semantic_digest") or ""),
+            capability_registry_version=capability_registry.version,
+            completed_goal_ids=completed_goal_ids,
+        )
+        if dependency_authority_shadow is not None
+        else None
+    )
+    identity_fields = (
+        "semantic_contract_id",
+        "semantic_digest",
+        "typed_graph_id",
+        "typed_graph_digest",
+        "typed_coverage_digest",
+        "capability_registry_version",
+        "completion_snapshot_digest",
+    )
+    dependency_current_identity = (
+        {field: dependency_authority_attestation.get(field) for field in identity_fields}
+        if isinstance(dependency_authority_attestation, dict)
+        else {}
+    )
+    dependency_authority_control, dependency_authority_ingress = (
+        _trusted_dependency_authority_control(state)
+    )
+    if dependency_activation_preflight is None:
+        dependency_activation_preflight = dependency_authority_control.get(
+            "activation_preflight"
+        )
+    if dependency_runtime_activation is None:
+        dependency_runtime_activation = dependency_authority_control.get(
+            "runtime_activation"
+        )
+    if dependency_authority_evaluation_time is None:
+        dependency_authority_evaluation_time = dependency_authority_control.get(
+            "evaluation_time"
+        )
+    dependency_authority_rollback_requested = bool(
+        dependency_authority_rollback_requested
+        or dependency_authority_control.get("rollback_requested") is True
+    )
+    dependency_runtime_selection = select_runtime_dependency_authority(
+        preflight=dependency_activation_preflight,
+        activation=dependency_runtime_activation,
+        current_identity=dependency_current_identity,
+        evaluation_time=dependency_authority_evaluation_time,
+        rollback_requested=dependency_authority_rollback_requested,
+    )
+    selected_dependency_authority = str(
+        dependency_runtime_selection.get("selected_runtime_dependency_authority")
+        or LEGACY_DEPENDENCY_AUTHORITY
+    )
+    typed_dependency_shadow = (
+        global_coverage.get("typed_goal_capability_shadow")
+        if isinstance(global_coverage.get("typed_goal_capability_shadow"), dict)
+        else {}
+    )
+    typed_dependencies_by_goal = {
+        str(goal_id): sorted(
+            {str(value) for value in list(values or []) if str(value)}
+        )
+        for goal_id, values in dict(
+            typed_dependency_shadow.get("derived_dependencies") or {}
+        ).items()
+        if str(goal_id)
+    }
 
     goal_policies: list[dict[str, Any]] = []
     allowed_tools: set[str] = set()
@@ -213,11 +507,19 @@ def build_pretool_execution_policy(
             continue
         goal_id = str(goal_plan.get("goal_id") or "")
         decision = surface_by_goal.get(goal_id, {})
-        dependencies = {
+        legacy_dependencies = {
             str(value)
             for value in list(goal_plan.get("depends_on_goal_ids") or [])
             if str(value)
         }
+        typed_dependencies = set(typed_dependencies_by_goal.get(goal_id, []))
+        dependencies = set(
+            selected_dependency_goal_ids(
+                selection=dependency_runtime_selection,
+                legacy_dependency_goal_ids=legacy_dependencies,
+                typed_dependency_goal_ids=typed_dependencies,
+            )
+        )
         completed_tools = set(completed_tools_by_goal.get(goal_id, set()))
         reusable_by_tool, reusable_outputs, output_evidence_errors = reusable_goal_outputs_for_goal(
             state=state,
@@ -263,7 +565,11 @@ def build_pretool_execution_policy(
                 "goal_output_evidence_errors": output_evidence_errors,
                 "allowed_tools": [],
                 "active_path_ids": [],
-                "reason": "declared_goal_dependency_not_completed",
+                "reason": (
+                    "verified_dataflow_dependency_not_completed"
+                    if selected_dependency_authority == TYPED_DEPENDENCY_AUTHORITY
+                    else "declared_goal_dependency_not_completed"
+                ),
             })
             continue
 
@@ -395,9 +701,6 @@ def build_pretool_execution_policy(
             ),
         })
 
-    global_coverage, coverage_evidence_errors = _validated_global_coverage(
-        plan, capability_registry=capability_registry
-    )
     declared_shared = {
         str(row.get("tool_name") or ""): row
         for row in list(global_coverage.get("shared_capability_bindings") or [])
@@ -482,6 +785,9 @@ def build_pretool_execution_policy(
         "runtime_evidence_errors": evidence_errors,
         "coverage_evidence_errors": coverage_evidence_errors,
         "global_coverage_digest": global_coverage.get("coverage_digest"),
+        "selected_dependency_authority": selected_dependency_authority,
+        "dependency_runtime_authority_selection": dependency_runtime_selection,
+        "dependency_authority_ingress": dependency_authority_ingress,
         "selected_global_coverage_id": (
             (global_coverage.get("selected_coverage") or {}).get("coverage_id")
             if isinstance(global_coverage.get("selected_coverage"), dict)
@@ -501,6 +807,10 @@ def build_pretool_execution_policy(
             "business_service",
         ],
     }
+    if dependency_authority_shadow is not None:
+        payload["typed_dependency_authority_shadow"] = dependency_authority_shadow
+    if dependency_authority_attestation is not None:
+        payload["typed_dependency_authority_attestation"] = dependency_authority_attestation
     payload["policy_digest"] = _digest(payload)
     return payload
 
@@ -531,6 +841,7 @@ def execution_policy_prompt_projection(policy: dict[str, Any] | None) -> dict[st
 
 __all__ = [
     "PRETOOL_EXECUTION_POLICY_VERSION",
+    "TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION",
     "build_pretool_execution_policy",
     "execution_policy_prompt_projection",
 ]

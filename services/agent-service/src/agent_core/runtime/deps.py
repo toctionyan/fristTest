@@ -28,6 +28,10 @@ class LifecycleRuntimeDeps:
     # Production passes the sole model gateway. Tests may pass a scripted
     # resolver to exercise the compiled lifecycle graph without network I/O.
     model_resolver: Callable[[], Any] | None = None
+    # Stage 4F: trusted application-composition ingress for dependency-authority
+    # control. None remains the generic factory default; Stage 4I production
+    # composition supplies an explicit disabled callable. Never checkpoint/user/model data.
+    dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None
 
 
 def lifecycle_runtime_deps(
@@ -37,6 +41,7 @@ def lifecycle_runtime_deps(
     business_port: BusinessPort,
     trace_logger: Any | None = None,
     model_resolver: Callable[[], Any] | None = None,
+    dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None,
 ) -> LifecycleRuntimeDeps:
     if model_resolver is None:
         from agent_core.config import get_model
@@ -52,4 +57,5 @@ def lifecycle_runtime_deps(
             outcome_factory=outcome,
         ),
         model_resolver=model_resolver,
+        dependency_authority_control_resolver=dependency_authority_control_resolver,
     )
