@@ -68,6 +68,7 @@ jobs:
           set -u
           py='.venv/bin/python'
           log="${RUNNER_TEMP}/agent-standard-vv.log"
+          export PYTHONPATH='/tmp/v2018-hang/services/agent-service/src:/tmp/v2018-hang/services/agent-service'
           set +e
           timeout --signal=TERM 430s stdbuf -oL -eL "$py" -B -m pytest -vv -ra -p no:cacheprovider \
             -m 'not integration and not preprod' \
