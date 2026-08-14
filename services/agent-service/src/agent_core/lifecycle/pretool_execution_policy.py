@@ -33,6 +33,7 @@ from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
 from agent_core.lifecycle.goal_outputs import reusable_goal_outputs_for_goal
 
 PRETOOL_EXECUTION_POLICY_VERSION = "pretool-execution-policy@1"
+TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION = "typed-dependency-authority-shadow@1"
 _PROGRESS_STEP_STATES = {"SUCCEEDED"}
 _COMPLETED_GOAL_LIFECYCLES = {"COMPLETED"}
 
@@ -174,6 +175,129 @@ def _legacy_exact_tools(surface_decision: dict[str, Any]) -> list[str]:
             if str(value)
         }
     )
+
+
+def _typed_dependency_authority_shadow(
+    *,
+    plan: dict[str, Any],
+    global_coverage: dict[str, Any],
+    completed_goal_ids: set[str],
+) -> dict[str, Any] | None:
+    """Audit legacy dependency blocking against verified Goal Graph dataflow.
+
+    This is migration evidence only. The current provider frontier continues to
+    use ``depends_on_goal_ids`` until a later explicit authority cutover.
+    """
+
+    typed = (
+        global_coverage.get("typed_goal_capability_shadow")
+        if isinstance(global_coverage.get("typed_goal_capability_shadow"), dict)
+        else None
+    )
+    if typed is None:
+        return None
+
+    evidence_errors: list[str] = []
+    stored_typed_digest = str(typed.get("coverage_digest") or "")
+    if not stored_typed_digest:
+        evidence_errors.append("TYPED_DEPENDENCY_SHADOW_COVERAGE_DIGEST_REQUIRED")
+    else:
+        typed_payload = deepcopy(typed)
+        typed_payload.pop("coverage_digest", None)
+        if stored_typed_digest != _digest(typed_payload):
+            evidence_errors.append("TYPED_DEPENDENCY_SHADOW_COVERAGE_DIGEST_INVALID")
+
+    legacy_dependencies = {
+        str(row.get("goal_id") or ""): sorted(
+            {
+                str(value)
+                for value in list(row.get("depends_on_goal_ids") or [])
+                if str(value)
+            }
+        )
+        for row in list(plan.get("goal_plans") or [])
+        if isinstance(row, dict) and str(row.get("goal_id") or "")
+    }
+    typed_dependencies = {
+        str(goal_id): sorted(
+            {
+                str(value)
+                for value in list(values or [])
+                if str(value)
+            }
+        )
+        for goal_id, values in dict(typed.get("derived_dependencies") or {}).items()
+        if str(goal_id)
+    }
+    dataflow_status = str(typed.get("dataflow_status") or "")
+    dataflow_closed = dataflow_status == "GOAL_GRAPH_DATAFLOW_CLOSED"
+
+    comparisons: list[dict[str, Any]] = []
+    divergence_codes: set[str] = set()
+    for goal_id in sorted(set(legacy_dependencies) | set(typed_dependencies)):
+        legacy = set(legacy_dependencies.get(goal_id, []))
+        verified = set(typed_dependencies.get(goal_id, []))
+        legacy_only = sorted(legacy - verified)
+        typed_only = sorted(verified - legacy)
+        codes: list[str] = []
+        if legacy_only:
+            codes.append("LEGACY_DEPENDENCY_NOT_VERIFIED_BY_DATAFLOW")
+        if typed_only:
+            codes.append("VERIFIED_DATAFLOW_DEPENDENCY_MISSING_FROM_LEGACY")
+        divergence_codes.update(codes)
+        legacy_missing = sorted(legacy - completed_goal_ids)
+        typed_missing = sorted(verified - completed_goal_ids)
+        comparisons.append(
+            {
+                "goal_id": goal_id,
+                "legacy_dependency_goal_ids": sorted(legacy),
+                "typed_derived_dependency_goal_ids": sorted(verified),
+                "legacy_only_dependency_goal_ids": legacy_only,
+                "typed_only_dependency_goal_ids": typed_only,
+                "legacy_missing_dependency_goal_ids": legacy_missing,
+                "typed_missing_dependency_goal_ids": typed_missing if dataflow_closed else [],
+                "current_legacy_would_block": bool(legacy_missing),
+                "typed_would_block": bool(typed_missing) if dataflow_closed else None,
+                "codes": codes or ["DEPENDENCY_SET_MATCHED"],
+            }
+        )
+
+    if evidence_errors:
+        status = "EVIDENCE_INVALID"
+    elif not dataflow_closed:
+        status = "NOT_READY_DATAFLOW_OPEN"
+    elif divergence_codes:
+        status = "DIVERGED"
+    else:
+        status = "MATCHED"
+
+    payload = {
+        "version": TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION,
+        "authority": "audit_only_current_dependency_enforcement_unchanged",
+        "status": status,
+        "current_dependency_authority": "legacy_declared_goal_dependencies",
+        "candidate_dependency_authority": "verified_dataflow_edges_only",
+        "typed_coverage_status": typed.get("coverage_status"),
+        "typed_dataflow_status": dataflow_status or None,
+        "typed_coverage_digest": stored_typed_digest or None,
+        "typed_graph_id": typed.get("graph_id"),
+        "typed_graph_digest": typed.get("graph_digest"),
+        "evidence_errors": evidence_errors,
+        "comparisons": comparisons,
+        "divergence_codes": sorted(divergence_codes),
+        "cutover_eligible": bool(
+            not evidence_errors and dataflow_closed and not divergence_codes
+        ),
+        "cutover_performed": False,
+        "changes_current_dependency_blocking": False,
+        "changes_allowed_capability_tools": False,
+        "blocks_execution": False,
+        "creates_permit": False,
+        "mutates_semantics": False,
+        "mutates_business_state": False,
+    }
+    payload["shadow_digest"] = _digest(payload)
+    return payload
 
 
 def build_pretool_execution_policy(
@@ -453,6 +577,12 @@ def build_pretool_execution_policy(
             "binding_rule": "single_call_requires_exact_match_proof_for_every_goal_and_compatible_target",
         })
 
+    dependency_authority_shadow = _typed_dependency_authority_shadow(
+        plan=plan,
+        global_coverage=global_coverage,
+        completed_goal_ids=completed_goal_ids,
+    )
+
     if evidence_errors:
         # Treat invalid prior progress as zero progress.  The goal policies above
         # were already compiled from contract topology with an empty progress
@@ -501,6 +631,8 @@ def build_pretool_execution_policy(
             "business_service",
         ],
     }
+    if dependency_authority_shadow is not None:
+        payload["typed_dependency_authority_shadow"] = dependency_authority_shadow
     payload["policy_digest"] = _digest(payload)
     return payload
 
@@ -531,6 +663,7 @@ def execution_policy_prompt_projection(policy: dict[str, Any] | None) -> dict[st
 
 __all__ = [
     "PRETOOL_EXECUTION_POLICY_VERSION",
+    "TYPED_DEPENDENCY_AUTHORITY_SHADOW_VERSION",
     "build_pretool_execution_policy",
     "execution_policy_prompt_projection",
 ]
