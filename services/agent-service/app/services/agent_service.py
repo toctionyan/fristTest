@@ -36,7 +36,6 @@ from app.services.dependency_authority_composition import (
 )
 from agent_core.runtime.deps import lifecycle_runtime_deps
 from agent_core.config import clear_checkpointer_cache
-
 class AgentService:
     # Process-local locks preserve request arrival order within one ASGI process.
     # The durable lock below protects the same invariant across worker processes.
