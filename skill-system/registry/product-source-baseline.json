@@ -171,7 +171,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "67369c5e878a5d872e9161c26626edd061503923ab1d35b36040dc0a520b842f",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "07213f0f5f7322e240012be70aca0c2c0cd1981ea127387f0a8afb0f344e0aea",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
-    "services/agent-service/src/agent_core/lifecycle/nodes.py": "62cd959b74f64cb1fa79d5be54e01df173c44711ef74b46de1d8698b8f38af9a",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py": "43f8954962cb902f192ac4dbe95357abc13d7f930a34ac94ad8dadc55d7d236e",
     "services/agent-service/src/agent_core/lifecycle/plan_execution.py": "86d2b2adcf2770c7caa7502864dd2d2fdd31341c0054e2105a1f80a1e4b316d4",
     "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py": "b773946cc88d39ff836c9f9c6e08b050f27aa0888bb9378b1debd7cdf3e1b7b0",
     "services/agent-service/src/agent_core/lifecycle/pretool_planner.py": "4a6cf2b20d0b022d79356a264c0075fc3598130997f4b0cbae965085a29af50f",
@@ -596,8 +596,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-14T06:22:50Z",
-  "generated_from": "git:6c1b07984ea77c6a571a4d48369744d9c5264c54",
+  "generated_at": "2026-08-14T06:25:25Z",
+  "generated_from": "git:cc5a63b969e60dc16c7b9df41e4c7cb3bc54eb24",
   "protected_roots": [
     "services",
     "web",
