@@ -386,3 +386,13 @@ def test_stage4k2_migration_declares_separate_append_only_tables():
     assert "control_epoch BIGINT PRIMARY KEY" in text
     assert "rollback_epoch BIGINT PRIMARY KEY" in text
     assert "snapshot_digest VARCHAR(128) NOT NULL UNIQUE" in text
+
+
+def test_stage4k2_readiness_contract_tracks_current_migration_head(monkeypatch):
+    monkeypatch.delenv("AGENT_REQUIRED_ALEMBIC_REVISION", raising=False)
+    from agent_core.runtime.migrations import required_agent_revision
+
+    assert required_agent_revision() == "0006_dependency_auth_control"
+    env_path = __import__("pathlib").Path(__file__).resolve().parents[2] / ".env.example"
+    env_text = env_path.read_text(encoding="utf-8")
+    assert "AGENT_REQUIRED_ALEMBIC_REVISION=0006_dependency_auth_control" in env_text
