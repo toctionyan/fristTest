@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-closure-d1d
+name: tmp-v20.18-governance-recovery-closure-d2
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  closure-d1d-evidence-and-diff:
+  closure-d2-verify-and-close:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - name: Checkout exact carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -31,34 +31,35 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Reproduce H5 and validate Closure-D1d only
-        run: python3 -B .github/recovery_d1d_wrapper.py
+      - name: Reproduce D1d then deterministically verify and close successor
+        run: python3 -B .github/recovery_d2_runner.py
 
-      - name: Stage Closure-D1d evidence
+      - name: Stage Closure-D2 evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          out="${GITHUB_WORKSPACE}/recovery-d1d-artifact"
+          out="${GITHUB_WORKSPACE}/recovery-d2-artifact"
           rm -rf "$out" && mkdir -p "$out"
           successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
+          cp "${RUNNER_TEMP}/recovery-d2-summary.json" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/recovery-d2-contract-verify.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/recovery-d2-contract-close.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-d1-summary.json" "$out/recovery-d1d-summary.json" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-d1d-runtime-hygiene.json" "$out/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/recovery-h3-execution.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-h3-readonly-diff-proof.json" "$out/" 2>/dev/null || true
           cp -a "${RUNNER_TEMP}/recovery-h3-focused" "$out/focused-pre-closure" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/successor-product-verify-quick.log" "$out/" 2>/dev/null || true
-          cp /tmp/v2018-baseline/governance/active-change.json "$out/successor-active-contract.json" 2>/dev/null || true
+          cp /tmp/v2018-baseline/governance/active-change.json "$out/successor-closed-contract.json" 2>/dev/null || true
           cp -a /tmp/v2018-baseline/governance/repair-cases/${successor} "$out/successor-repair-case" 2>/dev/null || true
-          cp -a /tmp/v2018-baseline/.quality/product-control-plane/${successor}/reviews "$out/reviews" 2>/dev/null || true
-          cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/baseline-record.json "$out/baseline-record.json" 2>/dev/null || true
+          cp -a /tmp/v2018-baseline/.quality/product-control-plane/${successor} "$out/product-control-plane" 2>/dev/null || true
+          cp -a /tmp/v2018-baseline/.quality/profile-runs "$out/profile-runs" 2>/dev/null || true
           quick="$(cat "${RUNNER_TEMP}/quick-summary-path.txt" 2>/dev/null || true)"
           if [ -n "$quick" ] && [ -f "/tmp/v2018-baseline/$quick" ]; then cp "/tmp/v2018-baseline/$quick" "$out/quick-run-summary.json"; fi
 
-      - name: Upload Closure-D1d evidence
+      - name: Upload Closure-D2 evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-closure-d1d
-          path: recovery-d1d-artifact
+          name: v20.18-governance-recovery-closure-d2
+          path: recovery-d2-artifact
           if-no-files-found: error
