@@ -1,0 +1,52 @@
+name: tmp-patch-v20.18-recovery-e-target
+
+on:
+  push:
+    branches:
+      - tmp/v20.18-governance-recovery-20260814
+
+permissions:
+  contents: write
+
+jobs:
+  patch-once:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout temporary recovery branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Restore exact Recovery-D Target text once
+        shell: bash
+        run: |
+          set -euo pipefail
+          path='.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml'
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/tmp-v20.18-governance-recovery-diff-review.yml')
+          old = 'Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. This successor uses new Target/Claim/baseline/permit identities and does not reuse the invalid predecessor baseline identity.'
+          new = 'Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. This successor uses a new Target/Claim/baseline identity and does not reuse the invalid predecessor baseline identity.'
+          text = path.read_text(encoding='utf-8')
+          count = text.count(old)
+          if count == 0:
+              assert new in text, 'neither expected old nor restored Recovery-D text is present'
+              print('already patched')
+          else:
+              assert count == 1, f'expected exactly one old Target text, got {count}'
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+              print('patched exactly one Target baseline-description string')
+          PY
+          changed="$(git diff --name-only)"
+          if [ -z "$changed" ]; then
+            echo 'No patch commit required.'
+            exit 0
+          fi
+          test "$changed" = "$path"
+          grep -Fq 'This successor uses a new Target/Claim/baseline identity and does not reuse the invalid predecessor baseline identity.' "$path"
+          ! grep -Fq 'This successor uses new Target/Claim/baseline/permit identities and does not reuse the invalid predecessor baseline identity.' "$path"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$path"
+          git commit -m 'Restore Recovery-D successor Target identity'
+          git push origin HEAD:tmp/v20.18-governance-recovery-20260814
