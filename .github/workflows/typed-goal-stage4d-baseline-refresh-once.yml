@@ -139,7 +139,7 @@ jobs:
         run: |
           cd services/agent-service
           uv sync --locked --all-groups
-          .venv/bin/python -B -m pytest -q \
+          PYTHONPATH=src:. .venv/bin/python -B -m pytest -q \
             tests/runtime/test_typed_goal_dependency_cutover_gate.py \
             tests/runtime/test_typed_goal_dependency_handoff_simulation.py \
             tests/runtime/test_typed_goal_dependency_activation_preflight.py
