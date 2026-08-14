@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-successor-quick-h5
+name: tmp-v20.18-governance-recovery-closure-d1
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  recovery-h5-successor-quick:
+  closure-d1-evidence-and-diff:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - name: Checkout exact carrier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -31,43 +31,33 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Execute exact reviewed-RED successor lifecycle through formal Quick only
-        run: python3 -B .github/recovery_h5_wrapper.py
+      - name: Reproduce H5 and validate Closure-D1 only
+        run: python3 -B .github/recovery_d1_runner.py
 
-      - name: Stage Recovery-H5 Quick evidence
+      - name: Stage Closure-D1 evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          out="${GITHUB_WORKSPACE}/recovery-h5-artifact"
+          out="${GITHUB_WORKSPACE}/recovery-d1-artifact"
           rm -rf "$out" && mkdir -p "$out"
           successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
+          cp "${RUNNER_TEMP}/recovery-d1-summary.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-h3-execution.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/recovery-h3-readonly-diff-proof.json" "$out/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/recovery-h3-refrozen-baseline.json" "$out/" 2>/dev/null || true
-          cp -a "${RUNNER_TEMP}/recovery-h3-focused" "$out/focused" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/successor-product-baseline.log" "$out/initial-product-baseline.log" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/successor-product-baseline-refreeze.log" "$out/refrozen-product-baseline.log" 2>/dev/null || true
+          cp -a "${RUNNER_TEMP}/recovery-h3-focused" "$out/focused-pre-closure" 2>/dev/null || true
           cp "${RUNNER_TEMP}/successor-product-verify-quick.log" "$out/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/fresh-permit-digest.txt" "$out/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}/performance-repair-sha.txt" "$out/" 2>/dev/null || true
           cp /tmp/v2018-baseline/governance/active-change.json "$out/successor-active-contract.json" 2>/dev/null || true
-          cp /tmp/v2018-baseline/governance/targets/${successor}.md "$out/successor-target.md" 2>/dev/null || true
-          cp /tmp/v2018-baseline/governance/claims/${successor}.json "$out/successor-claims.json" 2>/dev/null || true
           cp -a /tmp/v2018-baseline/governance/repair-cases/${successor} "$out/successor-repair-case" 2>/dev/null || true
-          cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/baseline-record.json "$out/" 2>/dev/null || true
-          cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/run-summary.json "$out/baseline-run-summary.json" 2>/dev/null || true
+          cp -a /tmp/v2018-baseline/.quality/product-control-plane/${successor}/reviews "$out/reviews" 2>/dev/null || true
+          cp /tmp/v2018-baseline/.quality/product-code/${successor}/baseline/baseline-record.json "$out/baseline-record.json" 2>/dev/null || true
           quick="$(cat "${RUNNER_TEMP}/quick-summary-path.txt" 2>/dev/null || true)"
           if [ -n "$quick" ] && [ -f "/tmp/v2018-baseline/$quick" ]; then cp "/tmp/v2018-baseline/$quick" "$out/quick-run-summary.json"; fi
-          printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > "$out/baseline-source-sha.txt"
-          printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/historical-candidate-sha.txt"
-          printf '%s\n' '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' > "$out/performance-repair-sha.txt"
-          printf '%s\n' 'd419911544cb84a53067bd8411974cb9bf3b69f7' > "$out/reviewed-oracle-sha.txt"
 
-      - name: Upload Recovery-H5 Quick evidence
+      - name: Upload Closure-D1 evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-successor-quick-h5
-          path: recovery-h5-artifact
+          name: v20.18-governance-recovery-closure-d1
+          path: recovery-d1-artifact
           if-no-files-found: error
