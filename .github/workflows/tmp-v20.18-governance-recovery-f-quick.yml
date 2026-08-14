@@ -143,7 +143,7 @@ jobs:
             --new-abstraction-record docs/architecture/UNIFIED_SEMANTIC_PLANNING_MIGRATION.md \
             --forbidden-description "Do not modify predecessor Target/Claim/Baseline, Quality/Judge/Skill, Business Service, transaction authority, frontend, Phase C, WP-08, or production activation to obtain a pass." \
             --acceptance-description "The immutable PR #551 RED oracle must fail on exact baseline aeb9a445001d4922e13a032e4cccc12f8ff34e9a and pass on historical A2/B candidate 55403a01f957257fbbefead32bcde21b7d866001; full Quick must converge without scope expansion." \
-            --baseline-description "Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. Successor governance authority is frozen before this machine RED baseline." \
+            --baseline-description "Baseline is exact original permit pre-write source aeb9a445001d4922e13a032e4cccc12f8ff34e9a plus the immutable PR #551 RED oracle overlay. This successor uses a new Target/Claim/baseline identity and does not reuse the invalid predecessor baseline identity." \
             --max-rounds 8)
           for path in "${allowed[@]}"; do cmd+=(--allow "$path"); done
           "${cmd[@]}"
