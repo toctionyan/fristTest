@@ -1,4 +1,4 @@
-name: tmp-v20.18-governance-recovery-successor-quick-h3
+name: tmp-v20.18-governance-recovery-successor-quick-h4
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  recovery-h3-successor-quick:
+  recovery-h4-successor-quick:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -31,15 +31,15 @@ jobs:
           node-version: '24.18.0'
           package-manager-cache: false
 
-      - name: Execute corrected successor lifecycle through formal Quick only
-        run: python3 -B .github/recovery_h3_runner.py
+      - name: Execute reviewed-oracle successor lifecycle through formal Quick only
+        run: python3 -B .github/recovery_h4_wrapper.py
 
-      - name: Stage Recovery-H3 Quick evidence
+      - name: Stage Recovery-H4 Quick evidence
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          out="${GITHUB_WORKSPACE}/recovery-h3-artifact"
+          out="${GITHUB_WORKSPACE}/recovery-h4-artifact"
           rm -rf "$out" && mkdir -p "$out"
           successor='migration-v20.18-semantic-single-writer-output-coverage-r1'
           cp "${RUNNER_TEMP}/recovery-h3-execution.json" "$out/" 2>/dev/null || true
@@ -62,11 +62,12 @@ jobs:
           printf '%s\n' 'aeb9a445001d4922e13a032e4cccc12f8ff34e9a' > "$out/baseline-source-sha.txt"
           printf '%s\n' '55403a01f957257fbbefead32bcde21b7d866001' > "$out/historical-candidate-sha.txt"
           printf '%s\n' '7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8' > "$out/performance-repair-sha.txt"
+          printf '%s\n' 'd419911544cb84a53067bd8411974cb9bf3b69f7' > "$out/reviewed-oracle-sha.txt"
 
-      - name: Upload Recovery-H3 Quick evidence
+      - name: Upload Recovery-H4 Quick evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: v20.18-governance-recovery-successor-quick-h3
-          path: recovery-h3-artifact
+          name: v20.18-governance-recovery-successor-quick-h4
+          path: recovery-h4-artifact
           if-no-files-found: error
