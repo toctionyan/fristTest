@@ -135,6 +135,7 @@
     "business",
     "composition",
     "context",
+    "goal_graph",
     "kernel",
     "ledger",
     "lifecycle",
