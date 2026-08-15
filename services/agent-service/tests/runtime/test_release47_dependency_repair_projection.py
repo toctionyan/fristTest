@@ -5,6 +5,13 @@ import json
 from pathlib import Path
 
 from agent_core.lifecycle.dialogue_runtime import _semantic_writer_declaration_result_projection
+from agent_core.lifecycle.goal_dependency_proof import (
+    DependencyGraphObservation,
+    DependencyObservationRole,
+    dependency_premise_digest,
+    dependency_proof_metadata,
+    reduce_dependency_graph_proof,
+)
 from agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, _alignment_repair_feedback
 
 
@@ -24,6 +31,62 @@ def _edge() -> dict[str, str]:
     }
 
 
+def _authority_details(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:
+    first_span, second_span = user_text.split("，", 1)
+    declared_g2 = [
+        str(row.get("requires_result_of_goal_id") or "")
+        for row in declared
+        if row.get("dependent_goal_id") == "g2"
+    ]
+    goals = [
+        {"goal_id": "g1", "evidence_span": first_span, "depends_on": []},
+        {"goal_id": "g2", "evidence_span": second_span, "depends_on": declared_g2},
+    ]
+    premise = dependency_premise_digest(user_text=user_text, goals=goals)
+    pairs = tuple(
+        sorted(
+            (str(row["dependent_goal_id"]), str(row["requires_result_of_goal_id"]))
+            for row in verified
+        )
+    )
+    provisional = DependencyGraphObservation(
+        premise_digest=premise,
+        edges=pairs,
+        complete=True,
+        graph_matches_declaration=False,
+        expected_pair_count=1,
+        observed_pair_count=1,
+        source="candidate_blind_dependency_reaudit",
+        role=DependencyObservationRole.PROVISIONAL,
+        evidence_digest="release47-provisional",
+    )
+    proof = reduce_dependency_graph_proof(None, provisional)
+    closure = DependencyGraphObservation(
+        premise_digest=premise,
+        edges=pairs,
+        complete=True,
+        graph_matches_declaration=False,
+        expected_pair_count=1,
+        observed_pair_count=1,
+        source="candidate_blind_dependency_authority_closure",
+        role=DependencyObservationRole.ADVERSARIAL_CLOSURE,
+        evidence_digest="release47-closure",
+    )
+    proof = reduce_dependency_graph_proof(proof, closure)
+    return dependency_proof_metadata(
+        {
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_proof_complete": True,
+            "dependency_graph_match": False,
+            "dependency_edges": verified,
+            "declared_dependency_edges": declared,
+            "verifier_repair_attempted": True,
+            "verifier_repair_kind": "candidate_blind_dependency_authority_closure",
+        },
+        proof,
+    )
+
+
 def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:
     alignment = GoalAlignmentVerdict(
         "incomplete",
@@ -32,15 +95,7 @@ def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: s
         "goal_alignment_dependency_graph_mismatch",
         "model",
         True,
-        {
-            "dependency_authority": "independent_goal_alignment",
-            "dependency_proof_complete": True,
-            "dependency_graph_match": False,
-            "dependency_edges": verified,
-            "declared_dependency_edges": declared,
-            "verifier_repair_attempted": True,
-            "verifier_repair_kind": "candidate_blind_dependency_reaudit",
-        },
+        _authority_details(verified=verified, declared=declared, user_text=user_text),
     )
     return {
         "ok": False,
