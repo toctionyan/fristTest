@@ -230,6 +230,58 @@ def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() ->
     assert "Never report such inherited identity text as a target-scope-constraint missing span" in second_payload
 
 
+
+def test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() -> None:
+    text = "查一下鼠标订单，然后帮我申请退款"
+    goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", [])]
+    false_positive = _response({
+        "verdict": "incomplete",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_edges": [{
+            "dependent_goal_id": "g2",
+            "requires_result_of_goal_id": "g1",
+            "basis_kind": "result_reference",
+            "basis_span": "帮我申请退款",
+        }],
+        "reason_code": "refund_needs_query_result",
+    })
+    malformed_blind = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "鼠标订单",
+        }],
+        "reason_code": "malformed_blind_basis",
+    })
+    repaired_blind_without_duplicate_evidence = _response({
+        "verdict": "exact",
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "independent",
+        }],
+        "reason_code": "repaired_pairwise_dependency_proof",
+    })
+    with patch("agent_core.config.get_model", return_value=object()), patch(
+        "agent_core.model_calls.invoke_model",
+        side_effect=[false_positive, malformed_blind, repaired_blind_without_duplicate_evidence],
+    ) as invoke:
+        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
+    assert invoke.call_count == 3
+    assert verdict.exact
+    assert verdict.evidence_spans == ("查一下鼠标订单", "帮我申请退款")
+    assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["dependency_proof_complete"] is True
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_format_repair"
+
+
 def test_unknown_and_self_dependency_edges_fail_closed() -> None:
     text = "查订单并继续处理"
     goals = [_goal("g1", "查订单", [])]

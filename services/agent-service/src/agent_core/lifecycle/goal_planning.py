@@ -837,7 +837,7 @@ class ModelGoalAlignmentVerifier:
         last_indeterminate = GoalAlignmentVerdict(
             "indeterminate", (), (), "goal_alignment_unverified", "model", True, {}
         )
-        initial_exact_alignment: GoalAlignmentVerdict | None = None
+        initial_grounded_alignment: GoalAlignmentVerdict | None = None
         requested_effect_reaudit_guard: dict[str, Any] | None = None
         preserved_blind_dependency_details: dict[str, Any] | None = None
         for attempt in range(3):
@@ -1002,12 +1002,13 @@ class ModelGoalAlignmentVerifier:
                     if (
                         blind_dependency_audit
                         and raw_verdict == "exact"
-                        and initial_exact_alignment is not None
+                        and initial_grounded_alignment is not None
                     ):
                         # The second verifier is an independent semantic-contract audit:
                         # dependency graph plus requested-effect/target-scope fidelity.
-                        # Outcome grounding was already proven by the first exact
-                        # call, so preserve that literal evidence while accepting
+                        # Outcome grounding was already proven by the first candidate-visible
+                        # verdict that entered this blind audit: either exact, or a grounded
+                        # dependency-only mismatch. Preserve that literal evidence while accepting
                         # only a structurally valid candidate-blind audit result.
                         if (
                             verifier_repair_kind == "candidate_blind_dependency_requested_effect_reaudit"
@@ -1020,14 +1021,14 @@ class ModelGoalAlignmentVerifier:
                             # only and does not inspect capability availability.
                             verdict = GoalAlignmentVerdict(
                                 "incomplete",
-                                initial_exact_alignment.evidence_spans,
+                                initial_grounded_alignment.evidence_spans,
                                 tuple(requested_effect_reaudit_guard.get("missing_spans") or ()),
                                 "requested_effect_reaudit_structural_collision",
                                 "model",
                                 True,
                                 {
-                                    **initial_exact_alignment.details,
-                                    "initial_alignment_reason_code": initial_exact_alignment.reason_code,
+                                    **initial_grounded_alignment.details,
+                                    "initial_alignment_reason_code": initial_grounded_alignment.reason_code,
                                     "candidate_blind_dependency_reaudit": True,
                                     "requested_effect_reaudit_guard": dict(requested_effect_reaudit_guard),
                                 },
@@ -1035,14 +1036,14 @@ class ModelGoalAlignmentVerifier:
                         else:
                             verdict = GoalAlignmentVerdict(
                                 "exact",
-                                initial_exact_alignment.evidence_spans,
+                                initial_grounded_alignment.evidence_spans,
                                 (),
                                 "goal_alignment_candidate_blind_dependency_reaudit_exact",
                                 "model",
                                 True,
                                 {
-                                    **initial_exact_alignment.details,
-                                    "initial_alignment_reason_code": initial_exact_alignment.reason_code,
+                                    **initial_grounded_alignment.details,
+                                    "initial_alignment_reason_code": initial_grounded_alignment.reason_code,
                                     "candidate_blind_dependency_reaudit": True,
                                 },
                             )
@@ -1102,9 +1103,13 @@ class ModelGoalAlignmentVerifier:
                     or (len(goals) > 1 and dependency_mismatch_introduces_new_edge)
                 )
             ):
-                if verdict.exact:
-                    initial_exact_alignment = verdict
-                # Every first-pass exact declaration receives one independent
+                # Both entry paths have already passed literal evidence grounding: either the
+                # first verdict is exact, or its only authoritative disagreement is a
+                # structurally valid dependency graph that introduces a new edge. Keep that
+                # grounded outcome evidence available while the blind audit repairs graph format.
+                initial_grounded_alignment = verdict
+                # Every first-pass exact declaration, plus a grounded dependency-only
+                # disagreement that introduces a new edge, receives one independent
                 # semantic-contract re-audit within the existing verifier budget.
                 # The projection hides Planner depends_on but retains the declared
                 # requested_effect and target_candidate so the verifier can detect semantic
