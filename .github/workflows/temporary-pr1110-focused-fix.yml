@@ -44,6 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           cd services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
           .venv/bin/python -m pytest -q \
             tests/runtime/test_release52_dependency_independence_adjudication.py \
             tests/runtime/test_wp08_attempt5_dependency_authority.py::test_unproposed_refund_dependency_requires_candidate_blind_confirmation
