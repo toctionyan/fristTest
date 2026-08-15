@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "stage": "V20.18-GOVERNANCE-RECOVERY-REPLAN",
+  "verdict": "PREDECESSOR_TARGET_INVALID_REPLAN_REQUIRED",
+  "predecessor_change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "successor_change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "predecessor_candidate_sha": "55403a01f957257fbbefead32bcde21b7d866001",
+  "original_permit_baseline_sha": "aeb9a445001d4922e13a032e4cccc12f8ff34e9a",
+  "predecessor_permit_digest": "1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c",
+  "target_path": "governance/targets/migration-v20.18-semantic-single-writer-output-coverage.md",
+  "target_content_sha256": "a696cf9bb6376ed9ce0bd1aa906db48af5d34cc172e2931d6635fa2e261ec7bc",
+  "deterministic_parser_error": "target record must declare 执行上下文：local-change or ci",
+  "additional_missing_machine_fields": [
+    "新增抽象记录",
+    "声明清单",
+    "验收 ID"
+  ],
+  "successor_rules": [
+    "preserve exact 17-path product/test scope",
+    "do not mutate predecessor Target",
+    "new Target/Claim/baseline/permit identities",
+    "no production activation"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "affected_boundaries": [
+    "semantic authorship",
+    "semantic vocabulary ownership",
+    "validator public feedback contract",
+    "capability coverage authority",
+    "compatibility path for historical frozen checkpoints"
+  ],
+  "causal_chain": [
+    "The goal-declaration model is the only formal writer but sees deployment capability-effect identities and semantic guidance before freeze.",
+    "The writer is instructed to adopt a matching deployed identity, so installed capability vocabulary can shape the semantic candidate.",
+    "Independent validators can return alternative dependency/decomposition values that are fed into redeclaration, creating additional effective semantic authors.",
+    "FrozenSemanticContract faithfully freezes the resulting candidate, but the candidate may already have been capability-shaped.",
+    "Post-freeze exact matching then proves equality against capability-owned completion_effects/support_effects, so a nearby capability can influence meaning before exact enforcement begins.",
+    "Simply hiding the capability index without a capability-independent semantic vocabulary would make faithfully worded but differently named supported outputs fail to match.",
+    "A module-contributed semantic vocabulary independent of availability, frozen requested_outputs, violation-only validators, and exact output coverage restores the single-writer boundary without nearest-match authority."
+  ],
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "decision": "PROVEN",
+  "evidence_refs": [
+    ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline/baseline-record.json",
+    ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline/run-summary.json",
+    "services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py",
+    "governance/replan-evidence/v20.18-invalid-frozen-target.json",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/modules/registry.py"
+  ],
+  "failure_case_sha256": "b2fedea8118d627076d7992dc58085a3c08ea95e88f0896b05d36d0782cfb352",
+  "record_type": "root-cause-proof",
+  "rejected_hypotheses": [
+    "The problem can be fixed only by adding courier-phone exclusion examples.",
+    "Raising a similarity threshold is sufficient.",
+    "Removing capability_effect_index from one prompt is safe without changing the post-freeze join.",
+    "FrozenSemanticContract alone guarantees single semantic authorship even when upstream validators prescribe replacement semantics.",
+    "A post-freeze LLM mapper from free-form effects to capabilities can remain execution-authoritative."
+  ],
+  "root_cause": "The architecture has one frozen semantic store but not one semantic author. Deployment-owned capability identities leak into the pre-freeze writer, while independent validators can feed replacement semantic structures back to the writer. Because the post-freeze matcher is keyed to writer-produced capability-shaped effect identities, removing only the leak would create systematic false negatives. The missing boundary is a capability-independent semantic output contract plus exact post-freeze coverage compilation.",
+  "schema_version": 1,
+  "replan_predecessor": "migration-v20.18-semantic-single-writer-output-coverage"
+}

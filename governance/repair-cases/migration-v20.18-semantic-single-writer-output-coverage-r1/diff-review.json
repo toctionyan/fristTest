@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "permit_digest": "bf4282cbc47572abf361b1137240a2cc451edd325dd75ee73d42f36abaedd6d0",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "ba330d4fcd5af39fbc16f1b3b79e03b2c431e590878fa7a683c8f80744714e5e",
+  "candidate_source_fingerprint": "fe9cafb850eab2c8dbe24838bb3d3473cee5222ec04bb6d4ab1b82a5496904d7",
+  "changed_paths": [
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py"
+  ],
+  "added_paths": [
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py"
+  ],
+  "modified_paths": [
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "target_kind": "migration",
+  "goal": "Restore a single capability-blind semantic writer and exact post-freeze semantic-output capability coverage without changing transaction/business authority or Phase C target compilation.",
+  "profile": "product-migration",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/get_order_logistics.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "invariants": [
+    "the approved product scope is the only writable product scope",
+    "quality Target, Claims, baseline, Judge and evidence are not modified to make a candidate pass",
+    "the final result is bound to current source and current product Quality Loop evidence",
+    "one writable implementer owns the candidate worktree",
+    "pre-freeze semantics are capability-blind and have one writer",
+    "validators expose violation-only feedback and never replacement semantic answers",
+    "new-turn execution eligibility requires exact frozen requested-output coverage",
+    "no exact coverage means no execution"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [],
+  "affected_modules": [
+    "agent_core.lifecycle",
+    "agent_core.kernel.semantic_contract",
+    "agent_core.modules",
+    "agent_core.runtime.capability_effects",
+    "agent_modules.ecommerce"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/migration-v20.18-semantic-single-writer-output-coverage.md",
+  "baseline_evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage/evidence/red-baseline.md",
+  "initial_source_fingerprint": "18323ce037401c2e523fcd2b614865a307bd1deea12ce609da5e3ae5f787f108",
+  "initial_source_file_count": 14,
+  "product_validation": null,
+  "decision_record": "governance/decisions/migration-v20.18-semantic-single-writer-output-coverage.json",
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": null,
+  "repair_governance": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage",
+  "repair_governance_consumed_at": null,
+  "created_at": "2026-08-11T17:21:00+00:00",
+  "status": "rejected",
+  "result": "ARCHITECTURE_REPLAN_REQUIRED",
+  "repair_governance_permit_digest": "1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c",
+  "replan": {
+    "successor_change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+    "reason": "Frozen predecessor Target is machine-invalid. Successor preserves the exact A2/B product scope while creating new valid Target, Claim, baseline, Decision and ChangePermit identities.",
+    "evidence": "governance/replan-evidence/v20.18-invalid-frozen-target.json",
+    "evidence_sha256": "becf0b45002da2bbc0c6457679c7a4d0cb7ef31e0ea0271d738b40a1b5294476",
+    "recorded_at": "2026-08-14T23:27:23.825064+00:00"
+  }
+}

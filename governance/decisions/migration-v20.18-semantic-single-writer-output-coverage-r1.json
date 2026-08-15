@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "decision_id": "adr-v20.18-semantic-single-writer-output-coverage-r1",
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "problem": "Current main freezes one semantic contract but pre-freeze authorship is distributed: the sole writer sees deployment capability identities/guidance and validators can prescribe replacement semantic structures. The exact matcher therefore lacks a capability-independent semantic join.",
+  "options": [
+    {
+      "id": "conservative-prompt-hide-only",
+      "strategy": "conservative",
+      "name": "仅隐藏 capability index 并保留现有 requested_effect exact identity",
+      "correctness": "消除直接泄漏，但盲写者可为同一受支持含义产生不同开放名称，造成系统性 false negative；不能消除 validator replacement feedback。",
+      "complexity": "低",
+      "migration": "只改 prompt/schema。",
+      "rollback": "简单。",
+      "verification": "无法证明开放语义命名与现有 capability identity 一致，因此不足。"
+    },
+    {
+      "id": "evolutionary-semantic-output-coverage",
+      "strategy": "evolutionary",
+      "name": "在现有 Module/FrozenSemanticContract/Capability v2 上增加 capability-independent semantic output 与 exact coverage",
+      "correctness": "恢复单 Writer；semantic vocabulary 与 capability availability 分离；freeze 后机器精确 coverage；unsupported 不 nearest-match。",
+      "complexity": "中等，复用现有模块注册、冻结合同、Capability v2、CapabilityGate。",
+      "migration": "A2/B 原子切换新 turn；历史 frozen checkpoint 仅保留显式兼容读取。",
+      "rollback": "A2/B 整体回退，不允许半回退。",
+      "verification": "结构、正反例、Quick/Integration、protected live-model adversarial matrix 分层证明。"
+    },
+    {
+      "id": "redesign-new-semantics-stack",
+      "strategy": "redesign",
+      "name": "新建完整独立 semantics/ontology/planner 主链并替换现有 lifecycle/module runtime",
+      "correctness": "理论边界清晰，但会创建大规模并行迁移面并触碰大量已稳定权威。",
+      "complexity": "高",
+      "migration": "需要新旧主链长时间 shadow/cutover。",
+      "rollback": "复杂。",
+      "verification": "需要更大范围全栈认证，超出 #550 当前缺陷闭包。"
+    }
+  ],
+  "selected_option": "evolutionary-semantic-output-coverage",
+  "rejected_reasons": {
+    "conservative-prompt-hide-only": "不能同时解决 canonical semantic join 与 validator semantic-authority drift，且会把当前误匹配风险替换成系统性 false negative。",
+    "redesign-new-semantics-stack": "不必要扩大主链、事务、展示与持久化迁移面，违反复用现有 FrozenSemanticContract/Module/Capability v2 的最小架构变更原则。"
+  },
+  "deletions": [
+    "删除 provider-bound goal declaration 对 capability_effect_index/capability semantic guidance 的读取权。",
+    "删除 requested_effect 必须对齐当前部署 effect identity 的 pre-freeze 指令。",
+    "删除 validator writer-facing repair feedback 中 replacement dependency/effect/semantic-role 值的权力。",
+    "新 turn 切换后删除 legacy requested_effect identity 作为新执行 coverage 权威的职责。"
+  ],
+  "unknowns": [
+    "完整 semantic vocabulary 的长期扩展治理需在本批建立最小通用契约后继续由各 Module 声明。",
+    "protected live DeepSeek 对新的 requested-output schema 的稳定性必须在合并候选通过确定性 Gate 后独立认证。",
+    "Phase C UNIQUE historical-reference deterministic target compiler 留在后续独立 bounded batch。"
+  ],
+  "selected_responsibilities": [
+    "Semantic Writer 从 capability-independent module semantic vocabulary 产生 requested-output candidate。",
+    "Semantic validators only PASS/REJECT/CLARIFY and expose grounded violations, never replacement semantic answers。",
+    "FrozenSemanticContract normalizes, freezes and integrity-binds requested outputs once。",
+    "ModuleRegistry aggregates semantic vocabulary independently from CapabilityRegistry。",
+    "Capabilities reference semantic output IDs they can exactly cover; capability availability never defines vocabulary existence。",
+    "Post-freeze capability_effects/coverage compiler grants frontier eligibility only by exact requested-output set coverage。",
+    "Goal completion evidence uses the same exact coverage relation for new turns。",
+    "Historical checkpoint compatibility is explicit, read-only and non-authoritative for newly declared turns。"
+  ],
+  "preserved_hard_invariants": [
+    "Business Service owns business facts。",
+    "FrozenSemanticContract remains the sole formal turn semantics after acceptance。",
+    "CapabilityGate and ExecutionPermit remain mandatory before dispatch。",
+    "Draft/Grant/Attempt/Receipt and structured-interaction authorization are unchanged。",
+    "Similarity/search cannot grant execution authority。",
+    "No exact semantic output coverage means no execution。",
+    "No new WP-08 ReleaseRun without human authorization。"
+  ],
+  "cutover_strategy": "Implement semantic vocabulary contribution, requested-output freeze/integrity, violation-only validator feedback and exact capability coverage in one A2/B candidate. Provider-bound new declarations use the new output contract immediately; only already-frozen historical checkpoints without it may read the legacy effect identity. Do not merge a state where capability hints are hidden but exact requested-output coverage is not yet available.",
+  "acceptance_claims": [
+    "Pre-freeze writer payload and schema contain no deployment capability names/identities/availability/guidance/examples。",
+    "Semantic vocabulary may contain an output with zero installed capabilities and therefore does not reveal availability。",
+    "Validator public repair feedback never contains a replacement dependency graph, requested output/effect, target meaning or recommended Goal role。",
+    "Frozen requested outputs are integrity-bound and cannot be rewritten after freeze。",
+    "Logistics current-status/ETA outputs obtain exact coverage; courier contact phone obtains none and deterministically routes unsupported。",
+    "Mixed supported + unsupported sibling outcomes remain separate。",
+    "Legacy effect identity cannot become the coverage authority for a new requested-output turn。",
+    "Existing transaction/business fact/public response authority boundaries remain green。"
+  ],
+  "baseline_changes": [
+    "No Architecture Baseline policy promotion is requested in this batch; this restores the selected V20.11.1 ownership boundary。",
+    "Product source changes are limited to the exact ChangePermit scope plus focused tests。",
+    "Phase C target compilation and WP-08 reauthorization are outside this Change Contract。"
+  ],
+  "predecessor_change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "replan_record": "governance/change-history/migration-v20.18-semantic-single-writer-output-coverage/replan.json",
+  "recovery_note": "Governance-identity successor only; selected architecture and A2/B product scope are unchanged."
+}

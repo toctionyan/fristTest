@@ -1,0 +1,34 @@
+{
+  "affected_boundaries": [
+    "pre-freeze semantic writer input",
+    "validator-to-writer repair feedback",
+    "frozen requested-output representation",
+    "post-freeze exact capability coverage",
+    "Goal completion proof classification"
+  ],
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "classification": "architecture-defect",
+  "record_type": "failure-case",
+  "reproduction": {
+    "actual": "Exact aeb9 pre-write source plus the immutable PR #551 oracle produces a machine BASELINE_RECORDED run whose only Agent failures are the two single-writer invariants; Business remains green.",
+    "evidence_refs": [
+      ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline/baseline-record.json",
+      ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline/run-summary.json",
+      "services/agent-service/tests/architecture/test_v2018_single_writer_recovery_oracle.py",
+      "governance/replan-evidence/v20.18-invalid-frozen-target.json",
+      "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+      "services/agent-service/src/agent_core/lifecycle/protocol.py",
+      "services/agent-service/src/agent_core/runtime/capability_effects.py"
+    ],
+    "expected": "Historical A2/B candidate 55403 plus independently validated bounded performance repair 7e6bd3 must turn the same oracle green without widening product scope, weakening tests, or changing execution authority.",
+    "status": "REPRODUCED"
+  },
+  "schema_version": 1,
+  "violated_invariants": [
+    "Only the goal-declaration writer may create semantic values before freeze.",
+    "Pre-freeze model input must not disclose tool/capability availability, capability identities, planning contracts, discovery examples, or exclusion examples.",
+    "Semantic validators may return PASS/REJECT/CLARIFY with grounded violations but may not provide replacement requested-effect, dependency, target, or Goal-decomposition values.",
+    "Capability execution authority must be derived after freeze from exact machine-checkable semantic output coverage; no exact coverage means no execution."
+  ],
+  "replan_predecessor": "migration-v20.18-semantic-single-writer-output-coverage"
+}

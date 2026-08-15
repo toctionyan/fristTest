@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "predecessor_change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "successor_change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "result": "ARCHITECTURE_REPLAN_REQUIRED",
+  "reason": "Frozen predecessor Target is machine-invalid. Successor preserves the exact A2/B product scope while creating new valid Target, Claim, baseline, Decision and ChangePermit identities.",
+  "evidence": "governance/replan-evidence/v20.18-invalid-frozen-target.json",
+  "evidence_sha256": "becf0b45002da2bbc0c6457679c7a4d0cb7ef31e0ea0271d738b40a1b5294476",
+  "contract_before": "governance/change-history/migration-v20.18-semantic-single-writer-output-coverage/contract-before-replan.json",
+  "contract_before_sha256": "d3eb371f0df6c001310b2ccaf63b93b8d9890fba4f712563029803b613ffc52e",
+  "contract_replanned": "governance/change-history/migration-v20.18-semantic-single-writer-output-coverage/contract-replanned.json",
+  "contract_replanned_sha256": "550a84d69305b92f22005b41b1144d87989ad3f950ed76433a2d591bcb0e989b",
+  "repair_governance_permit_digest": "1acb65059e5da5e708ff35dafe48c55b6968e75cbeefd6c8bae00a2738eed76c",
+  "repair_governance_consumed_at": null,
+  "verification": null,
+  "recorded_at": "2026-08-14T23:27:23.825064+00:00"
+}

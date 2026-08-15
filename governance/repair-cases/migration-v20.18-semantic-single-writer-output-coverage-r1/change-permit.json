@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "repair_plan_sha256": "c958747f91d3febc0ac2f1a6607770a11e8417ca62eb233080379981069f5a1c",
+  "plan_review_sha256": "cc2ed4175f7ef3574d23934255ae8eb68ff63f428fdd2ce80d56a34f6563b6d3",
+  "baseline_manifest_sha256": "772993786b436a18322137a5998feff4bf8deb14acad7335e68a93745789f4f4",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/get_order_logistics.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "counterexamples": [
+      "courier contact phone is a valid frozen semantic output with zero completion capability and routes unsupported",
+      "supported logistics sibling plus unsupported courier sibling remain independent and do not collapse",
+      "validator mismatch feedback contains violation evidence but no replacement dependency/effect/role answer"
+    ],
+    "focused": [
+      "structural pre-freeze prompt/schema test contains no CapabilityRegistry-derived vocabulary or deployed-effect alignment instruction",
+      "semantic output normalization/freeze/digest integrity tests",
+      "exact output coverage tests for logistics status and ETA"
+    ],
+    "negative_path": [
+      "open output is never coerced to a registered capability",
+      "legacy effect identity cannot authorize a newly declared requested-output turn",
+      "capability semantic guidance cannot appear in the pre-freeze writer payload"
+    ],
+    "regression": [
+      "existing unified semantic planning contract suite",
+      "existing Capability v2 / module installation / Agent Quick regression",
+      "existing Business and Skill control-plane regression"
+    ]
+  },
+  "baseline_source_fingerprint": "ba330d4fcd5af39fbc16f1b3b79e03b2c431e590878fa7a683c8f80744714e5e",
+  "baseline_workspace_fingerprint": "51016ae689409ff2c8cdd5efeeab0c5ac5a4cf83526e3cb2d4ba60260f55ba24",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "bf4282cbc47572abf361b1137240a2cc451edd325dd75ee73d42f36abaedd6d0"
+}

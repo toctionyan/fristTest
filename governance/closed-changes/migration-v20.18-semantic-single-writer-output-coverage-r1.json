@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "target_kind": "migration",
+  "goal": "Recover and close the already-implemented V20.18 A2/B migration under a machine-valid successor governance identity without changing its product scope.",
+  "profile": "product-migration",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/modules/contracts.py",
+    "services/agent-service/src/agent_core/modules/registry.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/runtime/capability_effects.py",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py",
+    "services/agent-service/src/agent_modules/ecommerce/module.py",
+    "services/agent-service/src/agent_modules/ecommerce/capabilities/get_order_logistics.py",
+    "services/agent-service/tests/architecture/test_semantic_single_writer_invariants.py",
+    "services/agent-service/tests/runtime/test_semantic_output_coverage.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "invariants": [
+    "the approved product scope is the only writable product scope",
+    "quality Target, Claims, baseline, Judge and evidence are not modified to make a candidate pass",
+    "the final result is bound to current source and current product Quality Loop evidence",
+    "one writable implementer owns the candidate worktree",
+    "pre-freeze semantics are capability-blind and have one writer",
+    "validators expose violation-only feedback and never replacement semantic answers",
+    "new-turn execution eligibility requires exact frozen requested-output coverage",
+    "no exact coverage means no execution"
+  ],
+  "required_profiles": [
+    "product-contract",
+    "product-portable-conformance",
+    "product-security",
+    "product-quality-quick"
+  ],
+  "writer_role": "product-implementer",
+  "review_roles": [
+    "scope-planner",
+    "adversarial-reviewer",
+    "release-judge"
+  ],
+  "review_attestations": [
+    {
+      "role": "scope-planner",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/migration-v20.18-semantic-single-writer-output-coverage-r1/reviews/scope-planner.json",
+      "evidence_sha256": "cb97ed40c106ba64c96038d8cafb1f8c79bca29ee0c2f4472cd2f147d18e98be",
+      "recorded_at": "2026-08-14T23:34:09.983370+00:00"
+    },
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/migration-v20.18-semantic-single-writer-output-coverage-r1/reviews/adversarial-reviewer.json",
+      "evidence_sha256": "6f1f9397d13ae91639dd11db2dfce86bab5cb772475bea91ca7e4c016a1071a4",
+      "recorded_at": "2026-08-14T23:34:10.091611+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/migration-v20.18-semantic-single-writer-output-coverage-r1/verification.json",
+      "evidence_sha256": "de7c7193ad23d764f9f5293327a77dad07cca79a3881c75b1b4964cbd3ea917c",
+      "recorded_at": "2026-08-14T23:34:21.452207+00:00"
+    }
+  ],
+  "affected_modules": [
+    "agent_core.lifecycle",
+    "agent_core.kernel.semantic_contract",
+    "agent_core.modules",
+    "agent_core.runtime.capability_effects",
+    "agent_modules.ecommerce"
+  ],
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/migration-v20.18-semantic-single-writer-output-coverage-r1.md",
+  "baseline_evidence": ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline",
+  "initial_source_fingerprint": "18323ce037401c2e523fcd2b614865a307bd1deea12ce609da5e3ae5f787f108",
+  "initial_source_file_count": 14,
+  "product_validation": {
+    "baseline": ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline",
+    "baseline_mode": "quick",
+    "recorded_at": "2026-08-14T23:31:23.231537+00:00",
+    "verification": ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/verification-quick-20260814T233134Z",
+    "verification_mode": "quick",
+    "verification_source_fingerprint": "8782b25df34d0c01c97ad95755fe8a02eb67ee0f49d41d46057d3188f1bac7ed",
+    "verification_source_file_count": 17,
+    "verification_recorded_at": "2026-08-14T23:34:06.016787+00:00",
+    "verification_bridge_result": ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/bridge-results/verification-quick-20260814T233134Z.json"
+  },
+  "decision_record": "governance/decisions/migration-v20.18-semantic-single-writer-output-coverage-r1.json",
+  "variance_records": [],
+  "architecture_policy_delta": null,
+  "baseline_policy_id": null,
+  "verification": {
+    "path": ".quality/product-control-plane/migration-v20.18-semantic-single-writer-output-coverage-r1/verification.json",
+    "sha256": "de7c7193ad23d764f9f5293327a77dad07cca79a3881c75b1b4964cbd3ea917c",
+    "source_fingerprint": "8782b25df34d0c01c97ad95755fe8a02eb67ee0f49d41d46057d3188f1bac7ed",
+    "source_file_count": 17,
+    "verified_at": "2026-08-14T23:34:21.451798+00:00"
+  },
+  "repair_governance": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "repair_governance_consumed_at": "2026-08-14T23:34:25.237768+00:00",
+  "created_at": "2026-08-14T23:27:24.632997+00:00",
+  "status": "closed",
+  "result": "CONVERGED",
+  "predecessor_change_id": "migration-v20.18-semantic-single-writer-output-coverage",
+  "replan_record": "governance/change-history/migration-v20.18-semantic-single-writer-output-coverage/replan.json",
+  "replan_record_sha256": "1fc406d687c4258da55f06fa3cc6359178e2a5d99067134e02c5c412b588529a",
+  "repair_governance_permit_digest": "bf4282cbc47572abf361b1137240a2cc451edd325dd75ee73d42f36abaedd6d0",
+  "closed_at": "2026-08-14T23:34:25.237793+00:00"
+}
