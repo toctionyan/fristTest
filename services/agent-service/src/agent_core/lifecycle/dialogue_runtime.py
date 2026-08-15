@@ -731,11 +731,14 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
 
     feedback = data.get("independent_verifier_feedback") if isinstance(data.get("independent_verifier_feedback"), dict) else {}
     authority = str(feedback.get("authority") or "")
-    if authority == "candidate_blind_goal_inventory":
+    violation_field = str(feedback.get("violation_field") or "")
+    if violation_field == "target_candidate.scope_constraints":
+        field = violation_field
+    elif authority == "candidate_blind_goal_inventory":
         field = "goal_inventory"
     elif authority == "independent_goal_alignment":
         field = "depends_on"
-    for key in ("uncovered_outcome_spans",):
+    for key in ("uncovered_outcome_spans", "invalid_scope_constraint_spans"):
         for value in list(feedback.get(key) or []):
             span = str(value or "").strip()
             if span and span not in spans:
@@ -749,6 +752,16 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
                 spans.append(span)
 
     if feedback or reason_code or spans:
+        writer_constraints = [
+            "rederive_semantics_from_current_user_input",
+            "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",
+            "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",
+            "runtime_does_not_auto_rewrite_the_candidate",
+        ]
+        if field == "target_candidate.scope_constraints":
+            writer_constraints.insert(0,
+                "remove_only_listed_invalid_scope_constraint_entries_and_preserve_other_literal_population_narrowing_constraints"
+            )
         projected_data["independent_verifier_feedback"] = {
             "authority": "read_only_violation_evidence",
             "required_action": "redeclaration_from_current_user_input",
@@ -757,12 +770,7 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
                 "reason_code": reason_code or str(payload.get("code") or "semantic_declaration_rejected"),
                 "evidence_spans": spans,
             },
-            "constraints": [
-                "rederive_semantics_from_current_user_input",
-                "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",
-                "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",
-                "runtime_does_not_auto_rewrite_the_candidate",
-            ],
+            "constraints": writer_constraints,
         }
 
     return {
