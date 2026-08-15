@@ -1,6 +1,6 @@
-release_request: 2026-08-15T11:52:00+08:00
+release_request: 2026-08-15T12:14:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: rerun protected release after quality-loop npm launcher boundary fix
+reason: rerun protected release with bounded real-model component diagnostics
