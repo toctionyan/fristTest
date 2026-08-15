@@ -38,62 +38,47 @@ jobs:
           path = Path("services/agent-service/src/agent_core/lifecycle/goal_planning.py")
           source = path.read_text(encoding="utf-8")
 
-          old_set = '''            semantic_claim_reaudit = verifier_repair_kind in {
-              "candidate_blind_dependency_requested_effect_reaudit",
-              "candidate_blind_dependency_requested_output_exactness_adjudication",
-              "candidate_blind_dependency_scope_constraint_reaudit",
-              "candidate_blind_dependency_scope_constraint_adjudication",
-          }
-          '''
-          new_set = '''            semantic_claim_reaudit = verifier_repair_kind in {
-              "candidate_blind_dependency_requested_effect_reaudit",
-              "candidate_blind_dependency_requested_output_exactness_adjudication",
-              "candidate_blind_dependency_scope_constraint_reaudit",
-              "candidate_blind_dependency_scope_constraint_adjudication",
-              "candidate_blind_dependency_semantic_grounding_adjudication",
-          }
-          '''
-          if source.count(old_set) != 1:
-              raise SystemExit(f"semantic_claim_reaudit anchor count != 1: {source.count(old_set)}")
-          source = source.replace(old_set, new_set, 1)
+          set_anchor = '                "candidate_blind_dependency_scope_constraint_adjudication",\n'
+          set_replacement = set_anchor + '                "candidate_blind_dependency_semantic_grounding_adjudication",\n'
+          if source.count(set_anchor) != 1:
+              raise SystemExit(f"semantic claim set anchor count != 1: {source.count(set_anchor)}")
+          source = source.replace(set_anchor, set_replacement, 1)
 
-          anchor = '''            if verdict.verdict in {"exact", "incomplete"}:
-              return verdict
-          '''
-          replacement = '''            if (
-              verifier_repair_kind == "candidate_blind_dependency_reaudit"
-              and attempt == 1
-              and verdict.verdict == "indeterminate"
-              and verdict.reason_code == "goal_alignment_missing_span_not_grounded"
-              and str(verdict.details.get("original_verdict") or "") == "incomplete"
-              and verdict.details.get("dependency_proof_complete") is True
-              and verdict.details.get("dependency_graph_match") is True
-              and attempt < 2
-          ):
-              # The blind graph proof is complete and matching, but its negative
-              # semantic claim had no literal omitted outcome. Preserve the graph
-              # proof and use the existing final slot only to ground or withdraw it.
-              preserved_blind_dependency_details = deepcopy(verdict.details)
-              verifier_repair_kind = "candidate_blind_dependency_semantic_grounding_adjudication"
-              verifier_repair = (
-                  "Re-audit only the previous candidate-blind semantic incomplete claim while preserving the complete "
-                  "dependency proof. The previous incomplete claim supplied no machine-grounded literal omitted outcome, "
-                  "so that negative semantic claim is not authoritative. If the declaration truly omits or substitutes a "
-                  "user-observable semantic outcome, requested effect, or target-scope predicate, return verdict=incomplete "
-                  "and copy only the smallest exact contiguous USER_TEXT span proving that mismatch into missing_spans. If no "
-                  "such literal mismatch exists, withdraw the incomplete claim and return verdict=exact with literal "
-                  "evidence_spans covering the preserved requested outcomes. Do not infer a hidden prerequisite, target "
-                  "resolution step, execution dependency, business-state fact, tool/capability fact, or oracle answer. Do not "
-                  "re-audit or return dependency_decisions; the prior complete candidate-blind dependency proof remains "
-                  "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
-              )
-              continue
-          if verdict.verdict in {"exact", "incomplete"}:
-              return verdict
-          '''
-          if source.count(anchor) != 1:
-              raise SystemExit(f"verdict return anchor count != 1: {source.count(anchor)}")
-          source = source.replace(anchor, replacement, 1)
+          return_anchor = '            if verdict.verdict in {"exact", "incomplete"}:\n                return verdict\n'
+          block_lines = [
+              '            if (',
+              '                verifier_repair_kind == "candidate_blind_dependency_reaudit"',
+              '                and attempt == 1',
+              '                and verdict.verdict == "indeterminate"',
+              '                and verdict.reason_code == "goal_alignment_missing_span_not_grounded"',
+              '                and str(verdict.details.get("original_verdict") or "") == "incomplete"',
+              '                and verdict.details.get("dependency_proof_complete") is True',
+              '                and verdict.details.get("dependency_graph_match") is True',
+              '                and attempt < 2',
+              '            ):',
+              '                # The blind graph proof is complete and matching, but its negative',
+              '                # semantic claim had no literal omitted outcome. Preserve the graph',
+              '                # proof and use the existing final slot only to ground or withdraw it.',
+              '                preserved_blind_dependency_details = deepcopy(verdict.details)',
+              '                verifier_repair_kind = "candidate_blind_dependency_semantic_grounding_adjudication"',
+              '                verifier_repair = (',
+              '                    "Re-audit only the previous candidate-blind semantic incomplete claim while preserving the complete "',
+              '                    "dependency proof. The previous incomplete claim supplied no machine-grounded literal omitted outcome, "',
+              '                    "so that negative semantic claim is not authoritative. If the declaration truly omits or substitutes a "',
+              '                    "user-observable semantic outcome, requested effect, or target-scope predicate, return verdict=incomplete "',
+              '                    "and copy only the smallest exact contiguous USER_TEXT span proving that mismatch into missing_spans. If no "',
+              '                    "such literal mismatch exists, withdraw the incomplete claim and return verdict=exact with literal "',
+              '                    "evidence_spans covering the preserved requested outcomes. Do not infer a hidden prerequisite, target "',
+              '                    "resolution step, execution dependency, business-state fact, tool/capability fact, or oracle answer. Do not "',
+              '                    "re-audit or return dependency_decisions; the prior complete candidate-blind dependency proof remains "',
+              '                    "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."',
+              '                )',
+              '                continue',
+          ]
+          block = "\n".join(block_lines) + "\n"
+          if source.count(return_anchor) != 1:
+              raise SystemExit(f"verdict return anchor count != 1: {source.count(return_anchor)}")
+          source = source.replace(return_anchor, block + return_anchor, 1)
           path.write_text(source, encoding="utf-8")
           PY
 
