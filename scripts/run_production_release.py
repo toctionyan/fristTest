@@ -9,6 +9,7 @@ content-addressed artifacts produced from that same signed evidence set.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -385,10 +386,12 @@ def build_release_plan(
     target = Path(target_path).resolve()
     evidence = Path(evidence_dir).resolve()
     output = Path(output_dir).resolve()
+    # Keep the virtualenv launcher path itself. Resolving a venv symlink to the
+    # base interpreter drops venv site-packages from child Gate execution.
     python = Path(
         python_executable
         or workspace / "services" / "agent-service" / ".venv" / "bin" / "python"
-    ).resolve()
+    ).absolute()
     quality = [
         str(python),
         "-B",
@@ -575,6 +578,79 @@ def _run(command: Sequence[str], *, cwd: Path, env: Mapping[str, str]) -> int:
     return int(completed.returncode)
 
 
+def _compose_managed_quality_environment(
+    source_env: Mapping[str, str],
+    *,
+    postgres_url: str,
+    agent_url: str,
+    business_url: str,
+    business_service_token: str,
+    recovery_evidence: Path,
+) -> dict[str, str]:
+    """Overlay owned integration endpoints without replacing protected identity."""
+    environment = dict(source_env)
+    environment.update(
+        {
+            "AGENT_TEST_POSTGRES_URL": postgres_url,
+            "BUSINESS_TEST_POSTGRES_URL": postgres_url,
+            "BUSINESS_SERVICE_BASE_URL": business_url,
+            "BUSINESS_SERVICE_TOKEN": business_service_token,
+            "AGENT_TEST_URL": agent_url,
+            "BUSINESS_TEST_URL": business_url,
+            "PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA": "true",
+            "B16C_POSTGRES_RECOVERY_EVIDENCE": str(recovery_evidence),
+        }
+    )
+    return environment
+
+
+@contextlib.contextmanager
+def _managed_release_quality_environment(
+    source_env: Mapping[str, str],
+):
+    """Own disposable integration dependencies for one real release quality run.
+
+    Imports stay lazy so release preflight remains loadable even when the Agent
+    runtime environment is missing. The ProductRuntimeHarness may use its
+    deterministic provider inside its subprocesses; only public integration
+    endpoints are overlaid onto the protected controller environment, so the
+    protected real-model/provider identity remains authoritative for release
+    certification gates.
+    """
+    try:
+        from run_managed_quality_integration import ManagedPostgres
+        from verify_full_lifecycle_canary import ProductRuntimeHarness
+        from verify_managed_postgres_recovery import run_managed_postgres_recovery
+
+        with ManagedPostgres() as postgres, ProductRuntimeHarness(
+            persistence_url=postgres.url
+        ) as product:
+            recovery = run_managed_postgres_recovery(product)
+            # Keep recovery evidence outside quality_loop's initially-empty
+            # evidence directory. The Gate consumes this owned temporary file
+            # while the harness context is alive.
+            recovery_path = product.runtime_dir / "managed-postgres-recovery.json"
+            _write_json_atomic(recovery_path, recovery)
+            yield _compose_managed_quality_environment(
+                source_env,
+                postgres_url=postgres.url,
+                agent_url=product.agent_url,
+                business_url=product.business_url,
+                business_service_token=product.business_service_token,
+                recovery_evidence=recovery_path,
+            )
+    except ProductionReleaseExecutionError:
+        raise
+    except Exception as exc:
+        _raise(
+            "managed_quality_environment_unavailable",
+            "owned Postgres/Agent/Business release integration environment failed: "
+            + exc.__class__.__name__,
+            stage="quality_environment",
+            environment_blocked=True,
+        )
+
+
 def _quality_failure_from_evidence(evidence: Path) -> ProductionReleaseExecutionError:
     try:
         summary = _read_quality_summary(evidence)
@@ -718,8 +794,16 @@ def run_production_release(
         python_executable=python,
     )
 
-    if command_runner(plan["quality_command"], cwd=workspace, env=source_env) != 0:
-        raise _quality_failure_from_evidence(evidence)
+    # Real release execution owns the integration environment. Injected command
+    # runners are a unit-test seam and stay side-effect free.
+    quality_environment = (
+        _managed_release_quality_environment(source_env)
+        if command_runner is _run
+        else contextlib.nullcontext(dict(source_env))
+    )
+    with quality_environment as quality_env:
+        if command_runner(plan["quality_command"], cwd=workspace, env=quality_env) != 0:
+            raise _quality_failure_from_evidence(evidence)
 
     if require_ci:
         _revalidate_release_toolchain(
