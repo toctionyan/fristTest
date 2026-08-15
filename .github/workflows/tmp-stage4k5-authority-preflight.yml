@@ -1,0 +1,104 @@
+name: tmp-stage4k5-authority-preflight
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/tmp-stage4k5-authority-preflight.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  generate-contract:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'governance/stage4k5-authority-preflight'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact carrier head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bind carrier to reconciled main and generate repository-owned draft
+        env:
+          EXPECTED_BASE_SHA: 1bb5b3fd87f2f0759cde234e77736f1b5b29fd1f
+          ACTUAL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "${ACTUAL_BASE_SHA}" = "${EXPECTED_BASE_SHA}"
+          test ! -e governance/active-change.json
+
+          python3 -B skillctl.py product-init \
+            --change-id certify-stage4k5-production-dependency-authority-preflight \
+            --goal "Read-only certify the Stage4K5 production dependency-authority activation prerequisites and fail closed on any missing deployment authority, independent trust roots, signed immutable control material, rollback custody, DB append authority, or exact production verification evidence; do not activate production." \
+            --target-kind certification \
+            --allow services/agent-service/app/services/dependency_authority_composition.py \
+            --allow services/agent-service/app/services/readiness_service.py \
+            --allow services/agent-service/src/agent_core/runtime/dependency_authority_control.py \
+            --allow services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py \
+            --allow services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py \
+            --allow services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py \
+            --affected-module app.services.dependency_authority_composition \
+            --affected-module agent_core.runtime.dependency_authority_control \
+            --affected-module agent_core.runtime.dependency_authority_persistent_control \
+            --affected-module agent_core.runtime.dependency_authority_signed_provider \
+            --invariant "Stage4K5 K5-A is read-only and cannot mutate production configuration, deployment, control rows, rollback rows, business state, or tool authority" \
+            --invariant "persistent mode is never selected automatically from storage and production remains legacy-authority unless separately authorized activation succeeds" \
+            --invariant "activation signer and rollback operator identities and Ed25519 trust roots are independent; private signing keys remain outside the Agent process and repository" \
+            --invariant "missing, stale, malformed, expired, untrusted, or unverifiable control evidence fails closed" \
+            --minimum-mode release
+
+          python3 -B skillctl.py contract-validate
+
+          python3 -B - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('governance/active-change.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          assert data['schema_version'] == 1
+          assert data['change_id'] == 'certify-stage4k5-production-dependency-authority-preflight'
+          assert data['target_kind'] == 'certification'
+          assert data['writer_role'] == 'none'
+          assert data['status'] == 'draft'
+          assert data['result'] == 'PENDING'
+          assert data['minimum_quality_mode'] == 'release'
+          assert data['quality_target'] is None
+          assert data['baseline_evidence'] is None
+          assert data['verification'] is None
+          assert data['initial_source_file_count'] == 6
+          text = path.read_text(encoding='utf-8')
+          for forbidden in ('PRIVATE_KEY', 'SIGNING_SECRET', 'PRODUCTION_MODEL_API_KEY'):
+              assert forbidden not in text
+          print(json.dumps({
+              'status': 'PASS',
+              'change_id': data['change_id'],
+              'writer_role': data['writer_role'],
+              'contract_status': data['status'],
+              'minimum_quality_mode': data['minimum_quality_mode'],
+              'source_file_count': data['initial_source_file_count'],
+              'source_fingerprint': data['initial_source_fingerprint'],
+          }, indent=2))
+          PY
+
+      - name: Remove one-shot carrier and publish only generated governance draft
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/tmp-stage4k5-authority-preflight.yml
+          git add governance/active-change.json .github/workflows/tmp-stage4k5-authority-preflight.yml
+          git diff --cached --name-status
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = ".github/workflows/tmp-stage4k5-authority-preflight.yml governance/active-change.json "
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Generate Stage4K5 read-only activation preflight contract"
+          git push origin "HEAD:${HEAD_REF}"
