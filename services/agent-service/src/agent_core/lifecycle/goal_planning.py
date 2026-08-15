@@ -1721,13 +1721,44 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
     message boundary in ``dialogue_runtime`` strips replacement semantic values
     and exposes only violation evidence before any declaration retry.
     """
+    details = alignment.details if isinstance(alignment.details, dict) else {}
+    if (
+        alignment.verdict == "incomplete"
+        and alignment.independent
+        and str(alignment.reason_code or "").casefold().startswith("target-scope-constraint")
+        and str(details.get("verifier_repair_kind") or "")
+        == "candidate_blind_dependency_scope_constraint_adjudication"
+        and details.get("dependency_authority") == "independent_goal_alignment"
+        and details.get("dependency_proof_complete") is True
+        and details.get("dependency_graph_match") is True
+    ):
+        invalid_scope_spans = list(dict.fromkeys(
+            _clean_text(value, limit=240)
+            for value in alignment.missing_spans
+            if _clean_text(value, limit=240)
+        ))
+        if invalid_scope_spans:
+            return {
+                "independent_verifier_feedback": {
+                    "authority": "independent_goal_alignment",
+                    "required_action": "redeclaration_removing_rejected_scope_constraints",
+                    "violation_field": "target_candidate.scope_constraints",
+                    "invalid_scope_constraint_spans": invalid_scope_spans,
+                    "constraints": [
+                        "remove_only_scope_constraint_entries_with_literal_spans_listed_as_invalid",
+                        "preserve_goal_inventory_goal_ids_evidence_spans_requested_effects_dependencies_and_target_identity",
+                        "rederive_any_remaining_scope_constraints_from_current_user_input_only",
+                        "preserve_literal_population_narrowing_filters_status_thresholds_and_comparisons",
+                        "runtime_does_not_auto_rewrite_the_candidate",
+                    ],
+                }
+            }
     if (
         alignment.verdict != "incomplete"
         or alignment.reason_code != "goal_alignment_dependency_graph_mismatch"
         or not alignment.independent
     ):
         return {}
-    details = alignment.details if isinstance(alignment.details, dict) else {}
     if not (
         details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True

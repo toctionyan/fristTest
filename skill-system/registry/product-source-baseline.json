@@ -161,7 +161,7 @@
     "services/agent-service/src/agent_core/lifecycle/condition_expression.py": "102b78de9365825a765eeebbe6fb4da0ba88d9774dfeaee0b0c4896ee0be5ae1",
     "services/agent-service/src/agent_core/lifecycle/context_runtime.py": "9616209b3827276f05e7cac054b81be3fb6d86fd412ed0d2a1b13cf6aea75971",
     "services/agent-service/src/agent_core/lifecycle/continuation_runtime.py": "3e068bf7d1100dbbff1d0949666b5058ac0f9e3ebd9e1a67e550f2fb32d998bb",
-    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "b7042c22f2a2a3410f534084f97f95e21e0aa9efbaeac19b79cd009381d54de0",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "6022526f75814ecfb0c5ef671a330d1ba9f76c3ca8420e0b2e7024194426c458",
     "services/agent-service/src/agent_core/lifecycle/disposition_runtime.py": "3e2f054d0aec694d65f36616093a5cba45c9a4c602f82583984825dd31936a1f",
     "services/agent-service/src/agent_core/lifecycle/execution_disposition.py": "37ad8bd812dec3916b5f3e0fa78641eadff3b68ef9d2920529183db939023ec0",
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
@@ -170,7 +170,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "be2e9e01c1428e8fae13408f70329a024ce810ff83d81573687f05691dea1a7f",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "f4c7a3fa9e8e4932e16a2063ead593366da565ffba206caa4de8bdd643a86948",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "7a87d8b8e27822f2c68f51695de8212bf7e6c13dec17c2540bfc55ba0a46b5c5",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "07213f0f5f7322e240012be70aca0c2c0cd1981ea127387f0a8afb0f344e0aea",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "43f8954962cb902f192ac4dbe95357abc13d7f930a34ac94ad8dadc55d7d236e",
@@ -607,8 +607,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T14:51:33+08:00",
-  "generated_from": "git:0f416ddfedd203f9abc612eaf4b8201cadb79119",
+  "generated_at": "2026-08-15T15:39:32+08:00",
+  "generated_from": "git:ff1c07a5e0621dc589c8cfaed7debbbe641cccec",
   "protected_roots": [
     "services",
     "web",
