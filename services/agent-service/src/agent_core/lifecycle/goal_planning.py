@@ -198,6 +198,7 @@ def _as_alignment_verdict(
         and details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
+        and details.get("dependency_authority_state") == "authoritative"
     )
     if verdict == "exact" and not evidence:
         return GoalAlignmentVerdict(
