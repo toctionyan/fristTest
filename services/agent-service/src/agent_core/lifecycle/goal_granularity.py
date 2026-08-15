@@ -29,6 +29,21 @@ _ALLOWED_ROLES = {
     "presentation_step",
 }
 
+MUTUALLY_EXCLUSIVE_OUTCOME_REASON = (
+    "blind_inventory_mutually_exclusive_outcomes_require_resolution"
+)
+MUTUALLY_EXCLUSIVE_OUTCOME_RULE = (
+    "When two or more requested business effects concern the same identified target or the same targeted lifecycle "
+    "and ordinary semantic meaning makes them mutually exclusive so they cannot all be satisfied in the same requested "
+    "resolution, the customer must first resolve which alternative should govern. Inventory the smallest single literal "
+    "contiguous USER_TEXT span that covers the conflicting alternatives exactly once, not one outcome per alternative, "
+    f"and return reason_code={MUTUALLY_EXCLUSIVE_OUTCOME_REASON}. This is a conflict-resolution outcome boundary, not "
+    "permission to drop an unsupported effect. Never infer a conflict from tool/capability availability, implementation "
+    "limits, current business facts or execution order. An action plus a read/consult about its result, and effects on "
+    "different identified targets, remain separate outcomes unless their requested results themselves are semantically "
+    "incompatible."
+)
+
 
 def _text(value: Any, *, limit: int = 500) -> str:
     return str(value or "").strip()[:limit]
@@ -354,7 +369,12 @@ def _evaluate_blind_inventory(
         reason_code = "blind_inventory_has_more_outcomes_than_declared_goals"
     elif goal_count > outcome_count:
         verdict = "over_split"
-        reason_code = "declared_goals_exceed_blind_inventory"
+        inventory_reason = str(authority.get("reason_code") or "")
+        reason_code = (
+            MUTUALLY_EXCLUSIVE_OUTCOME_REASON
+            if inventory_reason == MUTUALLY_EXCLUSIVE_OUTCOME_REASON
+            else "declared_goals_exceed_blind_inventory"
+        )
     else:
         verdict = "mixed"
         reason_code = "blind_inventory_not_one_to_one_with_declared_goals"
@@ -405,6 +425,7 @@ class ModelGoalGranularityVerifier:
             "Implementation/support steps, policy loading, permission checks, database work, Draft creation, authorization and rendering are never outcomes unless the customer explicitly requests them as a business result.",
             "Eligibility is a separate outcome only when the customer explicitly asks to receive that conclusion independently; otherwise it can be a condition/support step for an action.",
             "Sentence order or words such as and/then/also/再/然后 do not create an extra outcome by themselves; inventory semantic business results, not conjunction tokens.",
+            MUTUALLY_EXCLUSIVE_OUTCOME_RULE,
             "A meta-level refusal, deferral or suppression of a prior optional action (for example asking not to proceed, submit or handle it for now) is interaction control, not a separately judgeable business outcome, when there is no matching ACTIVE_STRUCTURED_INTERACTION and the user does not request a business effect on an identified existing object.",
             "A direct business-effect request to cancel/delete/stop an identified existing business object remains an outcome. When ACTIVE_STRUCTURED_INTERACTION identifies a pending user-visible interaction and USER_TEXT explicitly cancels or stops that pending interaction, preserve that control outcome; do not absorb a separate read-only query into it.",
             "Do not inspect or re-judge any candidate Goal dependency declaration, execution order, IDs, tools, capability availability or transaction mechanics.",
@@ -536,6 +557,9 @@ class ModelGoalGranularityVerifier:
                 "business outcome when ACTIVE_STRUCTURED_INTERACTION does not identify the pending interaction and no identified existing "
                 "business object is itself being changed. In contrast, a direct cancel/delete/stop request on an identified existing business "
                 "object remains an outcome, and an explicit cancel/stop of the supplied ACTIVE_STRUCTURED_INTERACTION remains a control outcome. "
+                "For mutually exclusive requested effects on the same target/lifecycle, apply the conflict-resolution boundary from the normal "
+                "decision rules: retain one smallest contiguous conflict span rather than one outcome per incompatible alternative, and use its "
+                f"fixed reason_code {MUTUALLY_EXCLUSIVE_OUTCOME_REASON}. "
                 "Never prune a separately requested unsupported/open business effect merely because it is unusual or unavailable. Preserve a "
                 "separate read-only query. Do not inspect candidate Goals, candidate count, tools, capabilities, oracle data or dependency edges. "
                 "Return only verdict, outcome_spans and reason_code with each retained result exactly once."
@@ -702,6 +726,8 @@ def verify_goal_granularity(
 
 __all__ = [
     "GOAL_GRANULARITY_INVENTORY_AUTHORITY_VERSION",
+    "MUTUALLY_EXCLUSIVE_OUTCOME_REASON",
+    "MUTUALLY_EXCLUSIVE_OUTCOME_RULE",
     "GoalGranularityVerdict",
     "GoalGranularityVerifier",
     "ModelGoalGranularityVerifier",
