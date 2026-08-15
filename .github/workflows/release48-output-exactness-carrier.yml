@@ -6,6 +6,7 @@ name: release48-output-exactness-carrier
     paths:
       - .github/workflows/release48-output-exactness-carrier.yml
       - scripts/tmp_release48_output_exactness_repair.py
+      - scripts/tmp_release48_test_fixture_fix.py
 
 permissions:
   contents: write
@@ -64,6 +65,9 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B \
             control/scripts/tmp_release48_output_exactness_repair.py \
+            --workspace source
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_release48_test_fixture_fix.py \
             --workspace source
 
       - name: Verify exact pre-baseline repair scope
