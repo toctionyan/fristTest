@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from agent_core.lifecycle import goal_planning as goal_planning_module
 from agent_core.lifecycle.goal_dependency_proof import (
     DependencyGraphObservation,
     DependencyProofMaturity,
@@ -56,6 +57,41 @@ def test_grounded_positive_challenge_can_replace_candidate_absence() -> None:
     assert closed.maturity == DependencyProofMaturity.AUTHORITATIVE
     assert closed.edges == (("g2", "g1"),)
     assert closed.reason_code == "adversarial_graph_changed_with_grounded_counterevidence"
+
+
+def test_authoritative_graph_is_monotonic_under_repeated_same_premise_revotes() -> None:
+    first = reduce_dependency_graph_proof(None, _observation(digest="p1"))
+    proof = reduce_dependency_graph_proof(
+        first,
+        _observation(digest="p1", edges=(("g2", "g1"),)),
+    )
+    assert proof.authoritative
+
+    for index in range(20):
+        attempted_edges = () if index % 2 == 0 else (("g1", "g2"),)
+        proof = reduce_dependency_graph_proof(
+            proof,
+            _observation(digest="p1", edges=attempted_edges),
+        )
+        assert proof.authoritative
+        assert proof.edges == (("g2", "g1"),)
+        assert proof.reason_code == "authoritative_graph_revote_rejected"
+
+
+def test_authoritative_graph_can_be_reproved_only_after_premise_change() -> None:
+    first = reduce_dependency_graph_proof(None, _observation(digest="p1"))
+    closed = reduce_dependency_graph_proof(
+        first,
+        _observation(digest="p1", edges=(("g2", "g1"),)),
+    )
+    stale = preserve_dependency_proof(closed, premise_digest="p2")
+    assert stale is not None
+    assert stale.maturity == DependencyProofMaturity.STALE
+
+    restarted = reduce_dependency_graph_proof(stale, _observation(digest="p2"))
+    assert restarted.maturity == DependencyProofMaturity.VERIFIED
+    assert restarted.edges == ()
+    assert restarted.dependency_challenge_required is True
 
 
 def test_preserve_does_not_revote_dependency_on_unrelated_semantic_reaudit() -> None:
@@ -118,6 +154,72 @@ def _goal(
         "required": True,
         "depends_on": list(depends_on or []),
     }
+
+
+def test_parser_boundary_preserves_canonical_authority_after_third_pairwise_revote() -> None:
+    text = "Inspect record A, then use that result"
+    goals = [
+        _goal("g1", "Inspect record A", output_span="Inspect record A"),
+        _goal(
+            "g2",
+            "then use that result",
+            output_span="use",
+            depends_on=["g1"],
+        ),
+    ]
+    candidate_edge = [{
+        "dependent_goal_id": "g2",
+        "requires_result_of_goal_id": "g1",
+        "basis_kind": "result_reference",
+        "basis_span": "that result",
+    }]
+    positive_pair = [{
+        "goal_a_id": "g1",
+        "goal_b_id": "g2",
+        "relation": "b_depends_on_a",
+        "basis_kind": "result_reference",
+        "basis_span": "that result",
+    }]
+    independent_pair = [{
+        "goal_a_id": "g1",
+        "goal_b_id": "g2",
+        "relation": "independent",
+    }]
+
+    candidate, candidate_error = goal_planning_module._model_alignment_dependency_proof(
+        user_text=text,
+        goals=goals,
+        values=candidate_edge,
+    )
+    assert candidate_error is None
+    assert candidate["dependency_authority_state"] == "candidate"
+
+    verified, verified_error = goal_planning_module._model_alignment_pairwise_dependency_proof(
+        user_text=text,
+        goals=goals,
+        values=positive_pair,
+    )
+    assert verified_error is None
+    assert verified["dependency_authority_state"] == "verified"
+
+    authoritative, authoritative_error = goal_planning_module._model_alignment_pairwise_dependency_proof(
+        user_text=text,
+        goals=goals,
+        values=positive_pair,
+    )
+    assert authoritative_error is None
+    assert authoritative["dependency_authority_state"] == "authoritative"
+    assert authoritative["dependency_edges"] == candidate_edge
+
+    revote, revote_error = goal_planning_module._model_alignment_pairwise_dependency_proof(
+        user_text=text,
+        goals=goals,
+        values=independent_pair,
+    )
+    assert revote_error is None
+    assert revote["dependency_authority_state"] == "authoritative"
+    assert revote["dependency_authority_reason"] == "authoritative_graph_revote_rejected"
+    assert revote["dependency_edges"] == candidate_edge
 
 
 def test_release52_flow_closes_authority_only_after_adversarial_graph_challenge() -> None:
