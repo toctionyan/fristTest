@@ -34,6 +34,12 @@ The contract must not carry Tool identity, Capability availability, target repla
 
 The sealed `repair_contract.authoritative_dependency_delta` is different: it is reducer-owned machine truth and is intentionally preserved across the provider boundary. Planner is instructed to apply only the listed dependency operations, preserve Goal ids and all non-dependency semantics, and redeclare.
 
+### Compatibility boundary
+
+The established generic provider-facing repair constraints remain stable, including `rederive_semantics_from_current_user_input` and `do_not_copy_verifier_dependency_edges_or_replacement_semantic_values`. The new dependency repair path does not redefine those generic contracts.
+
+The sole machine-authoritative exception is the reducer-sealed `repair_contract.authoritative_dependency_delta`. It is not a raw verifier graph: it is emitted only after deterministic maturity reaches `AUTHORITATIVE`, is bound to the current premise and authority evidence digests, and may be applied only as the exact listed dependency operations. Non-dependency and non-authoritative repairs continue to rederive semantics from current user input under the existing provider contract.
+
 ## Round-trip invariants
 
 1. A merely `VERIFIED`, candidate-only, incomplete, or non-independent mismatch cannot seal a dependency repair delta.
@@ -42,5 +48,6 @@ The sealed `repair_contract.authoritative_dependency_delta` is different: it is 
 4. Changing only Planner `depends_on` must not change the frozen semantic premise digest.
 5. Provider diagnostic feedback remains read-only; exact relation ids appear only in the sealed reducer-owned repair contract.
 6. Runtime never edits the candidate graph on Planner's behalf.
+7. Stable generic provider repair constraints remain backward-compatible; the sealed dependency delta is additive rather than a rename or weakening of existing repair semantics.
 
 These invariants directly close the historical Attempt-8 class of failure: proof may no longer be correct internally while repair transport loses the proved relation and sends Planner back into semantic guesswork.
