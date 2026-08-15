@@ -1,4 +1,4 @@
-release_request: 2026-08-15T15:34:00+08:00
+release_request: 2026-08-15T15:50:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
