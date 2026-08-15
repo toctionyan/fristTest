@@ -13,7 +13,13 @@ def _response(payload: dict) -> tuple[SimpleNamespace, dict]:
     return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)), {}
 
 
-def _goal(goal_id: str, span: str, *, output_id: str) -> dict:
+def _goal(
+    goal_id: str,
+    span: str,
+    *,
+    output_id: str,
+    output_span: str | None = None,
+) -> dict:
     return {
         "goal_id": goal_id,
         "description": span,
@@ -25,7 +31,7 @@ def _goal(goal_id: str, span: str, *, output_id: str) -> dict:
             "raw_description": span,
             "requested_outputs": [{
                 "output_id": output_id,
-                "evidence_span": span,
+                "evidence_span": output_span or span,
             }],
         },
         "expected_result_cardinality": "single",
@@ -186,21 +192,49 @@ def test_release53_final_ungrounded_negative_claim_still_fails_closed() -> None:
 
 
 def test_semantic_reaudit_cannot_certify_provisional_false_dependency_absence() -> None:
-    text = "Inspect record A, and summarize record B"
+    text = "Inspect record A, then summarize that result for record B"
+    goals = [
+        _goal("g1", "Inspect record A", output_id="semantic.one"),
+        _goal(
+            "g2",
+            "summarize that result for record B",
+            output_id="semantic.two",
+            output_span="record B",
+        ),
+    ]
+    positive_pair = [{
+        "goal_a_id": "g1",
+        "goal_b_id": "g2",
+        "relation": "b_depends_on_a",
+        "basis_kind": "result_reference",
+        "basis_span": "that result",
+    }]
     calls = [
-        _first_exact(),
-        _blind_ungrounded_incomplete(),
         _response({
             "verdict": "exact",
-            "evidence_spans": ["Inspect record A", "summarize record B"],
+            "evidence_spans": ["Inspect record A", "summarize that result for record B"],
+            "missing_spans": [],
+            "dependency_edges": [],
+            "reason_code": "candidate_exact",
+        }),
+        _response({
+            "verdict": "incomplete",
+            "evidence_spans": ["Inspect record A", "summarize that result for record B"],
+            "missing_spans": [],
+            "dependency_decisions": _independent_pair(),
+            "reason_code": "semantic_coverage_gap",
+        }),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["Inspect record A", "summarize that result for record B"],
             "missing_spans": [],
             "reason_code": "withdraw_ungrounded_incomplete",
         }),
         _response({
             "verdict": "exact",
-            "evidence_spans": ["Inspect record A", "summarize record B"],
+            "evidence_spans": ["Inspect record A", "summarize that result for record B"],
             "missing_spans": [],
-            "dependency_decisions": _positive_pair(),
+            "dependency_decisions": positive_pair,
             "reason_code": "dependency_authority_closure_found_edge",
         }),
     ]
@@ -210,7 +244,7 @@ def test_semantic_reaudit_cannot_certify_provisional_false_dependency_absence() 
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(
             user_text=text,
-            goals=_goals(),
+            goals=goals,
             known_tools=set(),
         )
 
@@ -224,7 +258,7 @@ def test_semantic_reaudit_cannot_certify_provisional_false_dependency_absence() 
         "dependent_goal_id": "g2",
         "requires_result_of_goal_id": "g1",
         "basis_kind": "result_reference",
-        "basis_span": "record B",
+        "basis_span": "that result",
     }]
 
 

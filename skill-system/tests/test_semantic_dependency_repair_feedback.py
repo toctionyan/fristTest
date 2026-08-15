@@ -18,6 +18,10 @@ from agent_core.lifecycle.goal_planning import (  # noqa: E402
     validate_goal_declaration,
 )
 from agent_core.lifecycle.tool_execution_runtime import _tool_result_message  # noqa: E402
+from agent_core.goal_graph.dependency_alignment import (  # noqa: E402
+    alignment_dependency_authority_details,
+    apply_alignment_dependency_proof,
+)
 
 
 def _goal(goal_id: str, span: str, depends_on: list[str]) -> dict:
@@ -61,6 +65,31 @@ class _InjectedVerifier:
         return self.verdict
 
 
+def _close_dependency_authority(
+    *,
+    user_text: str,
+    goals: list[dict],
+    legacy_details: dict,
+    decisions: list[dict],
+) -> dict:
+    ledger, _ = apply_alignment_dependency_proof(
+        None,
+        user_text=user_text,
+        goals=goals,
+        details={
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_proof_complete": True,
+            "dependency_graph_match": legacy_details.get("dependency_graph_match"),
+            "dependency_pair_decisions": decisions,
+        },
+        phase="candidate_blind_dependency_authority_closure",
+    )
+    return {
+        **legacy_details,
+        **alignment_dependency_authority_details(ledger, goals=goals),
+    }
+
+
 class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
     """Lock repair feedback to independent, literal-evidence dependency proof only."""
 
@@ -82,6 +111,18 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
             values=[edge],
         )
         self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        details = _close_dependency_authority(
+            user_text=text,
+            goals=goals,
+            legacy_details=details,
+            decisions=[{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "b_depends_on_a",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
+        )
 
         feedback = _alignment_repair_feedback(
             GoalAlignmentVerdict(
@@ -119,6 +160,16 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
             values=[],
         )
         self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        details = _close_dependency_authority(
+            user_text=text,
+            goals=goals,
+            legacy_details=details,
+            decisions=[{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "independent",
+            }],
+        )
 
         feedback = _alignment_repair_feedback(
             GoalAlignmentVerdict(
@@ -177,6 +228,29 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
         self.assertEqual(_alignment_repair_feedback(incomplete), {})
         self.assertEqual(_alignment_repair_feedback(nonindependent), {})
 
+    def test_raw_complete_matching_dependency_proof_is_not_repair_authority(self) -> None:
+        verdict = GoalAlignmentVerdict(
+            "incomplete",
+            ("查一下键盘订单", "再看看它能不能退款"),
+            (),
+            "goal_alignment_dependency_graph_mismatch",
+            "model",
+            True,
+            {
+                "dependency_authority": "independent_goal_alignment",
+                "dependency_proof_complete": True,
+                "dependency_graph_match": False,
+                "dependency_edges": [{
+                    "dependent_goal_id": "g2",
+                    "requires_result_of_goal_id": "g1",
+                    "basis_kind": "result_reference",
+                    "basis_span": "它",
+                }],
+                "declared_dependency_edges": [],
+            },
+        )
+        self.assertEqual(_alignment_repair_feedback(verdict), {})
+
     def test_alignment_rejection_path_includes_grounded_feedback_hook(self) -> None:
         source = (
             ROOT
@@ -207,6 +281,22 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
             values=[edge],
         )
         self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        proof_goals = [
+            _goal("g1", "查一下键盘订单", []),
+            _goal("g2", "再看看它能不能退款", []),
+        ]
+        details = _close_dependency_authority(
+            user_text=text,
+            goals=proof_goals,
+            legacy_details=details,
+            decisions=[{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "b_depends_on_a",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
+        )
         state = {
             "current_user_input": text,
             "goal_alignment_verifier": _InjectedVerifier(

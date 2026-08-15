@@ -522,7 +522,7 @@
     "services/agent-service/tests/runtime/test_release50_mutually_exclusive_goal_granularity.py": "b3259ceba6ea9a5a95bfebc4e55a266919566e4d3d20e7553b872230edd7f0bf",
     "services/agent-service/tests/runtime/test_release51_granularity_output_contract.py": "6c82ed46d7c82a08b432e50b2ddc8d4bc35b8edab85e806fa3d21a9061c5200e",
     "services/agent-service/tests/runtime/test_release52_dependency_independence_adjudication.py": "4d07aaa6df37d86f9ab06d1e248b8da4662955dba10d6dbd10167d509c26c60a",
-    "services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py": "f54e067ebfeafc953ce28f4e3af82dae30df05b9301522ecb1a7d84083c8b0b7",
+    "services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py": "c40e1b3ad03a15ff8d18e7db6025698b42b5184a81ba1c974ed7443e591b79ef",
     "services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py": "5ca39ae79dafd3ac89ab32f74c68d5f82a30b189821a14a79938bfbe3c2309aa",
     "services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py": "84f32a86ea7e75276930768f4d2e394e27ec3307370359e7e54ef7651dc48943",
     "services/agent-service/tests/runtime/test_scripted_chat_model.py": "062c682a9f977cbbb48922cbae7c9257c3a21dfdeebcbfb91ba738b2b533743c",
