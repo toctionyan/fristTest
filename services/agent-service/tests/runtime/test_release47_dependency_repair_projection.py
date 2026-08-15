@@ -5,7 +5,18 @@ import json
 from pathlib import Path
 
 from agent_core.lifecycle.dialogue_runtime import _semantic_writer_declaration_result_projection
-from agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, _alignment_repair_feedback
+from agent_core.lifecycle.goal_dependency_proof import (
+    DependencyGraphObservation,
+    DependencyObservationRole,
+    dependency_premise_digest,
+    dependency_proof_metadata,
+    reduce_dependency_graph_proof,
+)
+from agent_core.lifecycle.goal_planning import (
+    GoalAlignmentVerdict,
+    _alignment_repair_feedback,
+    _goal_declaration_alignment_repair_context,
+)
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "verify_preprod_conversation_smoke.py"
@@ -24,6 +35,62 @@ def _edge() -> dict[str, str]:
     }
 
 
+def _authority_details(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:
+    first_span, second_span = user_text.split("，", 1)
+    declared_g2 = [
+        str(row.get("requires_result_of_goal_id") or "")
+        for row in declared
+        if row.get("dependent_goal_id") == "g2"
+    ]
+    goals = [
+        {"goal_id": "g1", "evidence_span": first_span, "depends_on": []},
+        {"goal_id": "g2", "evidence_span": second_span, "depends_on": declared_g2},
+    ]
+    premise = dependency_premise_digest(user_text=user_text, goals=goals)
+    pairs = tuple(
+        sorted(
+            (str(row["dependent_goal_id"]), str(row["requires_result_of_goal_id"]))
+            for row in verified
+        )
+    )
+    provisional = DependencyGraphObservation(
+        premise_digest=premise,
+        edges=pairs,
+        complete=True,
+        graph_matches_declaration=False,
+        expected_pair_count=1,
+        observed_pair_count=1,
+        source="candidate_blind_dependency_reaudit",
+        role=DependencyObservationRole.PROVISIONAL,
+        evidence_digest="release47-provisional",
+    )
+    proof = reduce_dependency_graph_proof(None, provisional)
+    closure = DependencyGraphObservation(
+        premise_digest=premise,
+        edges=pairs,
+        complete=True,
+        graph_matches_declaration=False,
+        expected_pair_count=1,
+        observed_pair_count=1,
+        source="candidate_blind_dependency_authority_closure",
+        role=DependencyObservationRole.ADVERSARIAL_CLOSURE,
+        evidence_digest="release47-closure",
+    )
+    proof = reduce_dependency_graph_proof(proof, closure)
+    return dependency_proof_metadata(
+        {
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_proof_complete": True,
+            "dependency_graph_match": False,
+            "dependency_edges": verified,
+            "declared_dependency_edges": declared,
+            "verifier_repair_attempted": True,
+            "verifier_repair_kind": "candidate_blind_dependency_authority_closure",
+        },
+        proof,
+    )
+
+
 def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:
     alignment = GoalAlignmentVerdict(
         "incomplete",
@@ -32,15 +99,7 @@ def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: s
         "goal_alignment_dependency_graph_mismatch",
         "model",
         True,
-        {
-            "dependency_authority": "independent_goal_alignment",
-            "dependency_proof_complete": True,
-            "dependency_graph_match": False,
-            "dependency_edges": verified,
-            "declared_dependency_edges": declared,
-            "verifier_repair_attempted": True,
-            "verifier_repair_kind": "candidate_blind_dependency_reaudit",
-        },
+        _authority_details(verified=verified, declared=declared, user_text=user_text),
     )
     return {
         "ok": False,
@@ -49,11 +108,7 @@ def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: s
         "data": {
             "alignment_proof": alignment.as_dict(),
             **_alignment_repair_feedback(alignment),
-            "current_user_input": user_text,
-            "repair_contract": {
-                "authority": "current_user_input_only",
-                "required_action": "redeclaration",
-            },
+            **_goal_declaration_alignment_repair_context(user_text, alignment),
         },
     }
 
@@ -81,12 +136,19 @@ def test_release47_missing_true_dependency_keeps_polarity_without_leaking_edge_i
     )
     assert "explicit_same_turn_result_reference_result_condition_or_result_value_input_requires_depends_on" in feedback["constraints"]
 
-    serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)
-    assert "dependent_goal_id" not in serialized
-    assert "requires_result_of_goal_id" not in serialized
-    assert "candidate_declared_dependency_edges" not in serialized
-    assert '"g1"' not in serialized
-    assert '"g2"' not in serialized
+    diagnostic_serialized = json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+    assert "dependent_goal_id" not in diagnostic_serialized
+    assert "requires_result_of_goal_id" not in diagnostic_serialized
+    assert "candidate_declared_dependency_edges" not in diagnostic_serialized
+
+    delta = projected["data"]["repair_contract"]["authoritative_dependency_delta"]
+    assert delta["authority"] == "deterministic_dependency_proof_reducer"
+    assert delta["authority_state"] == "authoritative"
+    assert delta["operations"] == [{
+        "operation": "ADD_DEPENDENCY",
+        **_edge(),
+    }]
+    assert "apply_only_listed_dependency_operations" in delta["constraints"]
 
 
 def test_release47_false_declared_dependency_keeps_opposite_polarity_without_replacement_graph():
@@ -109,11 +171,16 @@ def test_release47_false_declared_dependency_keeps_opposite_polarity_without_rep
         in feedback["constraints"]
     )
     assert "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_depends_on" in feedback["constraints"]
-    serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)
-    assert "dependent_goal_id" not in serialized
-    assert "requires_result_of_goal_id" not in serialized
-    assert '"g1"' not in serialized
-    assert '"g2"' not in serialized
+    diagnostic_serialized = json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+    assert "dependent_goal_id" not in diagnostic_serialized
+    assert "requires_result_of_goal_id" not in diagnostic_serialized
+
+    delta = projected["data"]["repair_contract"]["authoritative_dependency_delta"]
+    assert delta["operations"] == [{
+        "operation": "REMOVE_DEPENDENCY",
+        "dependent_goal_id": "g2",
+        "requires_result_of_goal_id": "g1",
+    }]
 
 
 def test_release47_internal_certification_diagnostic_no_longer_renders_alignment_edges_as_blank_span_rows():

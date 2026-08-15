@@ -24,6 +24,14 @@ from agent_core.lifecycle.condition_expression import condition_goal_dependencie
 from agent_core.lifecycle.goal_granularity import verify_goal_granularity
 from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
+from agent_core.lifecycle.goal_dependency_proof import (
+    DependencyGraphProof,
+    candidate_dependency_metadata,
+    dependency_observation_from_details,
+    dependency_premise_digest,
+    dependency_proof_metadata,
+    reduce_dependency_graph_proof,
+)
 from agent_core.lifecycle.semantic_contract import (
     find_goal_dependency_cycle,
     freeze_semantic_contract,
@@ -190,6 +198,7 @@ def _as_alignment_verdict(
         and details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
+        and details.get("dependency_authority_state") == "authoritative"
     )
     if verdict == "exact" and not evidence:
         return GoalAlignmentVerdict(
@@ -974,7 +983,17 @@ class ModelGoalAlignmentVerifier:
         initial_grounded_alignment: GoalAlignmentVerdict | None = None
         requested_effect_reaudit_guard: dict[str, Any] | None = None
         preserved_blind_dependency_details: dict[str, Any] | None = None
-        for attempt in range(3):
+        # Proof maturity is request-local. The private dependency parsers remain
+        # pure functions; no ContextVar/module monkeypatch may leak authority
+        # across verifier invocations or direct parser tests.
+        dependency_proof_premise = dependency_premise_digest(
+            user_text=user_text,
+            goals=goals,
+        )
+        dependency_proof: DependencyGraphProof | None = None
+        accepted_dependency_details: dict[str, Any] | None = None
+        accepted_dependency_error: str | None = None
+        for attempt in range(6):
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             semantic_claim_reaudit = verifier_repair_kind in {
                 "candidate_blind_dependency_requested_effect_reaudit",
@@ -988,7 +1007,7 @@ class ModelGoalAlignmentVerifier:
                     blind_dependency_instruction
                     + " The previous candidate-blind call already produced a complete structurally grounded dependency proof. "
                     + "This bounded final call must re-audit only the disputed requested-effect/requested-output or target-scope semantic claim. "
-                    "Do not re-judge, replace or return dependency_decisions; dependency authority remains the preserved prior proof. "
+                    "Do not re-judge, replace or return dependency_decisions; preserve the prior dependency proof unchanged. If it is only VERIFIED, a dedicated dependency closure transition may run after this semantic-only adjudication. "
                     "Return JSON only with verdict, evidence_spans, missing_spans and reason_code."
                 )
             elif blind_dependency_audit:
@@ -1049,23 +1068,66 @@ class ModelGoalAlignmentVerifier:
                 dependency_error: str | None = None
                 if raw_verdict in {"exact", "incomplete"}:
                     if semantic_claim_reaudit and isinstance(preserved_blind_dependency_details, dict):
-                        # The second candidate-blind call already closed graph authority.
-                        # A third call exists only to arbitrate one semantic-field claim;
+                        # The prior candidate-blind call produced a complete preservable graph observation.
+                        # This call exists only to arbitrate one semantic-field claim;
                         # letting it emit a fresh graph reopens a proven dimension and can
                         # turn harmless semantic arbitration into a spurious dependency
                         # grounding failure. Preserve, do not weaken, the prior proof.
                         dependency_details = deepcopy(preserved_blind_dependency_details)
                     elif blind_dependency_audit:
-                        dependency_details, dependency_error = _model_alignment_pairwise_dependency_proof(
+                        fresh_dependency_details, fresh_dependency_error = _model_alignment_pairwise_dependency_proof(
                             user_text=user_text,
                             goals=goals,
                             values=parsed.get("dependency_decisions"),
                         )
+                        previous_dependency_proof = dependency_proof
+                        dependency_observation = dependency_observation_from_details(
+                            premise_digest=dependency_proof_premise,
+                            details=fresh_dependency_details,
+                            source=verifier_repair_kind or "candidate_blind_dependency_reaudit",
+                        )
+                        next_dependency_proof = reduce_dependency_graph_proof(
+                            previous_dependency_proof,
+                            dependency_observation,
+                        )
+                        preserve_previous_details = bool(
+                            accepted_dependency_details is not None
+                            and previous_dependency_proof is not None
+                            and previous_dependency_proof.preservable
+                            and (
+                                previous_dependency_proof.authoritative
+                                or next_dependency_proof.reason_code
+                                == "inadmissible_observation_preserved_previous_proof"
+                            )
+                        )
+                        dependency_proof = next_dependency_proof
+                        if preserve_previous_details:
+                            # Authority is not a model vote. Once closed, another
+                            # same-premise call cannot replace graph/basis/error details.
+                            dependency_details = dependency_proof_metadata(
+                                deepcopy(accepted_dependency_details),
+                                next_dependency_proof,
+                            )
+                            dependency_error = accepted_dependency_error
+                        else:
+                            dependency_details = dependency_proof_metadata(
+                                fresh_dependency_details,
+                                next_dependency_proof,
+                            )
+                            dependency_error = fresh_dependency_error
+                            if next_dependency_proof.preservable:
+                                accepted_dependency_details = deepcopy(fresh_dependency_details)
+                                accepted_dependency_error = fresh_dependency_error
                     else:
                         dependency_details, dependency_error = _model_alignment_dependency_proof(
                             user_text=user_text,
                             goals=goals,
                             values=parsed.get("dependency_edges"),
+                        )
+                        dependency_details = candidate_dependency_metadata(
+                            dependency_details,
+                            premise_digest=dependency_proof_premise,
+                            multi_goal=len(goals) > 1,
                         )
                 if (
                     raw_verdict == "incomplete"
@@ -1092,8 +1154,9 @@ class ModelGoalAlignmentVerifier:
                 elif raw_verdict == "exact" and dependency_error == "goal_alignment_dependency_graph_mismatch":
                     evidence = _literal_spans(user_text, parsed.get("evidence_spans"))
                     if blind_dependency_audit:
-                        # The candidate-blind proof is itself the authority that the
-                        # declared graph is wrong. Missing redundant top-level evidence
+                        # The candidate-blind proof is grounded graph evidence that the
+                        # declared graph may be wrong. Repair authority is granted only
+                        # after the dedicated dependency-closure transition. Missing redundant top-level evidence
                         # must not turn a proven mismatch into an unrepairable format
                         # failure. Empty evidence still cannot certify an exact plan.
                         verdict = GoalAlignmentVerdict(
@@ -1209,29 +1272,26 @@ class ModelGoalAlignmentVerifier:
                         "verifier_repair_kind": verifier_repair_kind,
                     },
                 )
-            dependency_mismatch_introduces_new_edge = False
+            dependency_mismatch_requires_blind_audit = False
             if (
                 attempt == 0
+                and len(goals) > 1
                 and verdict.verdict == "incomplete"
                 and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+                and not verdict.missing_spans
             ):
                 details = verdict.details if isinstance(verdict.details, dict) else {}
-                declared_pairs = {
-                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))
-                    for row in list(details.get("declared_dependency_edges") or [])
-                    if isinstance(row, dict)
-                }
-                verified_pairs = {
-                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))
-                    for row in list(details.get("dependency_edges") or [])
-                    if isinstance(row, dict)
-                }
-                dependency_mismatch_introduces_new_edge = bool(verified_pairs - declared_pairs)
+                dependency_mismatch_requires_blind_audit = bool(
+                    details.get("dependency_authority") == "independent_goal_alignment"
+                    and details.get("dependency_proof_complete") is True
+                    and details.get("dependency_graph_match") is False
+                    and details.get("dependency_mismatch_grounding") == "machine_dependency_proof"
+                )
             if (
                 attempt == 0
                 and (
                     verdict.exact
-                    or (len(goals) > 1 and dependency_mismatch_introduces_new_edge)
+                    or dependency_mismatch_requires_blind_audit
                 )
             ):
                 # Both entry paths are safe to send to the candidate-blind graph audit.
@@ -1241,7 +1301,7 @@ class ModelGoalAlignmentVerifier:
                 # certify exactness later: the outer normalizer still fails exact-without-evidence closed.
                 initial_grounded_alignment = verdict
                 # Every first-pass exact declaration, plus a grounded dependency-only
-                # disagreement that introduces a new edge, receives one independent
+                # disagreement in either polarity, receives one independent
                 # semantic-contract re-audit within the existing verifier budget.
                 # The projection hides Planner depends_on but retains the declared
                 # requested_effect and target_candidate so the verifier can detect semantic
@@ -1535,7 +1595,7 @@ class ModelGoalAlignmentVerifier:
                     "narrowing predicate, withdraw that scope mismatch and return exact only when no other semantic mismatch remains. "
                     "If USER_TEXT really contains an omitted narrowing predicate, remain incomplete and copy only its smallest literal "
                     "span into missing_spans. Do not choose a tool, target, entity, normalized business value, capability or implementation "
-                    "step. Do not re-audit or return dependency_decisions; the prior complete dependency proof remains authoritative. "
+                    "step. Do not re-audit or return dependency_decisions; preserve the prior complete dependency proof unchanged. This semantic-only call cannot mint, reopen or downgrade dependency authority. "
                     "Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
@@ -1567,6 +1627,41 @@ class ModelGoalAlignmentVerifier:
                     "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
+            dependency_proof_needs_closure = bool(
+                dependency_proof is not None
+                and dependency_proof.maturity.value == "verified"
+                and dependency_proof.dependency_challenge_required
+                and isinstance(verdict.details, dict)
+                and verdict.details.get("dependency_proof_complete") is True
+                and (
+                    verdict.exact
+                    or (
+                        verdict.verdict == "incomplete"
+                        and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+                        and not verdict.missing_spans
+                    )
+                )
+            )
+            if dependency_proof_needs_closure and attempt < 5:
+                # Call number is not proof maturity. A semantic-only adjudication may
+                # preserve a VERIFIED graph (#1124), but complete/matching absence or
+                # a graph mismatch still cannot become repair/acceptance authority
+                # without a dependency-specific adversarial closure (#1110). Close
+                # that dimension in a separate state transition instead of making the
+                # third model call own two unrelated semantic decisions.
+                preserved_blind_dependency_details = deepcopy(verdict.details)
+                verifier_repair_kind = "candidate_blind_dependency_authority_closure"
+                verifier_repair = (
+                    "Close only the current-turn dependency proof maturity from USER_TEXT. The prior pairwise graph is VERIFIED and preservable but not authoritative: complete/matching alone is not authority. Re-read every unordered Goal pair from scratch and apply the result-removal counterfactual. Remove only the earlier Goal user-visible result payload while preserving objects, scopes and constraints already literal in USER_TEXT. Return a positive relation only when literal wording inside the dependent Goal consumes the earlier result as result_reference, result_condition or result_value_input; sequencing, shared topic/scope, zero-anaphora target omission, stable-ID lookup, Draft/preflight support and other execution prerequisites remain independent. Return exactly one dependency_decisions row for every unordered Goal pair. Positive rows require the smallest relation-only basis_span inside the dependent Goal. Do not re-audit requested_effect, requested_outputs, target scope, historical references, capability availability, tool sequencing, business state or transaction mechanics. Return verdict=exact, literal evidence_spans when available, missing_spans=[], dependency_decisions and reason_code; Runtime compares the closed graph to Planner depends_on deterministically."
+                )
+                prompt = {
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "DECLARED_GOALS": _dependency_adjudication_goal_projection(goals),
+                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                    "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY": semantic_vocabulary,
+                }
+                continue
             if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
             if verdict.verdict == "clarify":
@@ -1589,6 +1684,12 @@ class ModelGoalAlignmentVerifier:
                 verdict.verdict, verdict.evidence_spans, verdict.missing_spans, verdict.reason_code,
                 verdict.source, verdict.independent, {**verdict.details, "verifier_repair_attempted": attempt > 0},
             )
+            if attempt > 0:
+                # Additional loop capacity is reserved for explicit state transitions
+                # handled above (semantic adjudication -> dependency closure, etc.).
+                # A repeated malformed/ungrounded observation must fail closed here
+                # rather than silently consuming fourth/fifth/sixth generic retries.
+                return last_indeterminate
             if attempt == 0:
                 original_verdict = str(verdict.details.get("original_verdict") or "")
                 if verdict.verdict == "indeterminate" and _has_unique_historical_reference(goals):
@@ -2031,6 +2132,7 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
         details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
+        and details.get("dependency_authority_state") == "authoritative"
     ):
         return {}
 
@@ -2084,6 +2186,123 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
             ],
         }
     }
+
+
+
+def _alignment_authoritative_dependency_repair_contract(
+    alignment: GoalAlignmentVerdict,
+) -> dict[str, Any]:
+    """Seal only a mature dependency graph delta for Planner redeclaration.
+
+    Before the deterministic proof reducer existed, provider-facing repair had
+    to hide verifier replacement edges because a verifier opinion was not write
+    authority. Once the reducer has sealed an AUTHORITATIVE mismatch, forcing
+    Planner to infer the same edge again recreates the #43/#47/Attempt-8 loop:
+    proof is correct, transport loses it, and redeclaration guesses.
+
+    This contract carries only Goal dependency relations already adjudicated by
+    the reducer. It never carries requested effects, targets, tool identities,
+    capability availability or business facts, and Runtime still does not edit
+    ``depends_on`` itself.
+    """
+    details = alignment.details if isinstance(alignment.details, dict) else {}
+    if not (
+        alignment.verdict == "incomplete"
+        and alignment.reason_code == "goal_alignment_dependency_graph_mismatch"
+        and alignment.independent
+        and details.get("dependency_authority") == "independent_goal_alignment"
+        and details.get("dependency_proof_complete") is True
+        and details.get("dependency_graph_match") is False
+        and details.get("dependency_authority_state") == "authoritative"
+    ):
+        return {}
+
+    premise_digest = _clean_text(details.get("dependency_authority_premise_digest"), limit=160)
+    authority_evidence_digest = _clean_text(details.get("dependency_authority_evidence_digest"), limit=160)
+    if not premise_digest or not authority_evidence_digest:
+        return {}
+
+    feedback_bundle = _alignment_repair_feedback(alignment)
+    feedback = (
+        feedback_bundle.get("independent_verifier_feedback")
+        if isinstance(feedback_bundle.get("independent_verifier_feedback"), dict)
+        else {}
+    )
+    if feedback.get("required_action") != "redeclaration_preserving_grounded_dependency_graph":
+        return {}
+
+    verified_by_pair: dict[tuple[str, str], dict[str, str]] = {}
+    for raw in list(feedback.get("dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        basis_kind = _clean_text(raw.get("basis_kind"), limit=80).lower()
+        basis_span = _clean_text(raw.get("basis_span"), limit=240)
+        if not dependent or not prerequisite or not basis_kind or not basis_span:
+            return {}
+        verified_by_pair[(dependent, prerequisite)] = {
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+            "basis_kind": basis_kind,
+            "basis_span": basis_span,
+        }
+
+    declared_pairs: set[tuple[str, str]] = set()
+    for raw in list(feedback.get("candidate_declared_dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        if not dependent or not prerequisite:
+            return {}
+        declared_pairs.add((dependent, prerequisite))
+
+    verified_pairs = set(verified_by_pair)
+    operations: list[dict[str, Any]] = []
+    for pair in sorted(verified_pairs - declared_pairs):
+        operations.append({
+            "operation": "ADD_DEPENDENCY",
+            **verified_by_pair[pair],
+        })
+    for dependent, prerequisite in sorted(declared_pairs - verified_pairs):
+        operations.append({
+            "operation": "REMOVE_DEPENDENCY",
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+        })
+    if not operations:
+        return {}
+
+    return {
+        "authoritative_dependency_delta": {
+            "contract": "dependency-authority-repair@1",
+            "authority": "deterministic_dependency_proof_reducer",
+            "authority_state": "authoritative",
+            "premise_digest": premise_digest,
+            "authority_evidence_digest": authority_evidence_digest,
+            "required_action": "apply_exact_dependency_delta_then_redeclare",
+            "operations": operations,
+            "constraints": [
+                "apply_only_listed_dependency_operations",
+                "preserve_goal_ids_and_all_non_dependency_semantics",
+                "do_not_reinfer_or_expand_authoritative_dependency_operations",
+                "do_not_copy_or_infer_tools_capabilities_targets_or_business_answers",
+                "runtime_does_not_auto_rewrite_the_candidate",
+            ],
+        }
+    }
+
+
+def _goal_declaration_alignment_repair_context(
+    user_text: str,
+    alignment: GoalAlignmentVerdict,
+) -> dict[str, Any]:
+    context = _goal_declaration_repair_context(user_text)
+    delta = _alignment_authoritative_dependency_repair_contract(alignment)
+    if delta:
+        context["repair_contract"].update(delta)
+    return context
 
 
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
@@ -2416,7 +2635,7 @@ def validate_goal_declaration(
             "data": {
                 "alignment_proof": alignment.as_dict(),
                 **_alignment_repair_feedback(alignment),
-                **_goal_declaration_repair_context(user_text),
+                **_goal_declaration_alignment_repair_context(user_text, alignment),
             },
         }, None)
 

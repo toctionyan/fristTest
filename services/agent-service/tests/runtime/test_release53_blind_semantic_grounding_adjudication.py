@@ -69,7 +69,7 @@ def _blind_ungrounded_incomplete() -> tuple[SimpleNamespace, dict]:
     })
 
 
-def test_release53_blind_ungrounded_incomplete_gets_claim_only_final_adjudication() -> None:
+def test_release53_blind_ungrounded_incomplete_gets_claim_only_then_dependency_closure() -> None:
     text = "Inspect record A, and summarize record B"
     calls = [
         _first_exact(),
@@ -79,6 +79,13 @@ def test_release53_blind_ungrounded_incomplete_gets_claim_only_final_adjudicatio
             "evidence_spans": ["Inspect record A", "summarize record B"],
             "missing_spans": [],
             "reason_code": "withdraw_ungrounded_incomplete",
+        }),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["Inspect record A", "summarize record B"],
+            "missing_spans": [],
+            "dependency_decisions": _independent_pair(),
+            "reason_code": "dependency_authority_closed_independent",
         }),
     ]
 
@@ -91,16 +98,22 @@ def test_release53_blind_ungrounded_incomplete_gets_claim_only_final_adjudicatio
             known_tools=set(),
         )
 
-    assert invoke.call_count == 3
+    assert invoke.call_count == 4
     assert verdict.exact
     assert verdict.details["dependency_proof_complete"] is True
     assert verdict.details["dependency_graph_match"] is True
     assert verdict.details["dependency_edges"] == []
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_semantic_grounding_adjudication"
+    assert verdict.details["dependency_authority_state"] == "authoritative"
+    assert verdict.details["dependency_challenge_required"] is False
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
 
     third_request = json.loads(invoke.call_args_list[2].kwargs["payload"][-1].content)
     assert all("depends_on" not in row for row in third_request["DECLARED_GOALS"])
     assert "Do not re-audit or return dependency_decisions" in third_request["FORMAT_REPAIR"]
+
+    fourth_request = json.loads(invoke.call_args_list[3].kwargs["payload"][-1].content)
+    assert all("depends_on" not in row for row in fourth_request["DECLARED_GOALS"])
+    assert "complete/matching alone is not authority" in fourth_request["FORMAT_REPAIR"]
 
 
 def test_release53_grounded_blind_semantic_mismatch_remains_incomplete() -> None:
@@ -131,9 +144,10 @@ def test_release53_grounded_blind_semantic_mismatch_remains_incomplete() -> None
     assert verdict.details["dependency_proof_complete"] is True
     assert verdict.details["dependency_graph_match"] is True
     assert verdict.details["dependency_edges"] == []
+    assert verdict.details["dependency_authority_state"] == "verified"
 
 
-def test_release53_final_ungrounded_negative_claim_still_fails_closed() -> None:
+def test_release53_final_ungrounded_negative_claim_still_fails_closed_without_extra_retry() -> None:
     text = "Inspect record A, and summarize record B"
     calls = [
         _first_exact(),
@@ -160,6 +174,7 @@ def test_release53_final_ungrounded_negative_claim_still_fails_closed() -> None:
     assert verdict.reason_code == "goal_alignment_missing_span_not_grounded"
     assert verdict.details["dependency_proof_complete"] is True
     assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["dependency_authority_state"] == "verified"
 
 
 def test_release53_semantic_grounding_adjudication_branch_is_domain_neutral() -> None:

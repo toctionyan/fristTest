@@ -117,6 +117,11 @@ class Wp08CertificationLivenessTests(unittest.TestCase):
             visible = capture.getvalue()
             self.assertIn("SUSPECTED_STALL", visible)
             self.assertIn("[WP08 STALL]", visible)
+            self.assertLess(
+                visible.index("SUSPECTED_STALL"),
+                visible.index("[WP08 STALL]"),
+                "warning transition must be observable before fail-closed stall timeout",
+            )
             self.assertIn("no_progress_stall", visible)
 
             liveness = json.loads(

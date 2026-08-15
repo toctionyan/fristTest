@@ -64,6 +64,7 @@ def test_attempt7_false_dependency_requires_candidate_blind_second_audit() -> No
             "reason_code": "blind_shared_scope_independent",
         }),
     ]
+    responses.append(responses[1])  # explicit dependency-authority closure observation
 
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model", side_effect=responses
@@ -74,13 +75,14 @@ def test_attempt7_false_dependency_requires_candidate_blind_second_audit() -> No
             known_tools=set(),
         )
 
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.missing_spans == ()
     assert verdict.details["dependency_graph_match"] is False
     assert verdict.details["dependency_edges"] == []
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["dependency_authority_state"] == "authoritative"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
     second_payload = _invoke_payload_text(invoke.call_args_list[1])
     assert "'depends_on'" not in second_payload
     assert '"depends_on"' not in second_payload
@@ -183,19 +185,22 @@ def test_candidate_blind_second_audit_detects_missing_true_dependency() -> None:
             "reason_code": "blind_true_result_reference",
         }),
     ]
+    responses.append(responses[1])  # explicit dependency-authority closure observation
 
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model", side_effect=responses
-    ):
+    ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(
             user_text=text,
             goals=goals,
             known_tools=set(),
         )
 
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.details["dependency_graph_match"] is False
+    assert verdict.details["dependency_authority_state"] == "authoritative"
     assert verdict.details["dependency_edges"][0]["basis_span"] == "它"
 
 
