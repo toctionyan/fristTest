@@ -1,5 +1,5 @@
 {
-  "file_count": 604,
+  "file_count": 605,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -512,6 +512,7 @@
     "services/agent-service/tests/runtime/test_pretool_execution_policy.py": "5695f4e7a128e8f588ad77a2bc130fab77821a33f4165bb8487899401141d3d3",
     "services/agent-service/tests/runtime/test_pretool_shadow_planner.py": "a56e8c03be412241c3ab87e7b0b15c1dd80cca857964ee58de2a365d263c33d3",
     "services/agent-service/tests/runtime/test_scripted_chat_model.py": "062c682a9f977cbbb48922cbae7c9257c3a21dfdeebcbfb91ba738b2b533743c",
+    "services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py": "f155f67bcc5c25a74e63cb9af8818c55c253ce90b9aa70fb85073bf4fefb7d1c",
     "services/agent-service/tests/runtime/test_semantic_grounding_read.py": "4bd46f35e01cb2842366ee995994bde07ec1279ca619cf49096b484a9a06f911",
     "services/agent-service/tests/runtime/test_semantic_output_coverage.py": "3791d4e3eb7debba635f0cf005b9f2783af5718f73cd9f7a7f46a2f7df3e0258",
     "services/agent-service/tests/runtime/test_semantic_reference_binding.py": "32f2cc6081f92c406f9d012da65dfe7ed596a79a4e1629f97ce29eeaaed25533",
@@ -606,8 +607,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T13:36:20+08:00",
-  "generated_from": "git:a03579d73be05aa12d8f3227530b9e843b2b9aba",
+  "generated_at": "2026-08-15T13:43:02+08:00",
+  "generated_from": "git:0a889b3de29aa81df7adb7a72b363a6611307682",
   "protected_roots": [
     "services",
     "web",
