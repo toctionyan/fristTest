@@ -1,0 +1,155 @@
+name: Temporary Semantic Dependency Repair
+
+"on":
+  push:
+    branches:
+      - fix/semantic-shared-scope-dependency-20260815
+    paths:
+      - .github/semantic-dependency-repair.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact repair branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply capability-independent dependency contract repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"replacement_count:{path}:{count}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          protocol = "services/agent-service/src/agent_core/lifecycle/protocol.py"
+          replace_once(
+              protocol,
+              '"同一原话前文已明确业务对象或范围而后文真正省略重复对象（零指代）时，应继承该明示范围；这不是对前一个 Goal 执行结果的依赖。执行时若仍需一次读取把该描述解析成稳定 ID/artifact handle，那只是支持步骤，不能反向制造 depends_on。"\n                                    "若后一个 Goal 用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，或其条件显式依赖前一个结果，则应填写依赖；这种显式结果指代不是普通零指代省略，并且优先于上一条省略规则。"',
+              '"同一原话前文已明确业务对象或范围而后文真正省略重复对象（零指代）时，应继承该明示范围；这不是对前一个 Goal 执行结果的依赖。执行时若仍需一次读取把该描述解析成稳定 ID/artifact handle，那只是支持步骤，不能反向制造 depends_on。"\n                                    "判断依赖必须做结果反事实：假设前一个 Goal 的用户可见结果尚未产生，但保留当前原话中已经明示的对象、范围和业务约束；如果后一个 Goal 仍能独立确定自己要得到的业务结果并独立判断完成，则 depends_on 必须为空。只有拿掉前一个 Goal 的结果后，后一个 Goal 的目标、值输入、条件或可完成含义本身无法成立时，才存在真实结果依赖。"\n                                    "若后一个 Goal 用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，或其条件显式依赖前一个结果，则应填写依赖；这种显式结果指代不是普通零指代省略，并且优先于上一条省略规则。"',
+          )
+          replace_once(
+              protocol,
+              '"同一当前轮内只有真实结果依赖才填写 depends_on：后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才依赖；并列、再/然后/另外、共享对象或共享主题本身不构成依赖。同一原话前文已明确对象或范围、后文真正省略重复对象（零指代）时继承该已明示范围，不依赖前一个 Goal 的执行结果；但后文若出现显式指代表达并指向前一个 Goal 尚未产生的本轮结果，这不是“仅省略重复对象”，真实结果依赖优先，必须 depends_on 前一个 Goal。即使执行时需要先查一次把已明示对象解析成订单号/ID/artifact handle，这也只是执行支持数据流，不是 Goal 语义依赖。不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"',
+              '"同一当前轮内只有真实结果依赖才填写 depends_on：后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才依赖；并列、再/然后/另外、共享对象或共享主题本身不构成依赖。同一原话前文已明确对象或范围、后文真正省略重复对象（零指代）时继承该已明示范围，不依赖前一个 Goal 的执行结果。判断依赖必须做结果反事实：假设前一个 Goal 的用户可见结果尚未产生，但保留当前原话已经明示的对象、范围和业务约束；如果后一个 Goal 仍能独立确定自己的业务结果并独立判断完成，则 depends_on 必须为空；只有拿掉前一个 Goal 的结果后，后一个 Goal 本身无法成立时才依赖。但后文若出现显式指代表达并指向前一个 Goal 尚未产生的本轮结果，这不是“仅省略重复对象”，真实结果依赖优先，必须 depends_on 前一个 Goal。即使执行时需要先查一次把已明示对象解析成订单号/ID/artifact handle，这也只是执行支持数据流，不是 Goal 语义依赖。不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"',
+          )
+
+          smoke = "services/agent-service/scripts/verify_preprod_conversation_smoke.py"
+          replace_once(
+              smoke,
+              '"同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"',
+              '"同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖。判断依赖必须做结果反事实：假设前一 Goal 的用户可见结果尚未产生，但保留当前原话已经明示的对象、范围和约束；若后一 Goal 仍可独立确定自己的业务结果并独立判断完成，则 depends_on 必须为空，不能因为再/然后等顺序表达、共享主题或执行时需要解析稳定 ID 而制造依赖。只有拿掉前一 Goal 的结果后，后一 Goal 的目标、值输入、条件或可完成含义本身无法成立时才依赖；后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"',
+          )
+
+          planning = "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          replace_once(
+              planning,
+              '            "and/then/next/also/再/然后/另外 or merely sharing the same business object/topic does not by itself create depends_on; independently acceptable sibling outcomes must keep depends_on empty",\n            "when a later goal genuinely omits its repeated target but an earlier phrase in the same current user turn already names the reusable business object or scope, inherit that stated scope as zero-anaphora ellipsis; that shared scope is not a dependency on the earlier Goal result by itself, but this rule does not apply when the later outcome explicitly refers to the earlier current-turn result",',
+              '            "and/then/next/also/再/然后/另外 or merely sharing the same business object/topic does not by itself create depends_on; independently acceptable sibling outcomes must keep depends_on empty",\n            "apply a result counterfactual before retaining any dependency: pretend the earlier Goal user-visible result has not been produced while preserving objects, scopes and constraints already literal in USER_TEXT; if the later Goal still has a self-contained requested outcome whose completion can be judged independently, the pair is independent; only retain depends_on when removing the earlier result makes the later target, value input, condition or user-visible completion meaning itself unavailable",\n            "when a later goal genuinely omits its repeated target but an earlier phrase in the same current user turn already names the reusable business object or scope, inherit that stated scope as zero-anaphora ellipsis; that shared scope is not a dependency on the earlier Goal result by itself, but this rule does not apply when the later outcome explicitly refers to the earlier current-turn result",',
+          )
+          replace_once(
+              planning,
+              '            "shared object/topic/scope and sequencing words alone never create a result dependency",\n            "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",',
+              '            "shared object/topic/scope and sequencing words alone never create a result dependency",\n            "use the result counterfactual for every pair: hold fixed the objects, scopes and constraints already literal in USER_TEXT, remove only the earlier Goal user-visible result, and mark the pair independent whenever the later requested outcome remains self-contained and independently judgeable",\n            "a stable identifier or artifact lookup needed only by execution is support, not a user-visible result dependency",',
+          )
+
+          test_path = Path("services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py")
+          if test_path.exists():
+              raise SystemExit("regression_test_already_exists")
+          test_path.write_text('''from __future__ import annotations\n\nimport json\nfrom pathlib import Path\n\nfrom agent_core.lifecycle.protocol import DECLARE_TURN_GOALS_SCHEMA\n\n\nROOT = Path(__file__).resolve().parents[2]\nCATALOG = ROOT / "tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"\n\n\ndef _case(case_id: str) -> dict:\n    payload = json.loads(CATALOG.read_text(encoding="utf-8"))\n    return next(row for row in payload["cases"] if row["id"] == case_id)\n\n\ndef _oracle(case_id: str) -> dict[str, list[str]]:\n    turn = _case(case_id)["execution_contract"]["turn_contracts"][0]\n    return {row["oracle_id"]: list(row.get("depends_on") or []) for row in turn["goal_oracle"]}\n\n\ndef test_depends_on_schema_requires_result_counterfactual_not_discourse_order() -> None:\n    goal_schema = DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]["items"]\n    description = goal_schema["properties"]["depends_on"]["description"]\n    assert "结果反事实" in description\n    assert "用户可见结果尚未产生" in description\n    assert "仍能独立确定自己要得到的业务结果并独立判断完成" in description\n    assert "再/然后/另外" in description\n    for forbidden in ("list_orders", "get_order_logistics", "prepare_refund"):\n        assert forbidden not in description\n\n\ndef test_shared_scope_ellipsis_and_explicit_result_reference_stay_distinct() -> None:\n    assert _oracle("semantic_multi_orders_logistics") == {"g1": [], "g2": []}\n    assert _oracle("semantic_query_then_refund_draft") == {"g1": [], "g2": []}\n    assert _oracle("semantic_query_then_refund_consult") == {"g1": [], "g2": ["g1"]}\n''', encoding="utf-8")
+
+          trigger = Path(".github/release-trigger")
+          lines = trigger.read_text(encoding="utf-8").splitlines()
+          identity = {line.split(":", 1)[0]: line.split(":", 1)[1].strip() for line in lines if ":" in line}
+          expected = {
+              "provider": "deepseek",
+              "model": "deepseek-v4-flash",
+              "embedding_model": "text-embedding-v4",
+              "embedding_dimension": "1024",
+          }
+          for key, value in expected.items():
+              if identity.get(key) != value:
+                  raise SystemExit(f"protected_identity_changed:{key}")
+          trigger.write_text(
+              "release_request: 2026-08-15T13:30:00+08:00\n"
+              "provider: deepseek\n"
+              "model: deepseek-v4-flash\n"
+              "embedding_model: text-embedding-v4\n"
+              "embedding_dimension: 1024\n"
+              "reason: rerun protected release after shared-scope versus result-dependency semantic repair\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Validate repaired semantic dependency boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py
+          python3 -B - <<'PY'
+          import json
+          from pathlib import Path
+          catalog = json.loads(Path("services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json").read_text(encoding="utf-8"))
+          cases = {row["id"]: row for row in catalog["cases"]}
+          def deps(case_id):
+              oracle = cases[case_id]["execution_contract"]["turn_contracts"][0]["goal_oracle"]
+              return {row["oracle_id"]: list(row.get("depends_on") or []) for row in oracle}
+          assert deps("semantic_multi_orders_logistics") == {"g1": [], "g2": []}
+          assert deps("semantic_query_then_refund_draft") == {"g1": [], "g2": []}
+          assert deps("semantic_query_then_refund_consult") == {"g1": [], "g2": ["g1"]}
+          for path in (
+              "services/agent-service/src/agent_core/lifecycle/protocol.py",
+              "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+              "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
+          ):
+              text = Path(path).read_text(encoding="utf-8")
+              if "结果反事实" not in text and "result counterfactual" not in text:
+                  raise SystemExit(f"missing_counterfactual_contract:{path}")
+          PY
+
+      - name: Refresh protected product-source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/refresh_product_source_baseline.py \
+            --workspace . \
+            --generated-from-sha "${GITHUB_SHA}"
+
+      - name: Publish governed repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          git diff --check
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            .github/release-trigger \
+            services/agent-service/scripts/verify_preprod_conversation_smoke.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/protocol.py \
+            services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py \
+            skill-system/registry/product-source-baseline.json
+          git commit -m 'fix(semantic): distinguish shared scope from result dependency'
+          git push origin HEAD:fix/semantic-shared-scope-dependency-20260815
