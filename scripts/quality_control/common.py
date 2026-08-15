@@ -140,7 +140,10 @@ def _npm_executable(workspace: Path) -> Path | None:
     """
     system_npm = shutil.which("npm")
     if system_npm:
-        return Path(system_npm).resolve()
+        # Keep setup-node's bin/npm launcher boundary intact. Resolving the
+        # symlink moves execution into npm's package-internal bin directory and
+        # can break later live provenance revalidation that expects sibling node.
+        return Path(system_npm).absolute()
     tools_root = workspace / ".quality" / "tools"
     if not tools_root.is_dir():
         return None
@@ -244,4 +247,3 @@ def _canonical_json_fingerprint(payload: dict[str, Any]) -> str:
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return _sha256_text(canonical)
-
