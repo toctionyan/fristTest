@@ -13,11 +13,15 @@ OLD = "migration-v20.18-semantic-single-writer-output-coverage"
 SUCCESSOR = OLD + "-r1"
 BRANCH = "governance/v20.18-reconcile-closed-successor"
 ACTIVE = "governance/active-change.json"
+ACTIVE_BLOB = "a39534b47bd2776abf17359e6efbf21b264111a6"
 
 
-def run(*args: str, cwd: Path = REPO, capture: bool = False) -> str:
+def run(*args: str, cwd: Path = REPO, capture: bool = False, env: dict[str, str] | None = None) -> str:
+    merged = os.environ.copy()
+    if env:
+        merged.update(env)
     result = subprocess.run(
-        list(args), cwd=cwd, check=True, text=True,
+        list(args), cwd=cwd, check=True, text=True, env=merged,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
     )
@@ -88,6 +92,7 @@ assert all(path.startswith("governance/") for path in expected_changed)
 expected_added = [path for path in expected_changed if path != ACTIVE]
 assert set(expected_added) == set(hashes["files"])
 
+# Bind publication to the exact simulated main and a fresh, absent target branch.
 remote_main = run("git", "ls-remote", "origin", "refs/heads/main", capture=True)
 parts = remote_main.split()
 assert len(parts) == 2 and parts[1] == "refs/heads/main", remote_main
@@ -95,89 +100,98 @@ assert parts[0] == MAIN_SHA, {"expected_main": MAIN_SHA, "remote_main": parts[0]
 existing = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
 assert existing == "", f"refusing to overwrite existing branch {BRANCH}: {existing}"
 
-# Use an independent index while sharing only the immutable object store. A normal local
-# clone copies only local-head reachable objects; on Actions exact main is a remote-tracking
-# object. --shared keeps all source objects addressable without sharing the index.
-worktree = Path("/tmp/v2018-main-reconciliation-independent-clone")
-if worktree.exists():
-    shutil.rmtree(worktree)
-run("git", "clone", "--shared", "--no-checkout", str(REPO), str(worktree))
-run("git", "checkout", "--detach", MAIN_SHA, cwd=worktree)
-assert run("git", "rev-parse", "HEAD", cwd=worktree, capture=True) == MAIN_SHA
+# Prove the exact-main tree contains the stale tracked pointer with the expected blob.
+active_tree_line = run("git", "ls-tree", MAIN_SHA, "--", ACTIVE, capture=True)
+assert active_tree_line, "exact main no longer tracks active-change"
+fields = active_tree_line.split()
+assert fields[0] == "100644" and fields[1] == "blob" and fields[2] == ACTIVE_BLOB, active_tree_line
 
-tracked_before = run("git", "ls-files", "--stage", "--", ACTIVE, cwd=worktree, capture=True)
-assert tracked_before, "independent index does not contain the exact-main active-change path"
-fields = tracked_before.split()
-assert fields[0] == "100644", tracked_before
-assert fields[1] == "a39534b47bd2776abf17359e6efbf21b264111a6", tracked_before
-active = worktree / ACTIVE
-before = ARTIFACT / "predecessor-change-history/contract-before-replan.json"
-assert active.is_file()
-assert active.read_bytes() == before.read_bytes(), "stale main active pointer is not the D2b-bound predecessor"
+# Construct a new tree from exact main using a dedicated temporary index. This avoids
+# the runner's anomalous cached-diff reporting while still relying on Git's tree writer.
+index = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "v2018-d4f-index"
+index.unlink(missing_ok=True)
+idx_env = {"GIT_INDEX_FILE": str(index)}
+run("git", "read-tree", MAIN_SHA, env=idx_env)
 
+blob_shas: dict[str, str] = {}
 for destination in expected_added:
     src = source_for(destination, ARTIFACT)
-    dst = worktree / destination
     assert src.is_file(), src
-    assert not dst.exists(), f"refusing to overwrite exact-main archive path: {destination}"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dst)
-    got = sha256(dst)
+    got = sha256(src)
     assert got == hashes["files"][destination], (destination, got, hashes["files"][destination])
+    blob_sha = run("git", "hash-object", "-w", str(src), capture=True)
+    assert len(blob_sha) == 40
+    blob_shas[destination] = blob_sha
+    run("git", "update-index", "--add", "--cacheinfo", f"100644,{blob_sha},{destination}", env=idx_env)
 
-active.unlink()
-assert not active.exists()
-assert not (worktree / "governance/pending-replan.json").exists()
+run("git", "update-index", "--force-remove", "--", ACTIVE, env=idx_env)
+new_tree = run("git", "write-tree", capture=True, env=idx_env)
+assert len(new_tree) == 40
 
-run("git", "add", "--", *expected_added, cwd=worktree)
-run("git", "rm", "--cached", "--ignore-unmatch", "--", ACTIVE, cwd=worktree)
-staged = sorted(filter(None, run("git", "diff", "--cached", "--name-only", cwd=worktree, capture=True).splitlines()))
-assert staged == expected_changed, {"staged": staged, "expected": expected_changed}
-assert all(path.startswith("governance/") for path in staged)
-assert not any(path.startswith(("services/", "deployment/", "contracts/", "web/")) for path in staged)
-added = run("git", "diff", "--cached", "--diff-filter=A", "--name-only", cwd=worktree, capture=True).splitlines()
-deleted = run("git", "diff", "--cached", "--diff-filter=D", "--name-only", cwd=worktree, capture=True).splitlines()
-modified = run("git", "diff", "--cached", "--diff-filter=M", "--name-only", cwd=worktree, capture=True).splitlines()
-assert sorted(added) == expected_added
-assert deleted == [ACTIVE]
-assert modified == []
-raw = run("git", "diff", "--cached", "--raw", "--", ACTIVE, cwd=worktree, capture=True)
-assert "a39534b" in raw and raw.rstrip().endswith(f"D\t{ACTIVE}"), raw
+# Validate the final tree directly; no porcelain cached diff participates in authority.
+assert run("git", "ls-tree", new_tree, "--", ACTIVE, capture=True) == "", "new tree still contains stale active pointer"
+for destination, blob_sha in blob_shas.items():
+    line = run("git", "ls-tree", new_tree, "--", destination, capture=True)
+    f = line.split()
+    assert f[0] == "100644" and f[1] == "blob" and f[2] == blob_sha, (destination, line, blob_sha)
+assert run("git", "ls-tree", new_tree, "--", "governance/pending-replan.json", capture=True) == ""
 
-run("git", "config", "user.name", "github-actions[bot]", cwd=worktree)
-run("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com", cwd=worktree)
-run("git", "commit", "-m", "Archive V20.18 successor closure and release stale writer authority", cwd=worktree)
-commit_sha = run("git", "rev-parse", "HEAD", cwd=worktree, capture=True)
-parent_sha = run("git", "rev-parse", "HEAD^", cwd=worktree, capture=True)
-assert parent_sha == MAIN_SHA
+# Create a commit object only after the tree has been fully proven. Creating the object
+# mutates no ref and therefore cannot affect main.
+commit_env = {
+    "GIT_AUTHOR_NAME": "github-actions[bot]",
+    "GIT_AUTHOR_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
+    "GIT_COMMITTER_NAME": "github-actions[bot]",
+    "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
+}
+commit_sha = run(
+    "git", "commit-tree", new_tree, "-p", MAIN_SHA,
+    "-m", "Archive V20.18 successor closure and release stale writer authority",
+    capture=True, env=commit_env,
+)
+assert len(commit_sha) == 40
+assert run("git", "rev-parse", f"{commit_sha}^", capture=True) == MAIN_SHA
 
-# Import the newly-created commit object back into the credentialed Actions checkout,
-# then push only the new reconciliation ref from there. The temporary clone never receives
-# GitHub credentials, and main is never updated.
-run("git", "fetch", str(worktree), "HEAD", cwd=REPO)
-fetched = run("git", "rev-parse", "FETCH_HEAD", cwd=REPO, capture=True)
-assert fetched == commit_sha, {"expected_commit": commit_sha, "fetched": fetched}
-run("git", "push", "origin", f"{commit_sha}:refs/heads/{BRANCH}", cwd=REPO)
-remote_branch = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", cwd=REPO, capture=True)
+# Verify the commit tree delta, including the deletion, independently of the temporary index.
+name_status = run("git", "diff-tree", "--no-commit-id", "--name-status", "-r", MAIN_SHA, commit_sha, capture=True)
+rows = [line.split("\t", 1) for line in name_status.splitlines() if line]
+actual_paths = sorted(path for status, path in rows)
+assert actual_paths == expected_changed, {"actual": actual_paths, "expected": expected_changed, "rows": rows}
+status_by_path = {path: status for status, path in rows}
+assert status_by_path[ACTIVE] == "D", status_by_path
+assert all(status_by_path[path] == "A" for path in expected_added), status_by_path
+assert all(path.startswith("governance/") for path in actual_paths)
+assert not any(path.startswith(("services/", "deployment/", "contracts/", "web/")) for path in actual_paths)
+
+# Recheck remote state immediately before the only ref mutation.
+remote_main_before_push = run("git", "ls-remote", "origin", "refs/heads/main", capture=True).split()[0]
+assert remote_main_before_push == MAIN_SHA
+existing_before_push = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
+assert existing_before_push == ""
+
+# Push exactly one new branch; never update or force main.
+run("git", "push", "origin", f"{commit_sha}:refs/heads/{BRANCH}")
+remote_branch = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
 rparts = remote_branch.split()
 assert len(rparts) == 2 and rparts[0] == commit_sha and rparts[1] == f"refs/heads/{BRANCH}"
-remote_main_after = run("git", "ls-remote", "origin", "refs/heads/main", cwd=REPO, capture=True).split()[0]
+remote_main_after = run("git", "ls-remote", "origin", "refs/heads/main", capture=True).split()[0]
 assert remote_main_after == MAIN_SHA, {"main_mutated": remote_main_after}
 
 result = {
     "schema_version": 1,
-    "phase": "D4e-governance-reconciliation-shared-object-independent-index-publish",
+    "phase": "D4f-governance-reconciliation-tree-plumbing-publish",
     "status": "PASS",
     "base_main_sha": MAIN_SHA,
     "main_sha_after_publish": remote_main_after,
     "branch": BRANCH,
     "commit_sha": commit_sha,
-    "parent_sha": parent_sha,
-    "tracked_active_blob_before": "a39534b47bd2776abf17359e6efbf21b264111a6",
-    "changed_paths": staged,
-    "added_paths": sorted(added),
-    "deleted_paths": deleted,
-    "modified_paths": modified,
+    "parent_sha": MAIN_SHA,
+    "base_active_blob": ACTIVE_BLOB,
+    "tree_sha": new_tree,
+    "changed_paths": actual_paths,
+    "added_paths": expected_added,
+    "deleted_paths": [ACTIVE],
+    "modified_paths": [],
     "governance_only": True,
     "main_mutated": False,
     "release_or_production_mutated": False,
