@@ -9,6 +9,30 @@ from agent_modules.ecommerce import _shared_execution as ecommerce_execution
 from agent_modules.ecommerce.shared import context as ecommerce_context
 
 
+class _ExactSemanticVerifier:
+    """Keep parameterization/dispatch unit tests independent of deployment profile.
+
+    Protected release runs with the real semantic verifier enabled. These tests
+    exercise deterministic argument binding and backend filtering, not model
+    classification, so they provide an explicit exact semantic premise just as
+    semantic rejection tests inject their own verifier premise.
+    """
+
+    def verify(self, **kwargs):
+        user_text = str(kwargs.get("user_text") or "")
+        args = kwargs.get("args") if isinstance(kwargs.get("args"), dict) else {}
+        span = str(args.get("reference_span") or "").strip()
+        if not span or span not in user_text:
+            span = user_text
+        return {
+            "verdict": "exact",
+            "evidence_span": span,
+            "reason_code": "deterministic_parameterization_test_fixture",
+            "source": "test",
+            "independent": True,
+        }
+
+
 def _state(text: str = "哪些还在路上？") -> dict:
     return {
         "current_thread_id": "v184-thread",
@@ -19,6 +43,7 @@ def _state(text: str = "哪些还在路上？") -> dict:
         "turn_index": 7,
         "artifact_ledger": [],
         "current_turn_plan": {"plan_id": "turn-plan:v184", "turn": 7, "effects": []},
+        "semantic_capability_verifier": _ExactSemanticVerifier(),
     }
 
 
