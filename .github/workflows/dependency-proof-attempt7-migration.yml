@@ -1,0 +1,109 @@
+name: dependency-proof-attempt7-migration
+
+on:
+  push:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/dependency-proof-authority-reducer-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Migrate Attempt 7 to proof maturity semantics
+        shell: bash
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          path = root / "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py"
+          text = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one marker, found {count}")
+              text = text.replace(old, new, 1)
+
+          first_old = '''        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "independent",\n            }],\n            "reason_code": "blind_shared_scope_independent",\n        }),\n    ]\n'''
+          first_new = '''        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "independent",\n            }],\n            "reason_code": "blind_shared_scope_independent",\n        }),\n        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "independent",\n            }],\n            "reason_code": "dependency_authority_closed_independent",\n        }),\n    ]\n'''
+          replace_once(first_old, first_new, "false dependency closure response")
+
+          first_assert_old = '''    assert invoke.call_count == 2\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.missing_spans == ()\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"\n    second_payload = _invoke_payload_text(invoke.call_args_list[1])\n    assert "'depends_on'" not in second_payload\n    assert '\"depends_on\"' not in second_payload\n'''
+          first_assert_new = '''    assert invoke.call_count == 3\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.missing_spans == ()\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"\n    second_payload = _invoke_payload_text(invoke.call_args_list[1])\n    assert "'depends_on'" not in second_payload\n    assert '\"depends_on\"' not in second_payload\n    third_payload = _invoke_payload_text(invoke.call_args_list[2])\n    assert "complete/matching alone is not authority" in third_payload\n'''
+          replace_once(first_assert_old, first_assert_new, "false dependency authority assertions")
+
+          second_old = '''        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "b_depends_on_a",\n                "basis_kind": "result_reference",\n                "basis_span": "它",\n            }],\n            "reason_code": "blind_true_result_reference",\n        }),\n    ]\n\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=responses\n    ):\n'''
+          second_new = '''        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "b_depends_on_a",\n                "basis_kind": "result_reference",\n                "basis_span": "它",\n            }],\n            "reason_code": "blind_true_result_reference",\n        }),\n        _response({\n            "verdict": "exact",\n            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],\n            "missing_spans": [],\n            "dependency_decisions": [{\n                "goal_a_id": "g1",\n                "goal_b_id": "g2",\n                "relation": "b_depends_on_a",\n                "basis_kind": "result_reference",\n                "basis_span": "它",\n            }],\n            "reason_code": "dependency_authority_closed_true_result_reference",\n        }),\n    ]\n\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=responses\n    ) as invoke:\n'''
+          replace_once(second_old, second_new, "missing true dependency closure response")
+
+          second_assert_old = '''    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_edges"][0]["basis_span"] == "它"\n'''
+          second_assert_new = '''    assert invoke.call_count == 3\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_edges"][0]["basis_span"] == "它"\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"\n'''
+          replace_once(second_assert_old, second_assert_new, "missing true dependency authority assertions")
+
+          path.write_text(text, encoding="utf-8")
+
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          files = dict(baseline.get("files") or {})
+          rel = "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py"
+          if rel not in files:
+              raise SystemExit("attempt7 test is not protected by product-source baseline")
+          files[rel] = sha256(path.read_bytes()).hexdigest()
+          baseline["files"] = dict(sorted(files.items()))
+          baseline["file_count"] = len(files)
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Compile migrated test
+        run: python -m py_compile services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py
+
+      - name: Focused authority regression set
+        shell: bash
+        run: |
+          cd services/agent-service
+          export PYTHONPATH="$PWD/src"
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_dependency_proof_authority.py \
+            tests/runtime/test_dependency_alignment_authority.py \
+            tests/runtime/test_release47_dependency_repair_projection.py \
+            tests/runtime/test_release52_dependency_independence_adjudication.py \
+            tests/runtime/test_release53_blind_semantic_grounding_adjudication.py \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            tests/runtime/test_wp08_attempt6_alignment_normalization.py \
+            tests/runtime/test_wp08_attempt7_final_authority_and_retry.py \
+            ../../skill-system/tests/test_semantic_dependency_repair_feedback.py \
+            ../../skill-system/tests/test_wp08_final_product_closure_repair.py
+
+      - name: Commit migration and remove carrier
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/dependency-proof-attempt7-migration.yml
+          git add -A
+          git diff --cached --check
+          git commit -m "test(semantic): migrate attempt7 to dependency proof maturity"
+          git push origin HEAD:fix/dependency-proof-authority-reducer-20260816
