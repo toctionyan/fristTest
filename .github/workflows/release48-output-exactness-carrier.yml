@@ -6,6 +6,7 @@ name: release48-output-exactness-carrier
     paths:
       - .github/workflows/release48-output-exactness-carrier.yml
       - scripts/tmp_release48_output_exactness_repair.py
+      - scripts/tmp_release48_carrier_anchor_fix.py
       - scripts/tmp_release48_test_fixture_fix.py
 
 permissions:
@@ -63,6 +64,9 @@ jobs:
       - name: Apply bounded Release 48 output exactness repair
         run: |
           set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_release48_carrier_anchor_fix.py \
+            --script control/scripts/tmp_release48_output_exactness_repair.py
           "${pythonLocation}/bin/python" -B \
             control/scripts/tmp_release48_output_exactness_repair.py \
             --workspace source
