@@ -981,6 +981,7 @@ class ModelGoalAlignmentVerifier:
                 "candidate_blind_dependency_requested_output_exactness_adjudication",
                 "candidate_blind_dependency_scope_constraint_reaudit",
                 "candidate_blind_dependency_scope_constraint_adjudication",
+                "candidate_blind_dependency_semantic_grounding_adjudication",
             }
             if semantic_claim_reaudit:
                 effective_instruction = (
@@ -1536,6 +1537,34 @@ class ModelGoalAlignmentVerifier:
                     "span into missing_spans. Do not choose a tool, target, entity, normalized business value, capability or implementation "
                     "step. Do not re-audit or return dependency_decisions; the prior complete dependency proof remains authoritative. "
                     "Return only verdict, evidence_spans, missing_spans and reason_code."
+                )
+                continue
+            if (
+                verifier_repair_kind == "candidate_blind_dependency_reaudit"
+                and attempt == 1
+                and verdict.verdict == "indeterminate"
+                and verdict.reason_code == "goal_alignment_missing_span_not_grounded"
+                and str(verdict.details.get("original_verdict") or "") == "incomplete"
+                and verdict.details.get("dependency_proof_complete") is True
+                and verdict.details.get("dependency_graph_match") is True
+                and attempt < 2
+            ):
+                # The blind graph proof is complete and matching, but its negative
+                # semantic claim had no literal omitted outcome. Preserve the graph
+                # proof and use the existing final slot only to ground or withdraw it.
+                preserved_blind_dependency_details = deepcopy(verdict.details)
+                verifier_repair_kind = "candidate_blind_dependency_semantic_grounding_adjudication"
+                verifier_repair = (
+                    "Re-audit only the previous candidate-blind semantic incomplete claim while preserving the complete "
+                    "dependency proof. The previous incomplete claim supplied no machine-grounded literal omitted outcome, "
+                    "so that negative semantic claim is not authoritative. If the declaration truly omits or substitutes a "
+                    "user-observable semantic outcome, requested effect, or target-scope predicate, return verdict=incomplete "
+                    "and copy only the smallest exact contiguous USER_TEXT span proving that mismatch into missing_spans. If no "
+                    "such literal mismatch exists, withdraw the incomplete claim and return verdict=exact with literal "
+                    "evidence_spans covering the preserved requested outcomes. Do not infer a hidden prerequisite, target "
+                    "resolution step, execution dependency, business-state fact, tool/capability fact, or oracle answer. Do not "
+                    "re-audit or return dependency_decisions; the prior complete candidate-blind dependency proof remains "
+                    "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
             if verdict.verdict in {"exact", "incomplete"}:
