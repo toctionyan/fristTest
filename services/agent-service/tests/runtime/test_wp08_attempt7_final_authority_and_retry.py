@@ -63,6 +63,17 @@ def test_attempt7_false_dependency_requires_candidate_blind_second_audit() -> No
             }],
             "reason_code": "blind_shared_scope_independent",
         }),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+            "missing_spans": [],
+            "dependency_decisions": [{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "independent",
+            }],
+            "reason_code": "dependency_authority_closed_independent",
+        }),
     ]
 
     with patch("agent_core.config.get_model", return_value=object()), patch(
@@ -74,16 +85,21 @@ def test_attempt7_false_dependency_requires_candidate_blind_second_audit() -> No
             known_tools=set(),
         )
 
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.missing_spans == ()
     assert verdict.details["dependency_graph_match"] is False
     assert verdict.details["dependency_edges"] == []
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is False
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
     second_payload = _invoke_payload_text(invoke.call_args_list[1])
     assert "'depends_on'" not in second_payload
     assert '"depends_on"' not in second_payload
+    third_payload = _invoke_payload_text(invoke.call_args_list[2])
+    assert "complete/matching alone is not authority" in third_payload
 
 
 def test_candidate_blind_second_audit_preserves_true_result_dependency() -> None:
@@ -182,21 +198,39 @@ def test_candidate_blind_second_audit_detects_missing_true_dependency() -> None:
             }],
             "reason_code": "blind_true_result_reference",
         }),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+            "missing_spans": [],
+            "dependency_decisions": [{
+                "goal_a_id": "g1",
+                "goal_b_id": "g2",
+                "relation": "b_depends_on_a",
+                "basis_kind": "result_reference",
+                "basis_span": "它",
+            }],
+            "reason_code": "dependency_authority_closed_true_result_reference",
+        }),
     ]
 
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model", side_effect=responses
-    ):
+    ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(
             user_text=text,
             goals=goals,
             known_tools=set(),
         )
 
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.details["dependency_graph_match"] is False
     assert verdict.details["dependency_edges"][0]["basis_span"] == "它"
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is False
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
 
 
 def test_workflow_completion_retry_keeps_policy_bounded_support_frontier() -> None:

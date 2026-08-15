@@ -563,7 +563,7 @@
     "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py": "5b3ebfd63fbaf4756effa152056ee6485316fce5ec3f55a9838f117309d00952",
     "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py": "7875b6dc4e4015b81d1d2bbbb822d475dec74cd29956923039ccf0bab4c9c6fd",
     "services/agent-service/tests/runtime/test_wp08_attempt6_release_repairs.py": "0d5c403791ac846c0422eef30e975ade37c915234f0b4d4b9b71b0e675ae0f1b",
-    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "1fc34d7eea598d30db159bedfc7a8d0e00caaff81388e110c3049cef79caea8c",
+    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py": "0a5932e1e3002e6d026f85eeb4f03ae3b6b785577ccb030a1f26ff7087d1efd9",
     "services/agent-service/tests/support/__init__.py": "f32f565d13cd3e402c14eff9fd882c0828583c1bb19b0595fe94a5040bcede5d",
     "services/agent-service/tests/support/canonical_semantic_fixture.py": "6bb8b587b49ec9c765162ee998a39a668c317842bb7fb0c2af902243f5acb7d0",
     "services/agent-service/tests/support/conversation_case_fixtures.py": "0f1e5f36f0fce2fb27f1d893bf5f74ca8a6f840244fd1f38441aa84c082c3520",
