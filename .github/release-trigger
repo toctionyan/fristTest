@@ -1,6 +1,6 @@
-release_request: 2026-08-16T00:21:00+08:00
+release_request: 2026-08-16T01:34:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: certify dependency-absence adversarial adjudication closure on exact main dfa7d5479ad780b2cbd8f05bed4be31ef3f09bd7
+reason: certify blind incomplete semantic grounding closure on exact main 1be122c7a94f8549fee42c7eda89bdc0cfa1b6af
