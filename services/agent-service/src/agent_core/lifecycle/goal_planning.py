@@ -1654,7 +1654,7 @@ class ModelGoalAlignmentVerifier:
                 preserved_blind_dependency_details = deepcopy(verdict.details)
                 verifier_repair_kind = "candidate_blind_dependency_authority_closure"
                 verifier_repair = (
-                    "Close only the current-turn dependency proof maturity from USER_TEXT. The prior pairwise graph is VERIFIED and preservable but not authoritative: complete/matching alone is not authority. Re-read every unordered Goal pair from scratch and apply the result-removal counterfactual. Remove only the earlier Goal user-visible result payload while preserving objects, scopes and constraints already literal in USER_TEXT. Return a positive relation only when literal wording inside the dependent Goal consumes the earlier result as result_reference, result_condition or result_value_input; sequencing, shared topic/scope, zero-anaphora target omission, stable-ID lookup, Draft/preflight support and other execution prerequisites remain independent. Return exactly one dependency_decisions row for every unordered Goal pair. Positive rows require the smallest relation-only basis_span inside the dependent Goal. Do not re-audit requested_effect, requested_outputs, target scope, historical references, capability availability, tool order, business state or transaction mechanics. Return verdict=exact, literal evidence_spans when available, missing_spans=[], dependency_decisions and reason_code; Runtime compares the closed graph to Planner depends_on deterministically."
+                    "Close only the current-turn dependency proof maturity from USER_TEXT. The prior pairwise graph is VERIFIED and preservable but not authoritative: complete/matching alone is not authority. Re-read every unordered Goal pair from scratch and apply the result-removal counterfactual. Remove only the earlier Goal user-visible result payload while preserving objects, scopes and constraints already literal in USER_TEXT. Return a positive relation only when literal wording inside the dependent Goal consumes the earlier result as result_reference, result_condition or result_value_input; sequencing, shared topic/scope, zero-anaphora target omission, stable-ID lookup, Draft/preflight support and other execution prerequisites remain independent. Return exactly one dependency_decisions row for every unordered Goal pair. Positive rows require the smallest relation-only basis_span inside the dependent Goal. Do not re-audit requested_effect, requested_outputs, target scope, historical references, capability availability, tool sequencing, business state or transaction mechanics. Return verdict=exact, literal evidence_spans when available, missing_spans=[], dependency_decisions and reason_code; Runtime compares the closed graph to Planner depends_on deterministically."
                 )
                 prompt = {
                     "USER_TEXT_UNTRUSTED": user_text,
@@ -1686,6 +1686,12 @@ class ModelGoalAlignmentVerifier:
                 verdict.verdict, verdict.evidence_spans, verdict.missing_spans, verdict.reason_code,
                 verdict.source, verdict.independent, {**verdict.details, "verifier_repair_attempted": attempt > 0},
             )
+            if attempt > 0:
+                # Additional loop capacity is reserved for explicit state transitions
+                # handled above (semantic adjudication -> dependency closure, etc.).
+                # A repeated malformed/ungrounded observation must fail closed here
+                # rather than silently consuming fourth/fifth/sixth generic retries.
+                return last_indeterminate
             if attempt == 0:
                 original_verdict = str(verdict.details.get("original_verdict") or "")
                 if verdict.verdict == "indeterminate" and _has_unique_historical_reference(goals):
