@@ -1,0 +1,184 @@
+name: release49-semantic-output-boundary-carrier
+
+"on":
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release49-semantic-output-boundary-carrier.yml
+      - scripts/tmp_release49_semantic_output_boundary_repair.py
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release49-semantic-output-boundary-carrier-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-publish-repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout carrier controls
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact Release 49 source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ab7d0dd7ddcb719025874070617ddd4cb84df87e
+          path: source
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify exact source identity
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "ab7d0dd7ddcb719025874070617ddd4cb84df87e"
+          test -z "$(git -C source status --porcelain)"
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r source/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Python validation environments
+        run: |
+          set -euo pipefail
+          cd source/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+
+      - name: Apply bounded Release 49 semantic-boundary repair
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_release49_semantic_output_boundary_repair.py \
+            --workspace source
+
+      - name: Verify exact pre-baseline repair scope
+        run: |
+          set -euo pipefail
+          git -C source diff --check
+          EXPECTED=$(printf '%s\n' \
+            .github/release-trigger \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/modules/contracts.py \
+            services/agent-service/src/agent_core/modules/registry.py \
+            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
+            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py | sort)
+          ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Run focused semantic-boundary and requested-output regressions
+        env:
+          PYTHONPATH: source/services/agent-service/src
+        run: >-
+          source/services/agent-service/.venv/bin/python -B -m pytest -q
+          source/services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py
+          source/services/agent-service/tests/architecture/test_semantic_authority_cutover.py
+          source/services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py
+          source/services/agent-service/tests/runtime/test_release44_dependency_basis_grounding.py
+
+      - name: Run complete standard Python suites
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/scripts/run_python_test_suites.py source --mode standard
+          --junit-dir "${RUNNER_TEMP}/release49-boundary-standard/junit"
+          --coverage-dir "${RUNNER_TEMP}/release49-boundary-standard/coverage"
+
+      - name: Verify architecture convergence
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/scripts/verify_architecture.py
+
+      - name: Commit product repair and regressions
+        working-directory: source
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/release-trigger \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/modules/contracts.py \
+            services/agent-service/src/agent_core/modules/registry.py \
+            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
+            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py
+          git diff --cached --check
+          git commit -m 'Add canonical semantic-output result boundaries'
+          git rev-parse HEAD > ../product-sha.txt
+
+      - name: Refresh complete protected source baseline
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from datetime import datetime, timezone
+          import hashlib
+          import json
+          from pathlib import Path
+          import subprocess
+
+          root = Path("source").resolve()
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          payload = json.loads(baseline_path.read_text(encoding="utf-8"))
+          protected_roots = [str(value) for value in payload.get("protected_roots") or []]
+          if not protected_roots:
+              raise SystemExit("protected source baseline has no protected_roots")
+          raw = subprocess.check_output(["git", "ls-files", "-z", "--", *protected_roots], cwd=root)
+          tracked = sorted(item.decode("utf-8") for item in raw.split(b"\0") if item)
+          files = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          product_sha = Path("product-sha.txt").read_text(encoding="utf-8").strip()
+          if len(product_sha) != 40:
+              raise SystemExit("invalid product SHA")
+          payload["files"] = files
+          payload["file_count"] = len(files)
+          payload["generated_at"] = datetime.now(timezone.utc).isoformat()
+          payload["generated_from"] = "git:" + product_sha
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print({"file_count": len(files), "generated_from": payload["generated_from"]})
+          PY
+
+      - name: Run complete Skill control plane
+        run: >-
+          source/services/agent-service/.venv/bin/python -B
+          source/skill-system/controller/profile_runner.py skill-control-plane
+
+      - name: Bind baseline and publish formal repair branch
+        working-directory: source
+        env:
+          FORMAL_BRANCH: fix/semantic-output-result-boundaries-20260815
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          test "$(git diff --cached --name-only)" = "skill-system/registry/product-source-baseline.json"
+          git diff --cached --check
+          git commit -m 'Bind semantic-output boundary repair to protected source baseline'
+          test -z "$(git status --porcelain)"
+          FINAL=$(git diff --name-only ab7d0dd7ddcb719025874070617ddd4cb84df87e..HEAD | sort)
+          EXPECTED=$(printf '%s\n' \
+            .github/release-trigger \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/modules/contracts.py \
+            services/agent-service/src/agent_core/modules/registry.py \
+            services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
+            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py \
+            skill-system/registry/product-source-baseline.json | sort)
+          test "$FINAL" = "$EXPECTED"
+          git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
