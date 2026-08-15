@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "dimension": "runtime_trace",
+  "status": "PASS",
+  "exit_code": 0,
+  "baseline_sha": "aeb9a445001d4922e13a032e4cccc12f8ff34e9a",
+  "candidate_sha": "55403a01f957257fbbefead32bcde21b7d866001",
+  "performance_repair_sha": "7e6bd3bf65718c13f1bcbc28011cb4071b8c96a8",
+  "log_tail": ".....................                                                    [100%]\n21 passed in 0.36s\n"
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "claims": [
+    {
+      "id": "V2018.A2B.SINGLE_WRITER_EXACT_OUTPUT",
+      "statement": "The pre-freeze Semantic Writer remains capability-blind and registry-identity independent while frozen semantics remain the sole formal authority and post-freeze capability execution uses exact requested-output coverage.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "gate-log:python-test-suites"
+      ],
+      "owner": "semantic-core",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

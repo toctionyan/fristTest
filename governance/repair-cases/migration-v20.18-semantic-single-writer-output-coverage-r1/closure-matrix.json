@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "migration-v20.18-semantic-single-writer-output-coverage-r1",
+  "permit_digest": "bf4282cbc47572abf361b1137240a2cc451edd325dd75ee73d42f36abaedd6d0",
+  "diff_review_sha256": "7b04ec1297c75cd4be3a86bfb8377751d159b1a3a214349ef2ce82ab99c0947f",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "fe9cafb850eab2c8dbe24838bb3d3473cee5222ec04bb6d4ab1b82a5496904d7",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1/evidence/authority_boundary.json",
+      "evidence_sha256": "41416676ccd218879d0557aa0b884ee6dfbc2473dce8626ddfe2d6f5d7c07154"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1/evidence/counterexamples.json",
+      "evidence_sha256": "ab712a81ded31272b8d038abb613201652851de9ce04de76033fa6e6a53f14d0"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1/diff-review.json",
+      "evidence_sha256": "7b04ec1297c75cd4be3a86bfb8377751d159b1a3a214349ef2ce82ab99c0947f"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1/evidence/focused_tests.json",
+      "evidence_sha256": "342f0ae983eaec933658e4d284385f5d295cd87eef871c8a4d7eecc31044b09d"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1/evidence/negative_paths.json",
+      "evidence_sha256": "37013bf511cba775f133a046db16c41a9896a2a80361fd0dfd9faa0abe37dfd0"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/baseline/baseline-record.json",
+      "evidence_sha256": "9fad041a5ceb207ba5c258eb1a635f7ddec8df542c70d7793d18ec13a735f4ad"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": ".quality/product-code/migration-v20.18-semantic-single-writer-output-coverage-r1/verification-quick-20260814T233134Z/run-summary.json",
+      "evidence_sha256": "fa7fdb724676a27d39815b6ab948db93b76fe55e72bbc73b77f19b40a02963ea"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/migration-v20.18-semantic-single-writer-output-coverage-r1/evidence/runtime_trace.json",
+      "evidence_sha256": "d871d67858d0b6fce8d67ee1af0c02cf40218433b94a00e33ac6c057cbb8a057"
+    }
+  ],
+  "residual_risks": []
+}
