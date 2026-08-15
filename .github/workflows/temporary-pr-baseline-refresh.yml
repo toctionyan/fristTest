@@ -1,6 +1,6 @@
 name: Temporary PR Product Baseline Refresh
 
-on:
+"on":
   push:
     branches:
       - fix/real-model-refund-history-semantic-20260815
@@ -12,7 +12,6 @@ permissions:
 
 jobs:
   refresh:
-    if: github.event.head_commit.message == 'ci(control): trigger governed product baseline refresh'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
