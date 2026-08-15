@@ -24,6 +24,8 @@ def test_depends_on_schema_requires_result_counterfactual_not_discourse_order() 
     assert "用户可见结果尚未产生" in description
     assert "仍能独立确定自己要得到的业务结果并独立判断完成" in description
     assert "再/然后/另外" in description
+    assert "evidence_span 仍保持分支局部" in description
+    assert "对象/成员名称属于目标身份而不是人口筛选" in description
     for forbidden in ("list_orders", "get_order_logistics", "prepare_refund"):
         assert forbidden not in description
 

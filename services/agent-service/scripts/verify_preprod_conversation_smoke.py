@@ -675,7 +675,7 @@ def main() -> int:
             f"当前部署登记的 canonical semantic outputs（不包含能力可用性和工具身份）：{semantic_vocabulary_json}。"
             "能力词汇中没有精确身份的分支也必须保留成独立 Goal；不能把不支持分支吞掉，也不能用相似能力代替。"
             "evidence_span 必须来自用户原话；requested_outputs[].evidence_span 也必须是该 Goal 原话中的直接连续证据。"
-            "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。"
+            "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。局部 evidence_span 只证明该 Goal 的业务效果；若后续独立 Goal 以零指代继承同句前文已经明示的目标身份，不要求把前文目标词复制进后续 evidence_span，也不得把对象/成员身份伪装成 target_candidate.scope_constraints。只有真正缩小目标/结果人口的筛选、状态、阈值或比较才属于 scope_constraints；完整用户原话中的共享目标身份仍可直接作为同轮语义上下文。"
             "同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；判断依赖必须做结果反事实：假设前一 Goal 的用户可见结果尚未产生，但保留当前原话已经明示的对象、范围和约束；若后一 Goal 仍可独立确定自己的业务结果并独立判断完成，则 depends_on 必须为空，不能因为再/然后等顺序表达、共享主题或执行时需要解析稳定 ID 而制造依赖。只有拿掉前一 Goal 的结果后，后一 Goal 的目标、值输入、条件或可完成含义本身无法成立时才依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
