@@ -1,0 +1,69 @@
+name: tmp-parameterized-permit-diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/tmp-parameterized-permit-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'diagnostic/parameterized-permit-20260815'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact diagnostic head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Install exact Python environment
+        working-directory: services/agent-service
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check uv==0.11.29
+          uv sync --frozen
+
+      - name: Instrument ephemeral test copy and reproduce both failures
+        working-directory: services/agent-service
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/context/test_parameterized_capability_alignment.py')
+          text = path.read_text(encoding='utf-8')
+          needle = '    assert decision.permitted is True\n'
+          probes = [
+              '''    print("DIAG_ALIAS_PERMITTED", decision.permitted)\n    print("DIAG_ALIAS_REJECTION", decision.rejection)\n    print("DIAG_ALIAS_NORMALIZED", decision.normalized_arguments)\n    print("DIAG_ALIAS_MATCH_PROOF", decision.match_proof)\n    assert decision.permitted is True\n''',
+              '''    print("DIAG_CANONICAL_PERMITTED", permit.permitted)\n    print("DIAG_CANONICAL_REJECTION", permit.rejection)\n    print("DIAG_CANONICAL_NORMALIZED", permit.normalized_arguments)\n    print("DIAG_CANONICAL_MATCH_PROOF", permit.match_proof)\n    assert permit.permitted is True\n''',
+          ]
+          # First failing test uses `decision`; second uses `permit`, so instrument separately.
+          first = text.find(needle)
+          assert first >= 0
+          text = text[:first] + probes[0] + text[first + len(needle):]
+          needle2 = '    assert permit.permitted is True\n'
+          second = text.find(needle2)
+          assert second >= 0
+          text = text[:second] + probes[1] + text[second + len(needle2):]
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          set +e
+          uv run pytest -q -s \
+            tests/context/test_parameterized_capability_alignment.py::test_parameterized_permit_normalizes_unique_constraint_leaf_alias \
+            tests/context/test_parameterized_capability_alignment.py::test_filtered_logistics_uses_backend_parameter_and_presents_only_matches
+          status=$?
+          set -e
+          echo "diagnostic_pytest_exit=${status}"
+          git diff -- tests/context/test_parameterized_capability_alignment.py
+          exit 0
