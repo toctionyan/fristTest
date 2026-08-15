@@ -35,10 +35,40 @@ jobs:
           set -euo pipefail
           test "${ACTUAL_BASE_SHA}" = "${EXPECTED_BASE_SHA}"
           test ! -e governance/active-change.json
+          test ! -e governance/targets/certify-stage4k5-production-dependency-authority-preflight.md
+          test ! -e governance/claims/certify-stage4k5-production-dependency-authority-preflight.json
+
+          GOAL="Read-only certify the Stage4K5 production dependency-authority activation prerequisites and fail closed on any missing deployment authority, independent trust roots, signed immutable control material, rollback custody, DB append authority, or exact production verification evidence; do not activate production."
+
+          python3 -B skillctl.py product-scaffold \
+            --change-id certify-stage4k5-production-dependency-authority-preflight \
+            --target-kind certification \
+            --goal "${GOAL}" \
+            --allow services/agent-service/app/services/dependency_authority_composition.py \
+            --allow services/agent-service/app/services/readiness_service.py \
+            --allow services/agent-service/src/agent_core/runtime/dependency_authority_control.py \
+            --allow services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py \
+            --allow services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py \
+            --allow services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py \
+            --minimum-mode release \
+            --claim-id STAGE4K5-AUTHORITY-PREFLIGHT-001 \
+            --claim-statement "Current source keeps dependency-authority production composition fail-closed by default, requires explicit persistent selection plus independent activation/rollback trust roots, keeps signing private keys outside the Agent process, and rejects unavailable or untrusted persistent control; therefore production activation remains blocked until the external authority evidence required by issue #1013 is supplied and independently verified." \
+            --risk P0 \
+            --evidence-kind counterexample \
+            --required-gate quality-integration \
+            --evidence-ref services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_default_is_disabled_and_ignores_unused_trust_configuration \
+            --evidence-ref services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_mode_is_explicit_and_never_auto_selected_from_storage \
+            --evidence-ref services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_requires_independent_activation_and_rollback_trust_roots \
+            --evidence-ref services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_invalid_or_untrusted_persistent_control_fails_readiness_closed \
+            --evidence-ref services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_composition_owns_no_model_configuration_or_signing_private_keys \
+            --owner app.services.dependency_authority_composition \
+            --forbidden-description "Read-only K5-A certification only: no production environment/config mutation, deployment/restart, signing-key creation, signature minting, control/rollback row append, business-state mutation, WP08 dispatch, or production closure; do not modify product source to make the certification pass." \
+            --acceptance-description "Current source and release-bound quality evidence must prove the fail-closed Stage4K4 authority boundary. Missing external production authority is a blocking result, never permission to invent identities, keys, signatures, rows, or deployment evidence." \
+            --baseline-description "Certification is read-only and uses current-source evidence; no product transition baseline or product write is authorized."
 
           python3 -B skillctl.py product-init \
             --change-id certify-stage4k5-production-dependency-authority-preflight \
-            --goal "Read-only certify the Stage4K5 production dependency-authority activation prerequisites and fail closed on any missing deployment authority, independent trust roots, signed immutable control material, rollback custody, DB append authority, or exact production verification evidence; do not activate production." \
+            --goal "${GOAL}" \
             --target-kind certification \
             --allow services/agent-service/app/services/dependency_authority_composition.py \
             --allow services/agent-service/app/services/readiness_service.py \
@@ -54,7 +84,8 @@ jobs:
             --invariant "persistent mode is never selected automatically from storage and production remains legacy-authority unless separately authorized activation succeeds" \
             --invariant "activation signer and rollback operator identities and Ed25519 trust roots are independent; private signing keys remain outside the Agent process and repository" \
             --invariant "missing, stale, malformed, expired, untrusted, or unverifiable control evidence fails closed" \
-            --minimum-mode release
+            --minimum-mode release \
+            --quality-target governance/targets/certify-stage4k5-production-dependency-authority-preflight.md
 
           python3 -B skillctl.py contract-validate
 
@@ -62,8 +93,11 @@ jobs:
           import json
           from pathlib import Path
 
-          path = Path('governance/active-change.json')
-          data = json.loads(path.read_text(encoding='utf-8'))
+          contract_path = Path('governance/active-change.json')
+          target_path = Path('governance/targets/certify-stage4k5-production-dependency-authority-preflight.md')
+          claim_path = Path('governance/claims/certify-stage4k5-production-dependency-authority-preflight.json')
+          data = json.loads(contract_path.read_text(encoding='utf-8'))
+          claim = json.loads(claim_path.read_text(encoding='utf-8'))
           assert data['schema_version'] == 1
           assert data['change_id'] == 'certify-stage4k5-production-dependency-authority-preflight'
           assert data['target_kind'] == 'certification'
@@ -71,19 +105,29 @@ jobs:
           assert data['status'] == 'draft'
           assert data['result'] == 'PENDING'
           assert data['minimum_quality_mode'] == 'release'
-          assert data['quality_target'] is None
+          assert data['quality_target'] == target_path.as_posix()
           assert data['baseline_evidence'] is None
           assert data['verification'] is None
           assert data['initial_source_file_count'] == 6
-          text = path.read_text(encoding='utf-8')
+          assert claim['target_id'] == data['change_id']
+          assert claim['claims'][0]['id'] == 'STAGE4K5-AUTHORITY-PREFLIGHT-001'
+          assert claim['claims'][0]['risk'] == 'P0'
+          assert claim['claims'][0]['required_mode'] == 'release'
+          assert claim['claims'][0]['required_gates'] == ['quality-integration']
+          assert target_path.is_file()
+          joined = '\n'.join(
+              p.read_text(encoding='utf-8')
+              for p in (contract_path, target_path, claim_path)
+          )
           for forbidden in ('PRIVATE_KEY', 'SIGNING_SECRET', 'PRODUCTION_MODEL_API_KEY'):
-              assert forbidden not in text
+              assert forbidden not in joined
           print(json.dumps({
               'status': 'PASS',
               'change_id': data['change_id'],
               'writer_role': data['writer_role'],
               'contract_status': data['status'],
               'minimum_quality_mode': data['minimum_quality_mode'],
+              'quality_target': data['quality_target'],
               'source_file_count': data['initial_source_file_count'],
               'source_fingerprint': data['initial_source_fingerprint'],
           }, indent=2))
@@ -95,9 +139,13 @@ jobs:
         run: |
           set -euo pipefail
           rm .github/workflows/tmp-stage4k5-authority-preflight.yml
-          git add governance/active-change.json .github/workflows/tmp-stage4k5-authority-preflight.yml
+          git add \
+            governance/active-change.json \
+            governance/targets/certify-stage4k5-production-dependency-authority-preflight.md \
+            governance/claims/certify-stage4k5-production-dependency-authority-preflight.json \
+            .github/workflows/tmp-stage4k5-authority-preflight.yml
           git diff --cached --name-status
-          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = ".github/workflows/tmp-stage4k5-authority-preflight.yml governance/active-change.json "
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = ".github/workflows/tmp-stage4k5-authority-preflight.yml governance/active-change.json governance/claims/certify-stage4k5-production-dependency-authority-preflight.json governance/targets/certify-stage4k5-production-dependency-authority-preflight.md "
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Generate Stage4K5 read-only activation preflight contract"
