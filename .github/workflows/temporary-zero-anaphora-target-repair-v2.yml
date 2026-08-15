@@ -100,7 +100,7 @@ jobs:
 
           trigger = Path(".github/release-trigger")
           trigger.write_text(
-              "release_request: 2026-08-15T14:17:00+08:00\n"
+              "release_request: 2026-08-15T14:23:00+08:00\n"
               "provider: deepseek\n"
               "model: deepseek-v4-flash\n"
               "embedding_model: text-embedding-v4\n"
@@ -123,7 +123,7 @@ jobs:
           services/agent-service/.venv/bin/python -B -m pytest -q -p no:cacheprovider \
             services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py \
             services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
-          python3 -B -m pytest -q -p no:cacheprovider skill-system/tests/test_product_source_baseline_binding.py
+          services/agent-service/.venv/bin/python -B -m pytest -q -p no:cacheprovider skill-system/tests/test_product_source_baseline_binding.py
       - name: Publish governed repair commit
         shell: bash
         run: |
