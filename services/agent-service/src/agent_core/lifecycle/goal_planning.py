@@ -1298,11 +1298,13 @@ class ModelGoalAlignmentVerifier:
                 and attempt < 2
             ):
                 positive_dependency_edges = bool(list(verdict.details.get("dependency_edges") or []))
+                multi_goal_dependency_graph = len(goals) > 1
                 effect_collision_risk = _requested_effect_sibling_collision_risk(goals)
                 scope_constraint_risk = _declared_scope_constraint_risk(goals)
                 registered_output_exactness_risk = _declared_registered_output_exactness_risk(goals)
                 if (
                     positive_dependency_edges
+                    or multi_goal_dependency_graph
                     or effect_collision_risk["risk"]
                     or scope_constraint_risk["risk"]
                     or registered_output_exactness_risk["risk"]
@@ -1348,6 +1350,28 @@ class ModelGoalAlignmentVerifier:
                             "availability, normalize to a registered effect, or rewrite the declaration. For every unordered Goal pair, return one "
                             "dependency_decisions row using only literal result-reference/result-condition/result-value evidence; otherwise mark it "
                             "independent."
+                        )
+                    elif multi_goal_dependency_graph:
+                        # Dependency absence is also a high-impact semantic claim. Two
+                        # candidate-blind passes can agree on an empty graph while still
+                        # missing a literal current-turn result relation. Spend the same
+                        # bounded third slot on a graph-only adversarial challenge before
+                        # claim-only scope/output adjudication. Runtime still never infers
+                        # or rewrites an edge from user language.
+                        verifier_repair_kind = "candidate_blind_dependency_independence_adjudication"
+                        verifier_repair = (
+                            "Adversarially re-audit the complete current-turn dependency graph from USER_TEXT only. "
+                            "The previous candidate-blind proof returned no positive dependency edges; dependency absence is not settled by that vote. "
+                            "For every unordered Goal pair, re-evaluate both directions and challenge an independent decision whenever literal wording "
+                            "inside one Goal explicitly consumes another current-turn Goal result as result_reference, result_condition or result_value_input. "
+                            "Apply the result counterfactual: remove only the earlier Goal result payload while preserving objects, scopes and constraints "
+                            "already literal in USER_TEXT. If the later outcome's target, condition, value input or user-visible completion meaning becomes "
+                            "unavailable because its own literal wording consumes that removed result, return a positive relation with the smallest "
+                            "relation-only basis_span inside the dependent Goal evidence_span. If the later outcome remains fully specified by literal "
+                            "wording, shared scope, or zero-anaphora omission of an already literal target, keep the pair independent. Sequencing, shared "
+                            "topic, stable-ID/artifact resolution, eligibility/preflight reads, transaction setup and other execution support are not "
+                            "result dependencies. Do not see or reconstruct Planner depends_on from tools, capabilities, IDs or business-state facts. "
+                            "Return exactly one dependency_decisions row for every unordered Goal pair together with the normal semantic audit fields."
                         )
                     elif scope_constraint_risk["risk"]:
                         # A supplied scope constraint is itself a high-impact semantic
