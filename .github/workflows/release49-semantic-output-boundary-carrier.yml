@@ -7,6 +7,7 @@ name: release49-semantic-output-boundary-carrier
       - .github/workflows/release49-semantic-output-boundary-carrier.yml
       - scripts/tmp_release49_semantic_output_boundary_repair.py
       - scripts/tmp_release49_semantic_output_boundary_compat.py
+      - scripts/tmp_release49_semantic_output_v2_test_contract.py
 
 permissions:
   contents: write
@@ -69,6 +70,9 @@ jobs:
           "${pythonLocation}/bin/python" -B \
             control/scripts/tmp_release49_semantic_output_boundary_compat.py \
             --workspace source
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_release49_semantic_output_v2_test_contract.py \
+            --workspace source
 
       - name: Verify exact pre-baseline repair scope
         run: |
@@ -80,7 +84,8 @@ jobs:
             services/agent-service/src/agent_core/modules/contracts.py \
             services/agent-service/src/agent_core/modules/registry.py \
             services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
-            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py | sort)
+            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py \
+            services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py | sort)
           ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
           test "$ACTUAL" = "$EXPECTED"
 
@@ -91,6 +96,7 @@ jobs:
           source/services/agent-service/.venv/bin/python -B -m pytest -q
           source/services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py
           source/services/agent-service/tests/architecture/test_semantic_authority_cutover.py
+          source/services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py
           source/services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py
           source/services/agent-service/tests/runtime/test_release44_dependency_basis_grounding.py
 
@@ -118,7 +124,8 @@ jobs:
             services/agent-service/src/agent_core/modules/contracts.py \
             services/agent-service/src/agent_core/modules/registry.py \
             services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
-            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py
+            services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py \
+            services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py
           git diff --cached --check
           git commit -m 'Add canonical semantic-output result boundaries'
           git rev-parse HEAD > ../product-sha.txt
@@ -183,6 +190,7 @@ jobs:
             services/agent-service/src/agent_core/modules/registry.py \
             services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py \
             services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py \
+            services/agent-service/tests/architecture/test_wp08_attempt6_semantic_presentation_repair.py \
             skill-system/registry/product-source-baseline.json | sort)
           test "$FINAL" = "$EXPECTED"
           git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
