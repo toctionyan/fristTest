@@ -632,6 +632,46 @@ def _requested_effect_sibling_collision_risk(
 
 
 
+def _declared_registered_output_exactness_risk(
+    goals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Expose only the structural claim that a registered semantic identity is exact.
+
+    A non-``open`` requested output has already passed the declaration schema's
+    registry-membership check before semantic alignment can freeze the plan.  Its
+    presence is therefore a high-impact semantic claim: the Planner asserts that
+    one canonical vocabulary description exactly represents the user's requested
+    information dimension/outcome.  Runtime does not interpret that claim or
+    reject it.  This signal only spends an otherwise-unused bounded verifier slot
+    on adversarial model adjudication; capability availability and tool identity
+    remain absent.
+    """
+
+    claims: list[dict[str, str]] = []
+    for goal in goals:
+        goal_id = _clean_text(goal.get("goal_id"), limit=80)
+        effect = goal.get("requested_effect") if isinstance(goal.get("requested_effect"), dict) else {}
+        outputs = effect.get("requested_outputs") if isinstance(effect, dict) else []
+        for raw in list(outputs or []):
+            if not isinstance(raw, dict):
+                continue
+            output_id = _clean_text(raw.get("output_id"), limit=240).casefold()
+            if not output_id or output_id == "open":
+                continue
+            claims.append({
+                "goal_id": goal_id,
+                "output_id": output_id,
+                "evidence_span": _clean_text(raw.get("evidence_span"), limit=240),
+            })
+    return {
+        "risk": bool(claims),
+        "claims": claims,
+        "capability_registry_consulted": False,
+        "language_interpretation_used": False,
+        "runtime_rejection_authority": False,
+    }
+
+
 def _declared_scope_constraint_risk(goals: list[dict[str, Any]]) -> dict[str, Any]:
     """Expose only the structural fact that Planner supplied scope constraints.
 
@@ -920,6 +960,7 @@ class ModelGoalAlignmentVerifier:
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             semantic_claim_reaudit = verifier_repair_kind in {
                 "candidate_blind_dependency_requested_effect_reaudit",
+                "candidate_blind_dependency_requested_output_exactness_adjudication",
                 "candidate_blind_dependency_scope_constraint_reaudit",
                 "candidate_blind_dependency_scope_constraint_adjudication",
             }
@@ -927,7 +968,7 @@ class ModelGoalAlignmentVerifier:
                 effective_instruction = (
                     blind_dependency_instruction
                     + " The previous candidate-blind call already produced a complete structurally grounded dependency proof. "
-                    "This bounded final call must re-audit only the disputed requested-effect or target-scope semantic claim. "
+                    + "This bounded final call must re-audit only the disputed requested-effect/requested-output or target-scope semantic claim. "
                     "Do not re-judge, replace or return dependency_decisions; dependency authority remains the preserved prior proof. "
                     "Return JSON only with verdict, evidence_spans, missing_spans and reason_code."
                 )
@@ -1241,7 +1282,13 @@ class ModelGoalAlignmentVerifier:
                 positive_dependency_edges = bool(list(verdict.details.get("dependency_edges") or []))
                 effect_collision_risk = _requested_effect_sibling_collision_risk(goals)
                 scope_constraint_risk = _declared_scope_constraint_risk(goals)
-                if positive_dependency_edges or effect_collision_risk["risk"] or scope_constraint_risk["risk"]:
+                registered_output_exactness_risk = _declared_registered_output_exactness_risk(goals)
+                if (
+                    positive_dependency_edges
+                    or effect_collision_risk["risk"]
+                    or scope_constraint_risk["risk"]
+                    or registered_output_exactness_risk["risk"]
+                ):
                     # The third verifier slot is already the bounded adversarial
                     # adjudicator for high-impact semantic claims. Keep one slot:
                     # confirm positive dependency edges and, when structurally
@@ -1284,7 +1331,7 @@ class ModelGoalAlignmentVerifier:
                             "dependency_decisions row using only literal result-reference/result-condition/result-value evidence; otherwise mark it "
                             "independent."
                         )
-                    else:
+                    elif scope_constraint_risk["risk"]:
                         # A supplied scope constraint is itself a high-impact semantic
                         # claim. The broad blind audit may miss the inverse-direction
                         # error (identity/reference/control text mislabeled as scope), so
@@ -1310,6 +1357,38 @@ class ModelGoalAlignmentVerifier:
                             "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
                             "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY": semantic_vocabulary,
                             "DECLARED_SCOPE_CONSTRAINT_RISK": scope_constraint_risk,
+                        }
+                        continue
+                    else:
+                        # A registered requested-output identity is itself an exactness
+                        # claim. If no dependency/sibling/scope risk already owns the
+                        # bounded third slot, adversarially challenge that claim without
+                        # revealing an oracle replacement or allowing Runtime to decide
+                        # language meaning. This closes the single-Goal/uncollided blind
+                        # spot where two broad verifier passes can both accept a nearby
+                        # canonical identity.
+                        preserved_blind_dependency_details = deepcopy(verdict.details)
+                        verifier_repair_kind = "candidate_blind_dependency_requested_output_exactness_adjudication"
+                        verifier_repair = (
+                            "Adversarially re-audit only the declared non-open requested_outputs identities from USER_TEXT and "
+                            "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY. REGISTERED_OUTPUT_EXACTNESS_RISK is structural only and does not "
+                            "assert that any identity is wrong. Start each listed identity from the hypothesis of semantic substitution, "
+                            "then retain it only when the canonical vocabulary description exactly covers the literal user's requested "
+                            "information dimension/outcome. Lexical relatedness, shared subject type, a nearby status/eligibility/action "
+                            "meaning, or implementation availability is not enough. If the user's requested user-visible outcome is "
+                            "materially different and no registered description represents it exactly, return verdict=incomplete, use "
+                            "reason_code=semantic_substitution, and copy only the smallest literal USER_TEXT span proving the different "
+                            "requested outcome into missing_spans. Do not propose or expose a replacement output_id; the Semantic Writer "
+                            "must rederive and may use open. If every listed identity is exact, return exact. Do not choose a tool, consult "
+                            "capability availability, normalize to a nearby identity, or re-audit dependency decisions."
+                        )
+                        prompt = {
+                            "USER_TEXT_UNTRUSTED": user_text,
+                            "DECLARED_GOALS": _dependency_blind_goal_projection(goals),
+                            "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                            "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                            "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY": semantic_vocabulary,
+                            "REGISTERED_OUTPUT_EXACTNESS_RISK": registered_output_exactness_risk,
                         }
                         continue
                     adjudication_goals = _dependency_adjudication_goal_projection(
