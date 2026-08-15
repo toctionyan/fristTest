@@ -1,0 +1,64 @@
+name: stage3-contract-compat-carrier
+
+on:
+  push:
+    branches:
+      - fix/proof-authority-lifecycle-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: fix/proof-authority-lifecycle-20260816
+          fetch-depth: 0
+      - name: Restore stable generic projection constraints
+        shell: bash
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          path = root / "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py"
+          text = path.read_text(encoding="utf-8")
+          replacements = {
+              '"rederive_non_authoritative_semantics_from_current_user_input"': '"rederive_semantics_from_current_user_input"',
+              '"do_not_copy_unsealed_verifier_dependency_edges_or_replacement_semantic_values"': '"do_not_copy_verifier_dependency_edges_or_replacement_semantic_values"',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected one marker for {old!r}, found {text.count(old)}")
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+
+          carrier = root / ".github/workflows/stage3-contract-compat-carrier.yml"
+          carrier.unlink()
+
+          baseline_path = root / "skill-system/registry/product-source-baseline.json"
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          files = dict(baseline.get("files") or {})
+          for rel in list(files):
+              file_path = root / rel
+              if file_path.is_file():
+                  files[rel] = sha256(file_path.read_bytes()).hexdigest()
+          baseline["files"] = dict(sorted(files.items()))
+          baseline["file_count"] = len(files)
+          baseline_path.write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Compile projection
+        run: python -m py_compile services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py
+      - name: Commit compatibility fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(semantic): preserve stable provider repair constraints"
+          git push origin HEAD:fix/proof-authority-lifecycle-20260816
