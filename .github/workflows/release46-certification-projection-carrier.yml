@@ -6,6 +6,7 @@ name: release46-certification-projection-carrier
     paths:
       - .github/workflows/release46-certification-projection-carrier.yml
       - scripts/tmp_release46_certification_projection_repair.py
+      - scripts/tmp_release46_skill_contract_migration.py
 
 permissions:
   contents: write
@@ -65,6 +66,9 @@ jobs:
           "${pythonLocation}/bin/python" -B \
             control/scripts/tmp_release46_certification_projection_repair.py \
             --workspace source
+          "${pythonLocation}/bin/python" -B \
+            control/scripts/tmp_release46_skill_contract_migration.py \
+            --workspace source
 
       - name: Verify exact pre-baseline repair scope
         run: |
@@ -73,19 +77,23 @@ jobs:
           EXPECTED=$(printf '%s\n' \
             .github/release-trigger \
             services/agent-service/scripts/verify_preprod_conversation_smoke.py \
-            services/agent-service/tests/runtime/test_release46_certification_writer_projection.py | sort)
+            services/agent-service/tests/runtime/test_release46_certification_writer_projection.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py | sort)
           ACTUAL=$({ git -C source diff --name-only; git -C source ls-files --others --exclude-standard; } | sort -u)
           test "$ACTUAL" = "$EXPECTED"
 
       - name: Run focused certification and semantic regressions
         env:
           PYTHONPATH: source/services/agent-service/src
-        run: >-
-          source/services/agent-service/.venv/bin/python -B -m pytest -q
-          source/services/agent-service/tests/runtime/test_release46_certification_writer_projection.py
-          source/services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py
-          source/services/agent-service/tests/runtime/test_release44_dependency_basis_grounding.py
-          source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+        run: |
+          set -euo pipefail
+          source/services/agent-service/.venv/bin/python -B -m pytest -q \
+            source/services/agent-service/tests/runtime/test_release46_certification_writer_projection.py \
+            source/services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py \
+            source/services/agent-service/tests/runtime/test_release44_dependency_basis_grounding.py \
+            source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+          source/services/agent-service/.venv/bin/python -B -m unittest \
+            skill-system.tests.test_wp08_new_release_attempt4_repair
 
       - name: Run complete standard Python suites
         run: >-
@@ -108,7 +116,8 @@ jobs:
           git add \
             .github/release-trigger \
             services/agent-service/scripts/verify_preprod_conversation_smoke.py \
-            services/agent-service/tests/runtime/test_release46_certification_writer_projection.py
+            services/agent-service/tests/runtime/test_release46_certification_writer_projection.py \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py
           git diff --cached --check
           git commit -m 'Align certification writer feedback with runtime projection'
           git rev-parse HEAD > ../product-sha.txt
@@ -170,6 +179,7 @@ jobs:
             .github/release-trigger \
             services/agent-service/scripts/verify_preprod_conversation_smoke.py \
             services/agent-service/tests/runtime/test_release46_certification_writer_projection.py \
-            skill-system/registry/product-source-baseline.json | sort)
+            skill-system/registry/product-source-baseline.json \
+            skill-system/tests/test_wp08_new_release_attempt4_repair.py | sort)
           test "$FINAL" = "$EXPECTED"
           git push origin "HEAD:refs/heads/${FORMAL_BRANCH}"
