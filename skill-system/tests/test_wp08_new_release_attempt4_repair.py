@@ -58,20 +58,30 @@ class Attempt4RepairTests(unittest.TestCase):
         self.assertEqual(result["data"]["current_user_input"], user_text)
         self.assertEqual(result["data"]["repair_contract"]["evidence_span_rule"], "literal_contiguous_substring")
 
-    def test_bounded_repair_forwards_exact_runtime_result_without_oracle_material(self) -> None:
+    def test_bounded_repair_forwards_runtime_writer_projection_without_oracle_material(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
         start = source.index("def _declare_with_bounded_production_repair")
         end = source.index("def _identity_failure_reason", start)
         helper = source[start:end]
+        adapter_start = source.index("def _semantic_writer_rejection_tool_message")
+        adapter_end = source.index("class _ProductionGoalDeclarationRejected", adapter_start)
+        adapter = source[adapter_start:adapter_end]
         self.assertIn("_validate_with_production_goal_contract", helper)
         self.assertIn("except RuntimeError as exc", helper)
         self.assertIn("isinstance(exc, _ProductionGoalDeclarationRejected)", helper)
-        self.assertIn("content=json.dumps(result, ensure_ascii=False, default=str)", helper)
-        self.assertIn('name="declare_turn_goals"', helper)
+        self.assertIn("_semantic_writer_rejection_tool_message(", helper)
+        self.assertIn("result=result", helper)
+        self.assertNotIn("content=json.dumps(result, ensure_ascii=False, default=str)", helper)
+        self.assertIn("_semantic_writer_declaration_result_projection(result)", adapter)
+        self.assertIn("content=json.dumps(projected, ensure_ascii=False, default=str)", adapter)
+        self.assertIn('name="declare_turn_goals"', adapter)
         self.assertIn("for attempt in range(1, 3)", helper)
         self.assertNotIn("goal_oracle", helper)
         self.assertNotIn("_match_oracle", helper)
         self.assertNotIn("expected_effect", helper)
+        self.assertNotIn("goal_oracle", adapter)
+        self.assertNotIn("_match_oracle", adapter)
+        self.assertNotIn("expected_effect", adapter)
 
     def test_oracle_still_runs_only_after_production_declaration_is_accepted(self) -> None:
         source = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")

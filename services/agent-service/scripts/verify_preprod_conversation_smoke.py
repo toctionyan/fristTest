@@ -29,6 +29,9 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage  # 
 from agent_core.config import get_model, get_model_profile  # noqa: E402
 from agent_core.lifecycle.protocol import planning_schemas  # noqa: E402
 from agent_core.lifecycle.goal_planning import validate_goal_declaration  # noqa: E402
+from agent_core.lifecycle.dialogue_runtime import (  # noqa: E402
+    _semantic_writer_declaration_result_projection,
+)
 from agent_core.model_calls import (  # noqa: E402
     RealModelCertificationError,
     attest_real_model_metadata,
@@ -382,6 +385,28 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
     return diagnostic
 
 
+def _semantic_writer_rejection_tool_message(
+    *,
+    tool_call_id: str,
+    result: dict[str, Any],
+) -> ToolMessage:
+    """Project a rejected declaration through the live Runtime writer boundary.
+
+    Certification is allowed to validate with the same complete audit proof as
+    production, but the next Semantic Writer call must see exactly the same
+    candidate-blind, violation-only projection as the live dialogue Runtime.
+    Keeping this adapter in the harness makes the protocol seam directly
+    regression-testable without duplicating projection semantics.
+    """
+
+    projected = _semantic_writer_declaration_result_projection(result)
+    return ToolMessage(
+        tool_call_id=tool_call_id,
+        name="declare_turn_goals",
+        content=json.dumps(projected, ensure_ascii=False, default=str),
+    )
+
+
 class _ProductionGoalDeclarationRejected(RuntimeError):
     def __init__(self, *, case_id: str, result: dict[str, Any]):
         self.result = result
@@ -536,19 +561,18 @@ def _declare_with_bounded_production_repair(
         if attempt >= 2:
             break
         tool_call_id = str(call.get("id") or f"{case_id}:declare:{attempt}")
-        # Production execute_agent_loop_calls_node returns this exact Runtime
-        # result as the ToolMessage. Keep certification behavior identical:
-        # the model may see the deterministic rejection code, validation errors,
-        # current_user_input, repair_contract and candidate-blind verifier feedback,
-        # but no oracle-derived count/effect/span/dependency or capability answer.
+        # Live dialogue Runtime projects rejected declaration results before the
+        # next Semantic Writer call. Certification must cross the same canonical
+        # provider-facing boundary rather than feeding the complete audit proof
+        # back to the model. This preserves verifier evidence for audit while
+        # exposing only current input plus field-specific violation evidence.
         messages = [
             system,
             HumanMessage(content=user_text),
             response,
-            ToolMessage(
+            _semantic_writer_rejection_tool_message(
                 tool_call_id=tool_call_id,
-                name="declare_turn_goals",
-                content=json.dumps(result, ensure_ascii=False, default=str),
+                result=result,
             ),
         ]
 
