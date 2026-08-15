@@ -1,0 +1,45 @@
+name: managed-production-release-trigger
+
+"on":
+  push:
+    branches:
+      - main
+    paths:
+      - .github/release-trigger
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: managed-production-release-trigger
+  cancel-in-progress: false
+
+jobs:
+  dispatch-protected-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fail closed if main advanced
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$CURRENT_MAIN" != "$EXPECTED_SHA" ]; then
+            echo "main advanced before managed release dispatch: expected=$EXPECTED_SHA current=$CURRENT_MAIN" >&2
+            exit 1
+          fi
+      - name: Dispatch protected production certification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f provider=deepseek \
+            -f model=deepseek-v4-flash \
+            -f embedding_model=text-embedding-v4 \
+            -f embedding_dimension=1024
