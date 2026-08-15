@@ -608,8 +608,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T15:47:26+08:00",
-  "generated_from": "git:02cb62297aafd179da2344a964bb195a861823b5",
+  "generated_at": "2026-08-15T15:48:01+08:00",
+  "generated_from": "git:691bcd9ddd8ae17f0c49e7cad70769ec2c0af4a6",
   "protected_roots": [
     "services",
     "web",
