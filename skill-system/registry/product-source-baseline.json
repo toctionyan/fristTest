@@ -448,7 +448,7 @@
     "services/agent-service/tests/context/test_conversation_protocol.py": "dcdf744aec5271d3303344d1580035b84bbb2a1ebfe22b56ee6c871aa5b04c9f",
     "services/agent-service/tests/context/test_conversation_regression_suite_execution.py": "a0e7c103f13ad004adcdfa0777c443c9d9a481a53cc388f64bbb325bdf96e6a5",
     "services/agent-service/tests/context/test_dialogue_counterexamples.py": "e6dea31673ec51976c01e3206fcce1801338148f6b646d82c27ffb4d642a98b3",
-    "services/agent-service/tests/context/test_parameterized_capability_alignment.py": "0c64463c8e323367b47b8df713747440f4e88dea42e50bc63702c97f5f70750b",
+    "services/agent-service/tests/context/test_parameterized_capability_alignment.py": "5cf35e7357a53f80063417057b8a4efbdfd492ce6e8a2811a0e5ba483af2893e",
     "services/agent-service/tests/context/test_reference_resolution_contract.py": "845b253e1c1411518f63d712919ba8dd3430489fae1c151ec52a9c5c88badf2c",
     "services/agent-service/tests/context/test_runtime_result_ref_pipeline.py": "0402ab93beeccfa712eb9015dfdf67a11f44cbfe41030098aaa9e25c22d1a07c",
     "services/agent-service/tests/context/test_scenario_topology.py": "1c4885dbe2eed9b32664ceae5060d13cf477c64c06b5ed424b3bfa66549d5478",
@@ -605,8 +605,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-14T10:36:49Z",
-  "generated_from": "git:2fcf2fb70a5c2842f1b1197a14e0bdf81a7ffc10",
+  "generated_at": "2026-08-15T01:08:13Z",
+  "generated_from": "git:f5cf3296eb20d08aeb138bf283180148a3148c6b",
   "protected_roots": [
     "services",
     "web",
