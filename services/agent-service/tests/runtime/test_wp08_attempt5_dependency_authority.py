@@ -185,6 +185,9 @@ def test_malformed_alignment_basis_fails_closed_after_blind_reaudit() -> None:
     assert verdict.verdict == "indeterminate"
     assert verdict.reason_code == "goal_alignment_dependency_basis_not_in_dependent_goal:0"
     assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_format_repair"
+    third_payload = str(invoke.call_args_list[2].kwargs["payload"])
+    assert "same-turn target identity inherited by zero-anaphora" in third_payload
+    assert "never emit that identity phrase as a target-scope-constraint missing span" in third_payload
 
 
 def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() -> None:
@@ -223,6 +226,8 @@ def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() ->
     assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
     second_payload = str(invoke.call_args_list[1].kwargs["payload"])
     assert '"depends_on"' not in second_payload
+    assert "same-turn zero-anaphora" in second_payload
+    assert "Never report such inherited identity text as a target-scope-constraint missing span" in second_payload
 
 
 def test_unknown_and_self_dependency_edges_fail_closed() -> None:

@@ -1,6 +1,6 @@
-release_request: 2026-08-15T13:30:00+08:00
+release_request: 2026-08-15T14:23:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: rerun protected release after shared-scope versus result-dependency semantic repair
+reason: rerun protected release after zero-anaphora target-identity verifier repair
