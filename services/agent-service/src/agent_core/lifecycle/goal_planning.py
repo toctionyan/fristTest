@@ -1298,13 +1298,17 @@ class ModelGoalAlignmentVerifier:
                 and attempt < 2
             ):
                 positive_dependency_edges = bool(list(verdict.details.get("dependency_edges") or []))
-                multi_goal_dependency_graph = len(goals) > 1
+                independence_adjudication_risk = (
+                    len(goals) > 1
+                    and initial_grounded_alignment is not None
+                    and initial_grounded_alignment.exact
+                )
                 effect_collision_risk = _requested_effect_sibling_collision_risk(goals)
                 scope_constraint_risk = _declared_scope_constraint_risk(goals)
                 registered_output_exactness_risk = _declared_registered_output_exactness_risk(goals)
                 if (
                     positive_dependency_edges
-                    or multi_goal_dependency_graph
+                    or independence_adjudication_risk
                     or effect_collision_risk["risk"]
                     or scope_constraint_risk["risk"]
                     or registered_output_exactness_risk["risk"]
@@ -1351,10 +1355,11 @@ class ModelGoalAlignmentVerifier:
                             "dependency_decisions row using only literal result-reference/result-condition/result-value evidence; otherwise mark it "
                             "independent."
                         )
-                    elif multi_goal_dependency_graph:
-                        # Dependency absence is also a high-impact semantic claim. Two
-                        # candidate-blind passes can agree on an empty graph while still
-                        # missing a literal current-turn result relation. Spend the same
+                    elif independence_adjudication_risk:
+                        # Dependency absence is also a high-impact semantic claim. A
+                        # candidate-visible exact pass plus the candidate-blind pass can
+                        # agree on an empty graph while still missing a literal current-turn
+                        # result relation. Spend the same bounded third slot only for that
                         # bounded third slot on a graph-only adversarial challenge before
                         # claim-only scope/output adjudication. Runtime still never infers
                         # or rewrites an edge from user language.

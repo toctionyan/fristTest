@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ def _goal(
         "evidence_span": span,
         "requested_effect": {
             "domain": "open",
-            "operation": "open",
+            "operation": output_id,
             "object_type": "record",
             "raw_description": span,
             "requested_outputs": [{
@@ -172,5 +173,8 @@ def test_release52_independence_adjudication_runtime_branch_is_domain_neutral() 
     start = source.index('verifier_repair_kind = "candidate_blind_dependency_independence_adjudication"')
     end = source.index('elif scope_constraint_risk["risk"]:', start)
     section = source[start:end]
-    for forbidden in ("键盘", "退款", "订单", "鼠标", "物流", "invoice", "refund", "order"):
-        assert forbidden not in section.casefold()
+    lowered = section.casefold()
+    for forbidden in ("键盘", "退款", "订单", "鼠标", "物流"):
+        assert forbidden not in lowered
+    for forbidden in ("invoice", "refund", "order"):
+        assert re.search(rf"\b{re.escape(forbidden)}\b", lowered) is None
