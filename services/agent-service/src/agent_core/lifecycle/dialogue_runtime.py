@@ -734,11 +734,13 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
     violation_field = str(feedback.get("violation_field") or "")
     if violation_field == "target_candidate.scope_constraints":
         field = violation_field
+    elif violation_field == "requested_effect.requested_outputs":
+        field = violation_field
     elif authority == "candidate_blind_goal_inventory":
         field = "goal_inventory"
     elif authority == "independent_goal_alignment":
         field = "depends_on"
-    for key in ("uncovered_outcome_spans", "invalid_scope_constraint_spans"):
+    for key in ("uncovered_outcome_spans", "invalid_scope_constraint_spans", "invalid_requested_output_spans"):
         for value in list(feedback.get(key) or []):
             span = str(value or "").strip()
             if span and span not in spans:
@@ -761,6 +763,10 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
         if field == "target_candidate.scope_constraints":
             writer_constraints.insert(0,
                 "remove_only_listed_invalid_scope_constraint_entries_and_preserve_other_literal_population_narrowing_constraints"
+            )
+        elif field == "requested_effect.requested_outputs":
+            writer_constraints.insert(0,
+                "rederive_requested_outputs_from_current_user_input_and_semantic_vocabulary_use_open_when_no_exact_registered_meaning_exists"
             )
         projected_data["independent_verifier_feedback"] = {
             "authority": "read_only_violation_evidence",
