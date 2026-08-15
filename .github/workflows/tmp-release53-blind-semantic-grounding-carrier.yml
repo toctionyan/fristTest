@@ -1,0 +1,316 @@
+name: tmp-release53-blind-semantic-grounding-carrier
+
+on:
+  push:
+    branches:
+      - fix/release53-blind-semantic-grounding-20260816
+    paths:
+      - .github/workflows/tmp-release53-blind-semantic-grounding-carrier.yml
+
+permissions:
+  contents: write
+
+jobs:
+  focused-repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/release53-blind-semantic-grounding-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent validation environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Apply exact Release 53 verifier repair and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+
+          source_path = Path("services/agent-service/src/agent_core/lifecycle/goal_planning.py")
+          source = source_path.read_text(encoding="utf-8")
+
+          old_set = '''            semantic_claim_reaudit = verifier_repair_kind in {
+                  "candidate_blind_dependency_requested_effect_reaudit",
+                  "candidate_blind_dependency_requested_output_exactness_adjudication",
+                  "candidate_blind_dependency_scope_constraint_reaudit",
+                  "candidate_blind_dependency_scope_constraint_adjudication",
+              }
+          '''
+          new_set = '''            semantic_claim_reaudit = verifier_repair_kind in {
+                  "candidate_blind_dependency_requested_effect_reaudit",
+                  "candidate_blind_dependency_requested_output_exactness_adjudication",
+                  "candidate_blind_dependency_scope_constraint_reaudit",
+                  "candidate_blind_dependency_scope_constraint_adjudication",
+                  "candidate_blind_dependency_semantic_grounding_adjudication",
+              }
+          '''
+          if source.count(old_set) != 1:
+              raise SystemExit(f"semantic_claim_reaudit anchor count != 1: {source.count(old_set)}")
+          source = source.replace(old_set, new_set, 1)
+
+          anchor = '''            if verdict.verdict in {"exact", "incomplete"}:
+                  return verdict
+          '''
+          insertion = '''            if (
+                  verifier_repair_kind == "candidate_blind_dependency_reaudit"
+                  and attempt == 1
+                  and verdict.verdict == "indeterminate"
+                  and verdict.reason_code == "goal_alignment_missing_span_not_grounded"
+                  and str(verdict.details.get("original_verdict") or "") == "incomplete"
+                  and verdict.details.get("dependency_proof_complete") is True
+                  and verdict.details.get("dependency_graph_match") is True
+                  and attempt < 2
+              ):
+                  # The candidate-blind graph proof is already complete and matches the
+                  # declaration, but its semantic incomplete claim supplied no literal
+                  # omitted outcome. Preserve the graph proof and spend the existing final
+                  # slot only on grounding or withdrawing that semantic claim. Runtime
+                  # never infers a semantic mismatch or dependency from user language.
+                  preserved_blind_dependency_details = deepcopy(verdict.details)
+                  verifier_repair_kind = "candidate_blind_dependency_semantic_grounding_adjudication"
+                  verifier_repair = (
+                      "Re-audit only the previous candidate-blind semantic incomplete claim while preserving the complete "
+                      "dependency proof. The previous incomplete claim supplied no machine-grounded literal omitted outcome, "
+                      "so that negative semantic claim is not authoritative. If the declaration truly omits or substitutes a "
+                      "user-observable semantic outcome, requested effect, or target-scope predicate, return verdict=incomplete "
+                      "and copy only the smallest exact contiguous USER_TEXT span proving that mismatch into missing_spans. If no "
+                      "such literal mismatch exists, withdraw the incomplete claim and return verdict=exact with literal "
+                      "evidence_spans covering the preserved requested outcomes. Do not infer a hidden prerequisite, target "
+                      "resolution step, execution dependency, business-state fact, tool/capability fact, or oracle answer. Do not "
+                      "re-audit or return dependency_decisions; the prior complete candidate-blind dependency proof remains "
+                      "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
+                  )
+                  continue
+              if verdict.verdict in {"exact", "incomplete"}:
+                  return verdict
+          '''
+          if source.count(anchor) != 1:
+              raise SystemExit(f"verdict return anchor count != 1: {source.count(anchor)}")
+          source = source.replace(anchor, insertion, 1)
+          source_path.write_text(source, encoding="utf-8")
+
+          test_path = Path("services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py")
+          if test_path.exists():
+              raise SystemExit(f"test path already exists: {test_path}")
+          test_path.write_text(r'''from __future__ import annotations
+
+import inspect
+import json
+import re
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier
+
+
+def _response(payload: dict) -> tuple[SimpleNamespace, dict]:
+    return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)), {}
+
+
+def _goal(goal_id: str, span: str, *, output_id: str) -> dict:
+    return {
+        "goal_id": goal_id,
+        "description": span,
+        "evidence_span": span,
+        "requested_effect": {
+            "domain": "open",
+            "operation": output_id,
+            "object_type": "record",
+            "raw_description": span,
+            "requested_outputs": [{
+                "output_id": output_id,
+                "evidence_span": span,
+            }],
+        },
+        "expected_result_cardinality": "single",
+        "required": True,
+        "depends_on": [],
+    }
+
+
+def _goals() -> list[dict]:
+    return [
+        _goal("g1", "Inspect record A", output_id="semantic.one"),
+        _goal("g2", "summarize record B", output_id="semantic.two"),
+    ]
+
+
+def _independent_pair() -> list[dict]:
+    return [{
+        "goal_a_id": "g1",
+        "goal_b_id": "g2",
+        "relation": "independent",
+    }]
+
+
+def _first_exact() -> tuple[SimpleNamespace, dict]:
+    return _response({
+        "verdict": "exact",
+        "evidence_spans": ["Inspect record A", "summarize record B"],
+        "missing_spans": [],
+        "dependency_edges": [],
+        "reason_code": "candidate_exact",
+    })
+
+
+def _blind_ungrounded_incomplete() -> tuple[SimpleNamespace, dict]:
+    return _response({
+        "verdict": "incomplete",
+        "evidence_spans": ["Inspect record A", "summarize record B"],
+        "missing_spans": [],
+        "dependency_decisions": _independent_pair(),
+        "reason_code": "semantic_coverage_gap",
+    })
+
+
+def test_release53_blind_ungrounded_incomplete_gets_claim_only_final_adjudication() -> None:
+    text = "Inspect record A, and summarize record B"
+    calls = [
+        _first_exact(),
+        _blind_ungrounded_incomplete(),
+        _response({
+            "verdict": "exact",
+            "evidence_spans": ["Inspect record A", "summarize record B"],
+            "missing_spans": [],
+            "reason_code": "withdraw_ungrounded_incomplete",
+        }),
+    ]
+
+    with patch("agent_core.config.get_model", return_value=object()), patch(
+        "agent_core.model_calls.invoke_model", side_effect=calls
+    ) as invoke:
+        verdict = ModelGoalAlignmentVerifier().verify(
+            user_text=text,
+            goals=_goals(),
+            known_tools=set(),
+        )
+
+    assert invoke.call_count == 3
+    assert verdict.exact
+    assert verdict.details["dependency_proof_complete"] is True
+    assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["dependency_edges"] == []
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_semantic_grounding_adjudication"
+
+    third_request = json.loads(invoke.call_args_list[2].kwargs["payload"][-1].content)
+    assert all("depends_on" not in row for row in third_request["DECLARED_GOALS"])
+    assert "Do not re-audit or return dependency_decisions" in third_request["FORMAT_REPAIR"]
+    assert "dependency_decisions" not in third_request["INSTRUCTION"].split("Return JSON only", 1)[-1]
+
+
+def test_release53_grounded_blind_semantic_mismatch_remains_incomplete() -> None:
+    text = "Inspect record A, and summarize record B"
+    calls = [
+        _first_exact(),
+        _blind_ungrounded_incomplete(),
+        _response({
+            "verdict": "incomplete",
+            "evidence_spans": ["Inspect record A"],
+            "missing_spans": ["summarize record B"],
+            "reason_code": "requested_effect_fidelity",
+        }),
+    ]
+
+    with patch("agent_core.config.get_model", return_value=object()), patch(
+        "agent_core.model_calls.invoke_model", side_effect=calls
+    ) as invoke:
+        verdict = ModelGoalAlignmentVerifier().verify(
+            user_text=text,
+            goals=_goals(),
+            known_tools=set(),
+        )
+
+    assert invoke.call_count == 3
+    assert verdict.verdict == "incomplete"
+    assert verdict.missing_spans == ("summarize record B",)
+    assert verdict.details["dependency_proof_complete"] is True
+    assert verdict.details["dependency_graph_match"] is True
+    assert verdict.details["dependency_edges"] == []
+
+
+def test_release53_final_ungrounded_negative_claim_still_fails_closed() -> None:
+    text = "Inspect record A, and summarize record B"
+    calls = [
+        _first_exact(),
+        _blind_ungrounded_incomplete(),
+        _response({
+            "verdict": "incomplete",
+            "evidence_spans": ["Inspect record A", "summarize record B"],
+            "missing_spans": [],
+            "reason_code": "semantic_coverage_gap_again",
+        }),
+    ]
+
+    with patch("agent_core.config.get_model", return_value=object()), patch(
+        "agent_core.model_calls.invoke_model", side_effect=calls
+    ) as invoke:
+        verdict = ModelGoalAlignmentVerifier().verify(
+            user_text=text,
+            goals=_goals(),
+            known_tools=set(),
+        )
+
+    assert invoke.call_count == 3
+    assert verdict.verdict == "indeterminate"
+    assert verdict.reason_code == "goal_alignment_missing_span_not_grounded"
+    assert verdict.details["dependency_proof_complete"] is True
+    assert verdict.details["dependency_graph_match"] is True
+
+
+def test_release53_semantic_grounding_adjudication_branch_is_domain_neutral() -> None:
+    source = inspect.getsource(ModelGoalAlignmentVerifier.verify)
+    start = source.index('verifier_repair_kind = "candidate_blind_dependency_semantic_grounding_adjudication"')
+    end = source.index('if verdict.verdict in {"exact", "incomplete"}:', start)
+    section = source[start:end].casefold()
+    for forbidden in ("键盘", "退款", "订单", "鼠标", "物流"):
+        assert forbidden not in section
+    for forbidden in ("invoice", "refund", "order"):
+        assert re.search(rf"\b{re.escape(forbidden)}\b", section) is None
+''', encoding="utf-8")
+          PY
+
+          "${pythonLocation}/bin/python" -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py
+          git diff --check
+      - name: Run focused semantic regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd services/agent-service
+          export PYTHONPATH="$PWD/src:$PWD"
+          .venv/bin/python -m pytest -q \
+            tests/runtime/test_release53_blind_semantic_grounding_adjudication.py \
+            tests/runtime/test_release52_dependency_independence_adjudication.py \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py::test_unproposed_refund_dependency_requires_candidate_blind_confirmation
+      - name: Publish source test baseline and self-delete carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py
+          git commit -m "fix(semantic): ground blind incomplete claims"
+          SOURCE_SHA=$(git rev-parse HEAD)
+
+          "${pythonLocation}/bin/python" -B scripts/refresh_product_source_baseline.py \
+            --workspace . \
+            --generated-from-sha "$SOURCE_SHA"
+
+          git rm .github/workflows/tmp-release53-blind-semantic-grounding-carrier.yml
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m "chore(skill): refresh Release 53 source baseline"
+          git push origin HEAD:fix/release53-blind-semantic-grounding-20260816
