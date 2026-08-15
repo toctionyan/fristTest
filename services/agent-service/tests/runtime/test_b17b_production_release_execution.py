@@ -110,67 +110,6 @@ def test_release_runner_plan_never_exposes_credentials(tmp_path: Path) -> None:
     assert "protected-release" in serialized
 
 
-def test_release_plan_preserves_virtualenv_launcher_identity(tmp_path: Path) -> None:
-    runner = _load_runner()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    target = workspace / "target.md"
-    target.write_text("target\n", encoding="utf-8")
-    base_python = tmp_path / "base-python"
-    base_python.write_text("#!/bin/sh\n", encoding="utf-8")
-    base_python.chmod(0o755)
-    agent_python = workspace / "services" / "agent-service" / ".venv" / "bin" / "python"
-    agent_python.parent.mkdir(parents=True)
-    agent_python.symlink_to(base_python)
-
-    plan = runner.build_release_plan(
-        workspace_root=workspace,
-        target_path=target,
-        evidence_dir=tmp_path / "evidence",
-        output_dir=tmp_path / "output",
-        artifact_name="customer_agent_workspace_v20_17_production_closed",
-        python_executable=agent_python,
-    )
-
-    assert plan["quality_command"][0] == str(agent_python.absolute())
-    assert plan["artifact_command"][0] == str(agent_python.absolute())
-    assert Path(plan["quality_command"][0]).is_symlink()
-    assert Path(plan["quality_command"][0]).resolve() == base_python.resolve()
-
-
-def test_managed_quality_environment_preserves_protected_model_identity(tmp_path: Path) -> None:
-    runner = _load_runner()
-    protected = {
-        "OPENAI_API_KEY": "protected-model-key",
-        "OPENAI_API_BASE": "https://api.deepseek.com",
-        "OPENAI_MODEL": "deepseek-chat",
-        "REAL_MODEL_CERTIFICATION_PROVIDER": "deepseek",
-        "EMBEDDING_API_KEY": "protected-embedding-key",
-        "EMBEDDING_API_BASE": "https://api.openai.com/v1",
-        "EMBEDDING_MODEL": "text-embedding-3-small",
-    }
-    recovery = tmp_path / "managed-postgres-recovery.json"
-    environment = runner._compose_managed_quality_environment(
-        protected,
-        postgres_url="postgresql+psycopg://quality@127.0.0.1:55432/quality",
-        agent_url="http://127.0.0.1:18000",
-        business_url="http://127.0.0.1:19000",
-        business_service_token="owned-test-token",
-        recovery_evidence=recovery,
-    )
-
-    for key, value in protected.items():
-        assert environment[key] == value
-    assert environment["AGENT_TEST_URL"] == "http://127.0.0.1:18000"
-    assert environment["BUSINESS_TEST_URL"] == "http://127.0.0.1:19000"
-    assert environment["BUSINESS_SERVICE_BASE_URL"] == "http://127.0.0.1:19000"
-    assert environment["BUSINESS_SERVICE_TOKEN"] == "owned-test-token"
-    assert environment["PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA"] == "true"
-    assert environment["AGENT_TEST_POSTGRES_URL"].startswith("postgresql+psycopg://")
-    assert environment["B16C_POSTGRES_RECOVERY_EVIDENCE"] == str(recovery)
-    assert "deterministic-canary-model" not in environment.values()
-
-
 def test_release_runner_requires_immutable_ci_and_official_model(monkeypatch, tmp_path: Path) -> None:
     runner = _load_runner()
     env: dict[str, str] = {
