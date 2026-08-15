@@ -159,6 +159,7 @@ def test_semantic_prototype_missing_key_is_environment_blocked_before_invocation
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("REAL_MODEL_CERTIFICATION_PROVIDER", raising=False)
     calls = {"count": 0}
     monkeypatch.setattr(script, "invoke_model", lambda **_kwargs: calls.__setitem__("count", calls["count"] + 1))
 

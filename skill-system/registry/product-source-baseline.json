@@ -475,8 +475,8 @@
     "services/agent-service/tests/runtime/test_b14e1_compatibility_projection_exit.py": "f7897a14ffb3e385b4c556263e2d2a1d151891afcdfe1e6cc61279d8eafc8086",
     "services/agent-service/tests/runtime/test_b14f1_sqlite_resource_lifecycle.py": "a6b113a55064976cb8934e40fdf18fc4f0d32397a07fa030d3ad21736a069b06",
     "services/agent-service/tests/runtime/test_b15a_real_model_identity_boundary.py": "96961b0c17ce64c4d595e500f4b5526cc1adfa58ae5178f043127a0b554ad4ba",
-    "services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py": "37bc01e68aef157a60edd932b20ce1bea81073ea41df077a46cddd22dd0801d7",
-    "services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py": "3c0627583ed19dc01b2c187798f5cbfb181171ca9eec83e3f195aa3a6fb5ac83",
+    "services/agent-service/tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py": "ab9d80e3ef2d818abce9f8010790a4f069d21c8445ee11b0f7ba9dd0ff1152b0",
+    "services/agent-service/tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py": "20c6537af5ef55572566da977f207ddda3c91f5da7bff2568e3d3f8439b61982",
     "services/agent-service/tests/runtime/test_b15c3_real_model_release_bundle_authority.py": "45e123383070f95ca5d9a3ecb2a85dff481b6a976188561ac107ec6cd180b71e",
     "services/agent-service/tests/runtime/test_b15c_real_model_certification_bundle_boundary.py": "a8635d5ccdf75c17854294ddd3230d8cc40af53b8cf2c857b14d6db6882fa262",
     "services/agent-service/tests/runtime/test_b15c_real_model_certification_dimension.py": "83a1ce559a3cb7de3099b82aac82b5c0f0b1f9cd9fae34b2792699cc018bf67b",
@@ -605,8 +605,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T01:08:13Z",
-  "generated_from": "git:f5cf3296eb20d08aeb138bf283180148a3148c6b",
+  "generated_at": "2026-08-15T01:32:46Z",
+  "generated_from": "git:a392238d8579f0e2f6155c0f6a961569e7f14c9c",
   "protected_roots": [
     "services",
     "web",
