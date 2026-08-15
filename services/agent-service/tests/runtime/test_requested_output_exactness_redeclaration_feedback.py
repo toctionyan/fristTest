@@ -129,3 +129,71 @@ def test_candidate_blind_audit_keeps_canonical_output_identity_for_exactness_rev
         "output_id": "refund.status",
         "evidence_span": "退款什么时候到账",
     }]
+
+
+
+def _release45_semantic_substitution_mismatch() -> GoalAlignmentVerdict:
+    return GoalAlignmentVerdict(
+        "incomplete",
+        ("鼠标订单的退款什么时候到账",),
+        ("鼠标订单的退款什么时候到账",),
+        "semantic_substitution",
+        "model",
+        True,
+        {
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_proof_complete": True,
+            "dependency_graph_match": True,
+            "dependency_edges": [],
+            "verifier_repair_attempted": False,
+            "verifier_repair_kind": "",
+        },
+    )
+
+
+def test_release45_semantic_substitution_reason_routes_to_requested_output_redeclaration():
+    alignment = _release45_semantic_substitution_mismatch()
+    row = _alignment_repair_feedback(alignment)["independent_verifier_feedback"]
+    assert row["required_action"] == "redeclaration_rederiving_requested_outputs"
+    assert row["violation_field"] == "requested_effect.requested_outputs"
+    assert row["invalid_requested_output_spans"] == ["鼠标订单的退款什么时候到账"]
+
+    result = {
+        "ok": False,
+        "code": "GOAL_DECLARATION_INCOMPLETE",
+        "message": "redeclare",
+        "data": {
+            "alignment_proof": alignment.as_dict(),
+            **_alignment_repair_feedback(alignment),
+            "current_user_input": "鼠标订单的退款什么时候到账",
+            "repair_contract": {"authority": "current_user_input_only", "required_action": "redeclaration"},
+        },
+    }
+    projected = _semantic_writer_declaration_result_projection(result)
+    feedback = projected["data"]["independent_verifier_feedback"]
+    assert feedback["authority"] == "read_only_violation_evidence"
+    assert feedback["violation"] == {
+        "field": "requested_effect.requested_outputs",
+        "reason_code": "semantic_substitution",
+        "evidence_spans": ["鼠标订单的退款什么时候到账"],
+    }
+    assert "rederive_requested_outputs_from_current_user_input_and_semantic_vocabulary_use_open_when_no_exact_registered_meaning_exists" in feedback["constraints"]
+    assert "refund.status" not in str(projected)
+
+
+def test_release45_unrelated_semantic_reason_is_not_reclassified_as_requested_output_mismatch():
+    alignment = GoalAlignmentVerdict(
+        "incomplete",
+        ("鼠标订单",),
+        ("鼠标订单",),
+        "semantic_scope_mismatch",
+        "model",
+        True,
+        {
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_proof_complete": True,
+            "dependency_graph_match": True,
+            "dependency_edges": [],
+        },
+    )
+    assert _alignment_repair_feedback(alignment) == {}
