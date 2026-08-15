@@ -791,8 +791,8 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
 
     if feedback or reason_code or spans:
         writer_constraints = [
-            "rederive_non_authoritative_semantics_from_current_user_input",
-            "do_not_copy_unsealed_verifier_dependency_edges_or_replacement_semantic_values",
+            "rederive_semantics_from_current_user_input",
+            "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",
             "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",
             "runtime_does_not_auto_rewrite_the_candidate",
         ]

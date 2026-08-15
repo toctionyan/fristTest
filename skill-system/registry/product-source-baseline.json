@@ -161,7 +161,7 @@
     "services/agent-service/src/agent_core/lifecycle/condition_expression.py": "102b78de9365825a765eeebbe6fb4da0ba88d9774dfeaee0b0c4896ee0be5ae1",
     "services/agent-service/src/agent_core/lifecycle/context_runtime.py": "9616209b3827276f05e7cac054b81be3fb6d86fd412ed0d2a1b13cf6aea75971",
     "services/agent-service/src/agent_core/lifecycle/continuation_runtime.py": "3e068bf7d1100dbbff1d0949666b5058ac0f9e3ebd9e1a67e550f2fb32d998bb",
-    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "6cc012fd2b15d5600b16d890c6ac82e031b68621013c27ccf80cbd77599aaa3e",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "e90e14a1bb9cdab5a60c1e4363bd2a9e51a9fcc6f820513bdfe12772f6b341ee",
     "services/agent-service/src/agent_core/lifecycle/disposition_runtime.py": "3e2f054d0aec694d65f36616093a5cba45c9a4c602f82583984825dd31936a1f",
     "services/agent-service/src/agent_core/lifecycle/execution_disposition.py": "37ad8bd812dec3916b5f3e0fa78641eadff3b68ef9d2920529183db939023ec0",
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
