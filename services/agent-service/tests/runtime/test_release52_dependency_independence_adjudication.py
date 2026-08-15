@@ -115,6 +115,9 @@ def test_release52_empty_dependency_graph_receives_third_adversarial_challenge()
         "basis_span": "that result",
     }]
     assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_independence_adjudication"
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is False
 
     third_request = json.loads(invoke.call_args_list[2].kwargs["payload"][-1].content)
     assert "dependency absence is not settled" in third_request["FORMAT_REPAIR"]
@@ -166,6 +169,9 @@ def test_release52_true_independent_siblings_remain_exact_after_third_challenge(
     assert verdict.details["dependency_graph_match"] is True
     assert verdict.details["dependency_edges"] == []
     assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_independence_adjudication"
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is True
 
 
 def test_release52_independence_adjudication_runtime_branch_is_domain_neutral() -> None:

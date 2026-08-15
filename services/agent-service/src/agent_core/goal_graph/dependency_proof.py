@@ -75,6 +75,7 @@ _BASE_REQUIRED_OBLIGATIONS = (
     "counterfactual",
     "structural_validity",
     "contradiction_free",
+    "adversarial_closure",
 )
 
 

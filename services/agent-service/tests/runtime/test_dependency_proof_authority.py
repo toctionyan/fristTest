@@ -15,6 +15,7 @@ def _obligations(**overrides: str) -> dict[str, str]:
         "counterfactual": "PASS",
         "structural_validity": "PASS",
         "contradiction_free": "PASS",
+        "adversarial_closure": "PASS",
         "pair_coverage": "PASS",
     }
     base.update(overrides)
@@ -56,6 +57,23 @@ def test_complete_and_matching_do_not_mint_absence_authority_when_counterfactual
     )
     state = ledger["states"]["g1::g2"]
     assert state["maturity"] == proof.REJECTED
+    assert state["diagnostic_claims"]["complete"] is True
+    assert state["diagnostic_claims"]["matching"] is True
+    assert proof.dependency_authority_for_pair(ledger, "g1", "g2") is None
+
+
+
+def test_complete_and_matching_are_only_diagnostics_until_adversarial_closure_passes() -> None:
+    ledger = proof.apply_dependency_observation(
+        None,
+        _observation(
+            "independent",
+            obligations_override={"adversarial_closure": "UNKNOWN"},
+        ),
+        current_premise_digest=PREMISE,
+    )
+    state = ledger["states"]["g1::g2"]
+    assert state["maturity"] == proof.GROUNDED
     assert state["diagnostic_claims"]["complete"] is True
     assert state["diagnostic_claims"]["matching"] is True
     assert proof.dependency_authority_for_pair(ledger, "g1", "g2") is None

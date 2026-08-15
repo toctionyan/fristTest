@@ -36,6 +36,11 @@ from agent_core.lifecycle.semantic_state_changes import (
     validate_goal_changes,
 )
 from agent_core.runtime.profile import resolve_verifier_mode
+from agent_core.goal_graph.dependency_alignment import (
+    alignment_dependency_authority_details,
+    apply_alignment_dependency_proof,
+    dependency_authority_closed_and_matching,
+)
 
 GOAL_PLAN_VERSION = "turn-goal-plan@1.1"
 MAX_TURN_GOALS = 12
@@ -190,6 +195,9 @@ def _as_alignment_verdict(
         and details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
+        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"
+        and details.get("dependency_authority_complete") is True
+        and details.get("dependency_authority_graph_match") is False
     )
     if verdict == "exact" and not evidence:
         return GoalAlignmentVerdict(
@@ -974,7 +982,9 @@ class ModelGoalAlignmentVerifier:
         initial_grounded_alignment: GoalAlignmentVerdict | None = None
         requested_effect_reaudit_guard: dict[str, Any] | None = None
         preserved_blind_dependency_details: dict[str, Any] | None = None
-        for attempt in range(3):
+        dependency_proof_ledger: dict[str, Any] | None = None
+        dependency_authority_snapshot: dict[str, Any] = {}
+        for attempt in range(6):
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             semantic_claim_reaudit = verifier_repair_kind in {
                 "candidate_blind_dependency_requested_effect_reaudit",
@@ -1195,6 +1205,33 @@ class ModelGoalAlignmentVerifier:
                             verdict.independent,
                             {**verdict.details, **dependency_details},
                         )
+            if (
+                blind_dependency_audit
+                and not semantic_claim_reaudit
+                and isinstance(verdict.details, dict)
+                and verdict.details.get("dependency_proof_complete") is True
+                and isinstance(verdict.details.get("dependency_pair_decisions"), list)
+            ):
+                dependency_proof_ledger, _dependency_graph_snapshot = apply_alignment_dependency_proof(
+                    dependency_proof_ledger,
+                    user_text=user_text,
+                    goals=goals,
+                    details=verdict.details,
+                    phase=str(verifier_repair_kind or "candidate_blind_dependency_reaudit"),
+                )
+                dependency_authority_snapshot = alignment_dependency_authority_details(
+                    dependency_proof_ledger,
+                    goals=goals,
+                )
+                verdict = GoalAlignmentVerdict(
+                    verdict.verdict,
+                    verdict.evidence_spans,
+                    verdict.missing_spans,
+                    verdict.reason_code,
+                    verdict.source,
+                    verdict.independent,
+                    {**verdict.details, **dependency_authority_snapshot},
+                )
             if attempt > 0 and verifier_repair_kind:
                 verdict = GoalAlignmentVerdict(
                     verdict.verdict,
@@ -1567,6 +1604,75 @@ class ModelGoalAlignmentVerifier:
                     "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
+            if (
+                verdict.exact
+                and len(goals) > 1
+                and dependency_authority_snapshot.get("dependency_authority_complete") is True
+                and dependency_authority_snapshot.get("dependency_authority_graph_match") is False
+            ):
+                verdict = GoalAlignmentVerdict(
+                    "incomplete",
+                    verdict.evidence_spans,
+                    (),
+                    "goal_alignment_dependency_graph_mismatch",
+                    verdict.source,
+                    verdict.independent,
+                    {
+                        **verdict.details,
+                        **dependency_authority_snapshot,
+                        "dependency_proof_complete": True,
+                        "dependency_graph_match": False,
+                    },
+                )
+            if (
+                verdict.exact
+                and len(goals) > 1
+                and dependency_authority_snapshot.get("dependency_authority_complete") is not True
+                and isinstance(verdict.details, dict)
+                and verdict.details.get("dependency_proof_complete") is True
+                and attempt < 5
+            ):
+                # A broad complete/matching proof is provisional evidence, not
+                # authority. Semantic-claim arbitration may consume a verifier call,
+                # but it cannot silently mature or erase the graph. Close the graph
+                # in its own state-driven phase instead of making "third call" itself
+                # an authority rule.
+                initial_grounded_alignment = verdict
+                preserved_blind_dependency_details = deepcopy(verdict.details)
+                verifier_repair_kind = "candidate_blind_dependency_authority_closure"
+                verifier_repair = (
+                    "Close only the current-turn dependency proof maturity from USER_TEXT. The prior pairwise proof is provisional: "
+                    "complete/matching alone is not authority. Re-read every unordered Goal pair from scratch and apply the result "
+                    "counterfactual: remove only the earlier Goal result payload while preserving literal objects, scopes and constraints. "
+                    "Return exactly one dependency_decisions row for every unordered pair. Retain a positive relation only when the later "
+                    "user-visible target, condition or value input becomes unavailable because it consumes that result; otherwise return "
+                    "independent. Positive relations require relation-only basis_kind/basis_span inside the dependent Goal. Do not re-audit "
+                    "requested_effect, requested_outputs, target scope, historical reference, capability availability, tool order, Draft "
+                    "mechanics or business-state facts. Return verdict=exact with dependency_decisions and the normal JSON fields; Runtime "
+                    "will compare the closed graph to Planner depends_on deterministically."
+                )
+                prompt = {
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "DECLARED_GOALS": _dependency_adjudication_goal_projection(goals),
+                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                    "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY": semantic_vocabulary,
+                }
+                continue
+            if (
+                verdict.exact
+                and len(goals) > 1
+                and not dependency_authority_closed_and_matching(dependency_authority_snapshot)
+            ):
+                return GoalAlignmentVerdict(
+                    "indeterminate",
+                    verdict.evidence_spans,
+                    (),
+                    "goal_alignment_dependency_authority_unclosed",
+                    verdict.source,
+                    verdict.independent,
+                    {**verdict.details, **dependency_authority_snapshot},
+                )
             if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
             if verdict.verdict == "clarify":
@@ -2031,6 +2137,9 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
         details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
+        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"
+        and details.get("dependency_authority_complete") is True
+        and details.get("dependency_authority_graph_match") is False
     ):
         return {}
 
