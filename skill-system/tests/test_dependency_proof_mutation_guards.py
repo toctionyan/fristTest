@@ -5,6 +5,7 @@ import inspect
 import sys
 from types import ModuleType
 from typing import Iterator
+import unittest
 from uuid import uuid4
 
 import agent_core.lifecycle.goal_dependency_proof as production
@@ -12,18 +13,14 @@ import agent_core.lifecycle.goal_dependency_proof as production
 
 @contextmanager
 def _mutated_dependency_proof_module(*, old: str, new: str) -> Iterator[ModuleType]:
-    """Load one deliberately-mutated reducer without changing repository source.
-
-    These tests are mutation canaries, not source-shape assertions alone: every
-    mutant is executed through the same invariant probe as the production
-    reducer. The exact replacement must remain unique so a refactor cannot
-    silently turn a mutation guard into a no-op.
-    """
+    """Load one deliberately-mutated reducer without changing repository source."""
 
     source = inspect.getsource(production)
-    assert source.count(old) == 1, f"mutation target must be unique: {old!r}"
+    if source.count(old) != 1:
+        raise AssertionError(f"mutation target must be unique: {old!r}")
     mutated = source.replace(old, new, 1)
-    assert mutated != source
+    if mutated == source:
+        raise AssertionError("mutation must change reducer source")
 
     module_name = f"{production.__name__}__mutation_{uuid4().hex}"
     module = ModuleType(module_name)
@@ -107,7 +104,8 @@ def _unbound_counterevidence_cannot_downgrade_invariant(module: ModuleType) -> b
             evidence="authority-evidence",
         ),
     )
-    assert authority.authoritative
+    if not authority.authoritative:
+        return False
 
     attempted = module.reduce_dependency_graph_proof(
         authority,
@@ -126,46 +124,46 @@ def _unbound_counterevidence_cannot_downgrade_invariant(module: ModuleType) -> b
     )
 
 
-def test_mutation_guard_pair_coverage_is_behaviorally_killed() -> None:
-    assert _pair_coverage_invariant(production) is True
+class DependencyProofMutationGuardTests(unittest.TestCase):
+    def test_pair_coverage_mutant_is_behaviorally_killed(self) -> None:
+        self.assertTrue(_pair_coverage_invariant(production))
+        with _mutated_dependency_proof_module(
+            old="            and self.expected_pair_count == self.observed_pair_count\n",
+            new="            and True  # MUTANT: pair coverage gate deleted\n",
+        ) as mutant:
+            self.assertFalse(_pair_coverage_invariant(mutant))
 
-    with _mutated_dependency_proof_module(
-        old="            and self.expected_pair_count == self.observed_pair_count\n",
-        new="            and True  # MUTANT: pair coverage gate deleted\n",
-    ) as mutant:
-        assert _pair_coverage_invariant(mutant) is False
+    def test_provisional_role_gate_mutant_is_behaviorally_killed(self) -> None:
+        self.assertTrue(_provisional_cannot_mint_authority_invariant(production))
+        with _mutated_dependency_proof_module(
+            old=(
+                "        if observation.role != DependencyObservationRole.ADVERSARIAL_CLOSURE:\n"
+                "            return _verified_from(\n"
+            ),
+            new=(
+                "        if False:  # MUTANT: VERIFIED -> AUTHORITATIVE role gate deleted\n"
+                "            return _verified_from(\n"
+            ),
+        ) as mutant:
+            self.assertFalse(_provisional_cannot_mint_authority_invariant(mutant))
+
+    def test_counterevidence_binding_mutant_is_behaviorally_killed(self) -> None:
+        self.assertTrue(_unbound_counterevidence_cannot_downgrade_invariant(production))
+        with _mutated_dependency_proof_module(
+            old=(
+                "        if (\n"
+                "            not observation.supersedes_evidence_digest\n"
+                "            or observation.supersedes_evidence_digest != previous.authority_evidence_digest\n"
+                "        ):\n"
+                "            return _preserve(\n"
+            ),
+            new=(
+                "        if False:  # MUTANT: authority binding gate deleted\n"
+                "            return _preserve(\n"
+            ),
+        ) as mutant:
+            self.assertFalse(_unbound_counterevidence_cannot_downgrade_invariant(mutant))
 
 
-def test_mutation_guard_provisional_role_cannot_become_authority() -> None:
-    assert _provisional_cannot_mint_authority_invariant(production) is True
-
-    with _mutated_dependency_proof_module(
-        old=(
-            "        if observation.role != DependencyObservationRole.ADVERSARIAL_CLOSURE:\n"
-            "            return _verified_from(\n"
-        ),
-        new=(
-            "        if False:  # MUTANT: VERIFIED -> AUTHORITATIVE role gate deleted\n"
-            "            return _verified_from(\n"
-        ),
-    ) as mutant:
-        assert _provisional_cannot_mint_authority_invariant(mutant) is False
-
-
-def test_mutation_guard_counterevidence_must_bind_current_authority() -> None:
-    assert _unbound_counterevidence_cannot_downgrade_invariant(production) is True
-
-    with _mutated_dependency_proof_module(
-        old=(
-            "        if (\n"
-            "            not observation.supersedes_evidence_digest\n"
-            "            or observation.supersedes_evidence_digest != previous.authority_evidence_digest\n"
-            "        ):\n"
-            "            return _preserve(\n"
-        ),
-        new=(
-            "        if False:  # MUTANT: authority binding gate deleted\n"
-            "            return _preserve(\n"
-        ),
-    ) as mutant:
-        assert _unbound_counterevidence_cannot_downgrade_invariant(mutant) is False
+if __name__ == "__main__":
+    unittest.main()
