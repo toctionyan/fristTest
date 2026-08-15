@@ -15,17 +15,17 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'diagnostic/parameterized-permit-20260815'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact failed release main
+      - name: Checkout exact provider-hint repair candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: 7549adbb88da6c0a1ef7eea622fbf98a431416b9
+          ref: 9104b55994fde10d0b278c431633e0140ee610ff
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Assert exact failed release main
+      - name: Assert exact repair candidate
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "7549adbb88da6c0a1ef7eea622fbf98a431416b9"
+          test "$(git rev-parse HEAD)" = "9104b55994fde10d0b278c431633e0140ee610ff"
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
@@ -38,7 +38,7 @@ jobs:
           python -m pip install --disable-pip-version-check uv==0.11.29
           uv sync --frozen
 
-      - name: Reproduce protected parent provider hint before missing-key assertions
+      - name: Verify missing-key tests under inherited protected DeepSeek identity
         working-directory: services/agent-service
         env:
           PYTHONPATH: .:src
@@ -49,57 +49,6 @@ jobs:
           OPENAI_API_BASE: https://api.deepseek.com
         run: |
           set -euo pipefail
-          uv run python - <<'PY'
-          import importlib.util
-          import json
-          import os
-          from pathlib import Path
-
-          root = Path.cwd()
-
-          def load(name, path):
-              spec = importlib.util.spec_from_file_location(name, path)
-              assert spec is not None and spec.loader is not None
-              module = importlib.util.module_from_spec(spec)
-              spec.loader.exec_module(module)
-              return module
-
-          def missing_key_env():
-              os.environ.pop('OPENAI_API_KEY', None)
-              os.environ.pop('OPENAI_API_BASE', None)
-              os.environ['OPENAI_MODEL'] = 'gpt-4o-mini'
-              # Deliberately preserve REAL_MODEL_CERTIFICATION_PROVIDER=deepseek,
-              # matching the protected release parent process.
-
-          semantic = load('diag_semantic_missing_key', root / 'scripts/verify_preprod_conversation_smoke.py')
-          missing_key_env()
-          rc1 = semantic.main()
-          print(json.dumps({
-              'probe': 'semantic',
-              'return_code': rc1,
-              'provider_hint': os.environ.get('REAL_MODEL_CERTIFICATION_PROVIDER'),
-              'api_key_present': bool(os.environ.get('OPENAI_API_KEY')),
-              'api_base_present': bool(os.environ.get('OPENAI_API_BASE')),
-              'model': os.environ.get('OPENAI_MODEL'),
-          }, sort_keys=True))
-          assert rc1 == 1
-
-          # Restore the protected parent identity, load the second script, then
-          # apply the same missing-key mutation used by its unit test.
-          os.environ['REAL_MODEL_CERTIFICATION_PROVIDER'] = 'deepseek'
-          os.environ['OPENAI_API_KEY'] = 'sk-live-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-          os.environ['OPENAI_MODEL'] = 'deepseek-v4-flash'
-          os.environ['OPENAI_API_BASE'] = 'https://api.deepseek.com'
-          lifecycle = load('diag_lifecycle_missing_key', root / 'scripts/verify_preprod_full_lifecycle.py')
-          missing_key_env()
-          rc2 = lifecycle.main()
-          print(json.dumps({
-              'probe': 'lifecycle',
-              'return_code': rc2,
-              'provider_hint': os.environ.get('REAL_MODEL_CERTIFICATION_PROVIDER'),
-              'api_key_present': bool(os.environ.get('OPENAI_API_KEY')),
-              'api_base_present': bool(os.environ.get('OPENAI_API_BASE')),
-              'model': os.environ.get('OPENAI_MODEL'),
-          }, sort_keys=True))
-          assert rc2 == 1
-          PY
+          uv run pytest -q -s \
+            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py::test_semantic_prototype_missing_key_is_environment_blocked_before_invocation \
+            tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py::test_full_lifecycle_missing_key_is_environment_blocked_before_start
