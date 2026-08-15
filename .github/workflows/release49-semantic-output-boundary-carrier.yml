@@ -82,7 +82,7 @@ jobs:
 
       - name: Run focused semantic-boundary and requested-output regressions
         env:
-          PYTHONPATH: source/services/agent-service/src
+          PYTHONPATH: source/services/agent-service/src:source/services/agent-service
         run: >-
           source/services/agent-service/.venv/bin/python -B -m pytest -q
           source/services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py
