@@ -85,20 +85,36 @@ def test_shared_scope_ellipsis_remains_independent() -> None:
 def test_false_declared_dependency_is_rejected_by_independent_alignment_graph() -> None:
     text = "查一下鼠标订单，然后帮我申请退款"
     goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", ["g1"])]
+    candidate = _response({
+        "verdict": "incomplete",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_edges": [],
+        "reason_code": "declared_dependency_not_expressed",
+    })
+    independent = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "independent",
+        }],
+        "reason_code": "candidate_blind_independent",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model",
-        return_value=_response({
-            "verdict": "incomplete",
-            "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
-            "missing_spans": [],
-            "dependency_edges": [],
-            "reason_code": "declared_dependency_not_expressed",
-        }),
-    ):
+        "agent_core.model_calls.invoke_model", side_effect=[candidate, independent, independent]
+    ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.details["dependency_graph_match"] is False
+    assert verdict.details["dependency_edges"] == []
+    assert verdict.details["dependency_authority_state"] == "authoritative"
+    assert verdict.details["dependency_challenge_required"] is False
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
 
 
 def test_exact_contradictory_graph_self_reaudits_candidate_blind() -> None:

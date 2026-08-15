@@ -1067,8 +1067,8 @@ class ModelGoalAlignmentVerifier:
                 dependency_error: str | None = None
                 if raw_verdict in {"exact", "incomplete"}:
                     if semantic_claim_reaudit and isinstance(preserved_blind_dependency_details, dict):
-                        # The second candidate-blind call already closed graph authority.
-                        # A third call exists only to arbitrate one semantic-field claim;
+                        # The prior candidate-blind call produced a complete preservable graph observation.
+                        # This call exists only to arbitrate one semantic-field claim;
                         # letting it emit a fresh graph reopens a proven dimension and can
                         # turn harmless semantic arbitration into a spurious dependency
                         # grounding failure. Preserve, do not weaken, the prior proof.
@@ -1271,29 +1271,26 @@ class ModelGoalAlignmentVerifier:
                         "verifier_repair_kind": verifier_repair_kind,
                     },
                 )
-            dependency_mismatch_introduces_new_edge = False
+            dependency_mismatch_requires_blind_audit = False
             if (
                 attempt == 0
+                and len(goals) > 1
                 and verdict.verdict == "incomplete"
                 and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+                and not verdict.missing_spans
             ):
                 details = verdict.details if isinstance(verdict.details, dict) else {}
-                declared_pairs = {
-                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))
-                    for row in list(details.get("declared_dependency_edges") or [])
-                    if isinstance(row, dict)
-                }
-                verified_pairs = {
-                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))
-                    for row in list(details.get("dependency_edges") or [])
-                    if isinstance(row, dict)
-                }
-                dependency_mismatch_introduces_new_edge = bool(verified_pairs - declared_pairs)
+                dependency_mismatch_requires_blind_audit = bool(
+                    details.get("dependency_authority") == "independent_goal_alignment"
+                    and details.get("dependency_proof_complete") is True
+                    and details.get("dependency_graph_match") is False
+                    and details.get("dependency_mismatch_grounding") == "machine_dependency_proof"
+                )
             if (
                 attempt == 0
                 and (
                     verdict.exact
-                    or (len(goals) > 1 and dependency_mismatch_introduces_new_edge)
+                    or dependency_mismatch_requires_blind_audit
                 )
             ):
                 # Both entry paths are safe to send to the candidate-blind graph audit.
@@ -1303,7 +1300,7 @@ class ModelGoalAlignmentVerifier:
                 # certify exactness later: the outer normalizer still fails exact-without-evidence closed.
                 initial_grounded_alignment = verdict
                 # Every first-pass exact declaration, plus a grounded dependency-only
-                # disagreement that introduces a new edge, receives one independent
+                # disagreement in either polarity, receives one independent
                 # semantic-contract re-audit within the existing verifier budget.
                 # The projection hides Planner depends_on but retains the declared
                 # requested_effect and target_candidate so the verifier can detect semantic
