@@ -3,4 +3,4 @@ provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: rerun protected release after npm runtime provenance revalidation fix
+reason: rerun protected release after filesystem npm installation identity fix
