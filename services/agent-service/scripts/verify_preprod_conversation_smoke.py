@@ -375,8 +375,16 @@ def _sanitized_goal_rejection_diagnostic(result: dict[str, Any] | None) -> dict[
             "uncovered_outcome_spans": [str(value) for value in list(feedback.get("uncovered_outcome_spans") or []) if str(value)][:8],
             "dependency_edges": [
                 {
-                    "dependent_span": str(row.get("dependent_span") or ""),
-                    "requires_result_of_span": str(row.get("requires_result_of_span") or ""),
+                    key: str(row.get(key) or "")
+                    for key in (
+                        "dependent_goal_id",
+                        "requires_result_of_goal_id",
+                        "basis_kind",
+                        "basis_span",
+                        "dependent_span",
+                        "requires_result_of_span",
+                    )
+                    if str(row.get(key) or "")
                 }
                 for row in list(feedback.get("dependency_edges") or [])
                 if isinstance(row, dict)
