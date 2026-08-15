@@ -1,5 +1,5 @@
 {
-  "file_count": 603,
+  "file_count": 604,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -362,7 +362,7 @@
     "services/agent-service/src/agent_modules/ecommerce/rag_seed.py": "5a36af4bfe951e4c546d6148a8da0ed69bc464f1ad92826b6044b48bb8200e42",
     "services/agent-service/src/agent_modules/ecommerce/resource_plugins.py": "816af2d287fdfb2d6631429718dd4df58a2d8bc331b6d17dba630c5d98d8d95a",
     "services/agent-service/src/agent_modules/ecommerce/schemas.py": "5ae0c82844786629b250289a15623e332ae1f28a8be82894748e77d6b4c997c3",
-    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py": "b81e548e5d5de78e840df0d9094a843432da0a99acb3eac7b7595f1e2a8d8f85",
+    "services/agent-service/src/agent_modules/ecommerce/semantic_vocabulary.py": "48d54a50de0f81add96f21fdf6df45edb0565f7c2bcdfe3a809f03202ef77ad7",
     "services/agent-service/src/agent_modules/ecommerce/shared/__init__.py": "b17d7e67b65b6027ed7880254c3cbe35b2a62aa858ab4fc113e9aee8cf4d3d8f",
     "services/agent-service/src/agent_modules/ecommerce/shared/consultation.py": "01615ec102092b61712df1eaa0ea247d1438e778a30b3cd67a17783b4d817eb6",
     "services/agent-service/src/agent_modules/ecommerce/shared/context.py": "a6089b808a6419f456236fc09e04253945a0942d437495fe997ee8b406eeff9f",
@@ -418,6 +418,7 @@
     "services/agent-service/tests/architecture/test_quality_loop_controller.py": "f0117991f8a36a35593ce20607f548baf8bcf29ece93818cc1df48cacf58d565",
     "services/agent-service/tests/architecture/test_quality_loop_governance.py": "9947794739a397d61726fa024c3300c7b9861c5b37b55f94f57dd280b61f40a5",
     "services/agent-service/tests/architecture/test_readiness_boundary_scc_extraction.py": "ce79becc2dae5d6956fbcfb16fb3eb5fdda45f8444bf28a472ed85ca7b3ad325",
+    "services/agent-service/tests/architecture/test_refund_semantic_vocabulary_distinction.py": "52e3eab2de73f6e9537951162ed42095d3e882458015e74d74bcc5bb2f621a6a",
     "services/agent-service/tests/architecture/test_resilient_repair_task_run.py": "27388198e3a877e3843f5c52c94ad46560d9e4e406db6e890a3dcb886abd88b7",
     "services/agent-service/tests/architecture/test_resource_registry_injection_scc.py": "1fcb435afc2fbbaf267ebd3d487d8d147ac772ff15f09b3026678ad50e097601",
     "services/agent-service/tests/architecture/test_runtime_boundaries.py": "0380d409c626d3cc3ded334c2fb9d14df2b83590a2c584b30a87f721bde6450a",
@@ -605,8 +606,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T01:32:46Z",
-  "generated_from": "git:a392238d8579f0e2f6155c0f6a961569e7f14c9c",
+  "generated_at": "2026-08-15T13:14:13+08:00",
+  "generated_from": "git:cda46810bf22ccb8758ac9f87178a2a2f2438f0b",
   "protected_roots": [
     "services",
     "web",
