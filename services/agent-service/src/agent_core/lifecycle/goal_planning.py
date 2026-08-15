@@ -230,6 +230,41 @@ def _as_alignment_verdict(
     )
 
 
+def _requested_output_evidence_spans(goal: dict[str, Any]) -> tuple[str, ...]:
+    """Return canonical requested-output evidence spans already frozen by the candidate.
+
+    These spans identify the user-visible outcome itself.  They are structural
+    evidence only; Runtime does not interpret their language or output IDs.
+    """
+    effect = goal.get("requested_effect") if isinstance(goal.get("requested_effect"), dict) else {}
+    rows: list[str] = []
+    for raw in list(effect.get("requested_outputs") or []):
+        if not isinstance(raw, dict):
+            continue
+        span = _clean_text(raw.get("evidence_span"), limit=240)
+        if span and span not in rows:
+            rows.append(span)
+    return tuple(rows)
+
+
+def _dependency_basis_overlaps_requested_output(goal: dict[str, Any], basis_span: str) -> bool:
+    """Reject dependency proof text that is actually outcome/action evidence.
+
+    A dependency basis must isolate the relation that consumes an earlier Goal
+    result.  A span that is inside a requested-output span, or merely wraps that
+    output span with control/action wording, does not independently prove a
+    result-reference/condition/value relation.  This check is domain-neutral and
+    purely structural: it compares already-declared literal evidence spans.
+    """
+    basis = _clean_text(basis_span, limit=240)
+    if not basis:
+        return False
+    return any(
+        basis in output_span or output_span in basis
+        for output_span in _requested_output_evidence_spans(goal)
+    )
+
+
 def _model_alignment_dependency_proof(
     *,
     user_text: str,
@@ -294,6 +329,8 @@ def _model_alignment_dependency_proof(
             or basis_span not in dependent_span
         ):
             return base_details, f"goal_alignment_dependency_basis_not_in_dependent_goal:{edge_index}"
+        if _dependency_basis_overlaps_requested_output(goal_by_id[dependent], basis_span):
+            return base_details, f"goal_alignment_dependency_basis_is_requested_output:{edge_index}"
         edge = (dependent, prerequisite)
         if edge in proof_edges:
             return base_details, f"goal_alignment_dependency_duplicate_edge:{edge_index}"
@@ -412,14 +449,7 @@ def _model_alignment_pairwise_dependency_proof(
                 or basis_span not in dependent_span
             ):
                 return base_details, f"goal_alignment_dependency_basis_not_in_dependent_goal:{index}"
-            dependent_requested_effect = goal_by_id[dependent].get("requested_effect")
-            dependent_requested_outputs = (dependent_requested_effect.get("requested_outputs") if isinstance(dependent_requested_effect, dict) else [])
-            requested_output_spans = {
-                _clean_text(row.get("evidence_span"), limit=240)
-                for row in list(dependent_requested_outputs or [])
-                if isinstance(row, dict) and _clean_text(row.get("evidence_span"), limit=240)
-            }
-            if any(basis_span in output_span for output_span in requested_output_spans):
+            if _dependency_basis_overlaps_requested_output(goal_by_id[dependent], basis_span):
                 return base_details, f"goal_alignment_dependency_basis_is_requested_output:{index}"
             edge = (dependent, prerequisite)
             proof_edges.add(edge)
@@ -853,8 +883,8 @@ class ModelGoalAlignmentVerifier:
             "order, stable-ID lookup and implementation prerequisites are not dependencies."
         )
         blind_dependency_rules = [
-            "dependency basis evidence must identify the result-reference, result-condition or result-value-input relation itself; "
-            "if a proposed basis_span is only or wholly inside the dependent Goal requested_outputs evidence_span, that phrase proves only the requested output and the pair must be independent",
+            "dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; "
+            "it must be disjoint from the dependent Goal requested_outputs evidence spans. A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent",
             "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span and the capability-independent canonical vocabulary description; a nearby registered semantic identity is never acceptable merely because its name is related, and when no registered description exactly represents the requested outcome the declaration must retain open",
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
@@ -1187,8 +1217,9 @@ class ModelGoalAlignmentVerifier:
                     "normalized business value. Do not treat target-member selection, missing form values or current business facts as "
                     "scope constraints. A same-turn target identity inherited by zero-anaphora from another local USER_TEXT branch is still target identity: do not demand it inside the later Goal evidence_span or scope_constraints, and never emit that identity phrase as a target-scope-constraint missing span. If a semantic-field mismatch exists, return verdict=incomplete and copy its smallest literal "
                     "USER_TEXT span into missing_spans without proposing a replacement field/value. For dependencies, assert one only "
-                    "when a literal basis_span inside the dependent Goal proves result_reference, result_condition or result_value_input; "
-                    "otherwise return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only."
+                    "when a relation-only literal basis_span inside the dependent Goal proves result_reference, result_condition or result_value_input. "
+                    "The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; "
+                    "if no disjoint relation-only basis exists, return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only."
                 )
                 prompt = {
                     "USER_TEXT_UNTRUSTED": user_text,
