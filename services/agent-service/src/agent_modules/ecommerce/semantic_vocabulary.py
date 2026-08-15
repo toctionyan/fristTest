@@ -1,9 +1,10 @@
 """Capability-independent ecommerce semantic output vocabulary.
 
 The writer may see these domain meanings before semantic freeze. This file
-contains no tool name, capability key, availability flag, planner rule,
-discovery example or exclusion example. Legacy aliases are internal migration
-metadata used only by the deterministic post-freeze compatibility compiler.
+contains no tool name, capability key, availability flag or planner rule.
+Optional included/excluded result meanings are canonical domain-semantic boundaries,
+not capability examples. Legacy aliases remain internal migration metadata used only
+by the deterministic post-freeze compatibility compiler.
 """
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ def _output(
     effect_kinds: tuple[str, ...],
     description: str,
     *legacy_aliases: str,
+    included_result_meanings: tuple[str, ...] = (),
+    excluded_result_meanings: tuple[str, ...] = (),
 ) -> SemanticOutputDefinition:
     return SemanticOutputDefinition(
         output_id=output_id,
@@ -23,6 +26,8 @@ def _output(
         effect_kinds=effect_kinds,
         description=description,
         legacy_effect_aliases=tuple(legacy_aliases),
+        included_result_meanings=included_result_meanings,
+        excluded_result_meanings=excluded_result_meanings,
     )
 
 
@@ -62,6 +67,12 @@ SEMANTIC_OUTPUTS = (
         ("read",),
         "读取已经存在的退款申请记录、退款历史以及这些退款申请的当前处理状态；退款申请记录或退款历史属于退款申请本身的业务记录，不等同于此前产生的退款资格核验结论记录。",
         "refund.query_status:refund",
+        included_result_meanings=(
+            "已存在退款申请或退款历史记录本身，以及这些记录当前处于什么处理状态",
+        ),
+        excluded_result_meanings=(
+            "退款资金预计或承诺何时完成结算、入账或到账的时间结果",
+        ),
     ),
     _output("after_sales.status", "after_sales_request", ("read",), "售后申请的当前处理状态。", "after_sales.query_status:after_sales_request"),
     _output("invoice.status", "invoice", ("read",), "发票申请或开具状态。", "invoice.query_status:invoice"),

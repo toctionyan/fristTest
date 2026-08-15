@@ -111,7 +111,7 @@ class ModuleRegistry:
     def semantic_vocabulary_snapshot(self) -> dict[str, object]:
         """Public pre-freeze vocabulary. Never expose capability availability."""
         return {
-            "version": "semantic-output-vocabulary@1",
+            "version": "semantic-output-vocabulary@2",
             "authority": "domain_semantics_only_capability_independent",
             "availability_exposed": False,
             "tool_names_exposed": False,
@@ -153,7 +153,7 @@ class ModuleRegistry:
     def semantic_vocabulary_snapshot(self) -> dict[str, object]:
         """Public pre-freeze vocabulary. Never expose capability availability."""
         return {
-            "version": "semantic-output-vocabulary@1",
+            "version": "semantic-output-vocabulary@2",
             "authority": "domain_semantics_only_capability_independent",
             "availability_exposed": False,
             "tool_names_exposed": False,

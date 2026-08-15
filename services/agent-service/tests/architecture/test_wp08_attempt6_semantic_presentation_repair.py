@@ -34,7 +34,19 @@ def test_shipment_semantic_vocabulary_distinguishes_status_from_tracking_progres
     assert snapshot["tool_names_exposed"] is False
     assert "get_order_logistics" not in serialized
     for row in snapshot["outputs"]:
-        assert set(row) == {"output_id", "subject_type", "effect_kinds", "description"}
+        assert set(row) == {
+            "output_id",
+            "subject_type",
+            "effect_kinds",
+            "description",
+            "included_result_meanings",
+            "excluded_result_meanings",
+        }
+        assert isinstance(row["included_result_meanings"], list)
+        assert isinstance(row["excluded_result_meanings"], list)
+        assert "tool_name" not in row
+        assert "available" not in row
+        assert "legacy_effect_aliases" not in row
 
 
 def test_every_ecommerce_structured_read_has_a_real_trace_to_declared_contract_route() -> None:
