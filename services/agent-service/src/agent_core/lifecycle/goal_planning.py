@@ -981,30 +981,31 @@ class ModelGoalAlignmentVerifier:
                     raw_verdict == "incomplete"
                     and dependency_error == "goal_alignment_dependency_graph_mismatch"
                 ):
+                    # A complete, structurally validated dependency proof can disprove
+                    # the candidate graph without restating outcome-level evidence_spans.
+                    # This remains fail-closed: the declaration is rejected as repairable
+                    # incomplete, never accepted as exact, and Runtime still does not
+                    # infer or rewrite any dependency edge itself.
                     evidence = _literal_spans(user_text, parsed.get("evidence_spans"))
-                    if evidence:
-                        verdict = GoalAlignmentVerdict(
-                            "incomplete",
-                            evidence,
-                            _literal_spans(user_text, parsed.get("missing_spans")),
-                            "goal_alignment_dependency_graph_mismatch",
-                            "model",
-                            True,
-                            dependency_details,
-                        )
-                    else:
-                        verdict = GoalAlignmentVerdict(
-                            "indeterminate",
-                            (),
-                            (),
-                            "goal_alignment_dependency_mismatch_without_literal_evidence",
-                            "model",
-                            True,
-                            dependency_details,
-                        )
+                    verdict = GoalAlignmentVerdict(
+                        "incomplete",
+                        evidence,
+                        _literal_spans(user_text, parsed.get("missing_spans")),
+                        "goal_alignment_dependency_graph_mismatch",
+                        "model",
+                        True,
+                        {
+                            **dependency_details,
+                            "dependency_mismatch_grounding": "machine_dependency_proof",
+                        },
+                    )
                 elif raw_verdict == "exact" and dependency_error == "goal_alignment_dependency_graph_mismatch":
                     evidence = _literal_spans(user_text, parsed.get("evidence_spans"))
-                    if blind_dependency_audit and evidence:
+                    if blind_dependency_audit:
+                        # The candidate-blind proof is itself the authority that the
+                        # declared graph is wrong. Missing redundant top-level evidence
+                        # must not turn a proven mismatch into an unrepairable format
+                        # failure. Empty evidence still cannot certify an exact plan.
                         verdict = GoalAlignmentVerdict(
                             "incomplete",
                             evidence,
@@ -1012,17 +1013,11 @@ class ModelGoalAlignmentVerifier:
                             "goal_alignment_dependency_graph_mismatch",
                             "model",
                             True,
-                            {**dependency_details, "candidate_blind_dependency_reaudit": True},
-                        )
-                    elif blind_dependency_audit:
-                        verdict = GoalAlignmentVerdict(
-                            "indeterminate",
-                            (),
-                            (),
-                            "goal_alignment_dependency_mismatch_without_literal_evidence",
-                            "model",
-                            True,
-                            {**dependency_details, "candidate_blind_dependency_reaudit": True},
+                            {
+                                **dependency_details,
+                                "candidate_blind_dependency_reaudit": True,
+                                "dependency_mismatch_grounding": "machine_dependency_proof",
+                            },
                         )
                     else:
                         verdict = GoalAlignmentVerdict(
@@ -1149,10 +1144,11 @@ class ModelGoalAlignmentVerifier:
                     or (len(goals) > 1 and dependency_mismatch_introduces_new_edge)
                 )
             ):
-                # Both entry paths have already passed literal evidence grounding: either the
-                # first verdict is exact, or its only authoritative disagreement is a
-                # structurally valid dependency graph that introduces a new edge. Keep that
-                # grounded outcome evidence available while the blind audit repairs graph format.
+                # Both entry paths are safe to send to the candidate-blind graph audit.
+                # An exact verdict already carries literal outcome evidence; a dependency-only
+                # mismatch may instead be grounded solely by the machine-validated graph proof.
+                # Preserve whatever outcome evidence exists, but never use an empty tuple to
+                # certify exactness later: the outer normalizer still fails exact-without-evidence closed.
                 initial_grounded_alignment = verdict
                 # Every first-pass exact declaration, plus a grounded dependency-only
                 # disagreement that introduces a new edge, receives one independent
