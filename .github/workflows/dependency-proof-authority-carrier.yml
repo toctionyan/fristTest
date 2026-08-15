@@ -1,0 +1,189 @@
+name: dependency-proof-authority-carrier
+
+on:
+  push:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/dependency-proof-authority-reducer-20260816
+          fetch-depth: 0
+
+      - name: Apply state-driven dependency authority cutover
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one marker, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          proof_path = ROOT / "services/agent-service/src/agent_core/goal_graph/dependency_proof.py"
+          replace_once(
+              proof_path,
+              '    "structural_validity",\n    "contradiction_free",\n)',
+              '    "structural_validity",\n    "contradiction_free",\n    "adversarial_closure",\n)',
+              "dependency proof closure obligation",
+          )
+
+          proof_test = ROOT / "services/agent-service/tests/runtime/test_dependency_proof_authority.py"
+          replace_once(
+              proof_test,
+              '        "structural_validity": "PASS",\n        "contradiction_free": "PASS",\n        "pair_coverage": "PASS",',
+              '        "structural_validity": "PASS",\n        "contradiction_free": "PASS",\n        "adversarial_closure": "PASS",\n        "pair_coverage": "PASS",',
+              "dependency proof test closure default",
+          )
+          replace_once(
+              proof_test,
+              '\ndef test_present_dependency_becomes_authority_only_when_all_obligations_pass() -> None:\n',
+              '''\n\ndef test_complete_and_matching_are_only_diagnostics_until_adversarial_closure_passes() -> None:\n    ledger = proof.apply_dependency_observation(\n        None,\n        _observation(\n            "independent",\n            obligations_override={"adversarial_closure": "UNKNOWN"},\n        ),\n        current_premise_digest=PREMISE,\n    )\n    state = ledger["states"]["g1::g2"]\n    assert state["maturity"] == proof.GROUNDED\n    assert state["diagnostic_claims"]["complete"] is True\n    assert state["diagnostic_claims"]["matching"] is True\n    assert proof.dependency_authority_for_pair(ledger, "g1", "g2") is None\n\n\ndef test_present_dependency_becomes_authority_only_when_all_obligations_pass() -> None:\n''',
+              "dependency proof diagnostic-only regression",
+          )
+
+          goal_planning = ROOT / "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          replace_once(
+              goal_planning,
+              'from agent_core.runtime.profile import resolve_verifier_mode\n',
+              '''from agent_core.runtime.profile import resolve_verifier_mode\nfrom agent_core.goal_graph.dependency_alignment import (\n    alignment_dependency_authority_details,\n    apply_alignment_dependency_proof,\n    dependency_authority_closed_and_matching,\n)\n''',
+              "goal planning proof bridge import",
+          )
+          replace_once(
+              goal_planning,
+              '''        and details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is False\n    )''',
+              '''        and details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is False\n        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"\n        and details.get("dependency_authority_complete") is True\n        and details.get("dependency_authority_graph_match") is False\n    )''',
+              "grounded dependency mismatch maturity gate",
+          )
+          replace_once(
+              goal_planning,
+              '''        preserved_blind_dependency_details: dict[str, Any] | None = None\n        for attempt in range(3):''',
+              '''        preserved_blind_dependency_details: dict[str, Any] | None = None\n        dependency_proof_ledger: dict[str, Any] | None = None\n        dependency_authority_snapshot: dict[str, Any] = {}\n        for attempt in range(6):''',
+              "dependency proof ledger state",
+          )
+          replace_once(
+              goal_planning,
+              '''            if attempt > 0 and verifier_repair_kind:\n''',
+              '''            if (\n                blind_dependency_audit\n                and not semantic_claim_reaudit\n                and isinstance(verdict.details, dict)\n                and verdict.details.get("dependency_proof_complete") is True\n                and isinstance(verdict.details.get("dependency_pair_decisions"), list)\n            ):\n                dependency_proof_ledger, _dependency_graph_snapshot = apply_alignment_dependency_proof(\n                    dependency_proof_ledger,\n                    user_text=user_text,\n                    goals=goals,\n                    details=verdict.details,\n                    phase=str(verifier_repair_kind or "candidate_blind_dependency_reaudit"),\n                )\n                dependency_authority_snapshot = alignment_dependency_authority_details(\n                    dependency_proof_ledger,\n                    goals=goals,\n                )\n                verdict = GoalAlignmentVerdict(\n                    verdict.verdict,\n                    verdict.evidence_spans,\n                    verdict.missing_spans,\n                    verdict.reason_code,\n                    verdict.source,\n                    verdict.independent,\n                    {**verdict.details, **dependency_authority_snapshot},\n                )\n            if attempt > 0 and verifier_repair_kind:\n''',
+              "apply dependency proof reducer",
+          )
+          replace_once(
+              goal_planning,
+              '''            if verdict.verdict in {"exact", "incomplete"}:\n                return verdict\n''',
+              '''            if (\n                verdict.exact\n                and len(goals) > 1\n                and dependency_authority_snapshot.get("dependency_authority_complete") is True\n                and dependency_authority_snapshot.get("dependency_authority_graph_match") is False\n            ):\n                verdict = GoalAlignmentVerdict(\n                    "incomplete",\n                    verdict.evidence_spans,\n                    (),\n                    "goal_alignment_dependency_graph_mismatch",\n                    verdict.source,\n                    verdict.independent,\n                    {\n                        **verdict.details,\n                        **dependency_authority_snapshot,\n                        "dependency_proof_complete": True,\n                        "dependency_graph_match": False,\n                    },\n                )\n            if (\n                verdict.exact\n                and len(goals) > 1\n                and dependency_authority_snapshot.get("dependency_authority_complete") is not True\n                and isinstance(verdict.details, dict)\n                and verdict.details.get("dependency_proof_complete") is True\n                and attempt < 5\n            ):\n                # A broad complete/matching proof is provisional evidence, not\n                # authority. Semantic-claim arbitration may consume a verifier call,\n                # but it cannot silently mature or erase the graph. Close the graph\n                # in its own state-driven phase instead of making "third call" itself\n                # an authority rule.\n                initial_grounded_alignment = verdict\n                preserved_blind_dependency_details = deepcopy(verdict.details)\n                verifier_repair_kind = "candidate_blind_dependency_authority_closure"\n                verifier_repair = (\n                    "Close only the current-turn dependency proof maturity from USER_TEXT. The prior pairwise proof is provisional: "\n                    "complete/matching alone is not authority. Re-read every unordered Goal pair from scratch and apply the result "\n                    "counterfactual: remove only the earlier Goal result payload while preserving literal objects, scopes and constraints. "\n                    "Return exactly one dependency_decisions row for every unordered pair. Retain a positive relation only when the later "\n                    "user-visible target, condition or value input becomes unavailable because it consumes that result; otherwise return "\n                    "independent. Positive relations require relation-only basis_kind/basis_span inside the dependent Goal. Do not re-audit "\n                    "requested_effect, requested_outputs, target scope, historical reference, capability availability, tool order, Draft "\n                    "mechanics or business-state facts. Return verdict=exact with dependency_decisions and the normal JSON fields; Runtime "\n                    "will compare the closed graph to Planner depends_on deterministically."\n                )\n                prompt = {\n                    "USER_TEXT_UNTRUSTED": user_text,\n                    "DECLARED_GOALS": _dependency_adjudication_goal_projection(goals),\n                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),\n                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),\n                    "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY": semantic_vocabulary,\n                }\n                continue\n            if (\n                verdict.exact\n                and len(goals) > 1\n                and not dependency_authority_closed_and_matching(dependency_authority_snapshot)\n            ):\n                return GoalAlignmentVerdict(\n                    "indeterminate",\n                    verdict.evidence_spans,\n                    (),\n                    "goal_alignment_dependency_authority_unclosed",\n                    verdict.source,\n                    verdict.independent,\n                    {**verdict.details, **dependency_authority_snapshot},\n                )\n            if verdict.verdict in {"exact", "incomplete"}:\n                return verdict\n''',
+              "state-driven dependency authority closure",
+          )
+          replace_once(
+              goal_planning,
+              '''        details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is False\n    ):\n        return {}\n''',
+              '''        details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is False\n        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"\n        and details.get("dependency_authority_complete") is True\n        and details.get("dependency_authority_graph_match") is False\n    ):\n        return {}\n''',
+              "repair feedback maturity authority gate",
+          )
+
+          release53 = ROOT / "services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py"
+          replace_once(
+              release53,
+              '''def _independent_pair() -> list[dict]:\n    return [{\n        "goal_a_id": "g1",\n        "goal_b_id": "g2",\n        "relation": "independent",\n    }]\n''',
+              '''def _independent_pair() -> list[dict]:\n    return [{\n        "goal_a_id": "g1",\n        "goal_b_id": "g2",\n        "relation": "independent",\n    }]\n\n\ndef _positive_pair() -> list[dict]:\n    return [{\n        "goal_a_id": "g1",\n        "goal_b_id": "g2",\n        "relation": "b_depends_on_a",\n        "basis_kind": "result_reference",\n        "basis_span": "record B",\n    }]\n''',
+              "release53 positive pair helper",
+          )
+          replace_once(
+              release53,
+              '''            "reason_code": "withdraw_ungrounded_incomplete",\n        }),\n    ]\n''',
+              '''            "reason_code": "withdraw_ungrounded_incomplete",\n        }),\n        _response({\n            "verdict": "exact",\n            "evidence_spans": ["Inspect record A", "summarize record B"],\n            "missing_spans": [],\n            "dependency_decisions": _independent_pair(),\n            "reason_code": "dependency_authority_closed_independent",\n        }),\n    ]\n''',
+              "release53 fourth graph closure response",
+          )
+          replace_once(
+              release53,
+              '''    assert invoke.call_count == 3\n    assert verdict.exact\n    assert verdict.details["dependency_proof_complete"] is True\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_semantic_grounding_adjudication"\n\n    third_request = json.loads(invoke.call_args_list[2].kwargs["payload"][-1].content)\n    assert all("depends_on" not in row for row in third_request["DECLARED_GOALS"])\n    assert "Do not re-audit or return dependency_decisions" in third_request["FORMAT_REPAIR"]\n''',
+              '''    assert invoke.call_count == 4\n    assert verdict.exact\n    assert verdict.details["dependency_proof_complete"] is True\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is True\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"\n\n    third_request = json.loads(invoke.call_args_list[2].kwargs["payload"][-1].content)\n    assert all("depends_on" not in row for row in third_request["DECLARED_GOALS"])\n    assert "Do not re-audit or return dependency_decisions" in third_request["FORMAT_REPAIR"]\n    fourth_request = json.loads(invoke.call_args_list[3].kwargs["payload"][-1].content)\n    assert all("depends_on" not in row for row in fourth_request["DECLARED_GOALS"])\n    assert "complete/matching alone is not authority" in fourth_request["FORMAT_REPAIR"]\n''',
+              "release53 closure expectations",
+          )
+          marker = '\n\ndef test_release53_semantic_grounding_adjudication_branch_is_domain_neutral() -> None:\n'
+          conflict_test = '''\n\ndef test_semantic_reaudit_cannot_certify_provisional_false_dependency_absence() -> None:\n    text = "Inspect record A, and summarize record B"\n    calls = [\n        _first_exact(),\n        _blind_ungrounded_incomplete(),\n        _response({\n            "verdict": "exact",\n            "evidence_spans": ["Inspect record A", "summarize record B"],\n            "missing_spans": [],\n            "reason_code": "withdraw_ungrounded_incomplete",\n        }),\n        _response({\n            "verdict": "exact",\n            "evidence_spans": ["Inspect record A", "summarize record B"],\n            "missing_spans": [],\n            "dependency_decisions": _positive_pair(),\n            "reason_code": "dependency_authority_closure_found_edge",\n        }),\n    ]\n\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=calls\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(\n            user_text=text,\n            goals=_goals(),\n            known_tools=set(),\n        )\n\n    assert invoke.call_count == 4\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n    assert verdict.details["dependency_edges"] == [{\n        "dependent_goal_id": "g2",\n        "requires_result_of_goal_id": "g1",\n        "basis_kind": "result_reference",\n        "basis_span": "record B",\n    }]\n'''
+          replace_once(release53, marker, conflict_test + marker, "release53/#54 conflict regression")
+
+          release52 = ROOT / "services/agent-service/tests/runtime/test_release52_dependency_independence_adjudication.py"
+          replace_once(
+              release52,
+              '''    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_independence_adjudication"\n\n    third_request =''',
+              '''    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_independence_adjudication"\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n\n    third_request =''',
+              "release52 false absence reducer assertions",
+          )
+          replace_once(
+              release52,
+              '''    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_independence_adjudication"\n''',
+              '''    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_independence_adjudication"\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is True\n''',
+              "release52 true absence reducer assertions",
+          )
+
+          # Remove the one-shot carrier before the resulting commit is pushed.
+          carrier = ROOT / ".github/workflows/dependency-proof-authority-carrier.yml"
+          carrier.unlink()
+
+          # Product-source baseline is a hash inventory, not a semantic oracle.
+          # Recompute tracked entries and add the new source/test files explicitly.
+          baseline_path = ROOT / "skill-system/registry/product-source-baseline.json"
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          files = dict(baseline.get("files") or {})
+          new_paths = [
+              "services/agent-service/src/agent_core/goal_graph/dependency_proof.py",
+              "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+              "services/agent-service/tests/runtime/test_dependency_proof_authority.py",
+              "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+          ]
+          for rel in list(files):
+              path = ROOT / rel
+              if path.is_file():
+                  files[rel] = sha256(path.read_bytes()).hexdigest()
+          for rel in new_paths:
+              path = ROOT / rel
+              if not path.is_file():
+                  raise SystemExit(f"new protected source missing: {rel}")
+              files[rel] = sha256(path.read_bytes()).hexdigest()
+          baseline["files"] = dict(sorted(files.items()))
+          baseline["file_count"] = len(files)
+          baseline_path.write_text(
+              json.dumps(baseline, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Compile changed Python
+        shell: bash
+        run: |
+          python -m py_compile \
+            services/agent-service/src/agent_core/goal_graph/dependency_proof.py \
+            services/agent-service/src/agent_core/goal_graph/dependency_alignment.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_dependency_proof_authority.py \
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
+            services/agent-service/tests/runtime/test_release52_dependency_independence_adjudication.py \
+            services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py
+
+      - name: Commit integrated cutover
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(semantic): make dependency proof maturity authoritative"
+          git push origin HEAD:fix/dependency-proof-authority-reducer-20260816
