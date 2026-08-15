@@ -66,6 +66,24 @@ jobs:
             control/scripts/tmp_release44_dependency_basis_repair.py \
             patch --workspace source
 
+      - name: Preserve existing dependency-basis error contract
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          from pathlib import Path
+          paths = [
+              Path("source/services/agent-service/src/agent_core/lifecycle/goal_planning.py"),
+              Path("source/services/agent-service/tests/runtime/test_release44_dependency_basis_grounding.py"),
+          ]
+          old = "goal_alignment_dependency_basis_overlaps_requested_output"
+          new = "goal_alignment_dependency_basis_is_requested_output"
+          for path in paths:
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"compatibility error-code anchor missing: {path}")
+              path.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
       - name: Verify exact pre-baseline repair scope
         run: |
           set -euo pipefail
