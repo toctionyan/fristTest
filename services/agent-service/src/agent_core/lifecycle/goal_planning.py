@@ -24,6 +24,14 @@ from agent_core.lifecycle.condition_expression import condition_goal_dependencie
 from agent_core.lifecycle.goal_granularity import verify_goal_granularity
 from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES, classify_tool
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
+from agent_core.lifecycle.goal_dependency_proof import (
+    DependencyGraphProof,
+    candidate_dependency_metadata,
+    dependency_observation_from_details,
+    dependency_premise_digest,
+    dependency_proof_metadata,
+    reduce_dependency_graph_proof,
+)
 from agent_core.lifecycle.semantic_contract import (
     find_goal_dependency_cycle,
     freeze_semantic_contract,
@@ -974,6 +982,16 @@ class ModelGoalAlignmentVerifier:
         initial_grounded_alignment: GoalAlignmentVerdict | None = None
         requested_effect_reaudit_guard: dict[str, Any] | None = None
         preserved_blind_dependency_details: dict[str, Any] | None = None
+        # Proof maturity is request-local. The private dependency parsers remain
+        # pure functions; no ContextVar/module monkeypatch may leak authority
+        # across verifier invocations or direct parser tests.
+        dependency_proof_premise = dependency_premise_digest(
+            user_text=user_text,
+            goals=goals,
+        )
+        dependency_proof: DependencyGraphProof | None = None
+        accepted_dependency_details: dict[str, Any] | None = None
+        accepted_dependency_error: str | None = None
         for attempt in range(3):
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             semantic_claim_reaudit = verifier_repair_kind in {
@@ -1056,16 +1074,59 @@ class ModelGoalAlignmentVerifier:
                         # grounding failure. Preserve, do not weaken, the prior proof.
                         dependency_details = deepcopy(preserved_blind_dependency_details)
                     elif blind_dependency_audit:
-                        dependency_details, dependency_error = _model_alignment_pairwise_dependency_proof(
+                        fresh_dependency_details, fresh_dependency_error = _model_alignment_pairwise_dependency_proof(
                             user_text=user_text,
                             goals=goals,
                             values=parsed.get("dependency_decisions"),
                         )
+                        previous_dependency_proof = dependency_proof
+                        dependency_observation = dependency_observation_from_details(
+                            premise_digest=dependency_proof_premise,
+                            details=fresh_dependency_details,
+                            source=verifier_repair_kind or "candidate_blind_dependency_reaudit",
+                        )
+                        next_dependency_proof = reduce_dependency_graph_proof(
+                            previous_dependency_proof,
+                            dependency_observation,
+                        )
+                        preserve_previous_details = bool(
+                            accepted_dependency_details is not None
+                            and previous_dependency_proof is not None
+                            and previous_dependency_proof.preservable
+                            and (
+                                previous_dependency_proof.authoritative
+                                or next_dependency_proof.reason_code
+                                == "inadmissible_observation_preserved_previous_proof"
+                            )
+                        )
+                        dependency_proof = next_dependency_proof
+                        if preserve_previous_details:
+                            # Authority is not a model vote. Once closed, another
+                            # same-premise call cannot replace graph/basis/error details.
+                            dependency_details = dependency_proof_metadata(
+                                deepcopy(accepted_dependency_details),
+                                next_dependency_proof,
+                            )
+                            dependency_error = accepted_dependency_error
+                        else:
+                            dependency_details = dependency_proof_metadata(
+                                fresh_dependency_details,
+                                next_dependency_proof,
+                            )
+                            dependency_error = fresh_dependency_error
+                            if next_dependency_proof.preservable:
+                                accepted_dependency_details = deepcopy(fresh_dependency_details)
+                                accepted_dependency_error = fresh_dependency_error
                     else:
                         dependency_details, dependency_error = _model_alignment_dependency_proof(
                             user_text=user_text,
                             goals=goals,
                             values=parsed.get("dependency_edges"),
+                        )
+                        dependency_details = candidate_dependency_metadata(
+                            dependency_details,
+                            premise_digest=dependency_proof_premise,
+                            multi_goal=len(goals) > 1,
                         )
                 if (
                     raw_verdict == "incomplete"
@@ -2541,16 +2602,3 @@ __all__ = [
     "verify_goal_alignment",
     "validate_goal_declaration",
 ]
-
-
-# Dependency proof authority installation seam.
-# The verifier above remains the observation producer; this deterministic
-# lifecycle reducer alone owns proof maturity. Installing after every symbol is
-# defined preserves the canonical source path and all historical source guards.
-import sys as _dependency_proof_sys
-from agent_core.lifecycle.goal_dependency_proof import (
-    install_goal_dependency_proof_authority as _install_goal_dependency_proof_authority,
-)
-
-_install_goal_dependency_proof_authority(_dependency_proof_sys.modules[__name__])
-del _dependency_proof_sys, _install_goal_dependency_proof_authority
