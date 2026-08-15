@@ -12,7 +12,11 @@ from agent_core.lifecycle.goal_dependency_proof import (
     dependency_proof_metadata,
     reduce_dependency_graph_proof,
 )
-from agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, _alignment_repair_feedback
+from agent_core.lifecycle.goal_planning import (
+    GoalAlignmentVerdict,
+    _alignment_repair_feedback,
+    _goal_declaration_alignment_repair_context,
+)
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "verify_preprod_conversation_smoke.py"
@@ -104,11 +108,7 @@ def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: s
         "data": {
             "alignment_proof": alignment.as_dict(),
             **_alignment_repair_feedback(alignment),
-            "current_user_input": user_text,
-            "repair_contract": {
-                "authority": "current_user_input_only",
-                "required_action": "redeclaration",
-            },
+            **_goal_declaration_alignment_repair_context(user_text, alignment),
         },
     }
 
@@ -136,12 +136,19 @@ def test_release47_missing_true_dependency_keeps_polarity_without_leaking_edge_i
     )
     assert "explicit_same_turn_result_reference_result_condition_or_result_value_input_requires_depends_on" in feedback["constraints"]
 
-    serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)
-    assert "dependent_goal_id" not in serialized
-    assert "requires_result_of_goal_id" not in serialized
-    assert "candidate_declared_dependency_edges" not in serialized
-    assert '"g1"' not in serialized
-    assert '"g2"' not in serialized
+    diagnostic_serialized = json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+    assert "dependent_goal_id" not in diagnostic_serialized
+    assert "requires_result_of_goal_id" not in diagnostic_serialized
+    assert "candidate_declared_dependency_edges" not in diagnostic_serialized
+
+    delta = projected["data"]["repair_contract"]["authoritative_dependency_delta"]
+    assert delta["authority"] == "deterministic_dependency_proof_reducer"
+    assert delta["authority_state"] == "authoritative"
+    assert delta["operations"] == [{
+        "operation": "ADD_DEPENDENCY",
+        **_edge(),
+    }]
+    assert "apply_only_listed_dependency_operations" in delta["constraints"]
 
 
 def test_release47_false_declared_dependency_keeps_opposite_polarity_without_replacement_graph():
@@ -164,11 +171,16 @@ def test_release47_false_declared_dependency_keeps_opposite_polarity_without_rep
         in feedback["constraints"]
     )
     assert "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_depends_on" in feedback["constraints"]
-    serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)
-    assert "dependent_goal_id" not in serialized
-    assert "requires_result_of_goal_id" not in serialized
-    assert '"g1"' not in serialized
-    assert '"g2"' not in serialized
+    diagnostic_serialized = json.dumps(feedback, ensure_ascii=False, sort_keys=True)
+    assert "dependent_goal_id" not in diagnostic_serialized
+    assert "requires_result_of_goal_id" not in diagnostic_serialized
+
+    delta = projected["data"]["repair_contract"]["authoritative_dependency_delta"]
+    assert delta["operations"] == [{
+        "operation": "REMOVE_DEPENDENCY",
+        "dependent_goal_id": "g2",
+        "requires_result_of_goal_id": "g1",
+    }]
 
 
 def test_release47_internal_certification_diagnostic_no_longer_renders_alignment_edges_as_blank_span_rows():

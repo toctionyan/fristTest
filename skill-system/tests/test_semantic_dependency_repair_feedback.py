@@ -20,7 +20,9 @@ from agent_core.lifecycle.goal_dependency_proof import (  # noqa: E402
 )
 from agent_core.lifecycle.goal_planning import (  # noqa: E402
     GoalAlignmentVerdict,
+    _alignment_authoritative_dependency_repair_contract,
     _alignment_repair_feedback,
+    _goal_declaration_alignment_repair_context,
     _model_alignment_dependency_proof,
     validate_goal_declaration,
 )
@@ -233,6 +235,133 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
             "an_empty_verified_dependency_graph_requires_removing_unproved_candidate_edges",
             feedback["constraints"],
         )
+
+    def test_authoritative_add_delta_roundtrips_without_reinferring_dependency(self) -> None:
+        text = "查一下键盘订单，再看看它能不能退款"
+        edge = {
+            "dependent_goal_id": "g2",
+            "requires_result_of_goal_id": "g1",
+            "basis_kind": "result_reference",
+            "basis_span": "它",
+        }
+        original = [
+            _goal("g1", "查一下键盘订单", []),
+            _goal("g2", "再看看它能不能退款", []),
+        ]
+        details, error = _model_alignment_dependency_proof(
+            user_text=text, goals=original, values=[edge]
+        )
+        self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        mature = _authoritative_details(
+            user_text=text,
+            goals=original,
+            details=details,
+            evidence_prefix="roundtrip-add",
+        )
+        verdict = GoalAlignmentVerdict(
+            "incomplete",
+            tuple(row["evidence_span"] for row in original),
+            (),
+            "goal_alignment_dependency_graph_mismatch",
+            "model",
+            True,
+            mature,
+        )
+        contract = _alignment_authoritative_dependency_repair_contract(verdict)[
+            "authoritative_dependency_delta"
+        ]
+        self.assertEqual(contract["operations"], [{"operation": "ADD_DEPENDENCY", **edge}])
+
+        repaired = [dict(row, depends_on=list(row["depends_on"])) for row in original]
+        for operation in contract["operations"]:
+            self.assertEqual(operation["operation"], "ADD_DEPENDENCY")
+            target = next(row for row in repaired if row["goal_id"] == operation["dependent_goal_id"])
+            target["depends_on"] = list(dict.fromkeys([
+                *target["depends_on"], operation["requires_result_of_goal_id"]
+            ]))
+
+        self.assertEqual(
+            dependency_premise_digest(user_text=text, goals=original),
+            dependency_premise_digest(user_text=text, goals=repaired),
+            "Planner depends_on must not change frozen semantic premise authority",
+        )
+        repaired_details, repaired_error = _model_alignment_dependency_proof(
+            user_text=text, goals=repaired, values=[edge]
+        )
+        self.assertIsNone(repaired_error)
+        self.assertTrue(repaired_details["dependency_graph_match"])
+
+    def test_authoritative_remove_delta_roundtrips_to_verified_empty_graph(self) -> None:
+        text = "查一下鼠标订单，然后帮我申请退款"
+        original = [
+            _goal("g1", "查一下鼠标订单", []),
+            _goal("g2", "帮我申请退款", ["g1"]),
+        ]
+        details, error = _model_alignment_dependency_proof(
+            user_text=text, goals=original, values=[]
+        )
+        self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        mature = _authoritative_details(
+            user_text=text,
+            goals=original,
+            details=details,
+            evidence_prefix="roundtrip-remove",
+        )
+        verdict = GoalAlignmentVerdict(
+            "incomplete",
+            tuple(row["evidence_span"] for row in original),
+            (),
+            "goal_alignment_dependency_graph_mismatch",
+            "model",
+            True,
+            mature,
+        )
+        context = _goal_declaration_alignment_repair_context(text, verdict)
+        contract = context["repair_contract"]["authoritative_dependency_delta"]
+        self.assertEqual(contract["operations"], [{
+            "operation": "REMOVE_DEPENDENCY",
+            "dependent_goal_id": "g2",
+            "requires_result_of_goal_id": "g1",
+        }])
+
+        repaired = [dict(row, depends_on=list(row["depends_on"])) for row in original]
+        for operation in contract["operations"]:
+            target = next(row for row in repaired if row["goal_id"] == operation["dependent_goal_id"])
+            target["depends_on"] = [
+                dep for dep in target["depends_on"]
+                if dep != operation["requires_result_of_goal_id"]
+            ]
+        repaired_details, repaired_error = _model_alignment_dependency_proof(
+            user_text=text, goals=repaired, values=[]
+        )
+        self.assertIsNone(repaired_error)
+        self.assertTrue(repaired_details["dependency_graph_match"])
+
+    def test_non_authoritative_mismatch_cannot_seal_dependency_repair_delta(self) -> None:
+        verdict = GoalAlignmentVerdict(
+            "incomplete",
+            ("查一下键盘订单", "再看看它能不能退款"),
+            (),
+            "goal_alignment_dependency_graph_mismatch",
+            "model",
+            True,
+            {
+                "dependency_authority": "independent_goal_alignment",
+                "dependency_proof_complete": True,
+                "dependency_graph_match": False,
+                "dependency_authority_state": "verified",
+                "dependency_edges": [{
+                    "dependent_goal_id": "g2",
+                    "requires_result_of_goal_id": "g1",
+                    "basis_kind": "result_reference",
+                    "basis_span": "它",
+                }],
+                "declared_dependency_edges": [],
+                "dependency_authority_premise_digest": "premise",
+                "dependency_authority_evidence_digest": "evidence",
+            },
+        )
+        self.assertEqual(_alignment_authoritative_dependency_repair_contract(verdict), {})
 
     def test_incomplete_or_nonindependent_proof_never_becomes_repair_authority(self) -> None:
         incomplete = GoalAlignmentVerdict(

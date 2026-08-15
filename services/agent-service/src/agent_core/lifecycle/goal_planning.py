@@ -2188,6 +2188,123 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
     }
 
 
+
+def _alignment_authoritative_dependency_repair_contract(
+    alignment: GoalAlignmentVerdict,
+) -> dict[str, Any]:
+    """Seal only a mature dependency graph delta for Planner redeclaration.
+
+    Before the deterministic proof reducer existed, provider-facing repair had
+    to hide verifier replacement edges because a verifier opinion was not write
+    authority. Once the reducer has sealed an AUTHORITATIVE mismatch, forcing
+    Planner to infer the same edge again recreates the #43/#47/Attempt-8 loop:
+    proof is correct, transport loses it, and redeclaration guesses.
+
+    This contract carries only Goal dependency relations already adjudicated by
+    the reducer. It never carries requested effects, targets, tool identities,
+    capability availability or business facts, and Runtime still does not edit
+    ``depends_on`` itself.
+    """
+    details = alignment.details if isinstance(alignment.details, dict) else {}
+    if not (
+        alignment.verdict == "incomplete"
+        and alignment.reason_code == "goal_alignment_dependency_graph_mismatch"
+        and alignment.independent
+        and details.get("dependency_authority") == "independent_goal_alignment"
+        and details.get("dependency_proof_complete") is True
+        and details.get("dependency_graph_match") is False
+        and details.get("dependency_authority_state") == "authoritative"
+    ):
+        return {}
+
+    premise_digest = _clean_text(details.get("dependency_authority_premise_digest"), limit=160)
+    authority_evidence_digest = _clean_text(details.get("dependency_authority_evidence_digest"), limit=160)
+    if not premise_digest or not authority_evidence_digest:
+        return {}
+
+    feedback_bundle = _alignment_repair_feedback(alignment)
+    feedback = (
+        feedback_bundle.get("independent_verifier_feedback")
+        if isinstance(feedback_bundle.get("independent_verifier_feedback"), dict)
+        else {}
+    )
+    if feedback.get("required_action") != "redeclaration_preserving_grounded_dependency_graph":
+        return {}
+
+    verified_by_pair: dict[tuple[str, str], dict[str, str]] = {}
+    for raw in list(feedback.get("dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        basis_kind = _clean_text(raw.get("basis_kind"), limit=80).lower()
+        basis_span = _clean_text(raw.get("basis_span"), limit=240)
+        if not dependent or not prerequisite or not basis_kind or not basis_span:
+            return {}
+        verified_by_pair[(dependent, prerequisite)] = {
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+            "basis_kind": basis_kind,
+            "basis_span": basis_span,
+        }
+
+    declared_pairs: set[tuple[str, str]] = set()
+    for raw in list(feedback.get("candidate_declared_dependency_edges") or []):
+        if not isinstance(raw, dict):
+            return {}
+        dependent = _clean_text(raw.get("dependent_goal_id"), limit=80)
+        prerequisite = _clean_text(raw.get("requires_result_of_goal_id"), limit=80)
+        if not dependent or not prerequisite:
+            return {}
+        declared_pairs.add((dependent, prerequisite))
+
+    verified_pairs = set(verified_by_pair)
+    operations: list[dict[str, Any]] = []
+    for pair in sorted(verified_pairs - declared_pairs):
+        operations.append({
+            "operation": "ADD_DEPENDENCY",
+            **verified_by_pair[pair],
+        })
+    for dependent, prerequisite in sorted(declared_pairs - verified_pairs):
+        operations.append({
+            "operation": "REMOVE_DEPENDENCY",
+            "dependent_goal_id": dependent,
+            "requires_result_of_goal_id": prerequisite,
+        })
+    if not operations:
+        return {}
+
+    return {
+        "authoritative_dependency_delta": {
+            "contract": "dependency-authority-repair@1",
+            "authority": "deterministic_dependency_proof_reducer",
+            "authority_state": "authoritative",
+            "premise_digest": premise_digest,
+            "authority_evidence_digest": authority_evidence_digest,
+            "required_action": "apply_exact_dependency_delta_then_redeclare",
+            "operations": operations,
+            "constraints": [
+                "apply_only_listed_dependency_operations",
+                "preserve_goal_ids_and_all_non_dependency_semantics",
+                "do_not_reinfer_or_expand_authoritative_dependency_operations",
+                "do_not_copy_or_infer_tools_capabilities_targets_or_business_answers",
+                "runtime_does_not_auto_rewrite_the_candidate",
+            ],
+        }
+    }
+
+
+def _goal_declaration_alignment_repair_context(
+    user_text: str,
+    alignment: GoalAlignmentVerdict,
+) -> dict[str, Any]:
+    context = _goal_declaration_repair_context(user_text)
+    delta = _alignment_authoritative_dependency_repair_contract(alignment)
+    if delta:
+        context["repair_contract"].update(delta)
+    return context
+
+
 def _granularity_repair_feedback(granularity: Any) -> dict[str, Any]:
     """Keep the historical audit payload; provider projection is violation-only."""
     verdict = str(getattr(granularity, "verdict", "") or "")
@@ -2518,7 +2635,7 @@ def validate_goal_declaration(
             "data": {
                 "alignment_proof": alignment.as_dict(),
                 **_alignment_repair_feedback(alignment),
-                **_goal_declaration_repair_context(user_text),
+                **_goal_declaration_alignment_repair_context(user_text, alignment),
             },
         }, None)
 

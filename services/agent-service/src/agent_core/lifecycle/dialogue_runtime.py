@@ -688,12 +688,13 @@ def _loop_system_prompt(
 def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> dict[str, Any]:
     """Project rejected declaration diagnostics to violation-only writer input.
 
-    Trace/audit may retain the independent verifier's complete proof, including
-    candidate-blind dependency graphs.  That proof is never semantic write
-    authority.  Before the next model declaration, this boundary retains only
-    current-user text, structural errors, reason codes, constraints and literal
-    violation spans; replacement edges, requested effects, roles and targets are
-    deliberately dropped.
+    Trace/audit may retain the independent verifier's complete proof. Raw verifier
+    replacement semantics remain read-only. The one exception is a dependency
+    delta already sealed as AUTHORITATIVE by the deterministic proof reducer and
+    placed in repair_contract.authoritative_dependency_delta: that machine
+    contract crosses the provider boundary so Planner can redeclare instead of
+    guessing the relation again. Requested effects, targets, tools, capabilities
+    and business answers are still deliberately excluded.
     """
     payload = deepcopy(result) if isinstance(result, dict) else {}
     if payload.get("ok") is True:
@@ -755,11 +756,10 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
                 spans.append(span)
 
     if field == "depends_on" and reason_code == "goal_alignment_dependency_graph_mismatch":
-        # Keep the independently verified graph itself out of provider-facing
-        # repair messages, but do not collapse a directional graph delta into an
-        # ambiguous generic field error.  The writer may learn only whether its
-        # candidate omitted a grounded relation, asserted an unproved relation,
-        # or did both; it must still rederive the actual edge from current input.
+        # Keep raw verifier graph replacement out of the diagnostic feedback.
+        # A reducer-sealed relation delta, when available, travels separately in
+        # repair_contract.authoritative_dependency_delta. The diagnostic still
+        # records polarity so logs remain useful without becoming a second owner.
         verified_pairs = {
             (
                 str(edge.get("dependent_goal_id") or "").strip(),
@@ -791,8 +791,8 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
 
     if feedback or reason_code or spans:
         writer_constraints = [
-            "rederive_semantics_from_current_user_input",
-            "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",
+            "rederive_non_authoritative_semantics_from_current_user_input",
+            "do_not_copy_unsealed_verifier_dependency_edges_or_replacement_semantic_values",
             "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",
             "runtime_does_not_auto_rewrite_the_candidate",
         ]
@@ -806,10 +806,10 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
             )
         elif field == "depends_on":
             dependency_constraints = [
-                "rederive_complete_depends_on_graph_from_current_user_input_only",
+                "apply_repair_contract_authoritative_dependency_delta_exactly_when_present_otherwise_rederive_depends_on_from_current_user_input",
                 "explicit_same_turn_result_reference_result_condition_or_result_value_input_requires_depends_on",
                 "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_depends_on",
-                "dependency_delta_kind_reports_only_candidate_graph_error_polarity_and_never_identifies_an_edge_to_copy",
+                "diagnostic_dependency_delta_kind_is_not_write_authority_only_repair_contract_authoritative_dependency_delta_is",
             ]
             if dependency_delta_kind == "missing_grounded_relation":
                 dependency_constraints.insert(0,
