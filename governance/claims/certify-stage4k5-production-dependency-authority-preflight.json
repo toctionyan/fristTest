@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "target_id": "certify-stage4k5-production-dependency-authority-preflight",
+  "claims": [
+    {
+      "id": "STAGE4K5-AUTHORITY-PREFLIGHT-001",
+      "statement": "Current source keeps dependency-authority production composition fail-closed by default, requires explicit persistent selection plus independent activation/rollback trust roots, keeps signing private keys outside the Agent process, and rejects unavailable or untrusted persistent control; therefore production activation remains blocked until the external authority evidence required by issue #1013 is supplied and independently verified.",
+      "risk": "P0",
+      "required_mode": "release",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "quality-integration"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_default_is_disabled_and_ignores_unused_trust_configuration",
+        "services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_mode_is_explicit_and_never_auto_selected_from_storage",
+        "services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_requires_independent_activation_and_rollback_trust_roots",
+        "services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_invalid_or_untrusted_persistent_control_fails_readiness_closed",
+        "services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py::test_stage4k4_composition_owns_no_model_configuration_or_signing_private_keys"
+      ],
+      "owner": "app.services.dependency_authority_composition",
+      "closure_requirement": "current-pass"
+    }
+  ]
+}
