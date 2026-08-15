@@ -1,0 +1,188 @@
+name: dependency-proof-authority-fix3-carrier
+
+on:
+  push:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/dependency-proof-authority-reducer-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install agent test environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Apply root authority fixes and migrate historical regressions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one marker, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          def replace_function(path: Path, name: str, next_name: str, new_function: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              start_marker = f"def {name}"
+              next_marker = f"\ndef {next_name}"
+              start = text.index(start_marker)
+              end = text.index(next_marker, start)
+              path.write_text(
+                  text[:start] + new_function.rstrip() + "\n\n" + text[end + 1 :],
+                  encoding="utf-8",
+              )
+
+          goal_planning = ROOT / "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+
+          old_mismatch = '''            dependency_mismatch_introduces_new_edge = False\n            if (\n                attempt == 0\n                and verdict.verdict == "incomplete"\n                and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n            ):\n                details = verdict.details if isinstance(verdict.details, dict) else {}\n                declared_pairs = {\n                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))\n                    for row in list(details.get("declared_dependency_edges") or [])\n                    if isinstance(row, dict)\n                }\n                verified_pairs = {\n                    (str(row.get("dependent_goal_id") or ""), str(row.get("requires_result_of_goal_id") or ""))\n                    for row in list(details.get("dependency_edges") or [])\n                    if isinstance(row, dict)\n                }\n                dependency_mismatch_introduces_new_edge = bool(verified_pairs - declared_pairs)\n            if (\n                attempt == 0\n                and (\n                    verdict.exact\n                    or (len(goals) > 1 and dependency_mismatch_introduces_new_edge)\n                )\n            ):\n'''
+          new_mismatch = '''            dependency_mismatch_requires_blind_audit = False\n            if (\n                attempt == 0\n                and verdict.verdict == "incomplete"\n                and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n            ):\n                details = verdict.details if isinstance(verdict.details, dict) else {}\n                dependency_mismatch_requires_blind_audit = bool(\n                    len(goals) > 1\n                    and details.get("dependency_proof_complete") is True\n                    and details.get("dependency_graph_match") is False\n                    and not verdict.missing_spans\n                )\n            if (\n                attempt == 0\n                and (\n                    verdict.exact\n                    or dependency_mismatch_requires_blind_audit\n                )\n            ):\n'''
+          replace_once(goal_planning, old_mismatch, new_mismatch, "bidirectional mismatch blind audit")
+
+          text = goal_planning.read_text(encoding="utf-8")
+          text = text.replace(
+              "plus a grounded dependency-only\n                # disagreement that introduces a new edge, receives one independent",
+              "plus a grounded dependency-only\n                # disagreement in either polarity, receives one independent",
+          )
+          text = text.replace(
+              "# The candidate-blind proof is itself the authority that the\n                        # declared graph is wrong. Missing redundant top-level evidence",
+              "# The candidate-blind proof is a structurally valid observation that the\n                        # declared graph is wrong, but it remains provisional until graph closure. Missing redundant top-level evidence",
+          )
+          text = text.replace(
+              "Do not re-audit or return dependency_decisions; the prior complete dependency proof remains authoritative.",
+              "Do not re-audit or return dependency_decisions; preserve the prior complete pairwise dependency observation unchanged as provisional evidence. It does not become authority until the dedicated dependency-authority closure phase.",
+          )
+          text = text.replace(
+              "Do not re-audit or return dependency_decisions; the prior complete candidate-blind dependency proof remains \"\n                    \"authoritative.",
+              "Do not re-audit or return dependency_decisions; preserve the prior complete candidate-blind pairwise observation unchanged as provisional evidence. It does not become authority until the dedicated dependency-authority closure phase.",
+          )
+          text = text.replace(
+              "capability availability, tool order, Draft ",
+              "capability availability, tool sequencing, Draft ",
+          )
+          goal_planning.write_text(text, encoding="utf-8")
+
+          old_closure = '''            if (\n                verdict.exact\n                and len(goals) > 1\n                and dependency_authority_snapshot.get("dependency_authority_complete") is not True\n                and isinstance(verdict.details, dict)\n                and verdict.details.get("dependency_proof_complete") is True\n                and attempt < 5\n            ):\n'''
+          new_closure = '''            dependency_proof_ready_for_closure = bool(\n                len(goals) > 1\n                and dependency_authority_snapshot.get("dependency_authority_complete") is not True\n                and isinstance(verdict.details, dict)\n                and verdict.details.get("dependency_proof_complete") is True\n                and (\n                    verdict.exact\n                    or (\n                        verdict.verdict == "incomplete"\n                        and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n                        and not verdict.missing_spans\n                    )\n                )\n            )\n            if dependency_proof_ready_for_closure and attempt < 5:\n'''
+          replace_once(goal_planning, old_closure, new_closure, "dependency mismatch closure eligibility")
+
+          old_tail = '''            last_indeterminate = GoalAlignmentVerdict(\n                verdict.verdict, verdict.evidence_spans, verdict.missing_spans, verdict.reason_code,\n                verdict.source, verdict.independent, {**verdict.details, "verifier_repair_attempted": attempt > 0},\n            )\n            if attempt == 0:\n'''
+          new_tail = '''            last_indeterminate = GoalAlignmentVerdict(\n                verdict.verdict, verdict.evidence_spans, verdict.missing_spans, verdict.reason_code,\n                verdict.source, verdict.independent, {**verdict.details, "verifier_repair_attempted": attempt > 0},\n            )\n            if attempt > 0:\n                # Extra loop capacity exists only for explicit state transitions\n                # above (semantic adjudication -> graph closure, etc.). A repeated\n                # malformed/ungrounded response must fail closed instead of silently\n                # consuming fourth/fifth/sixth verifier calls.\n                return last_indeterminate\n            if attempt == 0:\n'''
+          replace_once(goal_planning, old_tail, new_tail, "bounded indeterminate retries")
+
+          # Release #47 projection tests now construct deterministic mature graph
+          # authority instead of treating raw complete/matching diagnostics as writer authority.
+          release47 = ROOT / "services/agent-service/tests/runtime/test_release47_dependency_repair_projection.py"
+          release47.write_text('''from __future__ import annotations\n\nimport importlib.util\nimport json\nfrom pathlib import Path\n\nfrom agent_core.goal_graph.dependency_alignment import (\n    alignment_dependency_authority_details,\n    apply_alignment_dependency_proof,\n)\nfrom agent_core.lifecycle.dialogue_runtime import _semantic_writer_declaration_result_projection\nfrom agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, _alignment_repair_feedback\n\n\nSCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "verify_preprod_conversation_smoke.py"\nSPEC = importlib.util.spec_from_file_location("release47_preprod_semantic_smoke", SCRIPT)\nassert SPEC is not None and SPEC.loader is not None\nHARNESS = importlib.util.module_from_spec(SPEC)\nSPEC.loader.exec_module(HARNESS)\n\n\ndef _edge() -> dict[str, str]:\n    return {\n        "dependent_goal_id": "g2",\n        "requires_result_of_goal_id": "g1",\n        "basis_kind": "result_reference",\n        "basis_span": "它",\n    }\n\n\ndef _mature_mismatch_details(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:\n    first_span, second_span = user_text.split("，", 1)\n    declared_g2 = [\n        str(row["requires_result_of_goal_id"])\n        for row in declared\n        if row.get("dependent_goal_id") == "g2"\n    ]\n    goals = [\n        {"goal_id": "g1", "evidence_span": first_span, "depends_on": []},\n        {"goal_id": "g2", "evidence_span": second_span, "depends_on": declared_g2},\n    ]\n    decisions = (\n        [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "b_depends_on_a",\n            "basis_kind": verified[0]["basis_kind"],\n            "basis_span": verified[0]["basis_span"],\n        }]\n        if verified\n        else [{"goal_a_id": "g1", "goal_b_id": "g2", "relation": "independent"}]\n    )\n    ledger, _ = apply_alignment_dependency_proof(\n        None,\n        user_text=user_text,\n        goals=goals,\n        details={\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": False,\n            "dependency_pair_decisions": decisions,\n        },\n        phase="candidate_blind_dependency_authority_closure",\n    )\n    return {\n        "dependency_authority": "independent_goal_alignment",\n        "dependency_proof_complete": True,\n        "dependency_graph_match": False,\n        "dependency_edges": verified,\n        "declared_dependency_edges": declared,\n        "verifier_repair_attempted": True,\n        "verifier_repair_kind": "candidate_blind_dependency_authority_closure",\n        **alignment_dependency_authority_details(ledger, goals=goals),\n    }\n\n\ndef _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:\n    alignment = GoalAlignmentVerdict(\n        "incomplete",\n        (),\n        (),\n        "goal_alignment_dependency_graph_mismatch",\n        "model",\n        True,\n        _mature_mismatch_details(verified=verified, declared=declared, user_text=user_text),\n    )\n    return {\n        "ok": False,\n        "code": "GOAL_DECLARATION_INCOMPLETE",\n        "message": "redeclare",\n        "data": {\n            "alignment_proof": alignment.as_dict(),\n            **_alignment_repair_feedback(alignment),\n            "current_user_input": user_text,\n            "repair_contract": {\n                "authority": "current_user_input_only",\n                "required_action": "redeclaration",\n            },\n        },\n    }\n\n\ndef test_release47_missing_true_dependency_keeps_polarity_without_leaking_edge_ids():\n    raw = _mismatch_result(\n        verified=[_edge()],\n        declared=[],\n        user_text="查一下键盘订单，再看看它能不能退款",\n    )\n    projected = _semantic_writer_declaration_result_projection(raw)\n    feedback = projected["data"]["independent_verifier_feedback"]\n\n    assert feedback["authority"] == "read_only_violation_evidence"\n    assert feedback["required_action"] == "redeclaration_from_current_user_input"\n    assert feedback["violation"] == {\n        "field": "depends_on",\n        "reason_code": "goal_alignment_dependency_graph_mismatch",\n        "evidence_spans": ["它"],\n        "dependency_delta_kind": "missing_grounded_relation",\n    }\n    assert (\n        "candidate_is_missing_at_least_one_grounded_relation_rederive_and_add_only_relations_proved_by_current_user_input"\n        in feedback["constraints"]\n    )\n    assert "explicit_same_turn_result_reference_result_condition_or_result_value_input_requires_depends_on" in feedback["constraints"]\n\n    serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)\n    assert "dependent_goal_id" not in serialized\n    assert "requires_result_of_goal_id" not in serialized\n    assert "candidate_declared_dependency_edges" not in serialized\n    assert '\"g1\"' not in serialized\n    assert '\"g2\"' not in serialized\n\n\ndef test_release47_false_declared_dependency_keeps_opposite_polarity_without_replacement_graph():\n    raw = _mismatch_result(\n        verified=[],\n        declared=[{"dependent_goal_id": "g2", "requires_result_of_goal_id": "g1"}],\n        user_text="查一下鼠标订单，然后帮我申请退款",\n    )\n    projected = _semantic_writer_declaration_result_projection(raw)\n    feedback = projected["data"]["independent_verifier_feedback"]\n\n    assert feedback["violation"] == {\n        "field": "depends_on",\n        "reason_code": "goal_alignment_dependency_graph_mismatch",\n        "evidence_spans": [],\n        "dependency_delta_kind": "unproved_declared_relation",\n    }\n    assert (\n        "candidate_contains_at_least_one_unproved_relation_rederive_and_remove_only_relations_not_proved_by_current_user_input"\n        in feedback["constraints"]\n    )\n    assert "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_depends_on" in feedback["constraints"]\n    serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)\n    assert "dependent_goal_id" not in serialized\n    assert "requires_result_of_goal_id" not in serialized\n    assert '\"g1\"' not in serialized\n    assert '\"g2\"' not in serialized\n\n\ndef test_release47_internal_certification_diagnostic_no_longer_renders_alignment_edges_as_blank_span_rows():\n    raw = _mismatch_result(\n        verified=[_edge()],\n        declared=[],\n        user_text="查一下键盘订单，再看看它能不能退款",\n    )\n    diagnostic = HARNESS._sanitized_goal_rejection_diagnostic(raw)\n\n    assert diagnostic["independent_verifier_feedback"]["dependency_edges"] == [_edge()]\n    assert diagnostic["alignment"]["dependency_edges"] == [_edge()]\n''', encoding="utf-8")
+
+          # Attempt-5 historical tests: dedicated graph closure is a distinct
+          # maturity transition; malformed repeated evidence still fails closed.
+          attempt5 = ROOT / "services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py"
+          replace_function(
+              attempt5,
+              "test_false_declared_dependency_is_rejected_by_independent_alignment_graph() -> None:",
+              "test_exact_contradictory_graph_self_reaudits_candidate_blind() -> None:",
+              '''def test_false_declared_dependency_is_rejected_by_independent_alignment_graph() -> None:\n    text = "查一下鼠标订单，然后帮我申请退款"\n    goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", ["g1"])]\n    first = _response({\n        "verdict": "incomplete",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_edges": [],\n        "reason_code": "declared_dependency_not_expressed",\n    })\n    independent = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "independent",\n        }],\n        "reason_code": "candidate_blind_independent",\n    })\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=[first, independent, independent]\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 3\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"''',
+          )
+
+          replace_function(
+              attempt5,
+              "test_unproposed_refund_dependency_requires_candidate_blind_confirmation() -> None:",
+              "test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() -> None:",
+              '''def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() -> None:\n    text = "查一下鼠标订单，然后帮我申请退款"\n    goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", [])]\n    false_positive = _response({\n        "verdict": "incomplete",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_edges": [{\n            "dependent_goal_id": "g2",\n            "requires_result_of_goal_id": "g1",\n            "basis_kind": "result_reference",\n            "basis_span": "帮我申请退款",\n        }],\n        "reason_code": "refund_needs_query_result",\n    })\n    independent = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "independent",\n        }],\n        "reason_code": "same_turn_scope_is_not_result_dependency",\n    })\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=[false_positive, independent, independent]\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 3\n    assert verdict.exact\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is True\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"\n    second_payload = str(invoke.call_args_list[1].kwargs["payload"])\n    assert '\"depends_on\"' not in second_payload\n    assert "same-turn zero-anaphora" in second_payload\n    assert "Never report such inherited identity text as a target-scope-constraint missing span" in second_payload\n    third_payload = str(invoke.call_args_list[2].kwargs["payload"])\n    assert "complete/matching alone is not authority" in third_payload''',
+          )
+
+          replace_function(
+              attempt5,
+              "test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() -> None:",
+              "test_unknown_and_self_dependency_edges_fail_closed() -> None:",
+              '''def test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() -> None:\n    text = "查一下鼠标订单，然后帮我申请退款"\n    goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", [])]\n    false_positive = _response({\n        "verdict": "incomplete",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_edges": [{\n            "dependent_goal_id": "g2",\n            "requires_result_of_goal_id": "g1",\n            "basis_kind": "result_reference",\n            "basis_span": "帮我申请退款",\n        }],\n        "reason_code": "refund_needs_query_result",\n    })\n    malformed_blind = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "b_depends_on_a",\n            "basis_kind": "result_reference",\n            "basis_span": "鼠标订单",\n        }],\n        "reason_code": "malformed_blind_basis",\n    })\n    repaired = _response({\n        "verdict": "exact",\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "independent",\n        }],\n        "reason_code": "repaired_pairwise_dependency_proof",\n    })\n    closed = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "independent",\n        }],\n        "reason_code": "dependency_authority_closed",\n    })\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model",\n        side_effect=[false_positive, malformed_blind, repaired, closed],\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n    assert invoke.call_count == 4\n    assert verdict.exact\n    assert verdict.evidence_spans == ("查一下鼠标订单", "帮我申请退款")\n    assert verdict.details["dependency_graph_match"] is True\n    assert verdict.details["dependency_proof_complete"] is True\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is True\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"''',
+          )
+
+          replace_function(
+              attempt5,
+              "test_release43_missing_dependency_without_redundant_outcome_evidence_is_repairable() -> None:",
+              "test_release43_machine_dependency_proof_never_certifies_exact_without_outcome_evidence() -> None:",
+              '''def test_release43_missing_dependency_without_redundant_outcome_evidence_is_repairable() -> None:\n    """Release #43: only mature graph mismatch authority may reach redeclaration."""\n    from agent_core.lifecycle.goal_planning import _alignment_repair_feedback\n\n    text = "查一下键盘订单，再看看它能不能退款"\n    goals = [_goal("g1", "查一下键盘订单", []), _goal("g2", "再看看它能不能退款", [])]\n    edge = {\n        "dependent_goal_id": "g2",\n        "requires_result_of_goal_id": "g1",\n        "basis_kind": "result_reference",\n        "basis_span": "它",\n    }\n    first = _response({\n        "verdict": "incomplete",\n        "evidence_spans": [],\n        "missing_spans": [],\n        "dependency_edges": [edge],\n        "reason_code": "missing_true_result_dependency",\n    })\n    positive = _response({\n        "verdict": "exact",\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "b_depends_on_a",\n            "basis_kind": "result_reference",\n            "basis_span": "它",\n        }],\n        "reason_code": "candidate_blind_true_result_reference",\n    })\n\n    with patch("agent_core.config.get_model", return_value=object()), patch(\n        "agent_core.model_calls.invoke_model", side_effect=[first, positive, positive]\n    ) as invoke:\n        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())\n\n    assert invoke.call_count == 3\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.evidence_spans == ()\n    assert verdict.missing_spans == ()\n    assert verdict.details["dependency_proof_complete"] is True\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_edges"] == [edge]\n    assert verdict.details["dependency_mismatch_grounding"] == "machine_dependency_proof"\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"\n\n    feedback = _alignment_repair_feedback(verdict)["independent_verifier_feedback"]\n    assert feedback["required_action"] == "redeclaration_preserving_grounded_dependency_graph"\n    assert feedback["dependency_edges"] == [edge]\n    assert feedback["candidate_declared_dependency_edges"] == []''',
+          )
+
+          # Attempt-6 outer normalization now distinguishes raw mismatch opinion
+          # from a mature reducer-backed graph mismatch.
+          attempt6 = ROOT / "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py"
+          attempt6.write_text('''from __future__ import annotations\n\nimport json\nfrom types import SimpleNamespace\nfrom unittest.mock import patch\n\nfrom agent_core.goal_graph.dependency_alignment import (\n    alignment_dependency_authority_details,\n    apply_alignment_dependency_proof,\n)\nfrom agent_core.lifecycle.goal_planning import (\n    GoalAlignmentVerdict,\n    _as_alignment_verdict,\n    verify_goal_alignment,\n)\n\n\ndef _goal(goal_id: str, span: str, depends_on: list[str]) -> dict:\n    return {"goal_id": goal_id, "evidence_span": span, "depends_on": depends_on}\n\n\ndef _response(payload: dict) -> tuple[SimpleNamespace, dict]:\n    return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)), {}\n\n\ndef _mature_false_declared_dependency_details(text: str, goals: list[dict]) -> dict:\n    decision = [{"goal_a_id": "g1", "goal_b_id": "g2", "relation": "independent"}]\n    ledger, _ = apply_alignment_dependency_proof(\n        None,\n        user_text=text,\n        goals=goals,\n        details={\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": False,\n            "dependency_pair_decisions": decision,\n        },\n        phase="candidate_blind_dependency_authority_closure",\n    )\n    return {\n        "dependency_authority": "independent_goal_alignment",\n        "dependency_proof_complete": True,\n        "dependency_graph_match": False,\n        "dependency_edges": [],\n        **alignment_dependency_authority_details(ledger, goals=goals),\n    }\n\n\ndef test_attempt6_dependency_mismatch_survives_outer_alignment_normalization() -> None:\n    """Only reducer-backed dependency mismatch survives outer normalization."""\n    text = "查一下我的订单，再查下物流到哪了"\n    goals = [\n        _goal("g1", "查一下我的订单", []),\n        _goal("g2", "再查下物流到哪了", ["g1"]),\n    ]\n    first = _response({\n        "verdict": "incomplete",\n        "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],\n        "missing_spans": [],\n        "dependency_edges": [],\n        "reason_code": "declared_dependency_not_expressed",\n    })\n    independent = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "independent",\n        }],\n        "reason_code": "candidate_blind_independent",\n    })\n\n    with patch("agent_core.lifecycle.goal_planning._goal_alignment_mode", return_value="model"), patch(\n        "agent_core.config.get_model", return_value=object()\n    ), patch(\n        "agent_core.model_calls.invoke_model", side_effect=[first, independent, independent]\n    ) as invoke:\n        verdict = verify_goal_alignment(\n            state={"current_user_input": text},\n            goals=goals,\n            known_tools=set(),\n        )\n\n    assert invoke.call_count == 3\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.missing_spans == ()\n    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"\n    assert verdict.details["dependency_authority_complete"] is True\n    assert verdict.details["dependency_authority_graph_match"] is False\n    assert verdict.details["dependency_edges"] == []\n\n\ndef test_grounded_dependency_mismatch_normalization_is_idempotent() -> None:\n    text = "查一下我的订单，再查下物流到哪了"\n    goals = [\n        _goal("g1", "查一下我的订单", []),\n        _goal("g2", "再查下物流到哪了", ["g1"]),\n    ]\n    original = GoalAlignmentVerdict(\n        "incomplete",\n        ("查一下我的订单", "再查下物流到哪了"),\n        (),\n        "goal_alignment_dependency_graph_mismatch",\n        "model",\n        True,\n        _mature_false_declared_dependency_details(text, goals),\n    )\n    normalized = _as_alignment_verdict(\n        original, user_text=text, source="model", independent=True\n    )\n    assert normalized == original\n\n\ndef test_raw_dependency_mismatch_without_maturity_authority_fails_closed() -> None:\n    text = "查一下我的订单，再查下物流到哪了"\n    raw = GoalAlignmentVerdict(\n        "incomplete",\n        ("查一下我的订单", "再查下物流到哪了"),\n        (),\n        "goal_alignment_dependency_graph_mismatch",\n        "model",\n        True,\n        {\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": False,\n            "dependency_edges": [],\n        },\n    )\n    normalized = _as_alignment_verdict(\n        raw, user_text=text, source="model", independent=True\n    )\n    assert normalized.verdict == "indeterminate"\n    assert normalized.reason_code == "goal_alignment_missing_span_not_grounded"\n\n\ndef test_incomplete_without_missing_span_or_dependency_proof_still_fails_closed() -> None:\n    text = "查一下我的订单，再查下物流到哪了"\n    ungrounded = GoalAlignmentVerdict(\n        "incomplete",\n        ("查一下我的订单",),\n        (),\n        "some_ungrounded_incomplete_claim",\n        "model",\n        True,\n        {},\n    )\n    normalized = _as_alignment_verdict(\n        ungrounded, user_text=text, source="model", independent=True\n    )\n    assert normalized.verdict == "indeterminate"\n    assert normalized.reason_code == "goal_alignment_missing_span_not_grounded"\n    assert normalized.details["original_verdict"] == "incomplete"\n    assert normalized.details["grounding_failure"] == "missing_spans"\n''', encoding="utf-8")
+
+          # Remove carrier before commit and refresh protected source baseline.
+          carrier = ROOT / ".github/workflows/dependency-proof-authority-fix3-carrier.yml"
+          carrier.unlink()
+          baseline_path = ROOT / "skill-system/registry/product-source-baseline.json"
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          files = dict(baseline.get("files") or {})
+          for rel in list(files):
+              path = ROOT / rel
+              if path.is_file():
+                  files[rel] = sha256(path.read_bytes()).hexdigest()
+          baseline["files"] = dict(sorted(files.items()))
+          baseline["file_count"] = len(files)
+          baseline_path.write_text(
+              json.dumps(baseline, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_release47_dependency_repair_projection.py \
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py
+
+      - name: Commit root fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(semantic): close both dependency mismatch polarities through authority"
+          git push origin HEAD:fix/dependency-proof-authority-reducer-20260816
+
+      - name: Run focused dependency authority regressions
+        shell: bash
+        run: |
+          cd services/agent-service
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_dependency_proof_authority.py \
+            tests/runtime/test_dependency_alignment_authority.py \
+            tests/runtime/test_release47_dependency_repair_projection.py \
+            tests/runtime/test_release52_dependency_independence_adjudication.py \
+            tests/runtime/test_release53_blind_semantic_grounding_adjudication.py \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            tests/runtime/test_wp08_attempt6_alignment_normalization.py \
+            ../../skill-system/tests/test_semantic_dependency_repair_feedback.py \
+            ../../skill-system/tests/test_wp08_final_product_closure_repair.py
