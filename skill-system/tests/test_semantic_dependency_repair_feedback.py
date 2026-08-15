@@ -11,6 +11,13 @@ AGENT_SRC = ROOT / "services" / "agent-service" / "src"
 if str(AGENT_SRC) not in sys.path:
     sys.path.insert(0, str(AGENT_SRC))
 
+from agent_core.lifecycle.goal_dependency_proof import (  # noqa: E402
+    DependencyGraphObservation,
+    DependencyObservationRole,
+    dependency_premise_digest,
+    dependency_proof_metadata,
+    reduce_dependency_graph_proof,
+)
 from agent_core.lifecycle.goal_planning import (  # noqa: E402
     GoalAlignmentVerdict,
     _alignment_repair_feedback,
@@ -61,8 +68,55 @@ class _InjectedVerifier:
         return self.verdict
 
 
+def _authoritative_details(
+    *,
+    user_text: str,
+    goals: list[dict],
+    details: dict,
+    evidence_prefix: str,
+) -> dict:
+    premise = dependency_premise_digest(user_text=user_text, goals=goals)
+    pairs = tuple(
+        sorted(
+            (
+                str(row.get("dependent_goal_id") or ""),
+                str(row.get("requires_result_of_goal_id") or ""),
+            )
+            for row in list(details.get("dependency_edges") or [])
+            if isinstance(row, dict)
+            and str(row.get("dependent_goal_id") or "")
+            and str(row.get("requires_result_of_goal_id") or "")
+        )
+    )
+    provisional = DependencyGraphObservation(
+        premise_digest=premise,
+        edges=pairs,
+        complete=True,
+        graph_matches_declaration=False,
+        expected_pair_count=1,
+        observed_pair_count=1,
+        source="candidate_blind_dependency_reaudit",
+        role=DependencyObservationRole.PROVISIONAL,
+        evidence_digest=f"{evidence_prefix}-provisional",
+    )
+    proof = reduce_dependency_graph_proof(None, provisional)
+    closure = DependencyGraphObservation(
+        premise_digest=premise,
+        edges=pairs,
+        complete=True,
+        graph_matches_declaration=False,
+        expected_pair_count=1,
+        observed_pair_count=1,
+        source="candidate_blind_dependency_authority_closure",
+        role=DependencyObservationRole.ADVERSARIAL_CLOSURE,
+        evidence_digest=f"{evidence_prefix}-closure",
+    )
+    proof = reduce_dependency_graph_proof(proof, closure)
+    return dependency_proof_metadata(details, proof)
+
+
 class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
-    """Lock repair feedback to independent, literal-evidence dependency proof only."""
+    """Repair is derived only from mature, literal-evidence dependency authority."""
 
     def test_missing_true_result_dependency_returns_grounded_edge(self) -> None:
         text = "查一下键盘订单，再看看它能不能退款"
@@ -83,6 +137,24 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
         )
         self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
 
+        # Parser-complete/matching output is observation, not writer authority.
+        raw_verdict = GoalAlignmentVerdict(
+            "incomplete",
+            ("查一下键盘订单", "再看看它能不能退款"),
+            (),
+            "goal_alignment_dependency_graph_mismatch",
+            "model",
+            True,
+            details,
+        )
+        self.assertEqual(_alignment_repair_feedback(raw_verdict), {})
+
+        mature = _authoritative_details(
+            user_text=text,
+            goals=goals,
+            details=details,
+            evidence_prefix="positive",
+        )
         feedback = _alignment_repair_feedback(
             GoalAlignmentVerdict(
                 "incomplete",
@@ -91,7 +163,7 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
                 "goal_alignment_dependency_graph_mismatch",
                 "model",
                 True,
-                details,
+                mature,
             )
         )["independent_verifier_feedback"]
 
@@ -119,7 +191,27 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
             values=[],
         )
         self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        self.assertEqual(
+            _alignment_repair_feedback(
+                GoalAlignmentVerdict(
+                    "incomplete",
+                    ("查一下鼠标订单", "帮我申请退款"),
+                    (),
+                    "goal_alignment_dependency_graph_mismatch",
+                    "model",
+                    True,
+                    details,
+                )
+            ),
+            {},
+        )
 
+        mature = _authoritative_details(
+            user_text=text,
+            goals=goals,
+            details=details,
+            evidence_prefix="negative",
+        )
         feedback = _alignment_repair_feedback(
             GoalAlignmentVerdict(
                 "incomplete",
@@ -128,7 +220,7 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
                 "goal_alignment_dependency_graph_mismatch",
                 "model",
                 True,
-                details,
+                mature,
             )
         )["independent_verifier_feedback"]
 
@@ -156,6 +248,7 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
                 "dependency_graph_match": False,
                 "dependency_edges": [],
                 "declared_dependency_edges": [],
+                "dependency_authority_state": "authoritative",
             },
         )
         nonindependent = GoalAlignmentVerdict(
@@ -171,11 +264,29 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
                 "dependency_graph_match": False,
                 "dependency_edges": [],
                 "declared_dependency_edges": [],
+                "dependency_authority_state": "authoritative",
+            },
+        )
+        merely_verified = GoalAlignmentVerdict(
+            "incomplete",
+            ("查一下键盘订单", "再看看它能不能退款"),
+            (),
+            "goal_alignment_dependency_graph_mismatch",
+            "model",
+            True,
+            {
+                "dependency_authority": "independent_goal_alignment",
+                "dependency_proof_complete": True,
+                "dependency_graph_match": False,
+                "dependency_edges": [],
+                "declared_dependency_edges": [],
+                "dependency_authority_state": "verified",
             },
         )
 
         self.assertEqual(_alignment_repair_feedback(incomplete), {})
         self.assertEqual(_alignment_repair_feedback(nonindependent), {})
+        self.assertEqual(_alignment_repair_feedback(merely_verified), {})
 
     def test_alignment_rejection_path_includes_grounded_feedback_hook(self) -> None:
         source = (
@@ -198,15 +309,22 @@ class SemanticDependencyRepairFeedbackTests(unittest.TestCase):
             "basis_kind": "result_reference",
             "basis_span": "它",
         }
+        proof_goals = [
+            _goal("g1", "查一下键盘订单", []),
+            _goal("g2", "再看看它能不能退款", []),
+        ]
         details, error = _model_alignment_dependency_proof(
             user_text=text,
-            goals=[
-                _goal("g1", "查一下键盘订单", []),
-                _goal("g2", "再看看它能不能退款", []),
-            ],
+            goals=proof_goals,
             values=[edge],
         )
         self.assertEqual(error, "goal_alignment_dependency_graph_mismatch")
+        details = _authoritative_details(
+            user_text=text,
+            goals=proof_goals,
+            details=details,
+            evidence_prefix="transport",
+        )
         state = {
             "current_user_input": text,
             "goal_alignment_verifier": _InjectedVerifier(
