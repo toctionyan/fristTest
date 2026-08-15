@@ -86,6 +86,7 @@ def test_full_lifecycle_missing_key_is_environment_blocked_before_start(monkeypa
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+    monkeypatch.delenv("REAL_MODEL_CERTIFICATION_PROVIDER", raising=False)
     monkeypatch.setattr(script, "ProductRuntimeHarness", Harness)
     output = io.StringIO()
     with redirect_stdout(output):
