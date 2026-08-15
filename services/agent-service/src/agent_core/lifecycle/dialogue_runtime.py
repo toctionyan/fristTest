@@ -707,6 +707,7 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
     spans: list[str] = []
     reason_code = ""
     field = "semantic_declaration"
+    dependency_delta_kind = ""
 
     alignment = data.get("alignment_proof") if isinstance(data.get("alignment_proof"), dict) else {}
     if alignment and str(alignment.get("verdict") or "") != "exact":
@@ -753,6 +754,41 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
             if span and span not in spans:
                 spans.append(span)
 
+    if field == "depends_on" and reason_code == "goal_alignment_dependency_graph_mismatch":
+        # Keep the independently verified graph itself out of provider-facing
+        # repair messages, but do not collapse a directional graph delta into an
+        # ambiguous generic field error.  The writer may learn only whether its
+        # candidate omitted a grounded relation, asserted an unproved relation,
+        # or did both; it must still rederive the actual edge from current input.
+        verified_pairs = {
+            (
+                str(edge.get("dependent_goal_id") or "").strip(),
+                str(edge.get("requires_result_of_goal_id") or "").strip(),
+            )
+            for edge in list(feedback.get("dependency_edges") or [])
+            if isinstance(edge, dict)
+            and str(edge.get("dependent_goal_id") or "").strip()
+            and str(edge.get("requires_result_of_goal_id") or "").strip()
+        }
+        declared_pairs = {
+            (
+                str(edge.get("dependent_goal_id") or "").strip(),
+                str(edge.get("requires_result_of_goal_id") or "").strip(),
+            )
+            for edge in list(feedback.get("candidate_declared_dependency_edges") or [])
+            if isinstance(edge, dict)
+            and str(edge.get("dependent_goal_id") or "").strip()
+            and str(edge.get("requires_result_of_goal_id") or "").strip()
+        }
+        missing_pairs = verified_pairs - declared_pairs
+        unproved_pairs = declared_pairs - verified_pairs
+        if missing_pairs and unproved_pairs:
+            dependency_delta_kind = "mixed_relation_delta"
+        elif missing_pairs:
+            dependency_delta_kind = "missing_grounded_relation"
+        elif unproved_pairs:
+            dependency_delta_kind = "unproved_declared_relation"
+
     if feedback or reason_code or spans:
         writer_constraints = [
             "rederive_semantics_from_current_user_input",
@@ -768,14 +804,37 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
             writer_constraints.insert(0,
                 "rederive_requested_outputs_from_current_user_input_and_semantic_vocabulary_use_open_when_no_exact_registered_meaning_exists"
             )
+        elif field == "depends_on":
+            dependency_constraints = [
+                "rederive_complete_depends_on_graph_from_current_user_input_only",
+                "explicit_same_turn_result_reference_result_condition_or_result_value_input_requires_depends_on",
+                "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_depends_on",
+                "dependency_delta_kind_reports_only_candidate_graph_error_polarity_and_never_identifies_an_edge_to_copy",
+            ]
+            if dependency_delta_kind == "missing_grounded_relation":
+                dependency_constraints.insert(0,
+                    "candidate_is_missing_at_least_one_grounded_relation_rederive_and_add_only_relations_proved_by_current_user_input"
+                )
+            elif dependency_delta_kind == "unproved_declared_relation":
+                dependency_constraints.insert(0,
+                    "candidate_contains_at_least_one_unproved_relation_rederive_and_remove_only_relations_not_proved_by_current_user_input"
+                )
+            elif dependency_delta_kind == "mixed_relation_delta":
+                dependency_constraints.insert(0,
+                    "candidate_both_omits_and_asserts_dependency_relations_rederive_the_complete_graph_from_current_user_input"
+                )
+            writer_constraints = [*dependency_constraints, *writer_constraints]
+        violation = {
+            "field": field,
+            "reason_code": reason_code or str(payload.get("code") or "semantic_declaration_rejected"),
+            "evidence_spans": spans,
+        }
+        if dependency_delta_kind:
+            violation["dependency_delta_kind"] = dependency_delta_kind
         projected_data["independent_verifier_feedback"] = {
             "authority": "read_only_violation_evidence",
             "required_action": "redeclaration_from_current_user_input",
-            "violation": {
-                "field": field,
-                "reason_code": reason_code or str(payload.get("code") or "semantic_declaration_rejected"),
-                "evidence_spans": spans,
-            },
+            "violation": violation,
             "constraints": writer_constraints,
         }
 
