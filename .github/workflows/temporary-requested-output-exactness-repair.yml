@@ -29,7 +29,9 @@ jobs:
       - name: Install locked Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Apply requested-output exactness repair
-        run: python -B .github/temporary_requested_output_exactness_repair.py
+        run: |
+          python -B .github/temporary_requested_output_exactness_repair_anchor_fix.py
+          python -B .github/temporary_requested_output_exactness_repair.py
       - name: Run focused semantic regressions
         run: |
           services/agent-service/.venv/bin/python -B -m pytest -q \
@@ -61,6 +63,7 @@ jobs:
           git rm \
             .github/requested-output-exactness-repair.trigger \
             .github/temporary_requested_output_exactness_repair.py \
+            .github/temporary_requested_output_exactness_repair_anchor_fix.py \
             .github/workflows/temporary-requested-output-exactness-repair.yml
           git add skill-system/registry/product-source-baseline.json
           git commit -m 'chore(governance): refresh protected source baseline'
