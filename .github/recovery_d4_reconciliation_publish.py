@@ -94,21 +94,17 @@ assert len(parts) == 2 and parts[1] == "refs/heads/main", remote_main
 assert parts[0] == MAIN_SHA, {"expected_main": MAIN_SHA, "remote_main": parts[0]}
 existing = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
 assert existing == "", f"refusing to overwrite existing branch {BRANCH}: {existing}"
-origin_url = run("git", "remote", "get-url", "origin", capture=True)
-assert origin_url
 
-# Use a fully independent clone/index instead of a linked worktree. D4a-c proved that
-# the linked-worktree index did not expose the tracked active-change deletion even though
-# exact-main Git Tree and Contents APIs both prove the 100644 blob exists.
+# Use an independent index while sharing only the immutable object store. A normal local
+# clone copies only local-head reachable objects; on Actions exact main is a remote-tracking
+# object. --shared keeps all source objects addressable without sharing the index.
 worktree = Path("/tmp/v2018-main-reconciliation-independent-clone")
 if worktree.exists():
     shutil.rmtree(worktree)
-run("git", "clone", "--no-local", "--no-checkout", str(REPO), str(worktree))
-run("git", "remote", "set-url", "origin", origin_url, cwd=worktree)
+run("git", "clone", "--shared", "--no-checkout", str(REPO), str(worktree))
 run("git", "checkout", "--detach", MAIN_SHA, cwd=worktree)
 assert run("git", "rev-parse", "HEAD", cwd=worktree, capture=True) == MAIN_SHA
 
-# Prove the independent index sees the exact tracked stale pointer before mutation.
 tracked_before = run("git", "ls-files", "--stage", "--", ACTIVE, cwd=worktree, capture=True)
 assert tracked_before, "independent index does not contain the exact-main active-change path"
 fields = tracked_before.split()
@@ -155,16 +151,22 @@ commit_sha = run("git", "rev-parse", "HEAD", cwd=worktree, capture=True)
 parent_sha = run("git", "rev-parse", "HEAD^", cwd=worktree, capture=True)
 assert parent_sha == MAIN_SHA
 
-run("git", "push", "origin", f"HEAD:refs/heads/{BRANCH}", cwd=worktree)
-remote_branch = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", capture=True)
+# Import the newly-created commit object back into the credentialed Actions checkout,
+# then push only the new reconciliation ref from there. The temporary clone never receives
+# GitHub credentials, and main is never updated.
+run("git", "fetch", str(worktree), "HEAD", cwd=REPO)
+fetched = run("git", "rev-parse", "FETCH_HEAD", cwd=REPO, capture=True)
+assert fetched == commit_sha, {"expected_commit": commit_sha, "fetched": fetched}
+run("git", "push", "origin", f"{commit_sha}:refs/heads/{BRANCH}", cwd=REPO)
+remote_branch = run("git", "ls-remote", "--heads", "origin", f"refs/heads/{BRANCH}", cwd=REPO, capture=True)
 rparts = remote_branch.split()
 assert len(rparts) == 2 and rparts[0] == commit_sha and rparts[1] == f"refs/heads/{BRANCH}"
-remote_main_after = run("git", "ls-remote", "origin", "refs/heads/main", capture=True).split()[0]
+remote_main_after = run("git", "ls-remote", "origin", "refs/heads/main", cwd=REPO, capture=True).split()[0]
 assert remote_main_after == MAIN_SHA, {"main_mutated": remote_main_after}
 
 result = {
     "schema_version": 1,
-    "phase": "D4d-governance-reconciliation-independent-clone-publish",
+    "phase": "D4e-governance-reconciliation-shared-object-independent-index-publish",
     "status": "PASS",
     "base_main_sha": MAIN_SHA,
     "main_sha_after_publish": remote_main_after,
