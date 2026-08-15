@@ -1803,8 +1803,15 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
     details = alignment.details if isinstance(alignment.details, dict) else {}
     normalized_reason = str(alignment.reason_code or "").strip().casefold().replace("-", "_").replace(" ", "_")
     requested_output_mismatch = (
-        "requested_effect" in normalized_reason
-        and any(marker in normalized_reason for marker in ("fidelity", "faithful", "business_effect", "semantic"))
+        (
+            "requested_effect" in normalized_reason
+            and any(marker in normalized_reason for marker in ("fidelity", "faithful", "business_effect", "semantic"))
+        )
+        # The verifier prompt reserves this exact reason for a registered
+        # requested_outputs identity that semantically substitutes a different
+        # user-visible outcome. Release #45 proved the provider may use the
+        # concise reserved reason instead of the longer requested_effect_* form.
+        or normalized_reason == "semantic_substitution"
     )
     if alignment.verdict == "incomplete" and alignment.independent and requested_output_mismatch:
         invalid_requested_output_spans = list(dict.fromkeys(
