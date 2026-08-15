@@ -1,6 +1,6 @@
-release_request: 2026-08-15T22:17:00+08:00
+release_request: 2026-08-15T23:16:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: certify mutually exclusive outcome goal-granularity closure on exact main bc612e9295412f381115891ab45b3ceef94ed899
+reason: certify goal-granularity output-contract closure on exact main fff941a4034213e32fb611f0f9286bc300738d29
