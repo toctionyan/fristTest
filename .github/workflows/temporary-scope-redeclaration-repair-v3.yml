@@ -1,0 +1,59 @@
+name: temporary-scope-redeclaration-repair-v3
+
+on:
+  push:
+    branches:
+      - fix/semantic-scope-redeclare-20260815
+    paths:
+      - .github/scope-redeclaration-repair-v3.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: fix/semantic-scope-redeclare-20260815
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply verifier-guided redeclaration repair
+        run: python .github/temporary_scope_redeclaration_repair_v3.py
+      - name: Install controlled test environment
+        run: |
+          python -m pip install --disable-pip-version-check uv==0.11.29
+          cd services/agent-service
+          uv sync --locked --all-groups
+      - name: Run focused semantic regressions
+        run: |
+          cd services/agent-service
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q \
+            tests/runtime/test_scope_constraint_redeclaration_feedback.py \
+            tests/runtime/test_semantic_dependency_counterfactual_contract.py \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py
+      - name: Refresh product-source baseline
+        run: services/agent-service/.venv/bin/python -B scripts/refresh_product_source_baseline.py
+      - name: Run architecture verification
+        run: |
+          services/agent-service/.venv/bin/python -B scripts/verify_architecture.py
+          git diff --check
+      - name: Commit governed repair
+        run: |
+          if git diff --quiet; then
+            echo 'No source changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py \
+            .github/release-trigger \
+            skill-system/registry/product-source-baseline.json
+          git commit -m 'fix(semantic): feed scope adjudication into redeclaration'
+          git push origin HEAD:fix/semantic-scope-redeclare-20260815
