@@ -92,8 +92,8 @@ jobs:
             source/services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py \
             source/services/agent-service/tests/runtime/test_release44_dependency_basis_grounding.py \
             source/services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
-          source/services/agent-service/.venv/bin/python -B -m unittest \
-            skill-system.tests.test_wp08_new_release_attempt4_repair
+          source/services/agent-service/.venv/bin/python -B \
+            source/skill-system/tests/test_wp08_new_release_attempt4_repair.py
 
       - name: Run complete standard Python suites
         run: >-
