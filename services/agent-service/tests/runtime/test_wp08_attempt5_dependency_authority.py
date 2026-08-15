@@ -338,3 +338,96 @@ def test_frozen_outcome_authority_never_reinterprets_dependency_graph() -> None:
     assert reused.exact
     assert reused.details["inventory_authority_reused"] is True
     assert reused.details["dependency_authority"] == "independent_goal_alignment"
+
+
+
+def test_release43_missing_dependency_without_redundant_outcome_evidence_is_repairable() -> None:
+    """Release #43: a machine-grounded graph mismatch must reach redeclaration."""
+    from agent_core.lifecycle.goal_planning import _alignment_repair_feedback
+
+    text = "查一下键盘订单，再看看它能不能退款"
+    goals = [_goal("g1", "查一下键盘订单", []), _goal("g2", "再看看它能不能退款", [])]
+    edge = {
+        "dependent_goal_id": "g2",
+        "requires_result_of_goal_id": "g1",
+        "basis_kind": "result_reference",
+        "basis_span": "它",
+    }
+    first = _response({
+        "verdict": "incomplete",
+        "evidence_spans": [],
+        "missing_spans": [],
+        "dependency_edges": [edge],
+        "reason_code": "missing_true_result_dependency",
+    })
+    blind = _response({
+        "verdict": "exact",
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "它",
+        }],
+        "reason_code": "candidate_blind_true_result_reference",
+    })
+
+    with patch("agent_core.config.get_model", return_value=object()), patch(
+        "agent_core.model_calls.invoke_model", side_effect=[first, blind]
+    ) as invoke:
+        verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
+
+    assert invoke.call_count == 2
+    assert verdict.verdict == "incomplete"
+    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+    assert verdict.evidence_spans == ()
+    assert verdict.missing_spans == ()
+    assert verdict.details["dependency_proof_complete"] is True
+    assert verdict.details["dependency_graph_match"] is False
+    assert verdict.details["dependency_edges"] == [edge]
+    assert verdict.details["dependency_mismatch_grounding"] == "machine_dependency_proof"
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+
+    feedback = _alignment_repair_feedback(verdict)["independent_verifier_feedback"]
+    assert feedback["required_action"] == "redeclaration_preserving_grounded_dependency_graph"
+    assert feedback["dependency_edges"] == [edge]
+    assert feedback["candidate_declared_dependency_edges"] == []
+
+
+def test_release43_machine_dependency_proof_never_certifies_exact_without_outcome_evidence() -> None:
+    """The repair changes rejection classification only; exact still needs literal outcome evidence."""
+    from agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, _as_alignment_verdict
+
+    text = "查一下键盘订单，再看看它能不能退款"
+    edge = {
+        "dependent_goal_id": "g2",
+        "requires_result_of_goal_id": "g1",
+        "basis_kind": "result_reference",
+        "basis_span": "它",
+    }
+    normalized = _as_alignment_verdict(
+        GoalAlignmentVerdict(
+            "exact",
+            (),
+            (),
+            "all_requested_outcomes_and_dependency_preserved",
+            "model",
+            True,
+            {
+                "dependency_authority": "independent_goal_alignment",
+                "dependency_proof_complete": True,
+                "dependency_graph_match": True,
+                "declared_dependency_edges": [{
+                    "dependent_goal_id": "g2",
+                    "requires_result_of_goal_id": "g1",
+                }],
+                "dependency_edges": [edge],
+            },
+        ),
+        user_text=text,
+        source="model",
+        independent=True,
+    )
+    assert normalized.verdict == "indeterminate"
+    assert normalized.reason_code == "goal_alignment_evidence_not_in_current_user_text"
