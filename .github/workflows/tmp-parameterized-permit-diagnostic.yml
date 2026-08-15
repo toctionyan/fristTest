@@ -35,6 +35,8 @@ jobs:
 
       - name: Instrument ephemeral test copy and reproduce both failures
         working-directory: services/agent-service
+        env:
+          PYTHONPATH: .:src
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -43,18 +45,15 @@ jobs:
           path = Path('tests/context/test_parameterized_capability_alignment.py')
           text = path.read_text(encoding='utf-8')
           needle = '    assert decision.permitted is True\n'
-          probes = [
-              '''    print("DIAG_ALIAS_PERMITTED", decision.permitted)\n    print("DIAG_ALIAS_REJECTION", decision.rejection)\n    print("DIAG_ALIAS_NORMALIZED", decision.normalized_arguments)\n    print("DIAG_ALIAS_MATCH_PROOF", decision.match_proof)\n    assert decision.permitted is True\n''',
-              '''    print("DIAG_CANONICAL_PERMITTED", permit.permitted)\n    print("DIAG_CANONICAL_REJECTION", permit.rejection)\n    print("DIAG_CANONICAL_NORMALIZED", permit.normalized_arguments)\n    print("DIAG_CANONICAL_MATCH_PROOF", permit.match_proof)\n    assert permit.permitted is True\n''',
-          ]
-          # First failing test uses `decision`; second uses `permit`, so instrument separately.
+          probe1 = '''    print("DIAG_ALIAS_PERMITTED", decision.permitted)\n    print("DIAG_ALIAS_REJECTION", decision.rejection)\n    print("DIAG_ALIAS_NORMALIZED", decision.normalized_arguments)\n    print("DIAG_ALIAS_MATCH_PROOF", decision.match_proof)\n    assert decision.permitted is True\n'''
           first = text.find(needle)
           assert first >= 0
-          text = text[:first] + probes[0] + text[first + len(needle):]
+          text = text[:first] + probe1 + text[first + len(needle):]
           needle2 = '    assert permit.permitted is True\n'
+          probe2 = '''    print("DIAG_CANONICAL_PERMITTED", permit.permitted)\n    print("DIAG_CANONICAL_REJECTION", permit.rejection)\n    print("DIAG_CANONICAL_NORMALIZED", permit.normalized_arguments)\n    print("DIAG_CANONICAL_MATCH_PROOF", permit.match_proof)\n    assert permit.permitted is True\n'''
           second = text.find(needle2)
           assert second >= 0
-          text = text[:second] + probes[1] + text[second + len(needle2):]
+          text = text[:second] + probe2 + text[second + len(needle2):]
           path.write_text(text, encoding='utf-8')
           PY
 
