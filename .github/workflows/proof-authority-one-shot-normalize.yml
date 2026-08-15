@@ -10,9 +10,6 @@ permissions:
 
 jobs:
   normalize:
-    if: >-
-      github.actor != 'github-actions[bot]' &&
-      !contains(github.event.head_commit.message, '[proof-authority-normalized]')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -39,18 +36,18 @@ jobs:
           cat >> "$planning" <<'PY'
 
 
-# Dependency proof authority installation seam.
-# The verifier above remains the observation producer; this deterministic
-# lifecycle reducer alone owns proof maturity.  Installing after every symbol is
-# defined preserves the canonical source path and all historical source guards.
-import sys as _dependency_proof_sys
-from agent_core.lifecycle.goal_dependency_proof import (
-    install_goal_dependency_proof_authority as _install_goal_dependency_proof_authority,
-)
+          # Dependency proof authority installation seam.
+          # The verifier above remains the observation producer; this deterministic
+          # lifecycle reducer alone owns proof maturity. Installing after every symbol is
+          # defined preserves the canonical source path and all historical source guards.
+          import sys as _dependency_proof_sys
+          from agent_core.lifecycle.goal_dependency_proof import (
+              install_goal_dependency_proof_authority as _install_goal_dependency_proof_authority,
+          )
 
-_install_goal_dependency_proof_authority(_dependency_proof_sys.modules[__name__])
-del _dependency_proof_sys, _install_goal_dependency_proof_authority
-PY
+          _install_goal_dependency_proof_authority(_dependency_proof_sys.modules[__name__])
+          del _dependency_proof_sys, _install_goal_dependency_proof_authority
+          PY
 
           git rm "$workflow"
 
