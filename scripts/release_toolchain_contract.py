@@ -341,7 +341,10 @@ def _resolved_executable(name: str) -> Path:
     found = shutil.which(name)
     if not found:
         raise ReleaseToolchainError("release_toolchain_command_missing", f"required command is missing: {name}", environment_blocked=True)
-    return Path(found).resolve()
+    # Preserve the launcher path rather than dereferencing symlinks. Some locked
+    # toolchains (notably setup-node's npm launcher) depend on invocation through
+    # that launcher identity, just as a Python virtualenv does.
+    return Path(found).absolute()
 
 
 def _tree_digest(root: Path) -> dict[str, Any]:
@@ -401,11 +404,57 @@ def _python_environment_digest(python: Path, *, cwd: Path) -> dict[str, Any]:
     return {"distribution_count": int(payload.get("count") or 0), "distribution_set_sha256": str(payload["sha256"])}
 
 
-def _npm_tree_digest(frontend: Path) -> dict[str, Any]:
-    stdout = _run(["npm", "ls", "--all", "--json"], cwd=frontend)
-    payload = json.loads(stdout)
-    if not isinstance(payload, dict):
-        raise ReleaseToolchainError("release_npm_environment_invalid", "npm dependency tree is invalid")
+def _npm_tree_payload(frontend: Path, npm: Path) -> dict[str, Any]:
+    command = [str(npm), "ls", "--all", "--json"]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=frontend,
+            text=True,
+            capture_output=True,
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReleaseToolchainError(
+            "release_toolchain_command_unavailable",
+            f"toolchain command failed: {command[0]}",
+            environment_blocked=True,
+        ) from exc
+
+    try:
+        payload = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise ReleaseToolchainError(
+            "release_npm_environment_invalid",
+            "npm dependency inventory did not emit valid JSON",
+            environment_blocked=True,
+        ) from exc
+
+    # `npm ls` intentionally returns non-zero for peer/optional diagnostics on
+    # some npm/runtime combinations even though it still emits the complete
+    # dependency tree. Treat only a structurally valid tree as evidence; a
+    # command failure without that tree remains fail-closed.
+    if not isinstance(payload, dict) or not any(
+        key in payload for key in ("name", "version", "dependencies")
+    ):
+        raise ReleaseToolchainError(
+            "release_npm_environment_invalid",
+            "npm dependency inventory did not contain a dependency tree",
+            environment_blocked=True,
+        )
+    dependencies = payload.get("dependencies")
+    if dependencies is not None and not isinstance(dependencies, Mapping):
+        raise ReleaseToolchainError(
+            "release_npm_environment_invalid",
+            "npm dependency inventory dependencies field is invalid",
+            environment_blocked=True,
+        )
+    return payload
+
+
+def _npm_tree_digest(frontend: Path, npm: Path) -> dict[str, Any]:
+    payload = _npm_tree_payload(frontend, npm)
     return {"dependency_tree_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
 
 
@@ -500,7 +549,7 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
             },
         },
         "frontend_environment": {
-            **_npm_tree_digest(frontend),
+            **_npm_tree_digest(frontend, npm),
             **_tree_digest(frontend / "node_modules"),
         },
     }
