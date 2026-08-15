@@ -1,0 +1,107 @@
+name: dependency-authority-v7-carrier
+
+on:
+  push:
+    branches:
+      - fix/proof-authority-lifecycle-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/proof-authority-lifecycle-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Bind normalization to mature dependency authority
+        shell: bash
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one marker, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          goal_planning = ROOT / "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          replace_once(
+              goal_planning,
+              '''        and details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is False\n    )\n''',
+              '''        and details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is False\n        and details.get("dependency_authority_state") == "authoritative"\n    )\n''',
+              "outer normalization mature dependency authority",
+          )
+
+          attempt6 = ROOT / "services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py"
+          attempt6.write_text('''from __future__ import annotations\n\nimport json\nfrom types import SimpleNamespace\nfrom unittest.mock import patch\n\nfrom agent_core.lifecycle.goal_planning import (\n    GoalAlignmentVerdict,\n    _as_alignment_verdict,\n    verify_goal_alignment,\n)\n\n\ndef _goal(goal_id: str, span: str, depends_on: list[str]) -> dict:\n    return {\n        "goal_id": goal_id,\n        "evidence_span": span,\n        "depends_on": depends_on,\n    }\n\n\ndef _response(payload: dict) -> tuple[SimpleNamespace, dict]:\n    return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False)), {}\n\n\ndef test_attempt6_dependency_mismatch_survives_outer_alignment_normalization_only_after_authority_closure() -> None:\n    """A false declared edge is blind-audited, closed, then survives normalization."""\n    text = "查一下我的订单，再查下物流到哪了"\n    goals = [\n        _goal("g1", "查一下我的订单", []),\n        _goal("g2", "再查下物流到哪了", ["g1"]),\n    ]\n    candidate = _response({\n        "verdict": "incomplete",\n        "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],\n        "missing_spans": [],\n        "dependency_edges": [],\n        "reason_code": "declared_dependency_not_expressed",\n    })\n    independent = _response({\n        "verdict": "exact",\n        "evidence_spans": ["查一下我的订单", "再查下物流到哪了"],\n        "missing_spans": [],\n        "dependency_decisions": [{\n            "goal_a_id": "g1",\n            "goal_b_id": "g2",\n            "relation": "independent",\n        }],\n        "reason_code": "candidate_blind_independent",\n    })\n\n    with patch(\n        "agent_core.lifecycle.goal_planning._goal_alignment_mode",\n        return_value="model",\n    ), patch(\n        "agent_core.config.get_model",\n        return_value=object(),\n    ), patch(\n        "agent_core.model_calls.invoke_model",\n        side_effect=[candidate, independent, independent],\n    ) as invoke:\n        verdict = verify_goal_alignment(\n            state={"current_user_input": text},\n            goals=goals,\n            known_tools=set(),\n        )\n\n    assert invoke.call_count == 3\n    assert verdict.verdict == "incomplete"\n    assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"\n    assert verdict.missing_spans == ()\n    assert verdict.details["dependency_authority"] == "independent_goal_alignment"\n    assert verdict.details["dependency_proof_complete"] is True\n    assert verdict.details["dependency_graph_match"] is False\n    assert verdict.details["dependency_edges"] == []\n    assert verdict.details["dependency_authority_state"] == "authoritative"\n    assert verdict.details["dependency_challenge_required"] is False\n\n\ndef test_raw_complete_matching_dependency_mismatch_without_maturity_authority_fails_closed() -> None:\n    text = "查一下我的订单，再查下物流到哪了"\n    raw = GoalAlignmentVerdict(\n        "incomplete",\n        ("查一下我的订单", "再查下物流到哪了"),\n        (),\n        "goal_alignment_dependency_graph_mismatch",\n        "model",\n        True,\n        {\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": False,\n            "dependency_edges": [],\n            "dependency_authority_state": "verified",\n        },\n    )\n\n    normalized = _as_alignment_verdict(\n        raw,\n        user_text=text,\n        source="model",\n        independent=True,\n    )\n\n    assert normalized.verdict == "indeterminate"\n    assert normalized.reason_code == "goal_alignment_missing_span_not_grounded"\n    assert normalized.details["original_verdict"] == "incomplete"\n    assert normalized.details["grounding_failure"] == "missing_spans"\n\n\ndef test_authoritative_dependency_mismatch_normalization_is_idempotent() -> None:\n    text = "查一下我的订单，再查下物流到哪了"\n    original = GoalAlignmentVerdict(\n        "incomplete",\n        ("查一下我的订单", "再查下物流到哪了"),\n        (),\n        "goal_alignment_dependency_graph_mismatch",\n        "model",\n        True,\n        {\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": False,\n            "dependency_edges": [],\n            "dependency_authority_state": "authoritative",\n        },\n    )\n\n    normalized = _as_alignment_verdict(\n        original,\n        user_text=text,\n        source="model",\n        independent=True,\n    )\n\n    assert normalized == original\n\n\ndef test_incomplete_without_missing_span_or_dependency_proof_still_fails_closed() -> None:\n    text = "查一下我的订单，再查下物流到哪了"\n    ungrounded = GoalAlignmentVerdict(\n        "incomplete",\n        ("查一下我的订单",),\n        (),\n        "some_ungrounded_incomplete_claim",\n        "model",\n        True,\n        {},\n    )\n\n    normalized = _as_alignment_verdict(\n        ungrounded,\n        user_text=text,\n        source="model",\n        independent=True,\n    )\n\n    assert normalized.verdict == "indeterminate"\n    assert normalized.reason_code == "goal_alignment_missing_span_not_grounded"\n    assert normalized.details["original_verdict"] == "incomplete"\n    assert normalized.details["grounding_failure"] == "missing_spans"\n''', encoding="utf-8")
+
+          baseline_path = ROOT / "skill-system/registry/product-source-baseline.json"
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          files = dict(baseline.get("files") or {})
+          for rel in list(files):
+              candidate = ROOT / rel
+              if candidate.is_file():
+                  files[rel] = sha256(candidate.read_bytes()).hexdigest()
+          baseline["files"] = dict(sorted(files.items()))
+          baseline["file_count"] = len(files)
+          baseline_path.write_text(
+              json.dumps(baseline, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          carrier = ROOT / ".github/workflows/dependency-authority-v7-carrier.yml"
+          carrier.unlink()
+          PY
+
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_wp08_attempt6_alignment_normalization.py
+
+      - name: Commit normalization cutover
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(semantic): require mature dependency authority at normalization boundary"
+          git push origin HEAD:fix/proof-authority-lifecycle-20260816
+
+      - name: Run dependency authority focus set
+        shell: bash
+        run: |
+          cd services/agent-service
+          export PYTHONPATH="$PWD/src"
+          .venv/bin/python -B -m pytest -q -p no:cacheprovider \
+            tests/runtime/test_dependency_proof_authority.py \
+            tests/runtime/test_release47_dependency_repair_projection.py \
+            tests/runtime/test_release52_dependency_independence_adjudication.py \
+            tests/runtime/test_release53_blind_semantic_grounding_adjudication.py \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py \
+            tests/runtime/test_wp08_attempt6_alignment_normalization.py \
+            tests/runtime/test_wp08_attempt7_final_authority_and_retry.py \
+            ../../skill-system/tests/test_semantic_dependency_repair_feedback.py \
+            ../../skill-system/tests/test_wp08_final_product_closure_repair.py
