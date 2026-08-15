@@ -14,6 +14,7 @@ jobs:
   diagnose:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'diagnostic/parameterized-permit-20260815'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout exact provider-hint repair candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -31,24 +32,24 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Install exact Python environment
-        working-directory: services/agent-service
+      - name: Install locked Python environments used by standard gate
         run: |
           set -euo pipefail
           python -m pip install --disable-pip-version-check uv==0.11.29
-          uv sync --frozen
+          (cd services/agent-service && uv sync --locked --all-groups)
+          (cd services/business-service && uv sync --locked --all-groups)
 
-      - name: Verify missing-key tests under inherited protected DeepSeek identity
-        working-directory: services/agent-service
+      - name: Replay full standard Python test gate under inherited protected provider identity
         env:
-          PYTHONPATH: .:src
-          APP_PROFILE: preprod
           REAL_MODEL_CERTIFICATION_PROVIDER: deepseek
           OPENAI_API_KEY: sk-live-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           OPENAI_MODEL: deepseek-v4-flash
           OPENAI_API_BASE: https://api.deepseek.com
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
-          uv run pytest -q -s \
-            tests/runtime/test_b15b1_real_model_semantic_identity_boundary.py::test_semantic_prototype_missing_key_is_environment_blocked_before_invocation \
-            tests/runtime/test_b15b2_real_model_lifecycle_attestation_boundary.py::test_full_lifecycle_missing_key_is_environment_blocked_before_start
+          mkdir -p /tmp/parameterized-permit-diagnostic/junit /tmp/parameterized-permit-diagnostic/coverage
+          services/agent-service/.venv/bin/python -B scripts/run_python_test_suites.py . \
+            --mode standard \
+            --junit-dir /tmp/parameterized-permit-diagnostic/junit \
+            --coverage-dir /tmp/parameterized-permit-diagnostic/coverage
