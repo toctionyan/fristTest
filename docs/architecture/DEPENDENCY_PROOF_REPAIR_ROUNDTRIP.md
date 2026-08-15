@@ -59,3 +59,14 @@ Stage-3 validation exposed an independent CI observability race in the reusable 
 The control-plane runtime now binds warning publication to the current no-progress epoch rather than to heartbeat sampling luck. If a scheduling jump reaches the stall timeout before that epoch has published a warning, the runtime emits one `SUSPECTED_STALL` event immediately before the fail-closed `STALL_TIMEOUT` event. New child progress starts a new epoch naturally because the bound progress timestamp changes.
 
 This does not extend timeout budgets, suppress failure, or weaken the liveness assertion. The regression test retains the warning requirement and additionally verifies that `SUSPECTED_STALL` is observable before the `[WP08 STALL]` timeout event.
+
+## Stage-3 validation closure
+
+The validated product/control-plane tree passed the standard push quality pipeline after the liveness reliability fix:
+
+- Skill control plane: 310 tests, OK; protected product source remains 617/617.
+- Static quality: PASS.
+- Quick quality: PASS, including the stable Release-50 provider repair contract.
+- Integration quality: PASS after actually starting the deterministic model and both services and running the integration gates.
+
+The pull-request-triggered quality path independently passed control-plane, static and quick; its integration job was change-gated and remains recorded as SKIPPED rather than being relabeled as PASS. The actual current-tree integration PASS comes from the same-head push quality run.
