@@ -364,6 +364,11 @@ def run_streaming_command(
         return validate_external_wait_evidence(candidate)
 
     next_heartbeat = started_monotonic
+    # Bind warning publication to one no-progress epoch instead of scheduler
+    # sampling frequency. If the runner jumps across both warning and timeout
+    # thresholds in one scheduling interval, the warning transition is emitted
+    # immediately before fail-closed timeout rather than disappearing.
+    last_warned_progress_monotonic: float | None = None
     termination_reason: str | None = None
     timed_out = False
     stall_timed_out = False
@@ -380,6 +385,17 @@ def run_streaming_command(
             and idle >= stall_timeout_seconds
             and external_wait is None
         ):
+            if last_warned_progress_monotonic != last_progress:
+                warning_payload = _payload(
+                    process=process,
+                    started_at=started_at,
+                    started_monotonic=started_monotonic,
+                    activity=snapshot,
+                    liveness_status=LIVENESS_SUSPECTED_STALL,
+                )
+                if on_heartbeat is not None:
+                    on_heartbeat(warning_payload)
+                last_warned_progress_monotonic = last_progress
             termination_reason = "no_progress_stall"
             timed_out = True
             stall_timed_out = True
@@ -431,6 +447,8 @@ def run_streaming_command(
                 heartbeat["external_wait_evidence"] = external_wait
             if on_heartbeat is not None:
                 on_heartbeat(heartbeat)
+            if status == LIVENESS_SUSPECTED_STALL:
+                last_warned_progress_monotonic = last_progress
             next_heartbeat = now + heartbeat_seconds
         time.sleep(min(0.2, max(0.02, heartbeat_seconds / 5.0)))
 
