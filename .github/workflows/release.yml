@@ -6,6 +6,7 @@ name: production-certification-release
       provider:
         description: Official model provider
         required: true
+        default: deepseek
         type: choice
         options:
           - openai
@@ -13,26 +14,36 @@ name: production-certification-release
       model:
         description: Current official provider model ID
         required: true
+        default: deepseek-v4-flash
         type: string
       embedding_model:
         description: OpenAI-compatible embedding model used by protected pgvector journeys
         required: true
-        default: text-embedding-3-small
+        default: text-embedding-v4
         type: string
       embedding_dimension:
         description: Vector dimension emitted by the selected embedding model
         required: true
-        default: '1536'
+        default: '1024'
         type: string
+  push:
+    branches:
+      - main
+    paths:
+      - .github/release-trigger
 
 permissions:
   contents: read
 
 env:
-  PRODUCTION_RELEASE_EXPECTED_EVENT: workflow_dispatch
+  PRODUCTION_RELEASE_EXPECTED_EVENT: ${{ github.event_name }}
   PRODUCTION_RELEASE_EXPECTED_WORKFLOW: production-certification-release
   PRODUCTION_RELEASE_EXPECTED_JOB: protected-release
   PRODUCTION_RELEASE_EXPECTED_REF: refs/heads/main
+  PRODUCTION_RELEASE_PROVIDER: ${{ inputs.provider || 'deepseek' }}
+  PRODUCTION_RELEASE_MODEL: ${{ inputs.model || 'deepseek-v4-flash' }}
+  PRODUCTION_RELEASE_EMBEDDING_MODEL: ${{ inputs.embedding_model || 'text-embedding-v4' }}
+  PRODUCTION_RELEASE_EMBEDDING_DIMENSION: ${{ inputs.embedding_dimension || '1024' }}
 
 concurrency:
   group: production-certification-${{ github.ref }}
@@ -54,10 +65,10 @@ jobs:
           python-version: '3.12.13'
       - name: Fail closed on invalid release admission
         env:
-          RELEASE_INPUT_PROVIDER: ${{ inputs.provider }}
-          RELEASE_INPUT_MODEL: ${{ inputs.model }}
-          RELEASE_INPUT_EMBEDDING_MODEL: ${{ inputs.embedding_model }}
-          RELEASE_INPUT_EMBEDDING_DIMENSION: ${{ inputs.embedding_dimension }}
+          RELEASE_INPUT_PROVIDER: ${{ env.PRODUCTION_RELEASE_PROVIDER }}
+          RELEASE_INPUT_MODEL: ${{ env.PRODUCTION_RELEASE_MODEL }}
+          RELEASE_INPUT_EMBEDDING_MODEL: ${{ env.PRODUCTION_RELEASE_EMBEDDING_MODEL }}
+          RELEASE_INPUT_EMBEDDING_DIMENSION: ${{ env.PRODUCTION_RELEASE_EMBEDDING_DIMENSION }}
           RELEASE_ADMISSION_RESULT: ${{ runner.temp }}/release-admission-result.json
         run: >-
           "${pythonLocation}/bin/python" -B scripts/release_admission_contract.py
@@ -73,7 +84,7 @@ jobs:
 
   protected-release:
     needs: release-admission
-    if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref_protected == true && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && github.ref_type == 'branch' && github.ref_protected == true && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment: production-certification
@@ -94,14 +105,14 @@ jobs:
       - name: Validate protected Environment configuration
         env:
           OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
-          OPENAI_MODEL: ${{ inputs.model }}
-          OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
-          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
+          OPENAI_MODEL: ${{ env.PRODUCTION_RELEASE_MODEL }}
+          OPENAI_API_BASE: ${{ env.PRODUCTION_RELEASE_PROVIDER == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
+          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ env.PRODUCTION_RELEASE_PROVIDER }}
           EMBEDDING_PROVIDER: openai
           EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
           EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
-          EMBEDDING_MODEL: ${{ inputs.embedding_model }}
-          EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
+          EMBEDDING_MODEL: ${{ env.PRODUCTION_RELEASE_EMBEDDING_MODEL }}
+          EMBEDDING_DIM: ${{ env.PRODUCTION_RELEASE_EMBEDDING_DIMENSION }}
           QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
           PROTECTED_ENVIRONMENT_PREFLIGHT_RESULT: ${{ runner.temp }}/protected-environment-preflight.json
         run: >-
@@ -165,14 +176,14 @@ jobs:
       - name: Run every release gate
         env:
           OPENAI_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
-          OPENAI_MODEL: ${{ inputs.model }}
-          OPENAI_API_BASE: ${{ inputs.provider == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
-          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ inputs.provider }}
+          OPENAI_MODEL: ${{ env.PRODUCTION_RELEASE_MODEL }}
+          OPENAI_API_BASE: ${{ env.PRODUCTION_RELEASE_PROVIDER == 'deepseek' && 'https://api.deepseek.com' || 'https://api.openai.com/v1' }}
+          REAL_MODEL_CERTIFICATION_PROVIDER: ${{ env.PRODUCTION_RELEASE_PROVIDER }}
           EMBEDDING_PROVIDER: openai
           EMBEDDING_API_KEY: ${{ secrets.PRODUCTION_EMBEDDING_API_KEY }}
           EMBEDDING_API_BASE: ${{ vars.PRODUCTION_EMBEDDING_API_BASE || 'https://api.openai.com/v1' }}
-          EMBEDDING_MODEL: ${{ inputs.embedding_model }}
-          EMBEDDING_DIM: ${{ inputs.embedding_dimension }}
+          EMBEDDING_MODEL: ${{ env.PRODUCTION_RELEASE_EMBEDDING_MODEL }}
+          EMBEDDING_DIM: ${{ env.PRODUCTION_RELEASE_EMBEDDING_DIMENSION }}
           QUALITY_EVIDENCE_SIGNING_KEY: ${{ secrets.QUALITY_EVIDENCE_SIGNING_KEY }}
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-release.md
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/production-release-evidence
