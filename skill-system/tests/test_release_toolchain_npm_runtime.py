@@ -42,6 +42,51 @@ def test_resolved_executable_preserves_launcher_symlink_identity(
     assert resolved.resolve() == target.resolve()
 
 
+def test_npm_installation_identity_reads_locked_package_metadata_without_execution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    contract = _load_module()
+    npm_root = tmp_path / "lib" / "node_modules" / "npm"
+    target = npm_root / "bin" / "npm"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    target.chmod(0o755)
+    package_json = npm_root / "package.json"
+    package_json.write_text(
+        json.dumps({"name": "npm", "version": "11.16.0"}), encoding="utf-8"
+    )
+    launcher = tmp_path / "bin" / "npm"
+    launcher.parent.mkdir()
+    launcher.symlink_to(target)
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("npm version identity must not execute the npm launcher")
+
+    monkeypatch.setattr(contract.subprocess, "run", must_not_run)
+    identity = contract._npm_installation_identity(launcher)
+
+    assert identity["version"] == "11.16.0"
+    assert identity["package_json_sha256"] == contract._sha256_file(package_json)
+
+
+def test_npm_installation_identity_fails_closed_on_invalid_metadata(tmp_path: Path) -> None:
+    contract = _load_module()
+    npm_root = tmp_path / "lib" / "node_modules" / "npm"
+    target = npm_root / "bin" / "npm"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    target.chmod(0o755)
+    (npm_root / "package.json").write_text(
+        json.dumps({"name": "not-npm", "version": "11.16.0"}), encoding="utf-8"
+    )
+
+    with pytest.raises(contract.ReleaseToolchainError) as caught:
+        contract._npm_installation_identity(target)
+
+    assert caught.value.code == "release_npm_installation_identity_invalid"
+    assert caught.value.environment_blocked is True
+
+
 def test_npm_tree_accepts_valid_tree_json_when_npm_reports_diagnostic_exit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
