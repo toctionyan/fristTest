@@ -992,7 +992,7 @@ class ModelGoalAlignmentVerifier:
         dependency_proof: DependencyGraphProof | None = None
         accepted_dependency_details: dict[str, Any] | None = None
         accepted_dependency_error: str | None = None
-        for attempt in range(3):
+        for attempt in range(6):
             blind_dependency_audit = str(verifier_repair_kind or "").startswith("candidate_blind_dependency_")
             semantic_claim_reaudit = verifier_repair_kind in {
                 "candidate_blind_dependency_requested_effect_reaudit",
@@ -1006,7 +1006,7 @@ class ModelGoalAlignmentVerifier:
                     blind_dependency_instruction
                     + " The previous candidate-blind call already produced a complete structurally grounded dependency proof. "
                     + "This bounded final call must re-audit only the disputed requested-effect/requested-output or target-scope semantic claim. "
-                    "Do not re-judge, replace or return dependency_decisions; dependency authority remains the preserved prior proof. "
+                    "Do not re-judge, replace or return dependency_decisions; preserve the prior dependency proof unchanged. If it is only VERIFIED, a dedicated dependency closure transition may run after this semantic-only adjudication. "
                     "Return JSON only with verdict, evidence_spans, missing_spans and reason_code."
                 )
             elif blind_dependency_audit:
@@ -1153,8 +1153,9 @@ class ModelGoalAlignmentVerifier:
                 elif raw_verdict == "exact" and dependency_error == "goal_alignment_dependency_graph_mismatch":
                     evidence = _literal_spans(user_text, parsed.get("evidence_spans"))
                     if blind_dependency_audit:
-                        # The candidate-blind proof is itself the authority that the
-                        # declared graph is wrong. Missing redundant top-level evidence
+                        # The candidate-blind proof is grounded graph evidence that the
+                        # declared graph may be wrong. Repair authority is granted only
+                        # after the dedicated dependency-closure transition. Missing redundant top-level evidence
                         # must not turn a proven mismatch into an unrepairable format
                         # failure. Empty evidence still cannot certify an exact plan.
                         verdict = GoalAlignmentVerdict(
@@ -1596,7 +1597,7 @@ class ModelGoalAlignmentVerifier:
                     "narrowing predicate, withdraw that scope mismatch and return exact only when no other semantic mismatch remains. "
                     "If USER_TEXT really contains an omitted narrowing predicate, remain incomplete and copy only its smallest literal "
                     "span into missing_spans. Do not choose a tool, target, entity, normalized business value, capability or implementation "
-                    "step. Do not re-audit or return dependency_decisions; the prior complete dependency proof remains authoritative. "
+                    "step. Do not re-audit or return dependency_decisions; preserve the prior complete dependency proof unchanged. This semantic-only call cannot mint, reopen or downgrade dependency authority. "
                     "Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
                 continue
@@ -1627,6 +1628,41 @@ class ModelGoalAlignmentVerifier:
                     "re-audit or return dependency_decisions; the prior complete candidate-blind dependency proof remains "
                     "authoritative. Return only verdict, evidence_spans, missing_spans and reason_code."
                 )
+                continue
+            dependency_proof_needs_closure = bool(
+                dependency_proof is not None
+                and dependency_proof.maturity.value == "verified"
+                and dependency_proof.dependency_challenge_required
+                and isinstance(verdict.details, dict)
+                and verdict.details.get("dependency_proof_complete") is True
+                and (
+                    verdict.exact
+                    or (
+                        verdict.verdict == "incomplete"
+                        and verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+                        and not verdict.missing_spans
+                    )
+                )
+            )
+            if dependency_proof_needs_closure and attempt < 5:
+                # Call number is not proof maturity. A semantic-only adjudication may
+                # preserve a VERIFIED graph (#1124), but complete/matching absence or
+                # a graph mismatch still cannot become repair/acceptance authority
+                # without a dependency-specific adversarial closure (#1110). Close
+                # that dimension in a separate state transition instead of making the
+                # third model call own two unrelated semantic decisions.
+                preserved_blind_dependency_details = deepcopy(verdict.details)
+                verifier_repair_kind = "candidate_blind_dependency_authority_closure"
+                verifier_repair = (
+                    "Close only the current-turn dependency proof maturity from USER_TEXT. The prior pairwise graph is VERIFIED and preservable but not authoritative: complete/matching alone is not authority. Re-read every unordered Goal pair from scratch and apply the result-removal counterfactual. Remove only the earlier Goal user-visible result payload while preserving objects, scopes and constraints already literal in USER_TEXT. Return a positive relation only when literal wording inside the dependent Goal consumes the earlier result as result_reference, result_condition or result_value_input; sequencing, shared topic/scope, zero-anaphora target omission, stable-ID lookup, Draft/preflight support and other execution prerequisites remain independent. Return exactly one dependency_decisions row for every unordered Goal pair. Positive rows require the smallest relation-only basis_span inside the dependent Goal. Do not re-audit requested_effect, requested_outputs, target scope, historical references, capability availability, tool order, business state or transaction mechanics. Return verdict=exact, literal evidence_spans when available, missing_spans=[], dependency_decisions and reason_code; Runtime compares the closed graph to Planner depends_on deterministically."
+                )
+                prompt = {
+                    "USER_TEXT_UNTRUSTED": user_text,
+                    "DECLARED_GOALS": _dependency_adjudication_goal_projection(goals),
+                    "RECENT_PUBLIC_CONTEXT": list(recent_public_context or []),
+                    "ACTIVE_STRUCTURED_INTERACTION": dict(active_structured_interaction or {}),
+                    "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY": semantic_vocabulary,
+                }
                 continue
             if verdict.verdict in {"exact", "incomplete"}:
                 return verdict
@@ -2092,6 +2128,7 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
         details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
+        and details.get("dependency_authority_state") == "authoritative"
     ):
         return {}
 
