@@ -43,9 +43,10 @@ jobs:
       - name: Run focused dependency regressions
         run: |
           set -euo pipefail
-          services/agent-service/.venv/bin/python -m pytest -q \
-            services/agent-service/tests/runtime/test_release52_dependency_independence_adjudication.py \
-            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py::test_unproposed_refund_dependency_requires_candidate_blind_confirmation
+          cd services/agent-service
+          .venv/bin/python -m pytest -q \
+            tests/runtime/test_release52_dependency_independence_adjudication.py \
+            tests/runtime/test_wp08_attempt5_dependency_authority.py::test_unproposed_refund_dependency_requires_candidate_blind_confirmation
 
       - name: Commit source and regression correction
         run: |
