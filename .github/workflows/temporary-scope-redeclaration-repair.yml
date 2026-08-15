@@ -1,0 +1,95 @@
+name: temporary-scope-redeclaration-repair
+
+on:
+  push:
+    branches:
+      - fix/semantic-scope-redeclare-20260815
+    paths:
+      - .github/scope-redeclaration-repair.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: fix/semantic-scope-redeclare-20260815
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply verifier-guided redeclaration repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          goal_path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
+          goal_text = goal_path.read_text(encoding='utf-8')
+          old = '''    if (\n        alignment.verdict != "incomplete"\n        or alignment.reason_code != "goal_alignment_dependency_graph_mismatch"\n        or not alignment.independent\n    ):\n        return {}\n    details = alignment.details if isinstance(alignment.details, dict) else {}\n'''
+          new = '''    details = alignment.details if isinstance(alignment.details, dict) else {}\n    if (\n        alignment.verdict == "incomplete"\n        and alignment.independent\n        and str(alignment.reason_code or "").casefold().startswith("target-scope-constraint")\n        and str(details.get("verifier_repair_kind") or "")\n        == "candidate_blind_dependency_scope_constraint_adjudication"\n        and details.get("dependency_authority") == "independent_goal_alignment"\n        and details.get("dependency_proof_complete") is True\n        and details.get("dependency_graph_match") is True\n    ):\n        invalid_scope_spans = list(dict.fromkeys(\n            _clean_text(value, limit=240)\n            for value in alignment.missing_spans\n            if _clean_text(value, limit=240)\n        ))\n        if invalid_scope_spans:\n            return {\n                "independent_verifier_feedback": {\n                    "authority": "independent_goal_alignment",\n                    "required_action": "redeclaration_removing_rejected_scope_constraints",\n                    "violation_field": "target_candidate.scope_constraints",\n                    "invalid_scope_constraint_spans": invalid_scope_spans,\n                    "constraints": [\n                        "remove_only_scope_constraint_entries_with_literal_spans_listed_as_invalid",\n                        "preserve_goal_inventory_goal_ids_evidence_spans_requested_effects_dependencies_and_target_identity",\n                        "rederive_any_remaining_scope_constraints_from_current_user_input_only",\n                        "preserve_literal_population_narrowing_filters_status_thresholds_and_comparisons",\n                        "runtime_does_not_auto_rewrite_the_candidate",\n                    ],\n                }\n            }\n    if (\n        alignment.verdict != "incomplete"\n        or alignment.reason_code != "goal_alignment_dependency_graph_mismatch"\n        or not alignment.independent\n    ):\n        return {}\n'''
+          if goal_text.count(old) != 1:
+              raise SystemExit(f'goal_planning patch anchor count={goal_text.count(old)}')
+          goal_path.write_text(goal_text.replace(old, new, 1), encoding='utf-8')
+
+          dialog_path = Path('services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py')
+          dialog_text = dialog_path.read_text(encoding='utf-8')
+          old = '''    feedback = data.get("independent_verifier_feedback") if isinstance(data.get("independent_verifier_feedback"), dict) else {}\n    authority = str(feedback.get("authority") or "")\n    if authority == "candidate_blind_goal_inventory":\n        field = "goal_inventory"\n    elif authority == "independent_goal_alignment":\n        field = "depends_on"\n    for key in ("uncovered_outcome_spans",):\n'''
+          new = '''    feedback = data.get("independent_verifier_feedback") if isinstance(data.get("independent_verifier_feedback"), dict) else {}\n    authority = str(feedback.get("authority") or "")\n    violation_field = str(feedback.get("violation_field") or "")\n    if violation_field == "target_candidate.scope_constraints":\n        field = violation_field\n    elif authority == "candidate_blind_goal_inventory":\n        field = "goal_inventory"\n    elif authority == "independent_goal_alignment":\n        field = "depends_on"\n    for key in ("uncovered_outcome_spans", "invalid_scope_constraint_spans"):\n'''
+          if dialog_text.count(old) != 1:
+              raise SystemExit(f'dialogue projection patch anchor count={dialog_text.count(old)}')
+          dialog_text = dialog_text.replace(old, new, 1)
+          old = '''    if feedback or reason_code or spans:\n        projected_data["independent_verifier_feedback"] = {\n            "authority": "read_only_violation_evidence",\n            "required_action": "redeclaration_from_current_user_input",\n            "violation": {\n                "field": field,\n                "reason_code": reason_code or str(payload.get("code") or "semantic_declaration_rejected"),\n                "evidence_spans": spans,\n            },\n            "constraints": [\n                "rederive_semantics_from_current_user_input",\n                "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",\n                "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",\n                "runtime_does_not_auto_rewrite_the_candidate",\n            ],\n        }\n'''
+          new = '''    if feedback or reason_code or spans:\n        writer_constraints = [\n            "rederive_semantics_from_current_user_input",\n            "do_not_copy_verifier_dependency_edges_or_replacement_semantic_values",\n            "do_not_copy_verifier_recommended_roles_targets_or_requested_effects",\n            "runtime_does_not_auto_rewrite_the_candidate",\n        ]\n        if field == "target_candidate.scope_constraints":\n            writer_constraints.insert(0,\n                "remove_only_listed_invalid_scope_constraint_entries_and_preserve_other_literal_population_narrowing_constraints"\n            )\n        projected_data["independent_verifier_feedback"] = {\n            "authority": "read_only_violation_evidence",\n            "required_action": "redeclaration_from_current_user_input",\n            "violation": {\n                "field": field,\n                "reason_code": reason_code or str(payload.get("code") or "semantic_declaration_rejected"),\n                "evidence_spans": spans,\n            },\n            "constraints": writer_constraints,\n        }\n'''
+          if dialog_text.count(old) != 1:
+              raise SystemExit(f'dialogue constraints patch anchor count={dialog_text.count(old)}')
+          dialog_path.write_text(dialog_text.replace(old, new, 1), encoding='utf-8')
+
+          test_path = Path('services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py')
+          test_path.write_text('''from __future__ import annotations\n\nfrom agent_core.lifecycle.dialogue_runtime import _semantic_writer_declaration_result_projection\nfrom agent_core.lifecycle.goal_planning import (\n    GoalAlignmentVerdict,\n    _alignment_repair_feedback,\n    validate_goal_declaration,\n)\n\n\ndef _scope_adjudication(*, missing_spans=("蓝色订单", "红色订单")) -> GoalAlignmentVerdict:\n    return GoalAlignmentVerdict(\n        "incomplete",\n        ("蓝色订单的退款记录", "红色订单有没有发票"),\n        tuple(missing_spans),\n        "target-scope-constraint fidelity: supplied scope entries are ordinary target identity",\n        "model",\n        True,\n        {\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": True,\n            "dependency_edges": [],\n            "verifier_repair_attempted": True,\n            "verifier_repair_kind": "candidate_blind_dependency_scope_constraint_adjudication",\n        },\n    )\n\n\ndef test_scope_adjudication_becomes_field_specific_redeclaration_feedback():\n    feedback = _alignment_repair_feedback(_scope_adjudication())\n    row = feedback["independent_verifier_feedback"]\n    assert row["authority"] == "independent_goal_alignment"\n    assert row["required_action"] == "redeclaration_removing_rejected_scope_constraints"\n    assert row["violation_field"] == "target_candidate.scope_constraints"\n    assert row["invalid_scope_constraint_spans"] == ["蓝色订单", "红色订单"]\n    assert "preserve_literal_population_narrowing_filters_status_thresholds_and_comparisons" in row["constraints"]\n\n\ndef test_writer_projection_exposes_only_scope_violation_not_replacement_semantics():\n    alignment = _scope_adjudication()\n    result = {\n        "ok": False,\n        "code": "GOAL_DECLARATION_INCOMPLETE",\n        "message": "redeclare",\n        "data": {\n            "alignment_proof": alignment.as_dict(),\n            **_alignment_repair_feedback(alignment),\n            "current_user_input": "查下蓝色订单的退款记录，再看看红色订单有没有发票",\n            "repair_contract": {"authority": "current_user_input_only", "required_action": "redeclaration"},\n        },\n    }\n    projected = _semantic_writer_declaration_result_projection(result)\n    feedback = projected["data"]["independent_verifier_feedback"]\n    assert feedback["authority"] == "read_only_violation_evidence"\n    assert feedback["violation"]["field"] == "target_candidate.scope_constraints"\n    assert feedback["violation"]["evidence_spans"] == ["蓝色订单", "红色订单"]\n    assert "remove_only_listed_invalid_scope_constraint_entries_and_preserve_other_literal_population_narrowing_constraints" in feedback["constraints"]\n    serialized = repr(projected)\n    assert "dependency_edges" not in serialized\n    assert "requested_effect" not in serialized\n\n\ndef test_scope_removal_feedback_requires_final_inverse_role_adjudication():\n    verdict = GoalAlignmentVerdict(\n        "incomplete",\n        ("只看已签收订单",),\n        ("已签收",),\n        "target-scope-constraint coverage",\n        "model",\n        True,\n        {\n            "dependency_authority": "independent_goal_alignment",\n            "dependency_proof_complete": True,\n            "dependency_graph_match": True,\n            "verifier_repair_kind": "candidate_blind_dependency_scope_constraint_reaudit",\n        },\n    )\n    assert _alignment_repair_feedback(verdict) == {}\n\n\ndef test_validate_goal_declaration_carries_scope_redeclaration_feedback_without_rewriting_candidate():\n    user_text = "查下蓝色订单的退款记录，再看看红色订单有没有发票"\n    state = {\n        "current_user_input": user_text,\n        "goal_alignment_verifier": lambda **_: _scope_adjudication().as_dict(),\n    }\n    goals = [\n        {\n            "goal_id": "g1",\n            "description": "查询退款记录",\n            "evidence_span": "蓝色订单的退款记录",\n            "requested_effect": {"domain": "refund", "operation": "query_status", "object_type": "refund"},\n            "depends_on": [],\n            "target_candidate": {"scope_constraints": [{"evidence_span": "蓝色订单"}]},\n        },\n        {\n            "goal_id": "g2",\n            "description": "查询发票",\n            "evidence_span": "红色订单有没有发票",\n            "requested_effect": {"domain": "invoice", "operation": "query_status", "object_type": "invoice"},\n            "depends_on": [],\n            "target_candidate": {"scope_constraints": [{"evidence_span": "红色订单"}]},\n        },\n    ]\n    result, plan = validate_goal_declaration(\n        state=state,\n        args={"goals": goals},\n        capability_registry=None,  # capability state is deliberately non-authoritative here\n    )\n    assert plan is None\n    assert result["code"] == "GOAL_DECLARATION_INCOMPLETE"\n    feedback = result["data"]["independent_verifier_feedback"]\n    assert feedback["violation_field"] == "target_candidate.scope_constraints"\n    assert feedback["invalid_scope_constraint_spans"] == ["蓝色订单", "红色订单"]\n    assert goals[0]["target_candidate"]["scope_constraints"] == [{"evidence_span": "蓝色订单"}]\n''', encoding='utf-8')
+
+          trigger = Path('.github/release-trigger')
+          trigger.write_text('''release_request: 2026-08-15T15:14:00+08:00\nprovider: deepseek\nmodel: deepseek-v4-flash\nembedding_model: text-embedding-v4\nembedding_dimension: 1024\nreason: rerun protected release after verifier-guided scope-constraint redeclaration repair\n''', encoding='utf-8')
+          PY
+      - name: Install controlled test environment
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check uv==0.11.29
+          cd services/agent-service
+          uv sync --locked --all-groups
+      - name: Run focused semantic regressions
+        shell: bash
+        run: |
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py \
+            services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py \
+            services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py
+      - name: Refresh product-source baseline
+        shell: bash
+        run: |
+          services/agent-service/.venv/bin/python -B scripts/refresh_product_source_baseline.py
+      - name: Run architecture verification
+        shell: bash
+        run: |
+          services/agent-service/.venv/bin/python -B scripts/verify_architecture.py
+          git diff --check
+      - name: Commit governed repair
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No source changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py \
+            services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py \
+            .github/release-trigger \
+            skill-system/registry/product-source-baseline.json
+          git commit -m 'fix(semantic): feed scope adjudication into redeclaration'
+          git push origin HEAD:fix/semantic-scope-redeclare-20260815
