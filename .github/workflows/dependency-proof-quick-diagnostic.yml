@@ -1,0 +1,80 @@
+name: dependency-proof-quick-diagnostic
+
+on:
+  push:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: fix/dependency-proof-authority-reducer-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked environments
+        run: |
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Run exact quick controller and capture full output
+        shell: bash
+        run: |
+          mkdir -p "${RUNNER_TEMP}/dependency-proof-diagnostic"
+          export QUALITY_EVIDENCE_DIR="${RUNNER_TEMP}/quality-evidence/quick-diagnostic"
+          export QUALITY_TARGET="${GITHUB_WORKSPACE}/.quality/targets/quality-target-quick-diagnostic.md"
+          "${pythonLocation}/bin/python" -B scripts/create_ci_quality_target.py \
+            --output "$QUALITY_TARGET" \
+            --ref "${GITHUB_SHA}" \
+            --workflow quality-quick \
+            --claims-source governance/claims/v20.6.2-project-quick-certification.json
+          set +e
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --mode quick --target "$QUALITY_TARGET" \
+            > >(tee "${RUNNER_TEMP}/dependency-proof-diagnostic/quality-quick.stdout.log") \
+            2> >(tee "${RUNNER_TEMP}/dependency-proof-diagnostic/quality-quick.stderr.log" >&2)
+          code=$?
+          set -e
+          echo "$code" > "${RUNNER_TEMP}/dependency-proof-diagnostic/exit-code.txt"
+          find "${QUALITY_EVIDENCE_DIR}" -maxdepth 4 -type f -print \
+            > "${RUNNER_TEMP}/dependency-proof-diagnostic/evidence-files.txt" 2>/dev/null || true
+          if [ -d "${QUALITY_EVIDENCE_DIR}" ]; then
+            cp -R "${QUALITY_EVIDENCE_DIR}" "${RUNNER_TEMP}/dependency-proof-diagnostic/evidence"
+          fi
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-proof-quality-quick-diagnostic
+          path: ${{ runner.temp }}/dependency-proof-diagnostic
+          if-no-files-found: error
+      - name: Remove one-shot workflow
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/dependency-proof-quick-diagnostic.yml
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(ci): remove dependency proof quick diagnostic"
+            git push origin HEAD:fix/dependency-proof-authority-reducer-20260816
+          fi
