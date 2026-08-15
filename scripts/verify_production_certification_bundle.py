@@ -43,6 +43,9 @@ COMPONENT_SCRIPTS = {
     "browser": SCRIPTS / "verify_production_browser_bundle.py",
 }
 
+_DIAGNOSTIC_FIELDS = ("reason", "error_code", "error_type", "error_category", "error")
+_SECRET_NAME_TOKENS = ("key", "secret", "token", "password", "credential")
+
 
 def _last_json(stdout: str) -> dict[str, Any]:
     for line in reversed(str(stdout or "").splitlines()):
@@ -53,6 +56,44 @@ def _last_json(stdout: str) -> dict[str, Any]:
         if isinstance(payload, dict):
             return payload
     raise ProductionCertificationError("component_output_invalid", "production component emitted no JSON object")
+
+
+def _redacted_text(value: Any, *, secret_values: list[str], limit: int = 1600) -> str:
+    text = str(value)
+    for secret in secret_values:
+        text = text.replace(secret, "***")
+    return text[-limit:]
+
+
+def _safe_failure_diagnostic(payload: Mapping[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
+    """Project bounded child diagnostics without exposing model responses or secrets."""
+
+    secret_values = [
+        str(value)
+        for name, value in env.items()
+        if value
+        and len(str(value)) >= 6
+        and any(token in str(name).casefold() for token in _SECRET_NAME_TOKENS)
+    ]
+    nested = payload.get("real_model_bundle")
+    source = nested if isinstance(nested, Mapping) else payload
+    projected: dict[str, Any] = {}
+    for field in ("failed_component", "blocked_component", "reason", "error_code"):
+        raw = source.get(field)
+        if raw not in (None, ""):
+            projected[field] = _redacted_text(raw, secret_values=secret_values)
+
+    detail = source.get("component_diagnostic")
+    if isinstance(detail, Mapping):
+        safe_detail: dict[str, str] = {}
+        for field in _DIAGNOSTIC_FIELDS:
+            raw = detail.get(field)
+            if raw in (None, ""):
+                continue
+            safe_detail[field] = _redacted_text(raw, secret_values=secret_values)
+        if safe_detail:
+            projected["detail"] = safe_detail
+    return projected
 
 
 def _default_runner(
@@ -139,7 +180,7 @@ def run_production_certification_bundle(
             raise ProductionCertificationError("component_output_invalid", f"{component} returned no mapping")
         status = str(payload.get("status") or "FAIL")
         if status == "BLOCKED_BY_ENVIRONMENT":
-            return {
+            result = {
                 "contract": BUNDLE_CONTRACT,
                 "status": "BLOCKED_BY_ENVIRONMENT",
                 "reason": str(payload.get("reason") or f"{component}_environment_unavailable"),
@@ -150,8 +191,12 @@ def run_production_certification_bundle(
                 "workspace_fingerprint_sha256": initial_fingerprint,
                 "toolchain_fingerprint_sha256": toolchain_fingerprint,
             }
+            diagnostic = _safe_failure_diagnostic(payload, component_env)
+            if diagnostic:
+                result["component_diagnostic"] = diagnostic
+            return result
         if status != "PASS":
-            return {
+            result = {
                 "contract": BUNDLE_CONTRACT,
                 "status": "FAIL",
                 "reason": str(payload.get("reason") or f"{component}_certification_failed"),
@@ -162,6 +207,10 @@ def run_production_certification_bundle(
                 "workspace_fingerprint_sha256": initial_fingerprint,
                 "toolchain_fingerprint_sha256": toolchain_fingerprint,
             }
+            diagnostic = _safe_failure_diagnostic(payload, component_env)
+            if diagnostic:
+                result["component_diagnostic"] = diagnostic
+            return result
         components[component] = payload
 
     completed_fingerprint = workspace_fingerprint(workspace)
