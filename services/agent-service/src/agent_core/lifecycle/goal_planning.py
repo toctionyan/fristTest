@@ -815,16 +815,34 @@ def _semantic_vocabulary_for_alignment() -> dict[str, Any]:
             for value in list(raw.get("effect_kinds") or [])
             if _clean_text(value, limit=80)
         ]
+        included_result_meanings = [
+            _clean_text(value, limit=600)
+            for value in list(raw.get("included_result_meanings") or [])
+            if _clean_text(value, limit=600)
+        ]
+        excluded_result_meanings = [
+            _clean_text(value, limit=600)
+            for value in list(raw.get("excluded_result_meanings") or [])
+            if _clean_text(value, limit=600)
+        ]
         if not output_id or not subject_type or not description or not effect_kinds:
             continue
-        outputs.append({
+        projected_output = {
             "output_id": output_id,
             "subject_type": subject_type,
             "effect_kinds": list(dict.fromkeys(effect_kinds)),
             "description": description,
-        })
+        }
+        # Boundaries are optional vocabulary-v2 metadata. Omitting empty fields
+        # preserves the legacy meaning-only projection shape for older snapshots
+        # while carrying explicit boundaries whenever the module declares them.
+        if included_result_meanings:
+            projected_output["included_result_meanings"] = list(dict.fromkeys(included_result_meanings))
+        if excluded_result_meanings:
+            projected_output["excluded_result_meanings"] = list(dict.fromkeys(excluded_result_meanings))
+        outputs.append(projected_output)
     return {
-        "version": "semantic-output-vocabulary@1",
+        "version": "semantic-output-vocabulary@2",
         "authority": "domain_semantics_only_capability_independent",
         "availability_exposed": False,
         "tool_names_exposed": False,
@@ -869,7 +887,7 @@ class ModelGoalAlignmentVerifier:
             )
         decision_rules = [
             "exact only when every independently requested outcome is represented as its own goal",
-            "requested_effect must preserve the user's business effect even when the current system may not implement it; never rewrite an unsupported effect to a nearby available effect. When requested_outputs selects a registered output_id, judge that identity against CANONICAL_SEMANTIC_OUTPUT_VOCABULARY.description, not the identifier name alone. If USER_TEXT requests a materially different user-visible information dimension or outcome that no registered description represents exactly, using a nearby registered output_id is semantic substitution and verdict must be incomplete; the reserved open identity is then required. Capability availability remains forbidden evidence",
+            "requested_effect must preserve the user's business effect even when the current system may not implement it; never rewrite an unsupported effect to a nearby available effect. When requested_outputs selects a registered output_id, judge that identity against CANONICAL_SEMANTIC_OUTPUT_VOCABULARY.description plus its included_result_meanings/excluded_result_meanings, not the identifier name alone. included_result_meanings and excluded_result_meanings are normative domain boundaries, not examples; an outcome that falls inside an excluded meaning cannot be certified by that output_id. If USER_TEXT requests a materially different user-visible information dimension or outcome that no registered meaning represents exactly, using a nearby registered output_id is semantic substitution and verdict must be incomplete; the reserved open identity is then required. Capability availability remains forbidden evidence",
             "expected_result_cardinality describes the final verified business population, not the number of sentences in the answer: a singular choice, superlative, one entity detail, one object status/detail follow-up, or one eligibility/policy conclusion is single; a list/set/plural comparison is collection; an existence question over records/orders/items (for example whether any record exists) is collection because the verified population may contain zero, one, or many members even when the answer is one yes/no sentence; narrative or clarification without a business result is none; intermediate sort/filter operations do not change the user's final cardinality",
             "reference_expression.expected_cardinality describes the historical referent being pointed at, not the Goal output: use single when the user refers to one prior visible object/member, and collection when the user refers to a prior visible set that will be filtered/sorted/compared; it may therefore differ from expected_result_cardinality for a single-result selection over a collection",
             "reference_expression.evidence_span is the smallest literal phrase that performs the historical reference and may be a strict subspan of Goal.evidence_span; surrounding attribute, predicate, comparison or action wording belongs to the Goal effect/scope and must not be required inside the reference span",
@@ -899,7 +917,7 @@ class ModelGoalAlignmentVerifier:
             "Independently re-audit the frozen semantic fields of the supplied Goal IDs without seeing Planner depends_on. "
             "Audit four things from USER_TEXT: (1) the complete current-turn semantic result-dependency graph; "
             "(2) whether each DECLARED_GOAL.requested_effect preserves the customer's actual business effect instead of "
-            "coercing an unsupported/open effect into a nearby registered effect; use CANONICAL_SEMANTIC_OUTPUT_VOCABULARY descriptions as the meaning authority for registered requested_outputs, and require open when the requested information dimension/outcome has no exact registered meaning; (3) whether every explicit user-stated "
+            "coercing an unsupported/open effect into a nearby registered effect; use CANONICAL_SEMANTIC_OUTPUT_VOCABULARY description plus included_result_meanings/excluded_result_meanings as the meaning authority for registered requested_outputs. Explicit exclusions are normative contradictions, not weak examples, and require open when the requested information dimension/outcome has no exact registered meaning; (3) whether every explicit user-stated "
             "filter, status predicate, threshold or comparison that narrows the Goal target/result population is preserved as "
             "literal evidence in DECLARED_GOAL.target_candidate.scope_constraints; and (4) whether current Goal wording semantically returns "
             "to or continues an already customer-visible historical result/member represented in RECENT_PUBLIC_CONTEXT. If it does, "
@@ -925,7 +943,7 @@ class ModelGoalAlignmentVerifier:
         blind_dependency_rules = [
             "dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; "
             "it must be disjoint from the dependent Goal requested_outputs evidence spans. A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent",
-            "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span and the capability-independent canonical vocabulary description; a nearby registered semantic identity is never acceptable merely because its name is related, and when no registered description exactly represents the requested outcome the declaration must retain open",
+            "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span and the capability-independent canonical vocabulary. description states the broad meaning, included_result_meanings adds authoritative positive boundaries, and excluded_result_meanings adds authoritative negative boundaries; an explicitly excluded user-visible result dimension can never be certified by that output_id even when its name/subject is related. Empty boundary lists add no extra claim. When no registered meaning exactly represents the requested outcome the declaration must retain open",
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
             "target-member selection, historical-result/member reference, execution commitment, input/control wording, unprovided form values and current business facts are not scope constraints; if one is explicitly placed in scope_constraints return incomplete instead of letting Runtime bind it as a filter",
@@ -1373,8 +1391,8 @@ class ModelGoalAlignmentVerifier:
                             "Adversarially re-audit only the declared non-open requested_outputs identities from USER_TEXT and "
                             "CANONICAL_SEMANTIC_OUTPUT_VOCABULARY. REGISTERED_OUTPUT_EXACTNESS_RISK is structural only and does not "
                             "assert that any identity is wrong. Start each listed identity from the hypothesis of semantic substitution, "
-                            "then retain it only when the canonical vocabulary description exactly covers the literal user's requested "
-                            "information dimension/outcome. Lexical relatedness, shared subject type, a nearby status/eligibility/action "
+                            "then retain it only when the canonical vocabulary description plus included_result_meanings exactly covers the literal user's requested "
+                            "information dimension/outcome and excluded_result_meanings does not cover that outcome. Treat included/excluded_result_meanings as normative domain boundaries, not examples: if the literal requested result dimension falls inside an excluded meaning, the identity is semantic substitution even when description text, identifier, or subject is nearby. Lexical relatedness, shared subject type, a nearby status/eligibility/action "
                             "meaning, or implementation availability is not enough. If the user's requested user-visible outcome is "
                             "materially different and no registered description represents it exactly, return verdict=incomplete, use "
                             "reason_code=semantic_substitution, and copy only the smallest literal USER_TEXT span proving the different "

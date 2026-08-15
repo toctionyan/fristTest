@@ -36,6 +36,8 @@ class SemanticOutputDefinition:
     effect_kinds: tuple[str, ...]
     description: str
     legacy_effect_aliases: tuple[str, ...] = ()
+    included_result_meanings: tuple[str, ...] = ()
+    excluded_result_meanings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         output_id = str(self.output_id or "").strip().casefold()
@@ -43,6 +45,27 @@ class SemanticOutputDefinition:
         effect_kinds = tuple(dict.fromkeys(str(value or "").strip().casefold() for value in self.effect_kinds if str(value or "").strip()))
         description = str(self.description or "").strip()
         aliases = tuple(dict.fromkeys(str(value or "").strip().casefold() for value in self.legacy_effect_aliases if str(value or "").strip()))
+        included_result_meanings = tuple(
+            dict.fromkeys(
+                str(value or "").strip()
+                for value in self.included_result_meanings
+                if str(value or "").strip()
+            )
+        )
+        excluded_result_meanings = tuple(
+            dict.fromkeys(
+                str(value or "").strip()
+                for value in self.excluded_result_meanings
+                if str(value or "").strip()
+            )
+        )
+        overlap = {value.casefold() for value in included_result_meanings}.intersection(
+            value.casefold() for value in excluded_result_meanings
+        )
+        if overlap:
+            raise ValueError(
+                f"semantic output {output_id or '<missing>'} cannot include and exclude the same result meaning"
+            )
         if not output_id or output_id == "open":
             raise ValueError("semantic output_id must be non-empty and cannot use reserved 'open'")
         if not subject_type:
@@ -56,6 +79,8 @@ class SemanticOutputDefinition:
         object.__setattr__(self, "effect_kinds", effect_kinds)
         object.__setattr__(self, "description", description)
         object.__setattr__(self, "legacy_effect_aliases", aliases)
+        object.__setattr__(self, "included_result_meanings", included_result_meanings)
+        object.__setattr__(self, "excluded_result_meanings", excluded_result_meanings)
 
     def public_snapshot(self) -> dict[str, Any]:
         return {
@@ -63,6 +88,8 @@ class SemanticOutputDefinition:
             "subject_type": self.subject_type,
             "effect_kinds": list(self.effect_kinds),
             "description": self.description,
+            "included_result_meanings": list(self.included_result_meanings),
+            "excluded_result_meanings": list(self.excluded_result_meanings),
         }
 
 
