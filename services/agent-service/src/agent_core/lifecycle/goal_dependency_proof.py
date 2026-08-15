@@ -19,7 +19,7 @@ from types import ModuleType
 from typing import Any, Callable
 
 
-DEPENDENCY_PROOF_PROTOCOL_VERSION = "semantic-dependency-proof-authority@1"
+DEPENDENCY_PROOF_PROTOCOL_VERSION = "semantic-dependency-proof-authority@2"
 
 
 class DependencyProofMaturity(StrEnum):
@@ -69,6 +69,8 @@ class DependencyGraphProof:
 class _DependencyProofSession:
     premise_digest: str
     proof: DependencyGraphProof | None = None
+    accepted_details: dict[str, Any] | None = None
+    accepted_error: str | None = None
 
 
 _SESSION: ContextVar[_DependencyProofSession | None] = ContextVar(
@@ -136,6 +138,10 @@ def reduce_dependency_graph_proof(
     dependency authority for a multi-Goal graph. A second structurally
     admissible graph observation for the same frozen premises is the bounded
     adversarial dependency challenge and closes the graph as AUTHORITATIVE.
+
+    Once AUTHORITATIVE, the graph is monotonic for the same frozen premise.
+    Repeated model calls can confirm it but cannot re-vote it into another graph;
+    a changed premise creates a fresh session and must earn authority again.
     """
 
     previous_count = previous.observation_count if previous is not None else 0
@@ -154,6 +160,22 @@ def reduce_dependency_graph_proof(
             dependency_challenge_required=observation.expected_pair_count > 0,
             source=observation.source,
             reason_code="observation_not_structurally_admissible",
+        )
+
+    if same_premise and previous is not None and previous.authoritative:
+        return DependencyGraphProof(
+            premise_digest=previous.premise_digest,
+            edges=previous.edges,
+            maturity=DependencyProofMaturity.AUTHORITATIVE,
+            observation_count=previous.observation_count + 1,
+            preservable=True,
+            dependency_challenge_required=False,
+            source=observation.source,
+            reason_code=(
+                "authoritative_graph_preserved_under_repeat_observation"
+                if previous.edges == observation.edges
+                else "authoritative_graph_revote_rejected"
+            ),
         )
 
     if observation.expected_pair_count == 0:
@@ -190,8 +212,9 @@ def reduce_dependency_graph_proof(
 
     # This is not a simple majority vote. The existing verifier only reaches a
     # second pairwise observation through its bounded dependency-specific
-    # counterfactual/adversarial path. A changed graph therefore carries new
-    # grounded counterevidence; an unchanged graph closes the same challenge.
+    # counterfactual/adversarial path. A changed graph therefore carries the
+    # challenge result before authority closes. Once closed, the monotonic rule
+    # above rejects every same-premise re-vote.
     return DependencyGraphProof(
         premise_digest=observation.premise_digest,
         edges=observation.edges,
@@ -340,6 +363,7 @@ def install_goal_dependency_proof_authority(module: ModuleType) -> None:
             values=values,
         )
         session = _session_for(user_text=user_text, goals=goals)
+        previous = session.proof
         observation = DependencyGraphObservation(
             premise_digest=session.premise_digest,
             edges=_edge_pairs(details),
@@ -349,18 +373,45 @@ def install_goal_dependency_proof_authority(module: ModuleType) -> None:
             observed_pair_count=_observed_pair_count(details),
             source="candidate_blind_pairwise",
         )
-        proof = reduce_dependency_graph_proof(session.proof, observation)
-        # A malformed observation may not erase an already preservable graph.
+        proof = reduce_dependency_graph_proof(previous, observation)
+
+        # A malformed observation may not erase an already preservable graph or
+        # its canonical parser result.
         if (
             proof.maturity == DependencyProofMaturity.REJECTED
-            and session.proof is not None
-            and session.proof.preservable
+            and previous is not None
+            and previous.preservable
         ):
-            proof_for_metadata = session.proof
-        else:
+            preserved_details = deepcopy(session.accepted_details or details)
+            preserved_error = (
+                session.accepted_error
+                if session.accepted_details is not None
+                else error
+            )
+            return _proof_metadata(preserved_details, previous), preserved_error
+
+        # Once authority is closed, the same frozen semantic premise cannot
+        # produce genuinely new evidence: another model call is only a re-vote
+        # over the same USER_TEXT and Goal fields. Preserve both the authoritative
+        # graph details and the parser error/mismatch outcome that established it.
+        if (
+            previous is not None
+            and previous.authoritative
+            and proof.authoritative
+            and proof.edges == previous.edges
+            and session.accepted_details is not None
+        ):
             session.proof = proof
-            proof_for_metadata = proof
-        return _proof_metadata(details, proof_for_metadata), error
+            return (
+                _proof_metadata(deepcopy(session.accepted_details), proof),
+                session.accepted_error,
+            )
+
+        session.proof = proof
+        if proof.preservable:
+            session.accepted_details = deepcopy(details)
+            session.accepted_error = error
+        return _proof_metadata(details, proof), error
 
     module._model_alignment_dependency_proof = candidate_visible_observation
     module._model_alignment_pairwise_dependency_proof = candidate_blind_observation
