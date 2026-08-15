@@ -2,7 +2,7 @@
 
 ## Status
 
-Candidate architecture for PR #1157. The implementation is intentionally fail-closed until the proof lifecycle and historical regressions are green.
+Candidate architecture for PR #1157. The implementation is intentionally fail-closed until the proof lifecycle and historical regressions are green. The focused authority regression set is green; repository-wide quality remains the release-closure authority.
 
 ## Decision
 
