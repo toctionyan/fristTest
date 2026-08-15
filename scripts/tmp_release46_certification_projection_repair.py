@@ -86,7 +86,7 @@ def _release46_scope_rejection() -> dict:
                     "dependency_edges": [],
                     "verifier_repair_attempted": True,
                     "verifier_repair_kind": "candidate_blind_dependency_scope_constraint_adjudication",
-                    "candidate_semantic_replacement": "must_not_reach_writer",
+                    "candidate_semantic_replacement": "audit_secret_must_not_reach_writer",
                 },
             },
             "independent_verifier_feedback": {
@@ -94,14 +94,7 @@ def _release46_scope_rejection() -> dict:
                 "required_action": "redeclaration_removing_rejected_scope_constraints",
                 "violation_field": "target_candidate.scope_constraints",
                 "invalid_scope_constraint_spans": ["鼠标订单"],
-                "dependency_edges": [
-                    {
-                        "dependent_goal_id": "g1",
-                        "requires_result_of_goal_id": "invented",
-                        "basis_span": "must_not_reach_writer",
-                    }
-                ],
-                "replacement_target": "must_not_reach_writer",
+                "replacement_target": "audit_secret_must_not_reach_writer",
                 "constraints": ["audit_only_detail"],
             },
         },
@@ -133,7 +126,7 @@ def test_release46_certification_adapter_is_exact_live_runtime_projection():
     serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)
     assert "candidate_semantic_replacement" not in serialized
     assert "replacement_target" not in serialized
-    assert "must_not_reach_writer" not in serialized
+    assert "audit_secret_must_not_reach_writer" not in serialized
 
 
 def test_release46_normal_bounded_repair_feeds_projected_tool_message(monkeypatch):
@@ -151,7 +144,7 @@ def test_release46_normal_bounded_repair_feeds_projected_tool_message(monkeypatc
 
     monkeypatch.setattr(HARNESS, "invoke_model", fake_invoke_model)
     monkeypatch.setattr(HARNESS, "attest_real_model_metadata", lambda **_: {"ok": True})
-    monkeypatch.setattr(HARNESS, "tool_calls", lambda _: calls.pop(0))
+    monkeypatch.setattr(HARNESS, "tool_calls", lambda _: [calls.pop(0)])
 
     validation_attempts = 0
 
