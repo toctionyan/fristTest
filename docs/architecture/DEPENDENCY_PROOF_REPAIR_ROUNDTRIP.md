@@ -51,3 +51,11 @@ The sole machine-authoritative exception is the reducer-sealed `repair_contract.
 7. Stable generic provider repair constraints remain backward-compatible; the sealed dependency delta is additive rather than a rename or weakening of existing repair semantics.
 
 These invariants directly close the historical Attempt-8 class of failure: proof may no longer be correct internally while repair transport loses the proved relation and sends Planner back into semantic guesswork.
+
+## Control-plane liveness reliability
+
+Stage-3 validation exposed an independent CI observability race in the reusable execution runtime. The stall loop evaluated the fail-closed timeout before publishing the warning heartbeat. Under scheduler jitter a process could therefore cross both thresholds in one scheduling interval and emit `STALL_TIMEOUT` without an observable `SUSPECTED_STALL` transition.
+
+The control-plane runtime now binds warning publication to the current no-progress epoch rather than to heartbeat sampling luck. If a scheduling jump reaches the stall timeout before that epoch has published a warning, the runtime emits one `SUSPECTED_STALL` event immediately before the fail-closed `STALL_TIMEOUT` event. New child progress starts a new epoch naturally because the bound progress timestamp changes.
+
+This does not extend timeout budgets, suppress failure, or weaken the liveness assertion. The regression test retains the warning requirement and additionally verifies that `SUSPECTED_STALL` is observable before the `[WP08 STALL]` timeout event.
