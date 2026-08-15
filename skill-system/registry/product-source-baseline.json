@@ -1,5 +1,5 @@
 {
-  "file_count": 611,
+  "file_count": 612,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -167,7 +167,7 @@
     "services/agent-service/src/agent_core/lifecycle/finalizer.py": "84fff37b2c6d5117222c57d025550bc1ecaaa15e50e8862653244005daf886a3",
     "services/agent-service/src/agent_core/lifecycle/goal_blockers.py": "3e49585106c3c3ff90b6b5c5da996cfa9bd6845bd82d65ad4a4f0f8f7e8abf8e",
     "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py": "6628abd0320825c5302ab58ae5f537dfaaee4e5eb5bb19cffbe75092bc39f785",
-    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "be2e9e01c1428e8fae13408f70329a024ce810ff83d81573687f05691dea1a7f",
+    "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "476782478c6bb924fc8fb2065db2fe73b7fc3e36f3f3c1cf05fc7dcfe3323705",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "2e619828cb0fe53346a9860153098e2f8f87f94bf23d6fa68e6cc80c88705dd6",
@@ -515,6 +515,7 @@
     "services/agent-service/tests/runtime/test_release46_certification_writer_projection.py": "2c4cc7c017cafeaeb0d7c4aa65b0cfa257499c2950a4e714f8e4721afef2e27f",
     "services/agent-service/tests/runtime/test_release47_dependency_repair_projection.py": "1a807ddc6956ff265d40c4255ebfe4e111bd1626cff0a8fcf35e204c38593a11",
     "services/agent-service/tests/runtime/test_release48_registered_output_exactness_adjudication.py": "25b16f71c57f1bd098a627bc6a09c25ea54b75ffb1ce29ef1dc026fc56b7ed58",
+    "services/agent-service/tests/runtime/test_release50_mutually_exclusive_goal_granularity.py": "b3259ceba6ea9a5a95bfebc4e55a266919566e4d3d20e7553b872230edd7f0bf",
     "services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py": "5ca39ae79dafd3ac89ab32f74c68d5f82a30b189821a14a79938bfbe3c2309aa",
     "services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py": "84f32a86ea7e75276930768f4d2e394e27ec3307370359e7e54ef7651dc48943",
     "services/agent-service/tests/runtime/test_scripted_chat_model.py": "062c682a9f977cbbb48922cbae7c9257c3a21dfdeebcbfb91ba738b2b533743c",
@@ -613,8 +614,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T12:53:09.900113+00:00",
-  "generated_from": "git:84919f3037c29d13bc53e7c0ce25352219eb1fea",
+  "generated_at": "2026-08-15T13:51:01.142121+00:00",
+  "generated_from": "git:af5e7c2bbc6a7581380ecef5837690132b70c8ef",
   "protected_roots": [
     "services",
     "web",
