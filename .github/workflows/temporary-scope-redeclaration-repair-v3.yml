@@ -36,7 +36,9 @@ jobs:
             tests/runtime/test_semantic_dependency_counterfactual_contract.py \
             tests/runtime/test_wp08_attempt5_dependency_authority.py
       - name: Refresh product-source baseline
-        run: services/agent-service/.venv/bin/python -B scripts/refresh_product_source_baseline.py
+        run: >-
+          services/agent-service/.venv/bin/python -B scripts/refresh_product_source_baseline.py
+          --generated-from-sha "$(git rev-parse HEAD)"
       - name: Run architecture verification
         run: |
           services/agent-service/.venv/bin/python -B scripts/verify_architecture.py
