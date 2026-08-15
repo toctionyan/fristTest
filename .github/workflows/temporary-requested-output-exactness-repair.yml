@@ -34,7 +34,7 @@ jobs:
           python -B .github/temporary_requested_output_exactness_repair.py
       - name: Run focused semantic regressions
         run: |
-          services/agent-service/.venv/bin/python -B -m pytest -q \
+          PYTHONPATH=services/agent-service/src services/agent-service/.venv/bin/python -B -m pytest -q \
             services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py \
             services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py \
             services/agent-service/tests/runtime/test_wp08_attempt5_dependency_authority.py \
