@@ -33,6 +33,7 @@ _ACTION_RE = re.compile(r"^\s*(?:-\s+)?uses:\s+([^\s@]+)@([^\s#]+)(?:\s+#\s*(.*)
 _UV_VERSION_OUTPUT_RE = re.compile(
     r"^uv\s+(?P<version>[0-9]+(?:\.[0-9]+){2})(?:\s+\([A-Za-z0-9_.-]+\))?$"
 )
+_NPM_VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?$")
 
 
 class ReleaseToolchainError(RuntimeError):
@@ -341,10 +342,35 @@ def _resolved_executable(name: str) -> Path:
     found = shutil.which(name)
     if not found:
         raise ReleaseToolchainError("release_toolchain_command_missing", f"required command is missing: {name}", environment_blocked=True)
-    # Preserve the launcher path rather than dereferencing symlinks. Some locked
-    # toolchains (notably setup-node's npm launcher) depend on invocation through
-    # that launcher identity, just as a Python virtualenv does.
     return Path(found).absolute()
+
+
+def _npm_installation_identity(npm: Path) -> dict[str, str]:
+    resolved = Path(npm).resolve()
+    package_json: Path | None = None
+    for parent in (resolved.parent, *resolved.parents):
+        candidate = parent / "package.json"
+        if parent.name == "npm" and candidate.is_file():
+            package_json = candidate
+            break
+    if package_json is None:
+        raise ReleaseToolchainError(
+            "release_npm_installation_identity_missing",
+            f"cannot locate npm package.json from launcher: {npm}",
+            environment_blocked=True,
+        )
+    payload = _load_json(package_json, code="release_npm_installation_identity_invalid")
+    version = str(payload.get("version") or "").strip()
+    if payload.get("name") != "npm" or not _NPM_VERSION_RE.fullmatch(version):
+        raise ReleaseToolchainError(
+            "release_npm_installation_identity_invalid",
+            "npm package metadata does not contain a valid npm version identity",
+            environment_blocked=True,
+        )
+    return {
+        "version": version,
+        "package_json_sha256": _sha256_file(package_json),
+    }
 
 
 def _tree_digest(root: Path) -> dict[str, Any]:
@@ -430,11 +456,6 @@ def _npm_tree_payload(frontend: Path, npm: Path) -> dict[str, Any]:
             "npm dependency inventory did not emit valid JSON",
             environment_blocked=True,
         ) from exc
-
-    # `npm ls` intentionally returns non-zero for peer/optional diagnostics on
-    # some npm/runtime combinations even though it still emits the complete
-    # dependency tree. Treat only a structurally valid tree as evidence; a
-    # command failure without that tree remains fail-closed.
     if not isinstance(payload, dict) or not any(
         key in payload for key in ("name", "version", "dependencies")
     ):
@@ -498,8 +519,9 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
     npm = _resolved_executable("npm")
     uv = _resolved_executable("uv")
     docker = _resolved_executable("docker")
+    npm_identity = _npm_installation_identity(npm)
     actual_node = _run([str(node), "--version"], cwd=workspace).lstrip("v")
-    actual_npm = _run([str(npm), "--version"], cwd=workspace)
+    actual_npm = npm_identity["version"]
     actual_uv = _normalize_uv_version_output(_run([str(uv), "--version"], cwd=workspace))
     docker_client_version = _run([str(docker), "version", "--format", "{{.Client.Version}}"], cwd=workspace)
     docker_server_version = _run([str(docker), "version", "--format", "{{.Server.Version}}"], cwd=workspace)
@@ -528,6 +550,7 @@ def capture_runtime_provenance(workspace_root: Path) -> dict[str, Any]:
             "python_sha256": _sha256_file(agent_python.resolve()),
             "node_sha256": _sha256_file(node),
             "npm_sha256": _sha256_file(npm),
+            "npm_package_json_sha256": npm_identity["package_json_sha256"],
             "uv_sha256": _sha256_file(uv),
             "docker_sha256": _sha256_file(docker),
         },
