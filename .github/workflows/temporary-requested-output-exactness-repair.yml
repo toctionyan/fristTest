@@ -60,7 +60,7 @@ jobs:
           git diff --check
       - name: Remove temporary repair machinery and commit baseline
         run: |
-          git rm \
+          git rm -f \
             .github/requested-output-exactness-repair.trigger \
             .github/temporary_requested_output_exactness_repair.py \
             .github/temporary_requested_output_exactness_repair_anchor_fix.py \
