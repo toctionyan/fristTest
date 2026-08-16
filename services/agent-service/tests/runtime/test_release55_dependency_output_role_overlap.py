@@ -62,14 +62,17 @@ def test_strict_nested_relation_basis_reaches_dependency_graph_adjudication() ->
     assert error == "goal_alignment_dependency_graph_mismatch"
     assert details["dependency_edges"] == [
         {
-            "from_goal_id": "g1",
-            "to_goal_id": "g2",
+            "dependent_goal_id": "g2",
+            "requires_result_of_goal_id": "g1",
             "basis_kind": "result_reference",
             "basis_span": "它",
         }
     ]
     assert details["dependency_pair_decisions"][0]["relation"] == "b_depends_on_a"
-    assert details["dependency_proof_complete"] is False
+    # Pair coverage is structurally complete, but it disagrees with the declared
+    # graph and therefore is not accepted dependency authority.
+    assert details["dependency_proof_complete"] is True
+    assert details["dependency_graph_match"] is False
 
 
 def test_equal_requested_output_evidence_cannot_be_dependency_basis() -> None:
@@ -116,8 +119,8 @@ def test_nested_relation_basis_is_only_provisional_not_authority() -> None:
     )
 
     # Structural admissibility must not turn an observed positive pair into
-    # dependency authority. With an empty declared graph this remains a
-    # mismatch that the existing counterfactual/adversarial closure must judge.
+    # accepted dependency authority. With an empty declared graph this remains
+    # a mismatch that the existing counterfactual/adversarial closure must judge.
     assert error == "goal_alignment_dependency_graph_mismatch"
     assert details["dependency_graph_match"] is False
-    assert details["dependency_proof_complete"] is False
+    assert details["dependency_proof_complete"] is True
