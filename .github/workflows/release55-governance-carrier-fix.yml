@@ -1,0 +1,49 @@
+name: release55-governance-carrier-fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release55-governance-carrier-fix.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  fix-carrier:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Correct baseline marker and literal heredoc
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/release55-dependency-role-overlap-governance.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '--baseline-description "Protected Production Certification Release #55 failed on semantic_query_then_refund_consult with expected g2->g1 but actual empty dependencies. The current pairwise structural validator rejects basis \'它\' whenever requested-output evidence is the broader phrase \'它能不能退款\', then format-repair instructions explicitly tell the verifier to return independent when no disjoint basis exists."'
+          new = '--baseline-description "Canonical baseline: Protected Production Certification Release #55 failed on semantic_query_then_refund_consult with expected g2->g1 but actual empty dependencies. The current pairwise structural validator rejects basis \'它\' whenever requested-output evidence is the broader phrase \'它能不能退款\', then format-repair instructions explicitly tell the verifier to return independent when no disjoint basis exists."'
+          if old not in text:
+              raise SystemExit('baseline-description anchor not found')
+          text = text.replace(old, new, 1)
+          old_heredoc = 'cat > "${CASE}/evidence/release55-protected-failure.md" <<EOF'
+          new_heredoc = 'cat > "${CASE}/evidence/release55-protected-failure.md" <<\'EOF\''
+          if old_heredoc not in text:
+              raise SystemExit('heredoc anchor not found')
+          text = text.replace(old_heredoc, new_heredoc, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          git config user.name "customer-agent-governance[bot]"
+          git config user.email "customer-agent-governance[bot]@users.noreply.github.com"
+          git add .github/workflows/release55-dependency-role-overlap-governance.yml
+          git commit -m "Fix Release 55 governed RED baseline carrier"
+          git push origin "HEAD:${HEAD_REF}"
