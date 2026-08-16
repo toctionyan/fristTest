@@ -77,9 +77,8 @@ REQUIRED_GATES = (
     "G6_GOVERNANCE_EXACT_HEAD",
 )
 
-# Match concrete shell-level authority, not incidental path fragments such as
-# deployment/ci/uv-requirements-*.txt. workflow_dispatch itself is not deploy
-# authority; a deploy/merge command or write permission in Stage-3 is.
+# Concrete shell-level forbidden authorities. Incidental path fragments such as
+# deployment/ci/uv-requirements-*.txt are not deployment authority.
 FORBIDDEN_STAGE3_COMMANDS = (
     "gh pr merge",
     "/deployments",
@@ -113,6 +112,24 @@ def _function_source(path: str, name: str) -> str:
             if segment:
                 return segment
     raise ValueError(f"missing function {name} in {path}")
+
+
+def _workflow_job_block(source: str, job_name: str) -> str:
+    """Return one top-level workflow job block without requiring a YAML library."""
+
+    lines = source.splitlines()
+    marker = f"  {job_name}:"
+    try:
+        start = lines.index(marker)
+    except ValueError:
+        return ""
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.startswith("  ") and not line.startswith("    ") and line.endswith(":"):
+            end = index
+            break
+    return "\n".join(lines[start:end])
 
 
 def verify() -> dict[str, Any]:
@@ -153,8 +170,44 @@ def verify() -> dict[str, Any]:
     for command in FORBIDDEN_STAGE3_COMMANDS:
         if command in stage3_low:
             errors.append(f"stage3_forbidden_authority:{command}")
-    if "contents: write" in stage3_low:
-        errors.append("stage3_has_contents_write_authority")
+
+    # Independent inspection/validation must be read-only. The single publish job
+    # may write only after validation succeeds so it can push the immutable repair
+    # branch and create a Draft PR. This is publication authority, not merge,
+    # baseline, governance, deployment, or completion authority.
+    for job_name in ("inspect", "validate"):
+        block = _workflow_job_block(stage3_workflow, job_name).casefold()
+        if not block:
+            errors.append(f"stage3_job_missing:{job_name}")
+        elif "contents: write" in block or "pull-requests: write" in block:
+            errors.append(f"stage3_readonly_job_has_write_authority:{job_name}")
+
+    publish_block = _workflow_job_block(stage3_workflow, "publish")
+    publish_low = publish_block.casefold()
+    if not publish_block:
+        errors.append("stage3_job_missing:publish")
+    else:
+        for required in (
+            "needs: [inspect, validate]",
+            "if: needs.validate.result == 'success'",
+            "contents: write",
+            "pull-requests: write",
+            "github_repair_stage3_publish.py",
+            "github_repair_stage3_record_publication.py",
+            "gh pr create --draft",
+        ):
+            if required.casefold() not in publish_low:
+                errors.append(f"stage3_publish_contract_missing:{required}")
+        for forbidden in (
+            "gh pr merge",
+            "generate_product_source_baseline.py",
+            "github_repair_baseline_acceptance.py",
+            "github_repair_governance.py",
+            "github_repair_exact_head.py",
+            "task.complete(",
+        ):
+            if forbidden.casefold() in publish_low:
+                errors.append(f"stage3_publish_forbidden_authority:{forbidden}")
 
     governance_workflow = _text(".github/workflows/governed-ci-repair-governance.yml")
     for required in (
