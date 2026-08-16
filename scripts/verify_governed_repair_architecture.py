@@ -15,13 +15,20 @@ from pathlib import Path
 from typing import Any
 
 from governed_repair_contract import GATES, STATE_MACHINE, contract_fingerprint
+from governed_repair_path_policy import (
+    PATH_POLICY_ID,
+    mutation_detection_matrix as path_policy_mutation_detection_matrix,
+    policy_fingerprint,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 MACHINE_FAILURE_SCHEMA = "machine-failure-envelope@1"
 CANONICAL_CONTRACT_PATH = "scripts/governed_repair_contract.py"
+CANONICAL_PATH_POLICY_PATH = "scripts/governed_repair_path_policy.py"
 
 REQUIRED_FILES = (
     CANONICAL_CONTRACT_PATH,
+    CANONICAL_PATH_POLICY_PATH,
     "scripts/github_failure_ingest.py",
     "scripts/github_repair_authority.py",
     "scripts/github_repair_rca.py",
@@ -43,11 +50,29 @@ REQUIRED_FILES = (
     ".github/workflows/governed-ci-repair-governance.yml",
 )
 
-PROJECTION_FILES = tuple(path for path in REQUIRED_FILES if path != CANONICAL_CONTRACT_PATH)
+PROJECTION_FILES = tuple(
+    path
+    for path in REQUIRED_FILES
+    if path not in {CANONICAL_CONTRACT_PATH, CANONICAL_PATH_POLICY_PATH}
+)
 
+# Bootstrap/carrier files are intentionally one-shot.  Keeping their names in a
+# permanent deny-list makes cleanup an invariant instead of a documentation wish.
 FORBIDDEN_FILES = (
     "scripts/github_repair_stage3_complete.py",
     ".github/workflows/b28-product-baseline-refresh.yml",
+    ".github/governed-repair-architecture-fixup-trigger",
+    ".github/governed-repair-architecture-validation-trigger",
+    ".github/governed-repair-architecture-validation-v2-trigger",
+    ".github/governed-repair-finalize-architecture-trigger",
+    ".github/governed-repair-lifecycle-contract-trigger",
+    ".github/governed-repair-open-architecture-draft-trigger",
+    ".github/workflows/governed-repair-architecture-fixup.yml",
+    ".github/workflows/governed-repair-architecture-validation.yml",
+    ".github/workflows/governed-repair-architecture-validation-v2.yml",
+    ".github/workflows/governed-repair-finalize-architecture.yml",
+    ".github/workflows/governed-repair-lifecycle-contract-migration.yml",
+    ".github/workflows/governed-repair-open-architecture-draft.yml",
 )
 
 REQUIRED_TASK_CONDITIONS = (
@@ -223,17 +248,29 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         authority = ""
     for marker in (
         "from governed_repair_contract import",
+        "from governed_repair_path_policy import",
         "PREWRITE_STATES",
         "PROTECTED_AUTHORITY",
         "contract_fingerprint",
+        "policy_fingerprint",
+        "validate_automatic_repair_paths",
         '"state_history": list(PREWRITE_STATES)',
         '"lifecycle_contract_sha256"',
+        '"path_policy_sha256"',
         '"write_scope_mode": "exact_allowlist"',
     ):
         if marker not in authority:
             errors.append(f"authority_marker_missing:{marker}")
     if "PREWRITE_STATES = (" in authority:
         errors.append("authority_duplicates_canonical_prewrite_states")
+
+    path_policy_errors = [
+        mutation
+        for mutation, detected in path_policy_mutation_detection_matrix().items()
+        if detected is not True
+    ]
+    for mutation in path_policy_errors:
+        errors.append(f"path_policy_mutation_not_detected:{mutation}")
 
     rca = _text("scripts/github_repair_rca.py", root=root) if (root / "scripts/github_repair_rca.py").is_file() else ""
     for marker in (
@@ -315,6 +352,8 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "schema": "governed-repair-architecture-verification@1",
         "status": "PASS" if not errors else "FAIL",
         "canonical_contract_sha256": contract_fingerprint(),
+        "path_policy_id": PATH_POLICY_ID,
+        "path_policy_sha256": policy_fingerprint(),
         "required_file_count": len(REQUIRED_FILES),
         "forbidden_file_count": len(FORBIDDEN_FILES),
         "required_task_conditions": list(REQUIRED_TASK_CONDITIONS),
