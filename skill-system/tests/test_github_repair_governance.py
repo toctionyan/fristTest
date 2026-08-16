@@ -168,7 +168,7 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
         baseline = {
             "schema_version": 2,
             "generated_at": "2026-08-16T00:00:00+00:00",
-            "generated_from": "git:bootstrap",
+            "generated_from": "git:" + "0" * 40,
             "protected_roots": ["services/agent-service/src"],
             "file_count": 2,
             "files": {
