@@ -1,17 +1,17 @@
 {
-  "child_pid": 2302,
+  "child_pid": 2298,
   "child_process_alive": false,
   "contract": "quality-gate-liveness@1",
   "elapsed_seconds": 0.401,
   "gate_id": "release55-role-overlap-counterexample",
-  "heartbeat_at": "2026-08-16T03:38:20.900472+00:00",
-  "idle_seconds": 0.198,
+  "heartbeat_at": "2026-08-16T03:38:51.968652+00:00",
+  "idle_seconds": 0.19,
   "last_activity": "stdout_output",
-  "last_progress_at": "2026-08-16T03:38:20.702304+00:00",
+  "last_progress_at": "2026-08-16T03:38:51.778575+00:00",
   "liveness_status": "FAILED",
   "mode": "quick",
   "progress_event_count": 5,
   "returncode": 1,
-  "started_at": "2026-08-16T03:38:20.499265+00:00",
+  "started_at": "2026-08-16T03:38:51.567472+00:00",
   "termination_reason": null
 }
