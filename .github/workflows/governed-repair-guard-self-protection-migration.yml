@@ -1,0 +1,46 @@
+name: governed-repair-guard-self-protection-migration
+
+on:
+  push:
+    branches:
+      - architecture/governed-repair-rca-write-grant-20260816
+    paths:
+      - .github/governed-repair-guard-self-protection-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: architecture/governed-repair-rca-write-grant-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply deterministic guard self-protection migration
+        run: |
+          set -euo pipefail
+          python -B scripts/migrate_governed_repair_guard_self_protection.py
+          python -m py_compile scripts/verify_governed_repair_architecture.py
+          git diff --check
+          grep -q 'scripts/verify_governed_repair_mutation_proof.py' scripts/verify_governed_repair_architecture.py
+          grep -q 'services/agent-service/tests/architecture/test_governed_repair_mutation_proof.py' scripts/verify_governed_repair_architecture.py
+      - name: Remove temporary migration authority
+        run: |
+          set -euo pipefail
+          rm -f scripts/migrate_governed_repair_guard_self_protection.py
+          rm -f .github/workflows/governed-repair-guard-self-protection-migration.yml
+          rm -f .github/governed-repair-guard-self-protection-trigger
+      - name: Commit migrated verifier
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(repair): protect anti-drift proof from deletion'
+          git push origin HEAD:architecture/governed-repair-rca-write-grant-20260816
