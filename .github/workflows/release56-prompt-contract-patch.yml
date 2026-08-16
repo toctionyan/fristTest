@@ -54,7 +54,7 @@ jobs:
           set -euo pipefail
           services/agent-service/.venv/bin/python -B scripts/verify_dependency_basis_contract.py
           cd services/agent-service
-          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
+          PYTHONPATH=src .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider \
             tests/runtime/test_release55_dependency_output_role_overlap.py \
             tests/runtime/test_release56_dependency_basis_contract.py
 
