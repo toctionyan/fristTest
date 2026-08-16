@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path.cwd().resolve()
 CHANGE_ID = "probe-stage4-2-dependency-obligation-evidence-pipeline"
 ALLOWED = [
     "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
