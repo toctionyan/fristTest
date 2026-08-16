@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "failure_case_sha256": "c3d5aa150149b1a0e0d9c01700e01704b87dcb17cecef37eee90ac10bf7d8bfc",
+  "decision": "PROVEN",
+  "root_cause": "goal_planning structurally validates a candidate-blind complete pair table but does not materialize distinct target-compatibility/counterfactual proof records; dependency_alignment compensates by hard-coding those required obligations to PASS. The deterministic reducer is correctly fail-closed and merely seals the fabricated upstream obligations.",
+  "causal_chain": [
+    "The candidate-blind semantic verifier is instructed to audit requested-effect/target-scope fidelity and to apply a result-removal counterfactual for every pair.",
+    "_model_alignment_pairwise_dependency_proof validates pair coverage, relation, positive basis kind/span and candidate graph comparison, but normalized dependency_pair_decisions contain only relation/basis data.",
+    "dependency_alignment receives those pair rows without an obligation-specific evidence contract and unconditionally writes target_compatibility=PASS and counterfactual=PASS.",
+    "An adversarial closure phase supplies the remaining closure PASS; dependency_proof.py correctly sees all required obligations as PASS and seals authority from evidence that never separately represented two obligations."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/reproduction.json",
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "docs/architecture/dependency-proof-authority.md"
+  ],
+  "rejected_hypotheses": [
+    "The deterministic reducer is the authority leak; it is not, because UNKNOWN required obligations remain non-authoritative and FAIL rejects.",
+    "complete/matching diagnostics alone are granting authority; they are diagnostic fields and the leak occurs because the bridge maps missing obligations to PASS.",
+    "Call count is the owner; phase/call count only exposes the bridge fabrication and must not become semantic proof.",
+    "A new model field or second judge is required; the existing candidate-blind semantic verifier contract already audits the relevant semantics and can materialize a machine-bound evidence envelope after structural validation."
+  ],
+  "affected_boundaries": [
+    "GoalAlignment semantic evidence materialization",
+    "dependency observation admissibility",
+    "obligation-specific evidence binding",
+    "dependency proof maturity"
+  ]
+}

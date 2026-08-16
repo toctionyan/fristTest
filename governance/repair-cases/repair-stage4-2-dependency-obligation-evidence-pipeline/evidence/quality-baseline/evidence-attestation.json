@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "algorithm": "hmac-sha256",
+  "key_id": "0ca6f0a0b1d10fdc",
+  "manifest_fingerprint": "16f00a3ba15908dadb68b4aab5d320d56ccaa0ee82df6626debc2830765d0081",
+  "files": {
+    "baseline-record.json": "8c049cf56d4eed58dbb3237a2820eaafdb5b5cbc1faa1893ccc0a3f3164a386f",
+    "claim-manifest.json": "e3dceb5cbd18b0b66da29d83eb4b7846e789ca94dab9cdcadfd6c75b483ced73",
+    "liveness/stage42-red-proof.json": "3e6b104cefcfe71bba62a6120af481e640b826d79d1ef6f87f37273f897d2206",
+    "quality-loop-policy.json": "49c73e84eb01c42ed6515cd09d7b7a9565d7f75cdcb855225a37adebf6d9f1a2",
+    "repair-plan.json": "e67b90028bb44db1ce423610207f9e85c989a70de2054ee5cf6c708596604f6c",
+    "run-summary.json": "ee36ab7d8feb06646d9116d425de7a74e183bfa46c52d790d4b01da86adc81a8",
+    "steps/stage42-red-proof.stderr.txt": "63adb2812516136405d6a28a7116fcd1d681e4766d42e749b98267e958df6a59",
+    "steps/stage42-red-proof.stdout.txt": "22f230c96b5d9f4bb556fa6ce8bfca71ca3a59976583ad735537ba91a89b06ab",
+    "target.md": "c0affaaebd8e30802dcdf7edfa8391c38c97cc111913466d10524007809e9ea4",
+    "workspace-baseline.json": "52bbaaa1b2a1f4ed06d8a03cf05ad51c6658b026f06c14c7f8c4c193b1d1ee40"
+  },
+  "signature": "6d88421d1467fafcfa5491edb9f181f7bee3979aba99c762c1368b2e9be68759"
+}

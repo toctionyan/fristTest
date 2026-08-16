@@ -1,0 +1,17 @@
+{
+  "child_pid": 2234,
+  "child_process_alive": false,
+  "contract": "quality-gate-liveness@1",
+  "elapsed_seconds": 0.201,
+  "gate_id": "stage42-red-proof",
+  "heartbeat_at": "2026-08-16T01:26:48.199140+00:00",
+  "idle_seconds": 0.071,
+  "last_activity": "stdout_output",
+  "last_progress_at": "2026-08-16T01:26:48.128376+00:00",
+  "liveness_status": "FAILED",
+  "mode": "quick",
+  "progress_event_count": 5,
+  "returncode": 1,
+  "started_at": "2026-08-16T01:26:47.998287+00:00",
+  "termination_reason": null
+}

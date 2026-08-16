@@ -1,0 +1,1 @@
+{"adversarial_closure": "PASS", "counterfactual": "PASS", "edges": [{"dependent_goal_id": "g2", "requires_result_of_goal_id": "g1"}], "graph_complete": true, "maturity": "AUTHORITATIVE", "target_compatibility": "PASS"}
