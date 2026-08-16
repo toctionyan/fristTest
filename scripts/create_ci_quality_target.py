@@ -19,6 +19,7 @@ WORKFLOW_MINIMUM_MODE = {
     "quality-integration": "integration",
     "release-quality": "release",
     "governed-ci-repair-stage3": "quick",
+    "governed-ci-existing-candidate-adoption": "quick",
 }
 
 WORKFLOW_CLAIM_GATES = {
@@ -32,6 +33,14 @@ WORKFLOW_CLAIM_GATES = {
         "product-browser-journey",
     ],
     "governed-ci-repair-stage3": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites",
+        "frontend-vitest",
+        "coverage-baseline",
+        "full-lifecycle-canary",
+        "product-browser-journey",
+    ],
+    "governed-ci-existing-candidate-adoption": [
         "adversarial-runtime-counterexamples",
         "python-test-suites",
         "frontend-vitest",
