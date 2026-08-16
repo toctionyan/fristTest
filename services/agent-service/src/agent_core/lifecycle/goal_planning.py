@@ -37,7 +37,12 @@ from agent_core.lifecycle.semantic_state_changes import (
 )
 from agent_core.runtime.profile import resolve_verifier_mode
 from agent_core.goal_graph.dependency_alignment import (
+    COUNTERFACTUAL_EVIDENCE_CONTRACT,
+    DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT,
+    DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER,
+    TARGET_COMPATIBILITY_EVIDENCE_CONTRACT,
     alignment_dependency_authority_details,
+    alignment_dependency_premise_digest,
     apply_alignment_dependency_proof,
     dependency_authority_closed_and_matching,
 )
@@ -154,6 +159,26 @@ def _literal_spans(user_text: str, values: Any) -> tuple[str, ...]:
     return tuple(rows)
 
 
+def _dependency_observation_mismatch_ready(details: dict[str, Any]) -> bool:
+    """Allow pair-complete observation evidence to drive redeclaration only.
+
+    This is intentionally weaker than dependency authority.  It exists so a
+    candidate-blind, pair-complete mismatch can tell the semantic writer which
+    declared dependency relation to repair even while target/counterfactual
+    obligations remain UNKNOWN.  It must never be used for execution or graph
+    authority.
+    """
+
+    return bool(
+        isinstance(details, dict)
+        and details.get("dependency_maturity_authority")
+        == "deterministic_dependency_proof_reducer"
+        and details.get("dependency_observation_complete") is True
+        and details.get("dependency_observed_graph_match") is False
+        and details.get("dependency_observation_authority_effect") is False
+    )
+
+
 def _as_alignment_verdict(
     value: GoalAlignmentVerdict | dict[str, Any],
     *,
@@ -195,9 +220,15 @@ def _as_alignment_verdict(
         and details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
-        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"
-        and details.get("dependency_authority_complete") is True
-        and details.get("dependency_authority_graph_match") is False
+        and (
+            (
+                details.get("dependency_maturity_authority")
+                == "deterministic_dependency_proof_reducer"
+                and details.get("dependency_authority_complete") is True
+                and details.get("dependency_authority_graph_match") is False
+            )
+            or _dependency_observation_mismatch_ready(details)
+        )
     )
     if verdict == "exact" and not evidence:
         return GoalAlignmentVerdict(
@@ -496,6 +527,113 @@ def _model_alignment_pairwise_dependency_proof(
     if proof_edges != declared_edges:
         return details, "goal_alignment_dependency_graph_mismatch"
     return details, None
+
+
+
+def _validated_dependency_obligation_evidence(
+    *,
+    user_text: str,
+    goals: list[dict[str, Any]],
+    verdict: GoalAlignmentVerdict,
+    phase: str,
+) -> dict[str, Any]:
+    """Materialize obligation evidence from the already-validated blind audit.
+
+    This function never reads arbitrary model obligation fields.  Its input pair
+    rows are the normalized output of ``_model_alignment_pairwise_dependency_proof``
+    and this helper is called only from the candidate-blind semantic verifier
+    path whose rules require requested-effect/target-scope fidelity plus the
+    current-turn result-removal counterfactual for every unordered pair.
+    """
+
+    details = verdict.details if isinstance(verdict.details, dict) else {}
+    rows = details.get("dependency_pair_decisions")
+    if details.get("dependency_proof_complete") is not True or not isinstance(rows, list):
+        return {}
+
+    premise_digest = alignment_dependency_premise_digest(
+        user_text=user_text,
+        goals=goals,
+    )
+    goal_by_id = {
+        str(goal.get("goal_id") or ""): goal
+        for goal in goals
+        if isinstance(goal, dict) and str(goal.get("goal_id") or "")
+    }
+    target_compatible = bool(
+        verdict.exact
+        or (
+            verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
+            and not verdict.missing_spans
+        )
+    )
+    pair_evidence: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        goal_a_id = _clean_text(raw.get("goal_a_id"), limit=200)
+        goal_b_id = _clean_text(raw.get("goal_b_id"), limit=200)
+        relation = _clean_text(raw.get("relation"), limit=80).lower()
+        if not goal_a_id or not goal_b_id or not relation:
+            continue
+        goal_a = goal_by_id.get(goal_a_id) or {}
+        goal_b = goal_by_id.get(goal_b_id) or {}
+        target_record: dict[str, Any] = {
+            "contract": TARGET_COMPATIBILITY_EVIDENCE_CONTRACT,
+            "result": "PASS" if target_compatible else "UNKNOWN",
+            "evidence": {
+                "verifier_phase": str(phase or "candidate_blind_dependency_reaudit"),
+                "alignment_verdict": verdict.verdict,
+                "alignment_reason_code": verdict.reason_code,
+                "evidence_spans": list(verdict.evidence_spans),
+                "missing_spans": list(verdict.missing_spans),
+                "goal_a_semantics": {
+                    "requested_effect": deepcopy(goal_a.get("requested_effect"))
+                    if isinstance(goal_a.get("requested_effect"), dict)
+                    else None,
+                    "target_candidate": deepcopy(goal_a.get("target_candidate"))
+                    if isinstance(goal_a.get("target_candidate"), dict)
+                    else None,
+                },
+                "goal_b_semantics": {
+                    "requested_effect": deepcopy(goal_b.get("requested_effect"))
+                    if isinstance(goal_b.get("requested_effect"), dict)
+                    else None,
+                    "target_candidate": deepcopy(goal_b.get("target_candidate"))
+                    if isinstance(goal_b.get("target_candidate"), dict)
+                    else None,
+                },
+            },
+        }
+        counterfactual_record = {
+            "contract": COUNTERFACTUAL_EVIDENCE_CONTRACT,
+            "result": "PASS",
+            "evidence": {
+                "verifier_phase": str(phase or "candidate_blind_dependency_reaudit"),
+                "counterfactual_rule": "remove-only-earlier-current-turn-user-visible-result-payload",
+                "pair_decision": deepcopy(raw),
+                "basis_kind": _clean_text(raw.get("basis_kind"), limit=80) or None,
+                "basis_span": _clean_text(raw.get("basis_span"), limit=240) or None,
+                "proof_source": "normalized_candidate_blind_pairwise_semantic_audit",
+            },
+        }
+        pair_evidence.append(
+            {
+                "goal_a_id": goal_a_id,
+                "goal_b_id": goal_b_id,
+                "relation": relation,
+                "premise_digest": premise_digest,
+                "target_compatibility": target_record,
+                "counterfactual": counterfactual_record,
+            }
+        )
+    return {
+        "contract": DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT,
+        "producer": DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER,
+        "premise_digest": premise_digest,
+        "phase": str(phase or "candidate_blind_dependency_reaudit"),
+        "pairs": pair_evidence,
+    }
 
 
 def _dependency_blind_goal_projection(goals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1212,12 +1350,33 @@ class ModelGoalAlignmentVerifier:
                 and verdict.details.get("dependency_proof_complete") is True
                 and isinstance(verdict.details.get("dependency_pair_decisions"), list)
             ):
+                dependency_phase = str(
+                    verifier_repair_kind or "candidate_blind_dependency_reaudit"
+                )
+                obligation_evidence = _validated_dependency_obligation_evidence(
+                    user_text=user_text,
+                    goals=goals,
+                    verdict=verdict,
+                    phase=dependency_phase,
+                )
+                verdict = GoalAlignmentVerdict(
+                    verdict.verdict,
+                    verdict.evidence_spans,
+                    verdict.missing_spans,
+                    verdict.reason_code,
+                    verdict.source,
+                    verdict.independent,
+                    {
+                        **verdict.details,
+                        "dependency_obligation_evidence": obligation_evidence,
+                    },
+                )
                 dependency_proof_ledger, _dependency_graph_snapshot = apply_alignment_dependency_proof(
                     dependency_proof_ledger,
                     user_text=user_text,
                     goals=goals,
                     details=verdict.details,
-                    phase=str(verifier_repair_kind or "candidate_blind_dependency_reaudit"),
+                    phase=dependency_phase,
                 )
                 dependency_authority_snapshot = alignment_dependency_authority_details(
                     dependency_proof_ledger,
@@ -2145,9 +2304,15 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
         details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
-        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"
-        and details.get("dependency_authority_complete") is True
-        and details.get("dependency_authority_graph_match") is False
+        and (
+            (
+                details.get("dependency_maturity_authority")
+                == "deterministic_dependency_proof_reducer"
+                and details.get("dependency_authority_complete") is True
+                and details.get("dependency_authority_graph_match") is False
+            )
+            or _dependency_observation_mismatch_ready(details)
+        )
     ):
         return {}
 

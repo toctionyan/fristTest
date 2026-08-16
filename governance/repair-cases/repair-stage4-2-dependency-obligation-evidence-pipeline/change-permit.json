@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "repair_plan_sha256": "70e64369855b9b7b15260767463a230539b7c844080e78092499955f64474bd5",
+  "plan_review_sha256": "7a3e15a7f23b531705465e5903a3cf4947dac9d918d4d16f3c80487ddceac4ca",
+  "baseline_manifest_sha256": "1eb3e0f6f12e4cff7e804382dbb941874066431594959763fffcaf348fab3c12",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+    "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "pair decision plus adversarial phase without obligation envelope remains non-authoritative",
+      "validated semantic producer envelope plus adversarial closure can reach deterministic authority"
+    ],
+    "counterexamples": [
+      "raw spoof fields inside dependency_pair_decisions cannot self-elevate target/counterfactual obligations",
+      "wrong premise, wrong relation, duplicate/malformed/missing obligation evidence fails closed"
+    ],
+    "regression": [
+      "existing dependency proof reducer authority tests remain green",
+      "semantic dependency repair feedback regressions remain green without changing the model JSON response schema",
+      "product quick profile remains current and green"
+    ],
+    "negative_path": [
+      "semantic target mismatch leaves target compatibility unresolved and cannot be rescued by phase metadata",
+      "missing counterfactual evidence maps to UNKNOWN rather than PASS"
+    ]
+  },
+  "baseline_source_fingerprint": "a1ba772d13d3b09a1aa2189d487790e93123a67e8d367e9968d019b82a955e3a",
+  "baseline_workspace_fingerprint": "0bf9bae157f46dfc5a94bf02c2e835f033301547c5aadf80842987c9a22a75d5",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "da32d4a324b555c887eedbe554f214134f3aa7556b2ff120dd65e70549b0d9ae"
+}

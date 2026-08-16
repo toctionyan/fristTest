@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "claims": [
+    {
+      "id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
+      "statement": "Pair decisions are observations only; target compatibility and current-turn result-removal counterfactual require separately validated frozen-premise-bound evidence before deterministic dependency authority can seal.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "stage42-red-proof"
+      ],
+      "evidence_refs": [
+        "gate-log:stage42-red-proof"
+      ],
+      "owner": "dependency-proof-authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}
