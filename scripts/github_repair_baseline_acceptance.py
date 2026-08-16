@@ -77,7 +77,21 @@ def _hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _current_protected_files(workspace: Path, baseline: dict[str, Any]) -> dict[str, str]:
+def _recorded_paths_under_root(recorded: dict[str, str], root_name: str) -> list[str]:
+    normalized = root_name.rstrip("/")
+    prefix = normalized + "/"
+    return sorted(
+        path
+        for path in recorded
+        if path == normalized or path.startswith(prefix)
+    )
+
+
+def _current_protected_files(
+    workspace: Path,
+    baseline: dict[str, Any],
+    recorded: dict[str, str],
+) -> dict[str, str]:
     roots = baseline.get("protected_roots")
     if not isinstance(roots, list) or not roots:
         raise BaselineAcceptanceError("baseline protected_roots are missing")
@@ -86,7 +100,9 @@ def _current_protected_files(workspace: Path, baseline: dict[str, Any]) -> dict[
         name = str(raw or "").strip().replace("\\", "/")
         root = workspace / name
         if not root.is_dir():
-            raise BaselineAcceptanceError(f"protected root is missing: {name}")
+            if _recorded_paths_under_root(recorded, name):
+                raise BaselineAcceptanceError(f"protected root is missing: {name}")
+            continue
         for path in sorted(item for item in root.rglob("*") if item.is_file()):
             if any(part in IGNORED_PARTS for part in path.parts):
                 continue
@@ -159,7 +175,7 @@ def accept_baseline(
     if not isinstance(files, dict):
         raise BaselineAcceptanceError("baseline files map is missing")
     recorded = {str(key): str(value) for key, value in files.items()}
-    current = _current_protected_files(workspace, baseline)
+    current = _current_protected_files(workspace, baseline, recorded)
     observed_drift = {
         path
         for path in set(recorded) | set(current)
