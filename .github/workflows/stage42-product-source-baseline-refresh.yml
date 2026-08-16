@@ -1,0 +1,53 @@
+name: Stage42 Product Source Baseline Refresh
+
+on:
+  push:
+    branches:
+      - governance/stage4-2-final-obligation-pipeline-permit-20260816
+    paths:
+      - .github/stage42-product-source-baseline-refresh.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact governed candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Refresh protected source baseline with repository authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/refresh_product_source_baseline.py \
+            --workspace . \
+            --generated-from-sha "${GITHUB_SHA}"
+          python3 -B -m unittest discover \
+            -s skill-system/tests \
+            -p 'test_product_source_baseline_binding.py'
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "skill-system/registry/product-source-baseline.json"
+
+      - name: Publish baseline-only control-plane refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline="skill-system/registry/product-source-baseline.json"
+          if git diff --quiet -- "$baseline"; then
+            echo 'baseline already current'
+            exit 0
+          fi
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add "$baseline"
+          test "$(git diff --cached --name-only)" = "$baseline"
+          git commit -m 'chore(governance): refresh Stage 4.2 product source baseline'
+          git push origin HEAD:governance/stage4-2-final-obligation-pipeline-permit-20260816
