@@ -25,6 +25,8 @@ from agent_core.goal_graph.dependency_basis_contract import (  # noqa: E402
     verify_projection_manifest,
 )
 
+INVARIANT_ID = "DEP-BASIS-CONTRACT-001"
+GUARD_ID = "dependency-basis-contract"
 MANIFEST = ROOT / "contracts" / "generated" / "dependency-basis-projections.json"
 GOAL_PLANNING = (
     ROOT
@@ -52,6 +54,38 @@ def _function_source(source: str, name: str) -> str:
     raise ValueError(f"function not found: {name}")
 
 
+def _class_method_source(source: str, class_name: str, method_name: str) -> str:
+    tree = ast.parse(source)
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        for child in node.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name == method_name:
+                segment = ast.get_source_segment(source, child)
+                if segment:
+                    return segment
+    raise ValueError(f"class method not found: {class_name}.{method_name}")
+
+
+def _failure_kind(errors: list[str]) -> str | None:
+    if not errors:
+        return None
+    if any(error.startswith("mutation_not_detected:") for error in errors):
+        return "dependency_contract_mutation_gap"
+    projection_prefixes = (
+        "stale_projection_text:",
+        "missing_projection_renderer:",
+        "candidate_blind_projection_not_generated",
+        "format_repair_projection_not_generated",
+        "structural_projection_not_delegated",
+        "duplicated_structural_semantics",
+        "projection_manifest_",
+    )
+    if any(error.startswith(projection_prefixes) for error in errors):
+        return "dependency_contract_projection_drift"
+    return "dependency_contract_drift"
+
+
 def verify() -> dict[str, Any]:
     errors = list(validate_contract())
     source = GOAL_PLANNING.read_text(encoding="utf-8")
@@ -60,6 +94,18 @@ def verify() -> dict[str, Any]:
     for phrase in _STALE_PHRASES:
         if phrase in source:
             errors.append(f"stale_projection_text:{phrase}")
+
+    verifier_source = _class_method_source(
+        source,
+        "ModelGoalAlignmentVerifier",
+        "verify",
+    )
+    candidate_call = "render_candidate_blind_dependency_rule()"
+    repair_call = "render_dependency_format_repair_rule()"
+    if candidate_call not in verifier_source:
+        errors.append("candidate_blind_projection_not_generated")
+    if repair_call not in verifier_source:
+        errors.append("format_repair_projection_not_generated")
 
     for renderer in (
         "render_candidate_blind_dependency_rule",
@@ -94,9 +140,13 @@ def verify() -> dict[str, Any]:
         if detected is not True:
             errors.append(f"mutation_not_detected:{mutation}")
 
+    errors = list(dict.fromkeys(errors))
     return {
+        "schema": "dependency-basis-contract-verification@2",
         "status": "PASS" if not errors else "FAIL",
-        "failure_kind": None if not errors else "dependency_contract_drift",
+        "failure_kind": _failure_kind(errors),
+        "invariant_id": INVARIANT_ID,
+        "guard_id": GUARD_ID,
         "contract_id": CONTRACT_ID,
         "contract_sha256": contract_fingerprint(),
         "final_dependency_authority": FINAL_DEPENDENCY_AUTHORITY,
@@ -130,8 +180,11 @@ def main() -> int:
         result = verify()
     except (OSError, ValueError, json.JSONDecodeError, SyntaxError) as exc:
         result = {
+            "schema": "dependency-basis-contract-verification@2",
             "status": "FAIL",
             "failure_kind": "dependency_contract_verifier_failure",
+            "invariant_id": INVARIANT_ID,
+            "guard_id": GUARD_ID,
             "errors": [str(exc)],
         }
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
