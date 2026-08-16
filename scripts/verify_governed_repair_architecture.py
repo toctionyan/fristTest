@@ -14,10 +14,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+from governed_repair_contract import GATES, STATE_MACHINE, contract_fingerprint
+
 ROOT = Path(__file__).resolve().parents[1]
 MACHINE_FAILURE_SCHEMA = "machine-failure-envelope@1"
+CANONICAL_CONTRACT_PATH = "scripts/governed_repair_contract.py"
 
 REQUIRED_FILES = (
+    CANONICAL_CONTRACT_PATH,
+    "scripts/github_failure_ingest.py",
     "scripts/github_repair_authority.py",
     "scripts/github_repair_rca.py",
     "scripts/github_repair_orchestrator_control_plane.py",
@@ -36,6 +41,11 @@ REQUIRED_FILES = (
     ".github/workflows/governed-ci-repair-governance.yml",
 )
 
+# The canonical contract is deliberately excluded from projection evidence. If a
+# state/gate exists only in the contract but no runtime/controller projection uses
+# it, the architecture gate must fail rather than prove itself tautologically.
+PROJECTION_FILES = tuple(path for path in REQUIRED_FILES if path != CANONICAL_CONTRACT_PATH)
+
 FORBIDDEN_FILES = (
     "scripts/github_repair_stage3_complete.py",
     ".github/workflows/b28-product-baseline-refresh.yml",
@@ -53,29 +63,8 @@ REQUIRED_TASK_CONDITIONS = (
     "ready_for_review",
 )
 
-REQUIRED_STATES = (
-    "EVIDENCE_FROZEN",
-    "RCA_READ_ONLY",
-    "WRITE_GRANTED",
-    "PATCHING",
-    "LOCAL_VERIFICATION",
-    "INDEPENDENT_REVIEW",
-    "PR_CERTIFICATION",
-    "GOVERNANCE_REQUIRED",
-    "GOVERNANCE_CLOSED",
-    "BASELINE_ACCEPTED",
-    "READY_FOR_REVIEW",
-)
-
-REQUIRED_GATES = (
-    "G0_SCOPE_AUTHORITY",
-    "G1_CONTRACT_PROJECTION",
-    "G2_SEMANTIC_INVARIANT",
-    "G3_MUTATION",
-    "G4_FINAL_AUTHORITY",
-    "G5_INTEGRATION_CERTIFICATION",
-    "G6_GOVERNANCE_EXACT_HEAD",
-)
+REQUIRED_STATES = STATE_MACHINE
+REQUIRED_GATES = GATES
 
 # Concrete shell-level forbidden authorities. Incidental path fragments such as
 # deployment/ci/uv-requirements-*.txt are not deployment authority.
@@ -234,15 +223,17 @@ def verify() -> dict[str, Any]:
 
     authority = _text("scripts/github_repair_authority.py")
     for marker in (
+        "from governed_repair_contract import",
+        "PREWRITE_STATES",
+        "PROTECTED_AUTHORITY",
+        "contract_fingerprint",
+        '"lifecycle_contract_sha256"',
         '"write_scope_mode": "exact_allowlist"',
-        '"scope_expansion_allowed": False',
-        '"baseline_write_allowed": False',
-        '"merge_allowed": False',
-        '"deploy_allowed": False',
-        '"production_close_allowed": False',
     ):
         if marker not in authority:
             errors.append(f"authority_marker_missing:{marker}")
+    if "PREWRITE_STATES = (" in authority:
+        errors.append("authority_duplicates_canonical_prewrite_states")
 
     rca = _text("scripts/github_repair_rca.py")
     for marker in (
@@ -278,17 +269,17 @@ def verify() -> dict[str, Any]:
 
     aggregate = "\n".join(
         _text(path)
-        for path in REQUIRED_FILES
+        for path in PROJECTION_FILES
         if (ROOT / path).is_file()
     )
     if "permanent_guard_not_reverified" not in aggregate:
         errors.append("permanent_guard_reverification_missing")
     for state in REQUIRED_STATES:
         if state not in aggregate:
-            errors.append(f"state_missing:{state}")
+            errors.append(f"canonical_state_not_projected:{state}")
     for gate in REQUIRED_GATES:
         if gate not in aggregate:
-            errors.append(f"gate_missing:{gate}")
+            errors.append(f"canonical_gate_not_projected:{gate}")
 
     exact = _text("scripts/github_repair_exact_head.py")
     for marker in (
@@ -309,6 +300,7 @@ def verify() -> dict[str, Any]:
     return {
         "schema": "governed-repair-architecture-verification@1",
         "status": "PASS" if not errors else "FAIL",
+        "canonical_contract_sha256": contract_fingerprint(),
         "required_file_count": len(REQUIRED_FILES),
         "forbidden_file_count": len(FORBIDDEN_FILES),
         "required_task_conditions": list(REQUIRED_TASK_CONDITIONS),
