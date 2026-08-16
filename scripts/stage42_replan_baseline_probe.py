@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path.cwd().resolve()
-CHANGE_ID = "probe-stage4-2-dependency-obligation-evidence-pipeline"
+CHANGE_ID = "repair-stage4-2-dependency-obligation-evidence-pipeline"
 INPUT_REL = Path(".quality/stage42-dependency-obligation-red-input")
 ALLOWED = [
     "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
