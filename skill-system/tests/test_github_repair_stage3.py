@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import subprocess
 import sys
@@ -18,21 +17,10 @@ for entry in (str(CONTROL), str(SCRIPTS)):
 
 from task_run import TaskRunStore, stable_task_id
 
-
-def _load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-STAGE3 = _load("github_repair_stage3", SCRIPTS / "github_repair_stage3.py")
-COMPLETE = _load("github_repair_stage3_complete", SCRIPTS / "github_repair_stage3_complete.py")
-HANDOFF = _load("github_stage2_handoff", SCRIPTS / "github_stage2_handoff.py")
-TREE = _load("github_repair_stage3_tree", SCRIPTS / "github_repair_stage3_tree.py")
-PUBLISH = _load("github_repair_stage3_publish", SCRIPTS / "github_repair_stage3_publish.py")
+import github_repair_authority as AUTHORITY  # noqa: E402
+import github_repair_stage3 as STAGE3  # noqa: E402
+import github_repair_stage3_record_publication as RECORD  # noqa: E402
+import github_stage2_handoff as HANDOFF  # noqa: E402
 
 
 def _git(path: Path, *args: str) -> str:
@@ -42,16 +30,20 @@ def _git(path: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
+def _write(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def _fixture(tmp_path: Path):
     workspace = tmp_path / "candidate"
     source = workspace / "services" / "agent-service" / "app.py"
     source.parent.mkdir(parents=True)
     source.write_text("value = 0\n", encoding="utf-8")
-    _git(workspace, "init")
+    _git(workspace, "init", "-q")
     _git(workspace, "config", "user.name", "test")
     _git(workspace, "config", "user.email", "test@example.invalid")
     _git(workspace, "add", ".")
-    _git(workspace, "commit", "-m", "baseline")
+    _git(workspace, "commit", "-qm", "baseline")
     head_sha = _git(workspace, "rev-parse", "HEAD")
 
     source.write_text("value = 1\n", encoding="utf-8")
@@ -60,8 +52,10 @@ def _fixture(tmp_path: Path):
     patch_path.write_text(patch_text, encoding="utf-8")
     _git(workspace, "reset", "--hard", "HEAD")
 
+    candidate_path = "services/agent-service/app.py"
     failure = {
         "schema": "github-failure-ingest@1",
+        "status": "INGESTED",
         "repository": "owner/repo",
         "workflow_name": "quality",
         "workflow_run_id": "123",
@@ -70,11 +64,61 @@ def _fixture(tmp_path: Path):
         "head_branch": "feature/source",
         "source_pr_number": 7,
         "failure_signature": "f" * 64,
+        "classification": "code_or_contract",
+        "repair_allowed": True,
+        "same_repository": True,
+        "candidate_paths": [candidate_path],
+        "failed_gates": [
+            {
+                "gate_id": "original-semantic-guard",
+                "status": "FAIL",
+                "category": "test",
+                "owner": "tests",
+            }
+        ],
         "repair_branch": "governed-repair/quality-123",
         "repair_base_branch": "feature/source",
+        "production_closed": False,
     }
     failure_path = tmp_path / "failure-case.json"
-    failure_path.write_text(json.dumps(failure), encoding="utf-8")
+    _write(failure_path, failure)
+
+    rca = {
+        "schema": AUTHORITY.RCA_SCHEMA,
+        "state": "RCA_READ_ONLY",
+        "binding": AUTHORITY.failure_binding(failure),
+        "failure_case_sha256": AUTHORITY.failure_case_fingerprint(failure),
+        "candidate_paths": [candidate_path],
+        "repair_round": 1,
+        "read_only": True,
+        "workspace_mutated": False,
+        "workspace_fingerprint_before": "a" * 64,
+        "workspace_fingerprint_after": "a" * 64,
+        "failure_class": "semantic_contract_drift",
+        "violated_invariant": "INV-GOVERNED-REPAIR-TEST",
+        "authority_owner": "deterministic-reducer",
+        "drifted_projection": "secondary semantic projection",
+        "root_cause": "secondary projection drifted from deterministic authority",
+        "existing_gate_gap": "same-class drift was not permanently rebound",
+        "required_permanent_guard": "original-semantic-guard must remain required and PASS",
+        "repair_plan": ["change only the authorized product source"],
+        "write_scope_recommendation": {
+            "decision": "GRANT",
+            "paths": [candidate_path],
+        },
+        "production_closed": False,
+    }
+    rca["rca_sha256"] = AUTHORITY.rca_fingerprint(rca)
+    rca_path = tmp_path / "rca.json"
+    _write(rca_path, rca)
+
+    grant = AUTHORITY.compile_write_grant(
+        failure_case=failure,
+        rca=rca,
+        candidate_paths=[candidate_path],
+    )
+    grant_path = tmp_path / "write-grant.json"
+    _write(grant_path, grant)
 
     stage2 = {
         "schema": "github-governed-repair-stage2@1",
@@ -82,14 +126,23 @@ def _fixture(tmp_path: Path):
         "workflow_run_id": "123",
         "head_sha": head_sha,
         "failure_signature": "f" * 64,
-        "changed_paths": ["services/agent-service/app.py"],
+        "changed_paths": [candidate_path],
+        "write_scope": [candidate_path],
+        "required_guard_ids": list(grant["required_guard_ids"]),
+        "rca_sha256": AUTHORITY.rca_fingerprint(rca),
+        "write_grant_sha256": AUTHORITY.write_grant_fingerprint(grant),
+        "violated_invariant": rca["violated_invariant"],
+        "authority_owner": rca["authority_owner"],
+        "required_permanent_guard": rca["required_permanent_guard"],
         "deterministic_file_verification_passed": True,
+        "governed_repair_state": "INDEPENDENT_REVIEW",
+        "gates": grant["gates"],
         "full_validation_passed": False,
         "draft_pr_published": False,
         "production_closed": False,
     }
     stage2_path = tmp_path / "repair-result.json"
-    stage2_path.write_text(json.dumps(stage2), encoding="utf-8")
+    _write(stage2_path, stage2)
     HANDOFF.bind_handoff(
         failure_path=failure_path,
         result_path=stage2_path,
@@ -116,351 +169,236 @@ def _fixture(tmp_path: Path):
             "source_changed",
             "validation_passed",
             "draft_pr_published",
+            "governance_closed",
+            "baseline_accepted",
+            "exact_head_certified",
+            "ready_for_review",
         ),
     )
-    task.checkpoint(
-        status="RUNNING",
-        phase="FAILURE_INGESTED",
-        workspace_fingerprint=None,
-        evidence_refs=[str(failure_path)],
-    )
-    task.mark_condition("failure_ingested", evidence_refs=[str(failure_path)])
-    task.mark_condition("classification_complete", evidence_refs=["code_or_contract"])
-    task.mark_condition("source_changed", evidence_refs=[str(patch_path)])
     task.checkpoint(
         status="WAITING_EXTERNAL_RESULT",
         phase="STAGE3_VALIDATION_REQUIRED",
         workspace_fingerprint=None,
         evidence_refs=[str(stage2_path), str(patch_path)],
     )
-    return workspace, source, stage2_path, patch_path, task_path
+    return {
+        "workspace": workspace,
+        "source": source,
+        "failure": failure,
+        "failure_path": failure_path,
+        "rca": rca,
+        "rca_path": rca_path,
+        "grant": grant,
+        "grant_path": grant_path,
+        "stage2_path": stage2_path,
+        "patch_path": patch_path,
+        "task_path": task_path,
+    }
 
 
-def _prepare_bound_plan(tmp_path: Path):
-    workspace, source, stage2_path, patch_path, task_path = _fixture(tmp_path)
+def _prepare(tmp_path: Path) -> dict:
+    fx = _fixture(tmp_path)
     plan_path = tmp_path / "stage3-plan.json"
-    STAGE3.prepare_candidate(
-        workspace=workspace,
-        result_path=stage2_path,
-        task_run_path=task_path,
-        patch_path=patch_path,
+    plan = STAGE3.prepare_candidate(
+        workspace=fx["workspace"],
+        result_path=fx["stage2_path"],
+        task_run_path=fx["task_path"],
+        patch_path=fx["patch_path"],
+        failure_case_path=fx["failure_path"],
+        rca_path=fx["rca_path"],
+        write_grant_path=fx["grant_path"],
         plan_path=plan_path,
     )
-    plan = TREE.bind_tree(workspace=workspace, plan_path=plan_path)
-    return workspace, source, stage2_path, patch_path, task_path, plan_path, plan
+    fx["plan"] = plan
+    fx["plan_path"] = plan_path
+    return fx
 
 
-def test_stage2_handoff_binds_patch_and_branch_metadata(tmp_path: Path) -> None:
-    _workspace, _source, stage2_path, patch_path, _task_path = _fixture(tmp_path)
-    result = json.loads(stage2_path.read_text(encoding="utf-8"))
-    assert result["stage3_handoff_bound"] is True
-    assert result["patch_sha256"] == hashlib.sha256(patch_path.read_bytes()).hexdigest()
-    assert result["repair_branch"] == "governed-repair/quality-123"
-    assert result["repair_base_branch"] == "feature/source"
-
-
-def test_stage3_prepare_applies_exact_patch_and_binds_tree(tmp_path: Path) -> None:
-    workspace, source, _stage2, _patch, task_path, _plan_path, plan = _prepare_bound_plan(tmp_path)
-    assert source.read_text(encoding="utf-8") == "value = 1\n"
-    assert plan["status"] == "CANDIDATE_PREPARED"
-    assert plan["targeted_components"] == ["agent-python"]
-    assert plan["tree_binding_complete"] is True
-    assert plan["validated_parent_sha"] == plan["head_sha"]
-    assert plan["derived_paths"] == []
-    assert plan["publication_paths"] == plan["changed_paths"]
-    assert _git(workspace, "rev-parse", "HEAD^{tree}") == plan["validated_tree_sha"]
-    assert _git(workspace, "status", "--porcelain") == ""
-    task = json.loads(task_path.read_text(encoding="utf-8"))
-    assert task["status"] == "VALIDATING"
-    assert task["phase"] == "STAGE3_CANDIDATE_PREPARED"
-
-
-def test_stage3_rejects_patch_digest_mismatch(tmp_path: Path) -> None:
-    _workspace, _source, stage2_path, patch_path, task_path = _fixture(tmp_path)
-    patch_path.write_text(patch_path.read_text(encoding="utf-8") + "# tampered\n", encoding="utf-8")
-    with pytest.raises(STAGE3.Stage3Error, match="digest mismatch"):
-        STAGE3.inspect_handoff(
-            result_path=stage2_path,
-            task_run_path=task_path,
-            patch_path=patch_path,
-        )
-
-
-def test_stage3_rejects_patch_path_scope_mismatch(tmp_path: Path) -> None:
-    workspace, _source, stage2_path, patch_path, task_path = _fixture(tmp_path)
-    result = json.loads(stage2_path.read_text(encoding="utf-8"))
-    result["changed_paths"] = ["services/business-service/app.py"]
-    stage2_path.write_text(json.dumps(result), encoding="utf-8")
-    with pytest.raises(STAGE3.Stage3Error):
-        STAGE3.prepare_candidate(
-            workspace=workspace,
-            result_path=stage2_path,
-            task_run_path=task_path,
-            patch_path=patch_path,
-            plan_path=tmp_path / "plan.json",
-        )
-
-
-def test_quick_evidence_requires_current_completion_eligible_pass(tmp_path: Path) -> None:
-    summary_path = tmp_path / "run-summary.json"
-    summary = {
+def _quick_summary(*, include_anti_drift: bool = True, original_guard_pass: bool = True) -> dict:
+    required = ["original-semantic-guard"]
+    if include_anti_drift:
+        required.append(STAGE3.ANTI_DRIFT_REQUIRED_GATE_ID)
+    results = [
+        {
+            "id": "original-semantic-guard",
+            "status": "PASS" if original_guard_pass else "FAIL",
+        }
+    ]
+    if include_anti_drift:
+        results.append({"id": STAGE3.ANTI_DRIFT_REQUIRED_GATE_ID, "status": "PASS"})
+    return {
         "mode": "quick",
         "run_kind": "verification",
-        "decision": "PASS",
-        "loop_status": "CI_VERIFIED",
-        "completion_eligible": True,
-        "required_gate_ids": ["unit"],
-        "results": [{"id": "unit", "status": "PASS"}],
+        "decision": "PASS" if original_guard_pass else "FAIL",
+        "loop_status": "CI_VERIFIED" if original_guard_pass else "FAILED",
+        "completion_eligible": original_guard_pass,
+        "required_gate_ids": required,
+        "results": results,
         "workspace_snapshot_fingerprint": "s" * 64,
     }
-    summary_path.write_text(json.dumps(summary), encoding="utf-8")
-    assert STAGE3.validate_quick_evidence(summary_path)["decision"] == "PASS"
-    summary["completion_eligible"] = False
-    summary_path.write_text(json.dumps(summary), encoding="utf-8")
-    with pytest.raises(STAGE3.Stage3Error):
-        STAGE3.validate_quick_evidence(summary_path)
 
 
-def test_privileged_publisher_recreates_same_validated_tree(tmp_path: Path) -> None:
-    validation_workspace, _source, _stage2, patch_path, _task, plan_path, plan = _prepare_bound_plan(tmp_path)
-    validation = {
-        "schema": "github-governed-repair-stage3@1",
-        "status": "VALIDATED_FOR_DRAFT_PR",
-        "source_run_id": plan["source_run_id"],
-        "head_sha": plan["head_sha"],
-        "candidate_sha": plan["candidate_sha"],
-        "repair_branch": plan["repair_branch"],
-        "repair_base_branch": plan["repair_base_branch"],
-        "changed_paths": plan["changed_paths"],
-        "targeted_validation_passed": True,
-        "full_validation_passed": True,
-        "quick_loop_status": "CI_VERIFIED",
-        "quick_workspace_snapshot_fingerprint": "s" * 64,
-        "draft_pr_published": False,
-        "production_closed": False,
-    }
-    validation_path = tmp_path / "validation-result.json"
-    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+def test_stage2_handoff_binds_exact_rca_write_grant_and_machine_guard(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    result = json.loads(fx["stage2_path"].read_text(encoding="utf-8"))
+    assert result["stage3_handoff_bound"] is True
+    assert result["patch_sha256"] == hashlib.sha256(fx["patch_path"].read_bytes()).hexdigest()
+    assert result["required_guard_ids"] == ["original-semantic-guard"]
+    assert result["rca_sha256"] == AUTHORITY.rca_fingerprint(fx["rca"])
+    assert result["write_grant_sha256"] == AUTHORITY.write_grant_fingerprint(fx["grant"])
 
-    publisher = tmp_path / "publisher"
-    _git(tmp_path, "clone", str(validation_workspace), str(publisher))
-    _git(publisher, "checkout", plan["head_sha"])
-    output = tmp_path / "publication-commit.json"
-    result = PUBLISH.prepare_publication(
-        workspace=publisher,
-        plan_path=plan_path,
-        validation_path=validation_path,
-        patch_path=patch_path,
-        output_path=output,
+
+def test_stage3_prepare_replays_exact_patch_under_immutable_authority(tmp_path: Path) -> None:
+    fx = _prepare(tmp_path)
+    plan = fx["plan"]
+    assert fx["source"].read_text(encoding="utf-8") == "value = 1\n"
+    assert plan["status"] == "CANDIDATE_PREPARED"
+    assert plan["write_scope"] == ["services/agent-service/app.py"]
+    assert plan["required_guard_ids"] == ["original-semantic-guard"]
+    assert plan["governed_repair_state"] == "INDEPENDENT_REVIEW"
+    assert _git(fx["workspace"], "status", "--porcelain") == ""
+
+
+def test_stage3_rejects_tampered_patch_before_validation(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path)
+    fx["patch_path"].write_text(
+        fx["patch_path"].read_text(encoding="utf-8") + "# tampered\n",
+        encoding="utf-8",
     )
-    assert result["validated_tree_sha"] == plan["validated_tree_sha"]
-    assert result["derived_paths"] == []
-    assert result["publication_paths"] == result["changed_paths"]
-    assert _git(publisher, "rev-parse", "HEAD^{tree}") == plan["validated_tree_sha"]
-    assert _git(publisher, "rev-parse", "HEAD^") == plan["head_sha"]
-    assert result["published_candidate_sha"] != ""
-
-
-def test_publisher_rejects_validation_tree_drift(tmp_path: Path) -> None:
-    validation_workspace, _source, _stage2, patch_path, _task, plan_path, plan = _prepare_bound_plan(tmp_path)
-    plan["validated_tree_sha"] = "0" * 40
-    plan_path.write_text(json.dumps(plan), encoding="utf-8")
-    validation = {
-        "schema": "github-governed-repair-stage3@1",
-        "status": "VALIDATED_FOR_DRAFT_PR",
-        "source_run_id": plan["source_run_id"],
-        "head_sha": plan["head_sha"],
-        "candidate_sha": plan["candidate_sha"],
-        "repair_branch": plan["repair_branch"],
-        "repair_base_branch": plan["repair_base_branch"],
-        "changed_paths": plan["changed_paths"],
-        "targeted_validation_passed": True,
-        "full_validation_passed": True,
-        "quick_loop_status": "CI_VERIFIED",
-        "draft_pr_published": False,
-        "production_closed": False,
-    }
-    validation_path = tmp_path / "validation-result.json"
-    validation_path.write_text(json.dumps(validation), encoding="utf-8")
-    publisher = tmp_path / "publisher"
-    _git(tmp_path, "clone", str(validation_workspace), str(publisher))
-    _git(publisher, "checkout", plan["head_sha"])
-    with pytest.raises(PUBLISH.PublicationError, match="tree mismatch"):
-        PUBLISH.prepare_publication(
-            workspace=publisher,
-            plan_path=plan_path,
-            validation_path=validation_path,
-            patch_path=patch_path,
-            output_path=tmp_path / "publication.json",
+    with pytest.raises(STAGE3.Stage3Error, match="digest mismatch"):
+        STAGE3.inspect_handoff(
+            result_path=fx["stage2_path"],
+            task_run_path=fx["task_path"],
+            patch_path=fx["patch_path"],
+            failure_case_path=fx["failure_path"],
+            rca_path=fx["rca_path"],
+            write_grant_path=fx["grant_path"],
         )
 
 
-def _green_ci_evidence(candidate_sha: str) -> dict:
-    checks = {}
-    for index, name in enumerate(COMPLETE.REQUIRED_PR_WORKFLOWS, start=1):
-        checks[name] = {
-            "run_id": 100 + index,
-            "status": "completed",
-            "conclusion": "success",
-            "head_sha": candidate_sha,
-            "event": "pull_request",
-            "html_url": f"https://github.com/owner/repo/actions/runs/{100 + index}",
-        }
-    return {
-        "status": "VERIFIED_GREEN",
-        "closure_eligible": True,
-        "continue_repair": False,
-        "exit_reason": "VERIFIED_GREEN",
-        "missing": [],
-        "pending": [],
-        "failed": [],
-        "required_checks": checks,
-        "production_closed": False,
-    }
+def test_stage3_requires_original_machine_guard_and_executable_anti_drift_gate(tmp_path: Path) -> None:
+    fx = _prepare(tmp_path)
+    targeted_path = tmp_path / "targeted-result.json"
+    _write(
+        targeted_path,
+        {
+            "schema": STAGE3.STAGE3_SCHEMA,
+            "status": "TARGETED_VALIDATION_PASSED",
+            "candidate_sha": fx["plan"]["candidate_sha"],
+            "rca_sha256": fx["plan"]["rca_sha256"],
+            "write_grant_sha256": fx["plan"]["write_grant_sha256"],
+            "required_guard_ids": fx["plan"]["required_guard_ids"],
+            "results": [],
+            "production_closed": False,
+        },
+    )
+
+    missing_anti_drift = tmp_path / "quick-missing-anti-drift.json"
+    _write(missing_anti_drift, _quick_summary(include_anti_drift=False))
+    with pytest.raises(STAGE3.Stage3Error, match="anti_drift_proof_not_reverified"):
+        STAGE3.record_validation(
+            workspace=fx["workspace"],
+            plan_path=fx["plan_path"],
+            targeted_result_path=targeted_path,
+            quick_summary_path=missing_anti_drift,
+            task_run_path=fx["task_path"],
+            output_path=tmp_path / "invalid-validation.json",
+        )
+
+    quick_path = tmp_path / "quick.json"
+    _write(quick_path, _quick_summary())
+    result = STAGE3.record_validation(
+        workspace=fx["workspace"],
+        plan_path=fx["plan_path"],
+        targeted_result_path=targeted_path,
+        quick_summary_path=quick_path,
+        task_run_path=fx["task_path"],
+        output_path=tmp_path / "validation.json",
+    )
+    assert result["status"] == "VALIDATED_FOR_DRAFT_PR"
+    assert result["anti_drift_proof"]["status"] == "PASS"
+    assert result["anti_drift_proof"]["governed_repair_state"] == "ANTI_DRIFT_PROOF"
+    assert result["gates"]["G3_MUTATION"]["status"] == "PASS"
+    assert result["gates"]["G3_MUTATION"]["governed_repair_state"] == "ANTI_DRIFT_PROOF"
+    assert result["governed_repair_state"] == "PR_CERTIFICATION"
 
 
-def test_stage3_publication_waits_for_exact_head_pr_ci_before_completion(tmp_path: Path) -> None:
-    _workspace, _source, _stage2, _patch, task_path = _fixture(tmp_path)
-    task = TaskRunStore(task_path, json.loads(task_path.read_text(encoding="utf-8")))
-    task.checkpoint(
-        status="VALIDATING",
-        phase="STAGE3_CANDIDATE_PREPARED",
-        workspace_fingerprint="a" * 64,
-        evidence_refs=["plan"],
+def test_legacy_stage3_completion_path_is_permanently_fail_closed(tmp_path: Path) -> None:
+    with pytest.raises(STAGE3.Stage3Error, match="deprecated completion path"):
+        STAGE3.complete_publication(
+            workspace=tmp_path,
+            validation_result_path=tmp_path / "validation.json",
+            task_run_path=tmp_path / "task.json",
+            pr_url="https://github.com/owner/repo/pull/99",
+            output_path=tmp_path / "out.json",
+        )
+
+
+def test_draft_publication_hands_off_to_governance_without_completion(tmp_path: Path) -> None:
+    fx = _prepare(tmp_path)
+    targeted_path = tmp_path / "targeted-result.json"
+    _write(
+        targeted_path,
+        {
+            "schema": STAGE3.STAGE3_SCHEMA,
+            "status": "TARGETED_VALIDATION_PASSED",
+            "candidate_sha": fx["plan"]["candidate_sha"],
+            "rca_sha256": fx["plan"]["rca_sha256"],
+            "write_grant_sha256": fx["plan"]["write_grant_sha256"],
+            "required_guard_ids": fx["plan"]["required_guard_ids"],
+            "results": [],
+            "production_closed": False,
+        },
     )
-    task.mark_condition("validation_passed", evidence_refs=["quick-summary"])
-    task.checkpoint(
-        status="WAITING_EXTERNAL_RESULT",
-        phase="STAGE3_DRAFT_PR_REQUIRED",
-        workspace_fingerprint="b" * 64,
-        evidence_refs=["quick-summary"],
+    quick_path = tmp_path / "quick.json"
+    _write(quick_path, _quick_summary())
+    validation_path = tmp_path / "validation.json"
+    validation = STAGE3.record_validation(
+        workspace=fx["workspace"],
+        plan_path=fx["plan_path"],
+        targeted_result_path=targeted_path,
+        quick_summary_path=quick_path,
+        task_run_path=fx["task_path"],
+        output_path=validation_path,
     )
-    changed = ["services/agent-service/app.py"]
-    validation = {
-        "schema": "github-governed-repair-stage3@1",
-        "status": "VALIDATED_FOR_DRAFT_PR",
-        "source_run_id": "123",
-        "head_sha": "h" * 40,
-        "candidate_sha": "c" * 40,
-        "repair_branch": "governed-repair/quality-123",
-        "repair_base_branch": "feature/source",
-        "changed_paths": changed,
-        "full_validation_passed": True,
-        "quick_workspace_snapshot_fingerprint": "b" * 64,
-        "draft_pr_published": False,
-        "production_closed": False,
-    }
+    publication_path = tmp_path / "publication.json"
     publication = {
-        "schema": "github-governed-repair-stage3-publication@1",
+        "schema": RECORD.PUBLICATION_SCHEMA,
         "status": "PUBLICATION_COMMIT_PREPARED",
-        "source_run_id": "123",
-        "source_head_sha": "h" * 40,
-        "validated_candidate_sha": "c" * 40,
+        "source_run_id": validation["source_run_id"],
+        "source_head_sha": validation["head_sha"],
+        "validated_candidate_sha": validation["candidate_sha"],
         "validated_tree_sha": "t" * 40,
         "published_candidate_sha": "p" * 40,
-        "repair_branch": "governed-repair/quality-123",
-        "repair_base_branch": "feature/source",
-        "changed_paths": changed,
-        "full_validation_passed": True,
-        "draft_pr_published": False,
+        "repair_branch": validation["repair_branch"],
+        "repair_base_branch": validation["repair_base_branch"],
+        "changed_paths": validation["changed_paths"],
+        "write_scope": validation["write_scope"],
+        "rca_sha256": validation["rca_sha256"],
+        "write_grant_sha256": validation["write_grant_sha256"],
+        "required_guard_ids": validation["required_guard_ids"],
+        "violated_invariant": validation["violated_invariant"],
+        "authority_owner": validation["authority_owner"],
+        "required_permanent_guard": validation["required_permanent_guard"],
+        "governance_closed": False,
+        "baseline_accepted": False,
+        "exact_head_certified": False,
+        "ready_for_review": False,
         "production_closed": False,
     }
-    validation_path = tmp_path / "validation-result.json"
-    publication_path = tmp_path / "publication-commit.json"
-    validation_path.write_text(json.dumps(validation), encoding="utf-8")
-    publication_path.write_text(json.dumps(publication), encoding="utf-8")
-    output_path = tmp_path / "publication-result.json"
-
-    pending = COMPLETE.complete_publication(
-        validation_result_path=validation_path,
-        publication_commit_path=publication_path,
-        task_run_path=task_path,
+    _write(publication_path, publication)
+    receipt = RECORD.record_publication(
+        validation_path=validation_path,
+        publication_path=publication_path,
+        task_run_path=fx["task_path"],
         pr_url="https://github.com/owner/repo/pull/99",
-        output_path=output_path,
-        ci_evidence=None,
+        output_path=tmp_path / "publication-receipt.json",
     )
-    assert pending["status"] == "AWAITING_PR_CI"
-    assert pending["closure_eligible"] is False
-    task_payload = json.loads(task_path.read_text(encoding="utf-8"))
-    assert task_payload["status"] == "WAITING_EXTERNAL_RESULT"
-    assert task_payload["phase"] == "STAGE3_PR_CI_REQUIRED"
-    assert task_payload["conditions"]["draft_pr_published"]["satisfied"] is False
-
-    completed = COMPLETE.complete_publication(
-        validation_result_path=validation_path,
-        publication_commit_path=publication_path,
-        task_run_path=task_path,
-        pr_url="https://github.com/owner/repo/pull/99",
-        output_path=output_path,
-        ci_evidence=_green_ci_evidence("p" * 40),
-    )
-    assert completed["status"] == "VERIFIED_GREEN"
-    assert completed["closure_eligible"] is True
-    assert completed["exit_reason"] == "VERIFIED_GREEN"
-    task_payload = json.loads(task_path.read_text(encoding="utf-8"))
-    assert task_payload["status"] == "COMPLETED"
-    assert task_payload["phase"] == "COMPLETED"
-    assert task_payload["conditions"]["draft_pr_published"]["satisfied"] is True
-
-
-def test_pr_ci_failure_is_continue_condition_not_success_exit() -> None:
-    sha = "a" * 40
-    runs = [
-        {
-            "id": 11,
-            "name": "quality",
-            "head_sha": sha,
-            "status": "completed",
-            "conclusion": "failure",
-            "event": "pull_request",
-            "html_url": "https://github.com/owner/repo/actions/runs/11",
-        },
-        {
-            "id": 12,
-            "name": "skill-self-validation",
-            "head_sha": sha,
-            "status": "completed",
-            "conclusion": "success",
-            "event": "pull_request",
-            "html_url": "https://github.com/owner/repo/actions/runs/12",
-        },
-    ]
-    decision = COMPLETE.evaluate_pr_ci_runs(runs, candidate_sha=sha)
-    assert decision["status"] == "PR_CI_FAILED_RETRYABLE"
-    assert decision["closure_eligible"] is False
-    assert decision["continue_repair"] is True
-    assert decision["exit_reason"] is None
-
-
-def test_pr_ci_evidence_must_match_exact_latest_head() -> None:
-    sha = "a" * 40
-    old_sha = "b" * 40
-    runs = [
-        {
-            "id": 21,
-            "name": "quality",
-            "head_sha": old_sha,
-            "status": "completed",
-            "conclusion": "success",
-        },
-        {
-            "id": 22,
-            "name": "skill-self-validation",
-            "head_sha": old_sha,
-            "status": "completed",
-            "conclusion": "success",
-        },
-    ]
-    decision = COMPLETE.evaluate_pr_ci_runs(runs, candidate_sha=sha)
-    assert decision["status"] == "AWAITING_PR_CI"
-    assert set(decision["missing"]) == set(COMPLETE.REQUIRED_PR_WORKFLOWS)
-    assert decision["closure_eligible"] is False
-
-
-def test_repair_terminal_exit_reason_vocabulary_is_fail_closed() -> None:
-    assert COMPLETE.ALLOWED_TERMINAL_EXIT_REASONS == {
-        "VERIFIED_GREEN",
-        "ATTEMPT_BUDGET_EXHAUSTED",
-        "ENVIRONMENT_BLOCKED",
-        "HUMAN_DECISION_REQUIRED",
-    }
+    task = json.loads(fx["task_path"].read_text(encoding="utf-8"))
+    assert receipt["status"] == "DRAFT_REPAIR_PR_PUBLISHED_AWAITING_GOVERNANCE"
+    assert receipt["governed_repair_state"] == "GOVERNANCE_REQUIRED"
+    assert receipt["merge_allowed"] is False
+    assert receipt["deploy_allowed"] is False
+    assert receipt["production_closed"] is False
+    assert task["status"] == "WAITING_EXTERNAL_RESULT"
+    assert task["phase"] == "STAGE4_GOVERNANCE_REQUIRED"
