@@ -49,6 +49,7 @@ jobs:
       - name: Apply only the permitted goal-planning producer change
         run: |
           set -euo pipefail
+          echo "transport_revision=2"
           "${pythonLocation}/bin/python" -B scripts/stage42_apply_goal_planning_candidate.py --workspace .
           "${pythonLocation}/bin/python" -m py_compile services/agent-service/src/agent_core/lifecycle/goal_planning.py
           git diff --check -- services/agent-service/src/agent_core/lifecycle/goal_planning.py
