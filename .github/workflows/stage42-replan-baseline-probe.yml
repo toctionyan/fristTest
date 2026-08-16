@@ -1,0 +1,29 @@
+name: stage42-replan-baseline-probe
+
+on:
+  pull_request:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+    paths:
+      - scripts/stage42_replan_baseline_probe.py
+      - .github/workflows/stage42-replan-baseline-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Probe real pre-change product baseline
+        run: |
+          set -o pipefail
+          "${pythonLocation}/bin/python" -B <(git show "${{ github.event.pull_request.head.sha }}:scripts/stage42_replan_baseline_probe.py") 2>&1 | tee stage42-baseline-probe.log
