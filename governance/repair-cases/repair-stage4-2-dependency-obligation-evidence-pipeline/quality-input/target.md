@@ -10,7 +10,8 @@ Close the Stage 4.2 dependency-obligation evidence pipeline: pair relation evide
 ## 允许范围
 
 - 允许变更路径：`services/agent-service/src/agent_core/goal_graph/dependency_alignment.py`, `services/agent-service/src/agent_core/lifecycle/goal_planning.py`, `services/agent-service/tests/runtime/test_dependency_alignment_authority.py`, `services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py`
-- 新增抽象记录：无；复用现有 GoalAlignment semantic verifier boundary、ProofObservation 与 deterministic dependency reducer
+- 新增抽象记录：无
+- 复用现有边界：GoalAlignment semantic verifier boundary、ProofObservation 与 deterministic dependency reducer；不新增并列 authority owner。
 
 ## 禁止范围
 
@@ -26,7 +27,7 @@ A structurally valid pair decision, complete/matching diagnostic, adversarial ph
 
 ## 基线
 
-The exact pre-repair feature source reproduces false authority: dependency_alignment.py hard-codes target_compatibility=PASS and counterfactual=PASS from a normalized pair decision, while goal_planning.py emits no distinct obligation evidence contract. The pre-change Quality Loop baseline is recorded after the repair governance inputs and ChangePermit are frozen and before any allowed product source is changed; the focused counterexample must be RED.
+The exact pre-repair feature source reproduces false authority: dependency_alignment.py hard-codes target_compatibility=PASS and counterfactual=PASS from a normalized pair decision, while goal_planning.py emits no distinct obligation evidence contract. The pre-change Quality Loop baseline is recorded after the repair governance inputs and ChangePermit are frozen and before any allowed product source is changed; the focused counterexample must be RED. The structured `新增抽象记录` value is exactly `无`; the explanatory reuse note is deliberately separate so the Quality controller reads the declared value without prose contamination.
 
 ## 修复轮次
 
