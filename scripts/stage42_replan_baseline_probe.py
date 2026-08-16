@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path.cwd().resolve()
 CHANGE_ID = "probe-stage4-2-dependency-obligation-evidence-pipeline"
+INPUT_REL = Path(".quality/stage42-dependency-obligation-red-input")
 ALLOWED = [
     "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
@@ -15,103 +16,221 @@ ALLOWED = [
 ]
 
 
-def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run([sys.executable, "-B", *args], cwd=ROOT, text=True, capture_output=True)
-    print("$", sys.executable, "-B", *args)
-    print(completed.stdout)
-    print(completed.stderr, file=sys.stderr)
-    if check and completed.returncode:
-        raise SystemExit(completed.returncode)
-    return completed
-
-
 def main() -> int:
-    target = ROOT / "governance" / "targets" / f"{CHANGE_ID}.md"
-    claim = ROOT / "governance" / "claims" / f"{CHANGE_ID}.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    claim.parent.mkdir(parents=True, exist_ok=True)
+    input_dir = ROOT / INPUT_REL
+    input_dir.mkdir(parents=True, exist_ok=True)
+    target = input_dir / "target.md"
+    claim = input_dir / "claim.json"
+    policy = input_dir / "focused-policy.json"
+    evidence = ROOT / ".quality" / "product-code" / CHANGE_ID / "baseline"
+    state = ROOT / ".quality" / "product-code" / CHANGE_ID / "state"
+
     target.write_text(
         "# 目标\n\n"
         f"- 目标 ID：{CHANGE_ID}\n"
-        f"- 变更标识：portable-{CHANGE_ID}\n"
+        f"- 变更标识：{CHANGE_ID}\n"
         "- 执行上下文：local-change\n"
         "- 目标类型：repair\n\n"
-        "Close the dependency obligation evidence pipeline so pair decisions cannot manufacture target-compatibility/counterfactual PASS, while legitimate validated semantic/counterfactual evidence can still reach the deterministic reducer.\n\n"
+        "Close the Stage 4.2 dependency-obligation evidence pipeline without allowing a pair relation, phase name, complete/matching diagnostic, or call count to substitute for target-compatibility or result-removal counterfactual proof.\n\n"
         "## 允许范围\n\n"
-        "- 允许变更路径：" + ", ".join(f"`{p}`" for p in ALLOWED) + "\n"
+        "- 允许变更路径：" + "，".join(ALLOWED) + "\n"
         "- 新增抽象记录：无\n\n"
         "## 禁止范围\n\n"
-        "Do not modify dependency_proof.py, CapabilityGate, transaction authority, business tools/services, production activation, Skill/Judge/Quality policy, Target/Claim/Judge/evidence to obtain a pass.\n\n"
+        "Do not modify dependency_proof.py, CapabilityGate, GoalOutputRef, transaction Draft/Grant/Attempt/Receipt authority, business tools/services, production dependency activation/defaults, Skill/Judge/Quality policy, or Target/Claim/evidence to obtain a product pass. Baseline execution does not modify product source.\n\n"
         "## 验收条件\n\n"
         "- 最低质量模式：quick\n"
-        f"- 声明清单：`governance/claims/{CHANGE_ID}.json`\n"
-        "- 验收 ID：`STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE`\n\n"
-        "Pair relation evidence alone must not satisfy target compatibility or result-removal counterfactual obligations. A separately validated, premise-bound obligation record can satisfy those obligations and the deterministic dependency reducer remains the only authority seal.\n\n"
+        f"- 声明清单：{(INPUT_REL / 'claim.json').as_posix()}\n"
+        "- 验收 ID：STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE\n\n"
+        "Pair relation evidence alone must leave target compatibility and result-removal counterfactual unresolved. Separately validated premise-bound obligation evidence may satisfy those obligations; dependency_proof.py remains the sole deterministic maturity/authority reducer.\n\n"
         "## 基线\n\n"
-        "Baseline source is the exact restored pre-Stage-4.2 feature head. It still hard-codes target_compatibility=PASS and counterfactual=PASS from a pair decision, while goal-planning normalization carries no separate obligation evidence. The canonical baseline run below must determine whether an existing acceptance gate reproduces this defect before any product write.\n\n"
-        "## 修复轮次\n\n- 最大轮次：8\n- 当前轮次：1\n- 失败后：只根据本目标的结构化 Repair Plan 修改唯一 Owner；没有有效进展时停止并重新规划。\n",
+        "Baseline = untouched exact restored PR #1157 feature source plus a focused read-only acceptance policy. The acceptance gate invokes the existing bridge API without replacing or editing any product/test file and asserts the required fail-closed semantics. Current source is expected to fail because dependency_alignment.py hard-codes target_compatibility=PASS and counterfactual=PASS from a pair decision.\n\n"
+        "## 修复轮次\n\n"
+        "- 最大轮次：8\n"
+        "- 当前轮次：1\n"
+        "- 失败后：只根据本目标的结构化 Repair Plan 修改唯一 Owner；没有有效进展时停止并重新规划。\n",
         encoding="utf-8",
     )
-    claim.write_text(json.dumps({
-        "schema_version": 1,
-        "target_id": CHANGE_ID,
-        "claims": [{
-            "id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
-            "statement": "Pair decisions are observations only; target compatibility and result-removal counterfactual require separately validated premise-bound evidence before the deterministic dependency reducer can seal authority.",
-            "risk": "P1",
-            "required_mode": "quick",
-            "evidence_kind": "counterexample",
-            "required_gates": ["python-test-suites"],
-            "evidence_refs": ["gate-log:python-test-suites"],
-            "owner": "dependency-proof-authority",
-            "closure_requirement": "regression-transition",
-        }],
-    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    args = [
-        "skillctl.py", "product-init",
-        "--change-id", CHANGE_ID,
-        "--goal", "Close the Stage 4.2 dependency obligation evidence pipeline without manufacturing proof obligations.",
-        "--target-kind", "repair",
+    claim.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "target_id": CHANGE_ID,
+                "claims": [
+                    {
+                        "id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
+                        "statement": "Pair decisions are observations only; target compatibility and current-turn result-removal counterfactual remain unresolved unless separately validated premise-bound evidence is present before deterministic dependency authority can seal.",
+                        "risk": "P1",
+                        "required_mode": "quick",
+                        "evidence_kind": "counterexample",
+                        "required_gates": ["stage42-red-proof"],
+                        "evidence_refs": ["gate-log:stage42-red-proof"],
+                        "owner": "dependency-proof-authority",
+                        "closure_requirement": "regression-transition",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    program = r'''
+import json
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+sys.path.insert(0, str(root / "services/agent-service/src"))
+sys.path.insert(0, str(root / "services/agent-service"))
+from agent_core.goal_graph import dependency_alignment as bridge
+from agent_core.goal_graph import dependency_proof as proof
+
+goals = [
+    {
+        "goal_id": "g1",
+        "evidence_span": "Inspect A",
+        "requested_effect": {"domain": "open", "operation": "inspect", "object_type": "record"},
+        "depends_on": [],
+    },
+    {
+        "goal_id": "g2",
+        "evidence_span": "use that result",
+        "requested_effect": {"domain": "open", "operation": "use", "object_type": "record"},
+        "depends_on": ["g1"],
+    },
+]
+details = {
+    "dependency_authority": "independent_goal_alignment",
+    "dependency_proof_complete": True,
+    "dependency_graph_match": True,
+    "dependency_pair_decisions": [
+        {
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": "result_reference",
+            "basis_span": "that result",
+        }
+    ],
+}
+ledger, graph = bridge.apply_alignment_dependency_proof(
+    None,
+    user_text="Inspect A, use that result",
+    goals=goals,
+    details=details,
+    phase="candidate_blind_dependency_positive_edge_adjudication",
+)
+state = ledger["states"]["g1::g2"]
+observed = {
+    "graph_complete": graph["complete"],
+    "edges": graph["edges"],
+    "maturity": state["maturity"],
+    "target_compatibility": state["obligations"]["target_compatibility"],
+    "counterfactual": state["obligations"]["counterfactual"],
+    "adversarial_closure": state["obligations"]["adversarial_closure"],
+}
+print(json.dumps(observed, sort_keys=True))
+assert graph["complete"] is False, "pair decision + closure phase minted dependency authority without obligation-specific evidence"
+assert state["obligations"]["target_compatibility"] == proof.UNKNOWN_RESULT, "target compatibility was manufactured instead of remaining UNKNOWN"
+assert state["obligations"]["counterfactual"] == proof.UNKNOWN_RESULT, "counterfactual was manufactured instead of remaining UNKNOWN"
+'''.strip()
+
+    policy.write_text(
+        json.dumps(
+            {
+                "version": "stage42-dependency-obligation-red-v1",
+                "steps": [
+                    {
+                        "id": "stage42-red-proof",
+                        "name": "Stage 4.2 pair-only authority counterexample",
+                        "modes": ["quick"],
+                        "kind": "shell",
+                        "argv": [sys.executable, "-B", "-c", program],
+                        "owner": "quality-controller",
+                        "category": "counterexample-regression",
+                        "blocking_level": "required",
+                        "repair_playbook": "repair the product evidence boundary; do not weaken this focused acceptance contract",
+                        "rerun_contract": "dependency_closure_then_downstream",
+                        "depends_on": [],
+                        "environment": {
+                            "PYTHONDONTWRITEBYTECODE": "1",
+                            "PYTHONPATH": "services/agent-service/src:services/agent-service",
+                        },
+                        "timeout_seconds": 120,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    if evidence.exists():
+        raise SystemExit(f"refusing to reuse baseline evidence directory: {evidence}")
+
+    cmd = [
+        sys.executable,
+        "-B",
+        str(ROOT / "scripts/quality_loop.py"),
+        "--workspace-root",
+        str(ROOT),
+        "--mode",
+        "quick",
+        "--target",
+        str(target),
+        "--policy",
+        str(policy),
+        "--evidence-dir",
+        str(evidence),
+        "--state-dir",
+        str(state),
+        "--baseline",
     ]
-    for path in ALLOWED:
-        args += ["--allow", path]
-    args += [
-        "--affected-module", "agent_core.goal_graph.dependency_alignment",
-        "--affected-module", "agent_core.lifecycle.goal_planning",
-        "--invariant", "pair decision is observation, not target/counterfactual authority",
-        "--invariant", "missing obligation evidence fails closed",
-        "--invariant", "dependency_proof.py remains the sole deterministic maturity authority",
-        "--minimum-mode", "quick",
-        "--quality-target", f"governance/targets/{CHANGE_ID}.md",
-        "--approve",
-        "--force",
-    ]
-    run(*args)
-    baseline = run("skillctl.py", "product-baseline", check=False)
-    evidence = ROOT / ".quality" / "product-code" / CHANGE_ID / "baseline"
+    completed = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, check=False)
+    print("$", *cmd)
+    print(completed.stdout)
+    print(completed.stderr, file=sys.stderr)
+
+    record = evidence / "baseline-record.json"
     summary_path = evidence / "run-summary.json"
-    if summary_path.is_file():
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        print("=== BASELINE SUMMARY ===")
-        print(json.dumps({
-            "decision": summary.get("decision"),
-            "loop_status": summary.get("loop_status"),
-            "claim_results": summary.get("claim_results"),
-            "results": [
-                {
-                    "id": row.get("id"),
-                    "status": row.get("status"),
-                    "exit_code": row.get("exit_code"),
-                    "stderr_tail": str(row.get("stderr") or "")[-3000:],
-                    "stdout_tail": str(row.get("stdout") or "")[-3000:],
-                }
-                for row in summary.get("results") or []
-                if row.get("status") != "PASS"
-            ],
-        }, ensure_ascii=False, indent=2))
-    print(f"BASELINE_EXIT={baseline.returncode}")
-    return baseline.returncode
+    if not record.is_file() or not summary_path.is_file():
+        raise SystemExit("canonical Stage 4.2 baseline was not recorded")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert completed.returncode != 0, completed.returncode
+    assert summary["run_kind"] == "baseline", summary
+    assert summary["loop_status"] == "BASELINE_RECORDED", summary
+    assert summary["decision"] == "FAIL", summary
+    assert summary["target_identity"]["id"] == CHANGE_ID, summary
+    assert summary["selected_gate_ids"] == ["stage42-red-proof"], summary["selected_gate_ids"]
+    assert len(summary["results"]) == 1, summary["results"]
+    assert summary["results"][0]["id"] == "stage42-red-proof", summary["results"]
+    assert summary["results"][0]["status"] == "FAIL", summary["results"]
+    assert len(summary["claim_results"]) == 1, summary["claim_results"]
+    assert summary["claim_results"][0]["id"] == "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE"
+    assert summary["claim_results"][0]["status"] == "FAILED", summary["claim_results"]
+    stdout = (evidence / "steps/stage42-red-proof.stdout.txt").read_text(encoding="utf-8")
+    stderr = (evidence / "steps/stage42-red-proof.stderr.txt").read_text(encoding="utf-8")
+    assert '"graph_complete": true' in stdout, stdout
+    assert '"target_compatibility": "PASS"' in stdout, stdout
+    assert '"counterfactual": "PASS"' in stdout, stdout
+    assert "minted dependency authority" in stderr, stderr
+
+    print("=== STAGE 4.2 FORMAL RED BASELINE RECORDED ===")
+    print(json.dumps({
+        "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "process_exit_code": completed.returncode,
+        "decision": summary["decision"],
+        "loop_status": summary["loop_status"],
+        "claim_results": summary["claim_results"],
+        "result": summary["results"][0],
+        "baseline_record": record.relative_to(ROOT).as_posix(),
+    }, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
