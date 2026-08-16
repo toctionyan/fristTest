@@ -1,6 +1,6 @@
-release_request: 2026-08-16T01:34:00+08:00
+release_request: 2026-08-16T10:56:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: certify blind incomplete semantic grounding closure on exact main 1be122c7a94f8549fee42c7eda89bdc0cfa1b6af
+reason: certify dependency proof obligation-evidence closure after main a1d2d8ec5aac0b069a2a838a93a1f636dcd65d6d passed full post-merge quality and integration
