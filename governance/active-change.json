@@ -60,7 +60,7 @@
   "verification": null,
   "repair_governance": "governance/repair-cases/repair-release55-dependency-output-role-overlap",
   "repair_governance_consumed_at": null,
-  "created_at": "2026-08-16T03:39:30.459776+00:00",
+  "created_at": "2026-08-16T03:40:38.740986+00:00",
   "status": "implementing",
   "result": "PENDING",
   "repair_governance_permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470"
