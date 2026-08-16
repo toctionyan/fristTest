@@ -224,6 +224,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "PREWRITE_STATES",
         "PROTECTED_AUTHORITY",
         "contract_fingerprint",
+        '"state_history": list(PREWRITE_STATES)',
         '"lifecycle_contract_sha256"',
         '"write_scope_mode": "exact_allowlist"',
     ):
@@ -271,12 +272,26 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     )
     if "permanent_guard_not_reverified" not in aggregate:
         errors.append("permanent_guard_reverification_missing")
-    for state in REQUIRED_STATES:
-        if state not in aggregate:
-            errors.append(f"canonical_state_not_projected:{state}")
     for gate in REQUIRED_GATES:
         if gate not in aggregate:
             errors.append(f"canonical_gate_not_projected:{gate}")
+
+    # PREWRITE_STATES is imported from the canonical contract and serialized into
+    # every write grant, so its individual literals must not be duplicated in a
+    # second verifier list. Post-write semantic boundaries need explicit runtime
+    # projections, especially the anti-drift proof before PR certification.
+    for marker in (
+        '"governed_repair_state": "PATCHING"',
+        '"governed_repair_state": "INDEPENDENT_REVIEW"',
+        '"governed_repair_state": "ANTI_DRIFT_PROOF"',
+        '"governed_repair_state": "PR_CERTIFICATION"',
+        '"governed_repair_state": "GOVERNANCE_REQUIRED"',
+        '"governed_repair_state": "GOVERNANCE_CLOSED"',
+        '"governed_repair_state": "BASELINE_ACCEPTED"',
+        '"governed_repair_state": "READY_FOR_REVIEW"',
+    ):
+        if marker not in aggregate:
+            errors.append(f"runtime_state_projection_missing:{marker}")
 
     exact = _text("scripts/github_repair_exact_head.py", root=root) if (root / "scripts/github_repair_exact_head.py").is_file() else ""
     for marker in (
