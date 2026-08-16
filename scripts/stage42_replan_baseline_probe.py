@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 import subprocess
@@ -137,6 +138,8 @@ assert graph["complete"] is False, "pair decision + closure phase minted depende
 assert state["obligations"]["target_compatibility"] == proof.UNKNOWN_RESULT, "target compatibility was manufactured instead of remaining UNKNOWN"
 assert state["obligations"]["counterfactual"] == proof.UNKNOWN_RESULT, "counterfactual was manufactured instead of remaining UNKNOWN"
 '''.strip()
+    encoded_program = base64.b64encode(program.encode("utf-8")).decode("ascii")
+    gate_command = "import base64;exec(base64.b64decode('" + encoded_program + "'))"
 
     policy.write_text(
         json.dumps(
@@ -148,7 +151,7 @@ assert state["obligations"]["counterfactual"] == proof.UNKNOWN_RESULT, "counterf
                         "name": "Stage 4.2 pair-only authority counterexample",
                         "modes": ["quick"],
                         "kind": "shell",
-                        "argv": [sys.executable, "-B", "-c", program],
+                        "argv": [sys.executable, "-B", "-c", gate_command],
                         "owner": "quality-controller",
                         "category": "counterexample-regression",
                         "blocking_level": "required",
@@ -208,28 +211,33 @@ assert state["obligations"]["counterfactual"] == proof.UNKNOWN_RESULT, "counterf
     assert summary["target_identity"]["id"] == CHANGE_ID, summary
     assert summary["selected_gate_ids"] == ["stage42-red-proof"], summary["selected_gate_ids"]
     assert len(summary["results"]) == 1, summary["results"]
-    assert summary["results"][0]["id"] == "stage42-red-proof", summary["results"]
-    assert summary["results"][0]["status"] == "FAIL", summary["results"]
+    result = summary["results"][0]
+    assert result["id"] == "stage42-red-proof", summary["results"]
+    assert result["status"] == "FAIL", summary["results"]
     assert len(summary["claim_results"]) == 1, summary["claim_results"]
     assert summary["claim_results"][0]["id"] == "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE"
     assert summary["claim_results"][0]["status"] == "FAILED", summary["claim_results"]
-    stdout = (evidence / "steps/stage42-red-proof.stdout.txt").read_text(encoding="utf-8")
-    stderr = (evidence / "steps/stage42-red-proof.stderr.txt").read_text(encoding="utf-8")
-    assert '"graph_complete": true' in stdout, stdout
-    assert '"target_compatibility": "PASS"' in stdout, stdout
-    assert '"counterfactual": "PASS"' in stdout, stdout
-    assert "minted dependency authority" in stderr, stderr
+    assert '"graph_complete": true' in str(result.get("stdout") or ""), result
+    assert '"target_compatibility": "PASS"' in str(result.get("stdout") or ""), result
+    assert '"counterfactual": "PASS"' in str(result.get("stdout") or ""), result
+    assert "minted dependency authority" in str(result.get("stderr") or ""), result
 
     print("=== STAGE 4.2 FORMAL RED BASELINE RECORDED ===")
-    print(json.dumps({
-        "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "process_exit_code": completed.returncode,
-        "decision": summary["decision"],
-        "loop_status": summary["loop_status"],
-        "claim_results": summary["claim_results"],
-        "result": summary["results"][0],
-        "baseline_record": record.relative_to(ROOT).as_posix(),
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                "process_exit_code": completed.returncode,
+                "decision": summary["decision"],
+                "loop_status": summary["loop_status"],
+                "claim_results": summary["claim_results"],
+                "result": result,
+                "baseline_record": record.relative_to(ROOT).as_posix(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
