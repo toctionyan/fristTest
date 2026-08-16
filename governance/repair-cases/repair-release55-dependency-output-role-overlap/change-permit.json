@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "repair_plan_sha256": "e362d4387990674f71ed795bdd6357cbeb607d5500697bba1d7b0502afc9f9fc",
+  "plan_review_sha256": "44e37109bd235dd6d0040033d3ef3fbb62c41977d0501e075440342dcbac57bb",
+  "baseline_manifest_sha256": "c260b41d7ea8c59809002ac8539c8db528dda5b3dca72f27de1ba369d626434e",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/goal_graph/dependency_proof.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "strictly nested result-reference basis inside broader requested-output evidence reaches graph mismatch/adversarial handling",
+      "canonical true-reference case with requested_outputs can close as a positive dependency after existing adversarial confirmation"
+    ],
+    "counterexamples": [
+      "equal basis and requested-output evidence remains rejected",
+      "basis that wraps requested-output evidence remains rejected",
+      "false Draft/support-dataflow dependency is not made authoritative by nested overlap"
+    ],
+    "regression": [
+      "existing WP08 Attempt 7 false-dependency and true-reference tests remain green",
+      "Stage 4.2 dependency obligation tests remain green",
+      "product quick remains green"
+    ],
+    "negative_path": [
+      "malformed/nonliteral/unknown-goal dependency basis remains fail-closed",
+      "nested overlap never bypasses target/counterfactual/adversarial closure"
+    ]
+  },
+  "baseline_source_fingerprint": "561c5e566e6ce1c2f0a35b1429fa8df7cca4145db57cc40a80ad2ddad3dfa9ee",
+  "baseline_workspace_fingerprint": "817920b407a9a2ad569f9e0f65483d22bbe3e8777efa9dd3e02deec5ec1a35cb",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470"
+}

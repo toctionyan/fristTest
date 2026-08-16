@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "repair_plan_sha256": "e362d4387990674f71ed795bdd6357cbeb607d5500697bba1d7b0502afc9f9fc",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+  ],
+  "review_findings": [
+    "Protected failure and canonical RED agree on strict nested basis rejection before semantic/adversarial closure.",
+    "The plan removes a semantic-coercion shortcut but does not trust overlap as authority.",
+    "Equality and basis-wrapping-output stay rejected.",
+    "The new regression includes canonical requested_outputs missing from prior true-reference tests."
+  ],
+  "skill_rule_mappings": [
+    "AGENTS: reproduce before product write",
+    "AGENTS: root-cause proof before repair",
+    "AGENTS: single authority owner and no parallel fallback",
+    "AGENTS: transition repair requires counterexamples, negative paths and real diff review"
+  ]
+}

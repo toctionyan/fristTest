@@ -1,0 +1,17 @@
+{
+  "child_pid": 2234,
+  "child_process_alive": false,
+  "contract": "quality-gate-liveness@1",
+  "elapsed_seconds": 0.2,
+  "gate_id": "release55-role-overlap-counterexample",
+  "heartbeat_at": "2026-08-16T03:36:00.658974+00:00",
+  "idle_seconds": 0.051,
+  "last_activity": "stdout_output",
+  "last_progress_at": "2026-08-16T03:36:00.607928+00:00",
+  "liveness_status": "FAILED",
+  "mode": "quick",
+  "progress_event_count": 5,
+  "returncode": 1,
+  "started_at": "2026-08-16T03:36:00.458481+00:00",
+  "termination_reason": null
+}

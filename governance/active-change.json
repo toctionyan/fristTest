@@ -1,14 +1,12 @@
 {
   "schema_version": 1,
-  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "change_id": "repair-release55-dependency-output-role-overlap",
   "target_kind": "repair",
-  "goal": "Close the Stage 4.2 dependency obligation evidence pipeline without manufacturing proof obligations.",
+  "goal": "Close Release #55 dependency output-evidence role overlap without changing semantic oracle or dependency authority.",
   "profile": "product-repair",
   "allowed_paths": [
-    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
-    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
-    "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py"
+    "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
   ],
   "forbidden_paths": [
     "skill-system/**",
@@ -20,13 +18,18 @@
     ".claude/**",
     ".codex/**",
     "AGENTS.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/goal_graph/dependency_proof.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/tests/context/strong_context_cases/semantic_goal_coverage_suite_v20_4.json"
   ],
   "invariants": [
-    "pair decision is observation, not target/counterfactual authority",
-    "obligation evidence is produced only after existing candidate-blind semantic validation and bound to the frozen premise",
-    "dependency_proof.py remains the sole deterministic maturity authority",
-    "CapabilityGate, transaction, business tools and production activation are unchanged"
+    "true explicit current-turn result reference remains a semantic dependency",
+    "strict nested evidence overlap is provisional only and never dependency authority",
+    "equal or wrapping outcome evidence remains structurally rejected as dependency basis",
+    "Stage 4.2 obligation evidence and deterministic reducer remain unchanged authority owners",
+    "CapabilityGate transaction business tools production defaults and semantic oracle remain unchanged"
   ],
   "required_profiles": [
     "product-contract",
@@ -40,61 +43,25 @@
     "adversarial-reviewer",
     "release-judge"
   ],
-  "review_attestations": [
-    {
-      "role": "scope-planner",
-      "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/clean-verification-record.json",
-      "evidence_sha256": "9fdd416bea0d7d2555e2bccb3bac512b5d1964778318a1fce3986877d86592a3",
-      "recorded_at": "2026-08-16T02:13:05.511313+00:00"
-    },
-    {
-      "role": "adversarial-reviewer",
-      "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/clean-verification-record.json",
-      "evidence_sha256": "9fdd416bea0d7d2555e2bccb3bac512b5d1964778318a1fce3986877d86592a3",
-      "recorded_at": "2026-08-16T02:13:05.617874+00:00"
-    },
-    {
-      "role": "release-judge",
-      "decision": "PASS",
-      "evidence": ".quality/product-control-plane/repair-stage4-2-dependency-obligation-evidence-pipeline/verification.json",
-      "evidence_sha256": "4f2d57be7cfac0f3762aae9b3b32d6508451764d18c5e24dcea408829806638c",
-      "recorded_at": "2026-08-16T02:13:16.825571+00:00"
-    }
-  ],
+  "review_attestations": [],
   "affected_modules": [
-    "agent_core.goal_graph.dependency_alignment",
     "agent_core.lifecycle.goal_planning"
   ],
   "minimum_quality_mode": "quick",
-  "quality_target": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/quality-input/target.md",
-  "baseline_evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/quality-baseline",
-  "initial_source_fingerprint": "2b4cca867b6d06e81cb5c508834bb90f546224ec64f074dab6d124c5a6933842",
-  "initial_source_file_count": 3,
-  "product_validation": {
-    "verification": ".quality/stage42-contract-verification",
-    "verification_mode": "quick",
-    "verification_source_fingerprint": "aa46f96a76588b3fbabab132ab6d56fbc7a2253e87ce78d347c8f98c53d202a2",
-    "verification_source_file_count": 4,
-    "verification_recorded_at": "2026-08-16T02:13:03.294979+00:00"
-  },
+  "quality_target": "governance/targets/repair-release55-dependency-output-role-overlap.md",
+  "baseline_evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline",
+  "initial_source_fingerprint": "71a1a599fa8d0511a57f0554a0974bdedb5f0fc55cd80388cca0d7acdedf1668",
+  "initial_source_file_count": 1,
+  "product_validation": null,
   "decision_record": null,
   "variance_records": [],
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
-  "verification": {
-    "path": ".quality/product-control-plane/repair-stage4-2-dependency-obligation-evidence-pipeline/verification.json",
-    "sha256": "4f2d57be7cfac0f3762aae9b3b32d6508451764d18c5e24dcea408829806638c",
-    "source_fingerprint": "aa46f96a76588b3fbabab132ab6d56fbc7a2253e87ce78d347c8f98c53d202a2",
-    "source_file_count": 4,
-    "verified_at": "2026-08-16T02:13:16.825087+00:00"
-  },
-  "repair_governance": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline",
-  "repair_governance_consumed_at": "2026-08-16T02:13:20.355745+00:00",
-  "created_at": "2026-08-16T01:32:36.063030+00:00",
-  "status": "closed",
-  "result": "CONVERGED",
-  "repair_governance_permit_digest": "da32d4a324b555c887eedbe554f214134f3aa7556b2ff120dd65e70549b0d9ae",
-  "closed_at": "2026-08-16T02:13:20.355767+00:00"
+  "verification": null,
+  "repair_governance": "governance/repair-cases/repair-release55-dependency-output-role-overlap",
+  "repair_governance_consumed_at": null,
+  "created_at": "2026-08-16T03:36:01.622499+00:00",
+  "status": "implementing",
+  "result": "PENDING",
+  "repair_governance_permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470"
 }

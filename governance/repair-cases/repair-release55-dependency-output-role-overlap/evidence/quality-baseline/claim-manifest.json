@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-release55-dependency-output-role-overlap",
+  "claims": [
+    {
+      "id": "RELEASE55.DEPENDENCY_OUTPUT_ROLE_OVERLAP",
+      "statement": "A literal relation-only dependency basis nested inside a broader requested-output evidence span remains admissible as provisional semantic evidence and must reach adversarial dependency adjudication rather than being structurally coerced to independence; equal/wrapping outcome evidence remains rejected and deterministic dependency authority remains unchanged.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "release55-role-overlap-counterexample"
+      ],
+      "evidence_refs": [
+        "gate-log:release55-role-overlap-counterexample"
+      ],
+      "owner": "goal-alignment-dependency-authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

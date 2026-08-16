@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "classification": "implementation-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "For the true same-turn result reference '它能不能退款', relation-only basis '它' must remain admissible provisional dependency evidence and reach existing counterfactual/adversarial dependency closure even when requested-output evidence uses the broader literal phrase.",
+    "actual": "The structural validator rejects containment overlap as goal_alignment_dependency_basis_is_requested_output; format repair then permits independence when no disjoint basis exists. Protected Release #55 accepted an empty candidate graph and failed the independent oracle with expected g2->g1 versus actual empty dependencies.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/release55-protected-failure.md",
+      "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline/run-summary.json",
+      "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+    ]
+  },
+  "violated_invariants": [
+    "Explicit same-turn result references are semantic dependencies when the later outcome consumes the earlier Goal result.",
+    "Runtime structural validation must not coerce dependency semantics merely because requested-output annotation is broader than relation-only evidence.",
+    "Dependency semantics remain model-observed and reducer-authorized; substring overlap is not language-meaning authority."
+  ],
+  "affected_boundaries": [
+    "candidate-blind pairwise dependency proof grounding",
+    "requested-output evidence span role separation",
+    "positive-edge adversarial adjudication entry",
+    "protected real-model semantic certification"
+  ]
+}
