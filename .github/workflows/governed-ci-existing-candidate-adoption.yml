@@ -149,7 +149,7 @@ jobs:
           --output adoption/profile-validation.json
 
       - name: Record failed fixed-profile classification
-        if: ${{ steps.fixed_profile_validation.outcome == 'failure' }}
+        if: ${{ failure() && steps.fixed_profile_validation.outcome == 'failure' }}
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" - <<'PY'
@@ -200,7 +200,7 @@ jobs:
           PY
 
       - name: Upload failed fixed-profile evidence
-        if: ${{ steps.fixed_profile_validation.outcome == 'failure' }}
+        if: ${{ failure() && steps.fixed_profile_validation.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: governed-ci-existing-candidate-adoption-failure-${{ github.run_id }}
