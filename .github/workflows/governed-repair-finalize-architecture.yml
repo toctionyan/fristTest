@@ -1,0 +1,285 @@
+name: governed-repair-finalize-architecture
+
+on:
+  push:
+    branches:
+      - architecture/governed-repair-rca-write-grant-20260816
+    paths:
+      - .github/governed-repair-finalize-architecture-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: architecture/governed-repair-rca-write-grant-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Normalize all approved architecture invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f scripts/migrate_governed_repair_required_guard.py ]]; then
+            python -B scripts/migrate_governed_repair_required_guard.py
+          fi
+          python - <<'PY'
+          from __future__ import annotations
+          import ast
+          from pathlib import Path
+
+          def replace_once_if_missing(path: str, old: str, new: str, marker: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              if marker in text:
+                  return
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: cannot normalize {marker!r}; matches={text.count(old)}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          # The legacy Stage-3 completion path must be unconditionally fail-closed.
+          stage3 = Path('scripts/github_repair_stage3.py')
+          text = stage3.read_text(encoding='utf-8')
+          if 'task.complete(' in text:
+              tree = ast.parse(text)
+              node = next(
+                  (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'complete_publication'),
+                  None,
+              )
+              if node is None or not node.body:
+                  raise SystemExit('legacy complete_publication function not found')
+              offsets = [0]
+              for line in text.splitlines(keepends=True):
+                  offsets.append(offsets[-1] + len(line))
+              start = offsets[node.body[0].lineno - 1] + node.body[0].col_offset
+              end = offsets[node.end_lineno - 1] + node.end_col_offset
+              text = text[:start] + (
+                  'raise Stage3Error("deprecated completion path: use '
+                  'github_repair_stage3_record_publication.py, governance closure, '
+                  'baseline acceptance, and exact-head G6")'
+              ) + text[end:]
+              ast.parse(text)
+              stage3.write_text(text, encoding='utf-8')
+
+          # Governance scripts are never automatic product-source repair candidates.
+          ingest = Path('scripts/github_failure_ingest.py')
+          source = ingest.read_text(encoding='utf-8')
+          if 'normalized.startswith("scripts/github_repair_")' not in source:
+              old = '''    normalized = _normalize_repo_path(path)\n    if not normalized or normalized in PROTECTED_EXACT:\n        return False\n'''
+              new = '''    normalized = _normalize_repo_path(path)\n    if not normalized or normalized in PROTECTED_EXACT:\n        return False\n    if (\n        normalized.startswith("scripts/github_repair_")\n        or normalized == "scripts/github_stage2_handoff.py"\n        or normalized == "scripts/verify_product_source_baseline.py"\n        or normalized == "scripts/verify_governed_repair_architecture.py"\n        or normalized == "scripts/governed_repair_contract.py"\n    ):\n        return False\n'''
+              if source.count(old) != 1:
+                  raise SystemExit('failure-ingest safe-candidate anchor drifted')
+              source = source.replace(old, new, 1)
+              ast.parse(source)
+              ingest.write_text(source, encoding='utf-8')
+
+          # Canonical lifecycle contract must be the single structural source for
+          # pre-write states and protected authority.
+          authority = Path('scripts/github_repair_authority.py')
+          source = authority.read_text(encoding='utf-8')
+          canonical_import = 'from governed_repair_contract import PREWRITE_STATES, PROTECTED_AUTHORITY\n\n'
+          if canonical_import not in source:
+              anchor = 'from typing import Any, Iterable, Mapping\n\n'
+              if source.count(anchor) != 1:
+                  raise SystemExit('repair authority import anchor drifted')
+              source = source.replace(anchor, anchor + canonical_import, 1)
+          local_states = '''PREWRITE_STATES = (\n    "DETECTED",\n    "EVIDENCE_FROZEN",\n    "RCA_READ_ONLY",\n    "INVARIANT_BOUND",\n    "REPAIR_PLAN_FROZEN",\n    "WRITE_GRANTED",\n)\n\n'''
+          source = source.replace(local_states, '', 1)
+          literal_authority = '''        "authority": {\n            "write_authority": True,\n            "scope_expansion_allowed": False,\n            "tests_oracles_write_allowed": False,\n            "workflow_write_allowed": False,\n            "governance_write_allowed": False,\n            "skill_control_plane_write_allowed": False,\n            "baseline_write_allowed": False,\n            "dependency_manifest_write_allowed": False,\n            "secret_write_allowed": False,\n            "merge_allowed": False,\n            "deploy_allowed": False,\n            "production_close_allowed": False,\n        },\n'''
+          projected = '        "authority": {"write_authority": True, **PROTECTED_AUTHORITY},\n'
+          if projected not in source:
+              if source.count(literal_authority) != 1:
+                  raise SystemExit('repair authority projection block drifted')
+              source = source.replace(literal_authority, projected, 1)
+          ast.parse(source)
+          authority.write_text(source, encoding='utf-8')
+
+          # Governance approves all validated source paths. Baseline acceptance
+          # intersects those paths with protected_roots before any hash update.
+          gov = Path('scripts/github_repair_governance.py')
+          source = gov.read_text(encoding='utf-8')
+          if 'approved_source_paths = []' not in source:
+              old = '''    approved_baseline_paths = []\n    for raw in publication.get("changed_paths") or []:\n        path = str(raw or "").strip().replace("\\\\", "/")\n        if path and path not in approved_baseline_paths:\n            approved_baseline_paths.append(path)\n    if not approved_baseline_paths:\n        raise GovernanceError("governance has no validated source paths")\n'''
+              new = '''    approved_source_paths = []\n    for raw in publication.get("changed_paths") or []:\n        path = str(raw or "").strip().replace("\\\\", "/")\n        if path and path not in approved_source_paths:\n            approved_source_paths.append(path)\n    if not approved_source_paths:\n        raise GovernanceError("governance has no validated source paths")\n'''
+              if source.count(old) != 1:
+                  raise SystemExit('governance source scope block drifted')
+              source = source.replace(old, new, 1)
+          source = source.replace(
+              '        "approved_baseline_paths": approved_baseline_paths,\n',
+              '        "approved_source_paths": approved_source_paths,\n',
+          )
+          ast.parse(source)
+          gov.write_text(source, encoding='utf-8')
+
+          baseline = Path('scripts/github_repair_baseline_acceptance.py')
+          source = baseline.read_text(encoding='utf-8')
+          if 'governance.get("approved_source_paths")' not in source:
+              old = '''    approved = {\n        str(path or "").strip().replace("\\\\", "/")\n        for path in governance.get("approved_baseline_paths") or []\n        if str(path or "").strip()\n    }\n    if not approved:\n        raise BaselineAcceptanceError("governance approved no baseline paths")\n    if observed_drift != approved:\n'''
+              new = '''    approved_source = {\n        str(path or "").strip().replace("\\\\", "/")\n        for path in governance.get("approved_source_paths") or []\n        if str(path or "").strip()\n    }\n    if not approved_source:\n        raise BaselineAcceptanceError("governance approved no source paths")\n    protected_roots = {\n        str(root or "").strip().replace("\\\\", "/").rstrip("/")\n        for root in baseline.get("protected_roots") or []\n        if str(root or "").strip()\n    }\n    approved = {\n        path for path in approved_source\n        if any(path.startswith(root + "/") for root in protected_roots)\n    }\n    if observed_drift != approved:\n'''
+              if source.count(old) != 1:
+                  raise SystemExit('baseline source/protected scope block drifted')
+              source = source.replace(old, new, 1)
+          anchor = '        "approved_baseline_paths": sorted(approved),\n'
+          if '        "approved_source_paths": sorted(approved_source),\n' not in source:
+              if source.count(anchor) != 1:
+                  raise SystemExit('baseline receipt scope anchor drifted')
+              source = source.replace(
+                  anchor,
+                  '        "approved_source_paths": sorted(approved_source),\n' + anchor,
+                  1,
+              )
+          ast.parse(source)
+          baseline.write_text(source, encoding='utf-8')
+
+          # Architecture verifier itself must project canonical states/gates.
+          verifier = Path('scripts/verify_governed_repair_architecture.py')
+          source = verifier.read_text(encoding='utf-8')
+          canonical = 'from governed_repair_contract import GATES, PROTECTED_AUTHORITY, STATE_MACHINE\n\n'
+          if canonical not in source:
+              anchor = 'from typing import Any\n\n'
+              if source.count(anchor) != 1:
+                  raise SystemExit('architecture verifier import anchor drifted')
+              source = source.replace(anchor, anchor + canonical, 1)
+          if 'REQUIRED_STATES = STATE_MACHINE' not in source:
+              start = source.find('REQUIRED_STATES = (')
+              end = source.find('\n\nREQUIRED_GATES = (', start)
+              if start < 0 or end < 0:
+                  raise SystemExit('architecture verifier state block drifted')
+              source = source[:start] + 'REQUIRED_STATES = STATE_MACHINE\n' + source[end + 2:]
+          if 'REQUIRED_GATES = GATES' not in source:
+              start = source.find('REQUIRED_GATES = (')
+              end = source.find('\n\n\ndef _text', start)
+              if start < 0 or end < 0:
+                  raise SystemExit('architecture verifier gate block drifted')
+              source = source[:start] + 'REQUIRED_GATES = GATES\n' + source[end:]
+          bad = '    if "gh pr merge" in stage3_workflow or "workflow_dispatch" in stage3_workflow and "deploy" in stage3_workflow.casefold():\n        errors.append("stage3_contains_merge_or_deploy_authority")\n'
+          good = '    if any(\n        marker in stage3_workflow\n        for marker in ("gh pr merge", "kubectl ", "helm upgrade", "docker push")\n    ):\n        errors.append("stage3_contains_merge_or_deploy_authority")\n'
+          source = source.replace(bad, good, 1)
+          source = source.replace('        "same_failure_signature",\n', '        "ARCHITECTURE_REPLAN_AND_NEW_RCA",\n', 1)
+          if 'contract_authority = {' not in source:
+              anchor = '    aggregate = "\\n".join(\n'
+              block = '''    contract_authority = dict(PROTECTED_AUTHORITY)\n    if contract_authority.get("merge_allowed") is not False or contract_authority.get("deploy_allowed") is not False:\n        errors.append("canonical_lifecycle_contract_expands_merge_or_deploy")\n\n'''
+              if source.count(anchor) != 1:
+                  raise SystemExit('architecture verifier aggregate anchor drifted')
+              source = source.replace(anchor, block + anchor, 1)
+          ast.parse(source)
+          verifier.write_text(source, encoding='utf-8')
+          PY
+
+      - name: Assert permanent machine-guard closure is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'write authority requires at least one existing machine guard' scripts/github_repair_authority.py
+          grep -F '"required_guard_ids"' scripts/github_repair_authority.py
+          grep -F 'permanent_guard_not_reverified' scripts/github_repair_stage3.py
+          grep -F 'required_guard_ids' scripts/github_repair_stage3.py
+          grep -F 'required_guard_ids' scripts/github_repair_governance.py
+          grep -F 'required_guard_ids' scripts/github_repair_baseline_acceptance.py
+          grep -F 'required_guard_ids' scripts/github_repair_exact_head.py
+
+      - name: Remove every temporary migration and validation authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            .github/workflows/governed-repair-architecture-cleanup.yml \
+            .github/governed-repair-architecture-cleanup-trigger \
+            .github/workflows/governed-repair-architecture-fixup.yml \
+            .github/governed-repair-architecture-fixup-trigger \
+            .github/workflows/governed-repair-lifecycle-contract-migration.yml \
+            .github/governed-repair-lifecycle-contract-trigger \
+            .github/workflows/governed-repair-baseline-scope-migration.yml \
+            .github/governed-repair-baseline-scope-trigger \
+            .github/workflows/governed-repair-required-guard-migration.yml \
+            .github/governed-repair-required-guard-trigger \
+            scripts/migrate_governed_repair_required_guard.py \
+            .github/workflows/governed-repair-architecture-validation.yml \
+            .github/governed-repair-architecture-validation-trigger \
+            .github/workflows/governed-repair-architecture-validation-v2.yml \
+            .github/governed-repair-architecture-validation-v2-trigger; do
+            if [[ -e "${path}" ]]; then git rm -f "${path}"; fi
+          done
+          test ! -e scripts/github_repair_stage3_complete.py
+          test ! -e .github/workflows/b28-product-baseline-refresh.yml
+
+      - name: Compile final clean architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            scripts/governed_repair_contract.py \
+            scripts/github_failure_ingest.py \
+            scripts/github_repair_authority.py \
+            scripts/github_repair_rca.py \
+            scripts/github_repair_orchestrator_control_plane.py \
+            scripts/github_repair_orchestrator.py \
+            scripts/github_agent_fixer.py \
+            scripts/github_stage2_handoff.py \
+            scripts/github_repair_stage3.py \
+            scripts/github_repair_stage3_tree.py \
+            scripts/github_repair_stage3_publish.py \
+            scripts/github_repair_stage3_record_publication.py \
+            scripts/github_repair_governance.py \
+            scripts/github_repair_baseline_acceptance.py \
+            scripts/github_repair_exact_head.py \
+            scripts/verify_product_source_baseline.py \
+            scripts/verify_governed_repair_architecture.py
+          python -B scripts/verify_governed_repair_architecture.py
+          python -B scripts/verify_product_source_baseline.py --workspace . --output /tmp/product-baseline.json
+
+      - name: Run complete Skill control-plane unit suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -v -s skill-system/tests -p 'test_*.py'
+
+      - name: Parse permanent workflow YAML in locked environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+          cd ../..
+          services/agent-service/.venv/bin/python - <<'PY'
+          import pathlib, yaml
+          for raw in (
+              '.github/workflows/governed-ci-repair-stage2.yml',
+              '.github/workflows/governed-ci-repair-stage3.yml',
+              '.github/workflows/governed-ci-repair-governance.yml',
+              '.github/workflows/quality.yml',
+          ):
+              payload = yaml.safe_load(pathlib.Path(raw).read_text(encoding='utf-8'))
+              assert isinstance(payload, dict), raw
+              assert isinstance(payload.get('jobs'), dict) and payload['jobs'], raw
+          PY
+          git diff --check
+
+      - name: Remove finalizer itself after successful validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/governed-repair-finalize-architecture.yml
+          git rm .github/governed-repair-finalize-architecture-trigger
+          git diff --check
+
+      - name: Commit clean permanent architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --name-only | sort
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'feat(repair): enforce RCA-bound governed repair lifecycle'
+          git push origin HEAD:architecture/governed-repair-rca-write-grant-20260816
