@@ -69,6 +69,22 @@ class ExistingCandidateAdoptionContractTests(unittest.TestCase):
                 result["errors"],
             )
 
+    def test_implicit_success_status_on_failure_evidence_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-status-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            workflow = isolated / module.ADOPTION_WORKFLOW
+            source = workflow.read_text(encoding="utf-8")
+            guarded = "failure() && steps.fixed_profile_validation.outcome == 'failure'"
+            unguarded = "steps.fixed_profile_validation.outcome == 'failure'"
+            self.assertEqual(source.count(guarded), 2)
+            workflow.write_text(source.replace(guarded, unguarded, 1), encoding="utf-8")
+
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertIn("adoption_failure_status_check_count_drift", result["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()
