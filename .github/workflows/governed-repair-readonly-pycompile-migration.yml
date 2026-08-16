@@ -1,0 +1,46 @@
+name: governed-repair-readonly-pycompile-migration
+
+on:
+  push:
+    branches:
+      - architecture/governed-repair-rca-write-grant-20260816
+    paths:
+      - .github/governed-repair-readonly-pycompile-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: architecture/governed-repair-rca-write-grant-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply deterministic read-only verifier migration
+        run: |
+          set -euo pipefail
+          python -B scripts/migrate_governed_repair_readonly_pycompile.py
+          python -m py_compile scripts/github_agent_fixer.py
+          git diff --check
+          grep -q 'governed-repair-pycompile-' scripts/github_agent_fixer.py
+          grep -q 'cfile=sys.argv\[2\]' scripts/github_agent_fixer.py
+      - name: Remove temporary migration authority
+        run: |
+          set -euo pipefail
+          rm -f scripts/migrate_governed_repair_readonly_pycompile.py
+          rm -f .github/workflows/governed-repair-readonly-pycompile-migration.yml
+          rm -f .github/governed-repair-readonly-pycompile-trigger
+      - name: Commit migrated verifier
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(repair): make Python syntax verification read-only'
+          git push origin HEAD:architecture/governed-repair-rca-write-grant-20260816
