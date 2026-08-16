@@ -309,6 +309,7 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
             "schema": "governed-repair-exact-head-ci@1",
             "head_sha": exact_sha,
             "pr_url": baseline["draft_pr_url"],
+            "pr_number": 99,
             "pr_is_draft": True,
             "pr_head_sha": exact_sha,
             "workflows": {
@@ -317,12 +318,16 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
                     "status": "completed",
                     "conclusion": "success",
                     "head_sha": exact_sha,
+                    "event": "pull_request",
+                    "pr_number": 99,
                 },
                 "skill-self-validation": {
                     "run_id": "101",
                     "status": "completed",
                     "conclusion": "success",
                     "head_sha": exact_sha,
+                    "event": "pull_request",
+                    "pr_number": 99,
                 },
             },
         }
@@ -356,10 +361,26 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
             "schema": "governed-repair-exact-head-ci@1",
             "head_sha": exact_sha,
             "pr_url": baseline["draft_pr_url"],
+            "pr_number": 99,
             "pr_is_draft": True,
+            "pr_head_sha": exact_sha,
             "workflows": {
-                "quality": {"run_id": "100", "status": "completed", "conclusion": "success", "head_sha": "8" * 40},
-                "skill-self-validation": {"run_id": "101", "status": "completed", "conclusion": "success", "head_sha": exact_sha},
+                "quality": {
+                    "run_id": "100",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "head_sha": "8" * 40,
+                    "event": "pull_request",
+                    "pr_number": 99,
+                },
+                "skill-self-validation": {
+                    "run_id": "101",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "head_sha": exact_sha,
+                    "event": "pull_request",
+                    "pr_number": 99,
+                },
             },
         }
         with tempfile.TemporaryDirectory() as temp:
@@ -371,7 +392,10 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
             _write_json(ci_path, ci)
             _write_json(task, {"status": "WAITING_EXTERNAL_RESULT", "phase": "STAGE6_EXACT_HEAD_CERTIFICATION_REQUIRED"})
             with patch.object(exact_head, "TaskRunStore", FakeTaskRunStore):
-                with self.assertRaises(exact_head.ExactHeadError):
+                with self.assertRaisesRegex(
+                    exact_head.ExactHeadError,
+                    "workflow quality ran on the wrong SHA",
+                ):
                     exact_head.finalize_exact_head(
                         baseline_receipt_path=baseline_path,
                         ci_evidence_path=ci_path,
