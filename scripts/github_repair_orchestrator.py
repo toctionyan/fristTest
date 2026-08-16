@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Bounded Stage-2 repair controller for ingested GitHub CI failures.
+"""Bounded Stage-2 repair controller with mandatory RCA/write-grant authority.
 
 Stage 2 may create a local repair candidate and evidence artifact. It never pushes a
-branch, opens a pull request, merges protected refs, or claims full validation.
+branch, opens a pull request, merges protected refs, refreshes protected baselines,
+or claims full validation/production closure.
 
-The Stage-2 model/fixer cycles are intentionally *inside* one governed product
-repair round.  Global Repair -> Independent Verify round accounting belongs to the
-outer repair-loop controller.  A later round may provide the previously validated
-candidate patch as an immutable seed; Stage 2 then repairs on top of that seed and
-emits one cumulative patch against the original bound head.
+Every write is downstream of an immutable read-only RCA and an exact deterministic
+write grant. The grant is revalidated before the seed patch and before every model
+repair cycle. Repeating the same deterministic failure twice revokes write authority
+and requires architecture re-plan plus a new RCA rather than blind retries.
 """
 from __future__ import annotations
 
@@ -35,6 +35,13 @@ from github_agent_fixer import (  # noqa: E402
     repair_round,
     validate_allowed_paths,
 )
+from github_repair_authority import (  # noqa: E402
+    RepairAuthorityError,
+    rca_fingerprint,
+    revoke_write_grant,
+    validate_write_grant,
+    write_grant_fingerprint,
+)
 
 MAX_CYCLES = 8
 MAX_REPAIR_ROUNDS = 8
@@ -53,23 +60,36 @@ def _load_object(path: Path) -> dict[str, Any]:
 
 
 def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False, timeout=120)
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
 
 
 def _git(workspace: Path, *args: str) -> str:
     completed = _run(["git", *args], workspace)
     if completed.returncode:
-        raise OrchestratorError((completed.stderr or completed.stdout or "git command failed").strip())
+        raise OrchestratorError(
+            (completed.stderr or completed.stdout or "git command failed").strip()
+        )
     return completed.stdout.strip()
 
 
 def _changed_paths(workspace: Path) -> tuple[str, ...]:
-    completed = _run(["git", "status", "--porcelain=v1", "--untracked-files=all"], workspace)
+    completed = _run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        workspace,
+    )
     if completed.returncode:
-        raise OrchestratorError((completed.stderr or completed.stdout or "git status failed").strip())
-    rows = completed.stdout.splitlines()
+        raise OrchestratorError(
+            (completed.stderr or completed.stdout or "git status failed").strip()
+        )
     result: list[str] = []
-    for row in rows:
+    for row in completed.stdout.splitlines():
         raw = row[3:] if len(row) > 3 else ""
         path = raw.split(" -> ")[-1].strip().replace("\\", "/")
         if path and path not in result:
@@ -114,19 +134,25 @@ def _validate_task_binding(task: TaskRunStore, report: dict[str, Any]) -> None:
         "head_sha": report.get("head_sha"),
         "failure_signature": report.get("failure_signature"),
     }
-    mismatched = [key for key, value in expected.items() if str(binding.get(key)) != str(value)]
+    mismatched = [
+        key
+        for key, value in expected.items()
+        if str(binding.get(key)) != str(value)
+    ]
     if mismatched:
         raise OrchestratorError(f"Stage-1 TaskRun binding mismatch: {mismatched}")
 
 
 def _open_task(path: Path) -> TaskRunStore:
-    payload = _load_object(path)
-    return TaskRunStore(path.resolve(), payload)
+    return TaskRunStore(path.resolve(), _load_object(path))
 
 
 def _write_result(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _block(
@@ -139,12 +165,17 @@ def _block(
     result_path: Path,
     cycles: list[dict[str, Any]],
     repair_round_number: int | None = None,
+    governed_state: str = "BLOCKED",
+    next_action: str = "inspect Stage-2 evidence; do not publish this candidate",
+    authority_evidence: dict[str, Any] | None = None,
 ) -> int:
     result = {
         "schema": "github-governed-repair-stage2@1",
         "status": "BLOCKED",
         "code": code,
         "reason": reason,
+        "governed_repair_state": governed_state,
+        "write_authority": False,
         "cycles": cycles,
         "changed_paths": list(_changed_paths(workspace)),
         "repair_round": repair_round_number,
@@ -153,12 +184,19 @@ def _block(
         "draft_pr_published": False,
         "production_closed": False,
     }
+    if authority_evidence:
+        result["authority_evidence"] = authority_evidence
     _write_result(result_path, result)
     task.block(
         code=code,
         reason=reason,
-        attempted_strategies=("restricted-model-fixer", "deterministic-file-verifier"),
-        next_action="inspect Stage-2 evidence; do not publish this candidate",
+        attempted_strategies=(
+            "read-only-root-cause-analysis",
+            "exact-write-grant",
+            "restricted-model-fixer",
+            "deterministic-file-verifier",
+        ),
+        next_action=next_action,
         workspace_fingerprint=_workspace_diff_fingerprint(workspace),
         evidence_refs=[*evidence_refs, str(result_path)],
     )
@@ -200,7 +238,9 @@ def _apply_seed_patch(
         workspace,
     )
     if applied.returncode:
-        raise OrchestratorError((applied.stderr or applied.stdout or "seed git apply failed").strip())
+        raise OrchestratorError(
+            (applied.stderr or applied.stdout or "seed git apply failed").strip()
+        )
     current_paths = _changed_paths(workspace)
     unexpected = sorted(set(current_paths) - set(allowed_paths))
     if unexpected:
@@ -232,6 +272,7 @@ def _update_repair_loop_metadata(
             "repair_round": repair_round_number,
             "max_repair_rounds": max_repair_rounds,
             "phase": "STAGE2_REPAIRING",
+            "governed_repair_state": "WRITE_GRANTED",
             "production_closed": False,
         }
     )
@@ -246,6 +287,8 @@ def run_stage2(
     task_run_path: Path,
     evidence_root: Path,
     max_cycles: int,
+    rca_path: Path,
+    write_grant_path: Path,
     config: ModelConfig | None = None,
     seed_patch_path: Path | None = None,
     repair_round_number: int = 1,
@@ -259,6 +302,8 @@ def run_stage2(
     report = _load_object(failure_case_path)
     task = _open_task(task_run_path)
     cycles: list[dict[str, Any]] = []
+    rca: dict[str, Any] = {}
+    grant: dict[str, Any] = {}
 
     if repair_round_number < 1 or repair_round_number > max_repair_rounds:
         return _block(
@@ -273,11 +318,23 @@ def run_stage2(
             result_path=result_path,
             cycles=cycles,
             repair_round_number=repair_round_number,
+            governed_state="RCA_READ_ONLY",
+            next_action="re-plan the governed repair round before requesting write authority",
         )
 
     try:
         _validate_task_binding(task, report)
-        allowed_paths = _validate_failure_case(report, workspace)
+        candidate_paths = _validate_failure_case(report, workspace)
+        rca = _load_object(rca_path)
+        grant = _load_object(write_grant_path)
+        allowed_paths = validate_write_grant(
+            grant,
+            failure_case=report,
+            rca=rca,
+            candidate_paths=candidate_paths,
+        )
+        if validate_allowed_paths(workspace, allowed_paths) != allowed_paths:
+            raise OrchestratorError("write grant does not match fixer path authority")
         seed_applied, seed_patch_sha256 = _apply_seed_patch(
             workspace=workspace,
             seed_patch_path=seed_patch_path,
@@ -289,33 +346,66 @@ def run_stage2(
             max_repair_rounds=max_repair_rounds,
         )
         config = config or ModelConfig.from_environment()
-    except (OSError, json.JSONDecodeError, OrchestratorError, FixerError) as exc:
+    except (
+        OSError,
+        json.JSONDecodeError,
+        OrchestratorError,
+        FixerError,
+        RepairAuthorityError,
+    ) as exc:
         return _block(
             task,
             workspace=workspace,
             code="STAGE2_PREFLIGHT_REJECTED",
             reason=str(exc),
-            evidence_refs=[str(failure_case_path), str(task_run_path)],
+            evidence_refs=[
+                str(failure_case_path),
+                str(task_run_path),
+                str(rca_path),
+                str(write_grant_path),
+            ],
             result_path=result_path,
             cycles=cycles,
             repair_round_number=repair_round_number,
+            governed_state="RCA_READ_ONLY",
+            next_action="correct RCA/write-grant binding; do not patch source",
         )
+
+    rca_sha = rca_fingerprint(rca)
+    grant_sha = write_grant_fingerprint(grant)
+    authority_evidence = {
+        "rca_sha256": rca_sha,
+        "write_grant_sha256": grant_sha,
+        "violated_invariant": rca.get("violated_invariant"),
+        "authority_owner": rca.get("authority_owner"),
+        "required_permanent_guard": rca.get("required_permanent_guard"),
+        "allowed_paths": list(allowed_paths),
+    }
 
     task.checkpoint(
         status="RUNNING",
-        phase="STAGE2_PREFLIGHT_PASSED",
+        phase="STAGE2_WRITE_GRANTED",
         workspace_fingerprint=_workspace_diff_fingerprint(workspace),
-        evidence_refs=[str(failure_case_path)] + ([str(seed_patch_path)] if seed_patch_path else []),
+        evidence_refs=[
+            str(failure_case_path),
+            str(rca_path),
+            str(write_grant_path),
+            *([str(seed_patch_path)] if seed_patch_path else []),
+        ],
         metadata={
             "stage": 2,
+            "governed_repair_state": "WRITE_GRANTED",
             "max_cycles": max_cycles,
-            "candidate_paths": list(allowed_paths),
+            "candidate_paths": list(candidate_paths),
+            "allowed_paths": list(allowed_paths),
             "provider": config.provider,
             "model": config.model,
             "repair_round": repair_round_number,
             "max_repair_rounds": max_repair_rounds,
             "seed_patch_applied": seed_applied,
             "seed_patch_sha256": seed_patch_sha256,
+            "rca_sha256": rca_sha,
+            "write_grant_sha256": grant_sha,
             "repair_loop": loop_metadata,
         },
     )
@@ -328,12 +418,25 @@ def run_stage2(
     for cycle in range(1, min(max_cycles, MAX_CYCLES) + 1):
         task.checkpoint(
             status="REPAIRING",
-            phase="STAGE2_FIXER_RUNNING",
+            phase="STAGE2_PATCHING",
             workspace_fingerprint=_workspace_diff_fingerprint(workspace),
-            evidence_refs=[str(failure_case_path)],
-            metadata={"cycle": cycle, "repair_round": repair_round_number},
+            evidence_refs=[str(rca_path), str(write_grant_path)],
+            metadata={
+                "cycle": cycle,
+                "repair_round": repair_round_number,
+                "governed_repair_state": "PATCHING",
+                "write_grant_sha256": grant_sha,
+            },
         )
         try:
+            current_grant_paths = validate_write_grant(
+                grant,
+                failure_case=report,
+                rca=rca,
+                candidate_paths=candidate_paths,
+            )
+            if current_grant_paths != allowed_paths:
+                raise OrchestratorError("write authority changed during Stage-2 execution")
             row = repair_round(
                 workspace=workspace,
                 failure_case=report,
@@ -341,17 +444,28 @@ def run_stage2(
                 diagnostics=diagnostics,
                 cycle=cycle,
                 config=config,
+                rca=rca,
+                write_grant=grant,
             )
-        except (FixerError, OSError, subprocess.SubprocessError) as exc:
+        except (
+            FixerError,
+            OSError,
+            subprocess.SubprocessError,
+            RepairAuthorityError,
+            OrchestratorError,
+        ) as exc:
             return _block(
                 task,
                 workspace=workspace,
                 code="STAGE2_FIXER_FAILED",
                 reason=str(exc),
-                evidence_refs=[str(failure_case_path)],
+                evidence_refs=[str(rca_path), str(write_grant_path)],
                 result_path=result_path,
                 cycles=cycles,
                 repair_round_number=repair_round_number,
+                governed_state="RCA_READ_ONLY",
+                next_action="re-enter read-only RCA; do not broaden the write grant",
+                authority_evidence=authority_evidence,
             )
 
         current_paths = _changed_paths(workspace)
@@ -361,11 +475,14 @@ def run_stage2(
                 task,
                 workspace=workspace,
                 code="STAGE2_SCOPE_VIOLATION",
-                reason=f"repair changed paths outside immutable evidence scope: {unexpected}",
-                evidence_refs=[str(failure_case_path)],
+                reason=f"repair changed paths outside exact write grant: {unexpected}",
+                evidence_refs=[str(rca_path), str(write_grant_path)],
                 result_path=result_path,
                 cycles=[*cycles, row],
                 repair_round_number=repair_round_number,
+                governed_state="RCA_READ_ONLY",
+                next_action="revoke write and investigate authority violation",
+                authority_evidence=authority_evidence,
             )
         current_fingerprint = _workspace_diff_fingerprint(workspace)
         if current_fingerprint == before_fingerprint:
@@ -374,25 +491,31 @@ def run_stage2(
                 workspace=workspace,
                 code="STAGE2_NO_PROGRESS",
                 reason="repair cycle produced no new governed source diff beyond the current round seed",
-                evidence_refs=[str(failure_case_path)],
+                evidence_refs=[str(rca_path), str(write_grant_path)],
                 result_path=result_path,
                 cycles=[*cycles, row],
                 repair_round_number=repair_round_number,
+                governed_state="RCA_READ_ONLY",
+                next_action="re-plan root cause before another write attempt",
+                authority_evidence=authority_evidence,
             )
         before_fingerprint = current_fingerprint
         row = dict(row)
         row["repair_round"] = repair_round_number
+        row["rca_sha256"] = rca_sha
+        row["write_grant_sha256"] = grant_sha
         cycles.append(row)
         cycle_file = evidence_root / f"cycle-{cycle:02d}.json"
         _write_result(cycle_file, row)
         task.checkpoint(
             status="VALIDATING",
-            phase="STAGE2_DETERMINISTIC_VALIDATION",
+            phase="STAGE2_LOCAL_VERIFICATION",
             workspace_fingerprint=current_fingerprint,
-            evidence_refs=[str(cycle_file)],
+            evidence_refs=[str(cycle_file), str(write_grant_path)],
             metadata={
                 "cycle": cycle,
                 "repair_round": repair_round_number,
+                "governed_repair_state": "LOCAL_VERIFICATION",
                 "verification_passed": row.get("verification_passed") is True,
             },
         )
@@ -405,12 +528,17 @@ def run_stage2(
                     workspace=workspace,
                     code="STAGE2_EMPTY_PATCH",
                     reason="verification passed without a publishable source diff",
-                    evidence_refs=[str(cycle_file)],
+                    evidence_refs=[str(cycle_file), str(write_grant_path)],
                     result_path=result_path,
                     cycles=cycles,
                     repair_round_number=repair_round_number,
+                    governed_state="RCA_READ_ONLY",
+                    authority_evidence=authority_evidence,
                 )
-            patch_path.write_text(patch + ("\n" if not patch.endswith("\n") else ""), encoding="utf-8")
+            patch_path.write_text(
+                patch + ("\n" if not patch.endswith("\n") else ""),
+                encoding="utf-8",
+            )
             task.mark_condition(
                 "source_changed",
                 evidence_refs=[str(patch_path), f"repair-diff:{current_fingerprint}"],
@@ -419,13 +547,20 @@ def run_stage2(
                 status="WAITING_EXTERNAL_RESULT",
                 phase="STAGE3_VALIDATION_REQUIRED",
                 workspace_fingerprint=current_fingerprint,
-                evidence_refs=[str(patch_path), str(cycle_file)],
+                evidence_refs=[
+                    str(patch_path),
+                    str(cycle_file),
+                    str(rca_path),
+                    str(write_grant_path),
+                ],
                 metadata={
                     "stage2_status": "REPAIR_CANDIDATE_READY",
+                    "governed_repair_state": "INDEPENDENT_REVIEW",
                     "changed_paths": list(current_paths),
                     "next_action": "run independent targeted and full regression validation",
                     "repair_round": repair_round_number,
                     "max_repair_rounds": max_repair_rounds,
+                    **authority_evidence,
                 },
             )
             result = {
@@ -440,7 +575,16 @@ def run_stage2(
                 "seed_patch_sha256": seed_patch_sha256,
                 "cycles": cycles,
                 "changed_paths": list(current_paths),
+                "write_scope": list(allowed_paths),
                 "patch": str(patch_path),
+                "rca_sha256": rca_sha,
+                "write_grant_sha256": grant_sha,
+                "violated_invariant": rca.get("violated_invariant"),
+                "authority_owner": rca.get("authority_owner"),
+                "drifted_projection": rca.get("drifted_projection"),
+                "required_permanent_guard": rca.get("required_permanent_guard"),
+                "governed_repair_state": "INDEPENDENT_REVIEW",
+                "gates": grant.get("gates"),
                 "deterministic_file_verification_passed": True,
                 "full_validation_passed": False,
                 "draft_pr_published": False,
@@ -456,27 +600,53 @@ def run_stage2(
             repeated_verifier_count = 1
             previous_verifier_signature = verifier_signature
         if repeated_verifier_count >= 2:
+            revocation = revoke_write_grant(
+                grant,
+                reason="same_deterministic_failure_signature_twice",
+                failure_signature=verifier_signature,
+            )
+            revocation_path = evidence_root / "write-revocation.json"
+            _write_result(revocation_path, revocation)
             return _block(
                 task,
                 workspace=workspace,
-                code="STAGE2_REPEATED_FAILURE",
-                reason="the same deterministic verification failure repeated twice",
-                evidence_refs=[str(cycle_file)],
+                code="STAGE2_WRITE_REVOKED_REPLAN_REQUIRED",
+                reason=(
+                    "the same deterministic verification failure repeated twice; "
+                    "write authority is revoked until architecture re-plan and a new read-only RCA"
+                ),
+                evidence_refs=[str(cycle_file), str(revocation_path)],
                 result_path=result_path,
                 cycles=cycles,
                 repair_round_number=repair_round_number,
+                governed_state="RCA_READ_ONLY",
+                next_action="ARCHITECTURE_REPLAN_AND_NEW_RCA",
+                authority_evidence={**authority_evidence, "revocation": revocation},
             )
         diagnostics = _canonical_diagnostics(row)
 
+    revocation = revoke_write_grant(
+        grant,
+        reason="stage2_cycle_budget_exhausted",
+        failure_signature=str(report.get("failure_signature") or ""),
+    )
+    revocation_path = evidence_root / "write-revocation.json"
+    _write_result(revocation_path, revocation)
     return _block(
         task,
         workspace=workspace,
         code="STAGE2_CYCLE_BUDGET_EXHAUSTED",
-        reason=f"repair did not reach a deterministic candidate within {min(max_cycles, MAX_CYCLES)} fixer cycles",
-        evidence_refs=[str(failure_case_path)],
+        reason=(
+            "repair did not reach a deterministic candidate within "
+            f"{min(max_cycles, MAX_CYCLES)} fixer cycles"
+        ),
+        evidence_refs=[str(failure_case_path), str(revocation_path)],
         result_path=result_path,
         cycles=cycles,
         repair_round_number=repair_round_number,
+        governed_state="RCA_READ_ONLY",
+        next_action="ARCHITECTURE_REPLAN_AND_NEW_RCA",
+        authority_evidence={**authority_evidence, "revocation": revocation},
     )
 
 
@@ -486,6 +656,8 @@ def main() -> int:
     parser.add_argument("--failure-case", required=True)
     parser.add_argument("--task-run", required=True)
     parser.add_argument("--evidence-root", required=True)
+    parser.add_argument("--rca", required=True)
+    parser.add_argument("--write-grant", required=True)
     parser.add_argument("--max-cycles", type=int, default=8)
     parser.add_argument("--seed-patch")
     parser.add_argument("--repair-round", type=int, default=1)
@@ -503,6 +675,8 @@ def main() -> int:
         task_run_path=Path(args.task_run).resolve(),
         evidence_root=Path(args.evidence_root),
         max_cycles=args.max_cycles,
+        rca_path=Path(args.rca).resolve(),
+        write_grant_path=Path(args.write_grant).resolve(),
         seed_patch_path=Path(args.seed_patch).resolve() if args.seed_patch else None,
         repair_round_number=args.repair_round,
         max_repair_rounds=args.max_repair_rounds,
