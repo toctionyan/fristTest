@@ -4,16 +4,22 @@ from __future__ import annotations
 
 This module is intentionally language-blind. ``goal_planning`` remains the
 semantic verifier boundary and validates literal spans/pair coverage first.
-Here we seal those validated pair decisions as observations and let the pure
-dependency-proof reducer decide maturity. Broad verifier passes are provisional;
-only an explicit adversarial graph-closure phase can satisfy the final closure
-obligation.
+Here we adapt those validated pair decisions into dependency observations and
+let the pure dependency-proof reducer decide maturity.
+
+A pair decision is not proof for every dependency obligation. In particular,
+target compatibility and current-turn result-removal counterfactual necessity
+must arrive as separately validated, premise-bound evidence. Missing, malformed,
+or unsupported obligation evidence stays ``UNKNOWN``. An adversarial closure
+phase may satisfy only the explicit closure obligation; it cannot manufacture
+target/counterfactual proof.
 """
 
 from copy import deepcopy
 from typing import Any
 
 from agent_core.goal_graph.dependency_proof import (
+    FAIL,
     PASS,
     UNKNOWN_RESULT,
     apply_dependency_observation,
@@ -25,7 +31,10 @@ from agent_core.goal_graph.dependency_proof import (
     make_dependency_proof_ledger,
 )
 
-ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION = "alignment-dependency-proof-bridge@1"
+ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION = "alignment-dependency-proof-bridge@2"
+DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT = "validated-dependency-obligation-evidence@1"
+TARGET_COMPATIBILITY_EVIDENCE_CONTRACT = "dependency-target-compatibility@1"
+COUNTERFACTUAL_EVIDENCE_CONTRACT = "current-turn-result-removal-counterfactual@1"
 
 _ADVERSARIAL_CLOSURE_PHASES = {
     "candidate_blind_dependency_positive_edge_adjudication",
@@ -33,10 +42,191 @@ _ADVERSARIAL_CLOSURE_PHASES = {
     "candidate_blind_dependency_effect_collision_adjudication",
     "candidate_blind_dependency_authority_closure",
 }
+_VALIDATED_OBLIGATION_RESULTS = {PASS, FAIL}
+_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 def _text(value: Any, *, limit: int = 1000) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _pair_key(goal_a: str, goal_b: str) -> tuple[str, str]:
+    return tuple(sorted((str(goal_a), str(goal_b))))
+
+
+def _valid_digest(value: Any) -> str | None:
+    digest = _text(value, limit=128).casefold()
+    if len(digest) != 64 or any(char not in _HEX_DIGITS for char in digest):
+        return None
+    return digest
+
+
+def _obligation_evidence_digest(
+    *,
+    contract: str,
+    obligation: str,
+    goal_a: str,
+    goal_b: str,
+    relation: str,
+    premise_digest: str,
+    result: str,
+    evidence: dict[str, Any],
+) -> str:
+    """Bind one validated obligation record to pair, relation and frozen premise."""
+
+    return canonical_digest({
+        "contract": contract,
+        "obligation": obligation,
+        "pair": list(_pair_key(goal_a, goal_b)),
+        "relation": relation,
+        "premise_digest": premise_digest,
+        "result": result,
+        "evidence": deepcopy(evidence),
+    })
+
+
+def _unknown_obligation(reason: str) -> dict[str, Any]:
+    return {
+        "result": UNKNOWN_RESULT,
+        "evidence_digest": None,
+        "validated_evidence": None,
+        "reason": reason,
+    }
+
+
+def _validated_obligation(
+    raw: Any,
+    *,
+    expected_contract: str,
+    obligation: str,
+    goal_a: str,
+    goal_b: str,
+    relation: str,
+    premise_digest: str,
+) -> dict[str, Any]:
+    """Validate an already-adjudicated obligation envelope fail-closed.
+
+    This validates evidence binding/integrity only. It does not interpret user
+    language and must never be fed arbitrary raw model fields. The top-level
+    alignment validator is responsible for inserting this separate evidence
+    contract after its own semantic/counterfactual validation.
+    """
+
+    if not isinstance(raw, dict):
+        return _unknown_obligation("missing_obligation_evidence")
+    if _text(raw.get("contract"), limit=160) != expected_contract:
+        return _unknown_obligation("unsupported_obligation_contract")
+    result = _text(raw.get("result"), limit=32).upper()
+    if result not in _VALIDATED_OBLIGATION_RESULTS:
+        return _unknown_obligation("unsupported_obligation_result")
+    evidence = raw.get("evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        return _unknown_obligation("missing_obligation_evidence_payload")
+    supplied_digest = _valid_digest(raw.get("evidence_digest"))
+    if supplied_digest is None:
+        return _unknown_obligation("invalid_obligation_evidence_digest")
+    expected_digest = _obligation_evidence_digest(
+        contract=expected_contract,
+        obligation=obligation,
+        goal_a=goal_a,
+        goal_b=goal_b,
+        relation=relation,
+        premise_digest=premise_digest,
+        result=result,
+        evidence=evidence,
+    )
+    if supplied_digest != expected_digest:
+        return _unknown_obligation("obligation_evidence_digest_mismatch")
+    return {
+        "result": result,
+        "evidence_digest": supplied_digest,
+        "validated_evidence": {
+            "contract": expected_contract,
+            "result": result,
+            "evidence_digest": supplied_digest,
+            "evidence": deepcopy(evidence),
+        },
+        "reason": "validated_obligation_evidence",
+    }
+
+
+def _validated_pair_obligations(
+    details: dict[str, Any],
+    *,
+    goal_a: str,
+    goal_b: str,
+    relation: str,
+    premise_digest: str,
+) -> dict[str, dict[str, Any]]:
+    """Consume only one exact, premise-bound validated evidence row per pair."""
+
+    unknown = {
+        "target_compatibility": _unknown_obligation("missing_validated_evidence_envelope"),
+        "counterfactual": _unknown_obligation("missing_validated_evidence_envelope"),
+    }
+    envelope = details.get("dependency_obligation_evidence")
+    if not isinstance(envelope, dict):
+        return unknown
+    if _text(envelope.get("contract"), limit=160) != DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT:
+        return {
+            "target_compatibility": _unknown_obligation("unsupported_validated_evidence_envelope"),
+            "counterfactual": _unknown_obligation("unsupported_validated_evidence_envelope"),
+        }
+    rows = envelope.get("pairs")
+    if not isinstance(rows, list):
+        return {
+            "target_compatibility": _unknown_obligation("validated_evidence_pairs_required"),
+            "counterfactual": _unknown_obligation("validated_evidence_pairs_required"),
+        }
+
+    wanted = _pair_key(goal_a, goal_b)
+    matches: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        row_a = _text(raw.get("goal_a_id"), limit=200)
+        row_b = _text(raw.get("goal_b_id"), limit=200)
+        if row_a and row_b and _pair_key(row_a, row_b) == wanted:
+            matches.append(raw)
+    if len(matches) != 1:
+        reason = "duplicate_validated_evidence_pair" if len(matches) > 1 else "missing_validated_evidence_pair"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+
+    row = matches[0]
+    if _text(row.get("relation"), limit=80).casefold() != relation:
+        return {
+            "target_compatibility": _unknown_obligation("validated_evidence_relation_mismatch"),
+            "counterfactual": _unknown_obligation("validated_evidence_relation_mismatch"),
+        }
+    if _text(row.get("premise_digest"), limit=128).casefold() != premise_digest.casefold():
+        return {
+            "target_compatibility": _unknown_obligation("validated_evidence_premise_mismatch"),
+            "counterfactual": _unknown_obligation("validated_evidence_premise_mismatch"),
+        }
+
+    return {
+        "target_compatibility": _validated_obligation(
+            row.get("target_compatibility"),
+            expected_contract=TARGET_COMPATIBILITY_EVIDENCE_CONTRACT,
+            obligation="target_compatibility",
+            goal_a=goal_a,
+            goal_b=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+        ),
+        "counterfactual": _validated_obligation(
+            row.get("counterfactual"),
+            expected_contract=COUNTERFACTUAL_EVIDENCE_CONTRACT,
+            obligation="counterfactual",
+            goal_a=goal_a,
+            goal_b=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+        ),
+    }
 
 
 def alignment_dependency_premise_digest(
@@ -87,9 +277,11 @@ def apply_alignment_dependency_proof(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Apply one already-validated pairwise graph observation set.
 
-    A complete/matching broad pass is deliberately not enough: it leaves
-    ``adversarial_closure=UNKNOWN``. A later graph-closure phase can mature each
-    pair to authority without relying on call number.
+    ``dependency_pair_decisions`` prove pair coverage/relation observations only.
+    Broad complete/matching diagnostics never satisfy proof obligations. An
+    adversarial closure phase may satisfy ``adversarial_closure`` only. Target
+    compatibility and counterfactual remain UNKNOWN until an exact validated
+    obligation evidence envelope is present and bound to this frozen premise.
     """
 
     current = deepcopy(ledger) if isinstance(ledger, dict) else make_dependency_proof_ledger()
@@ -111,6 +303,16 @@ def apply_alignment_dependency_proof(
         if not goal_a or not goal_b or not relation:
             continue
 
+        obligation_evidence = _validated_pair_obligations(
+            details,
+            goal_a=goal_a,
+            goal_b=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+        )
+        target_evidence = obligation_evidence["target_compatibility"]
+        counterfactual_evidence = obligation_evidence["counterfactual"]
+
         prior = dependency_authority_for_pair(current, goal_a, goal_b)
         supersedes = None
         if (
@@ -125,7 +327,24 @@ def apply_alignment_dependency_proof(
             "decision": deepcopy(raw),
             "pairwise_proof_complete": True,
             "source_authority": details.get("dependency_authority"),
+            "obligation_evidence_contract": DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT,
+            "target_compatibility_evidence": deepcopy(target_evidence.get("validated_evidence")),
+            "target_compatibility_evidence_status": target_evidence.get("reason"),
+            "counterfactual_evidence": deepcopy(counterfactual_evidence.get("validated_evidence")),
+            "counterfactual_evidence_status": counterfactual_evidence.get("reason"),
         }
+        counterfactual_digest = counterfactual_evidence.get("evidence_digest")
+        if not counterfactual_digest:
+            counterfactual_digest = canonical_digest({
+                "contract": COUNTERFACTUAL_EVIDENCE_CONTRACT,
+                "obligation": "counterfactual",
+                "pair": list(_pair_key(goal_a, goal_b)),
+                "relation": relation,
+                "premise_digest": premise_digest,
+                "result": UNKNOWN_RESULT,
+                "reason": counterfactual_evidence.get("reason"),
+            })
+
         observation = make_dependency_observation(
             goal_a_id=goal_a,
             goal_b_id=goal_b,
@@ -135,8 +354,8 @@ def apply_alignment_dependency_proof(
             obligations={
                 "grounding": PASS,
                 "semantic_compatibility": PASS,
-                "target_compatibility": PASS,
-                "counterfactual": PASS,
+                "target_compatibility": target_evidence["result"],
+                "counterfactual": counterfactual_evidence["result"],
                 "structural_validity": PASS,
                 "contradiction_free": PASS,
                 "adversarial_closure": closure_result,
@@ -147,11 +366,7 @@ def apply_alignment_dependency_proof(
                 "decision": raw,
                 "proof_complete": True,
             }),
-            counterfactual_proof_digest=canonical_digest({
-                "contract": "current-turn-result-removal-counterfactual@1",
-                "decision": raw,
-                "phase": str(phase or ""),
-            }),
+            counterfactual_proof_digest=str(counterfactual_digest),
             source=f"goal_alignment:{phase or 'unspecified'}",
             basis_kind=_text(raw.get("basis_kind"), limit=80) or None,
             basis_span=_text(raw.get("basis_span"), limit=240) or None,
@@ -216,6 +431,9 @@ def dependency_authority_closed_and_matching(details: dict[str, Any]) -> bool:
 
 __all__ = [
     "ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION",
+    "COUNTERFACTUAL_EVIDENCE_CONTRACT",
+    "DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT",
+    "TARGET_COMPATIBILITY_EVIDENCE_CONTRACT",
     "alignment_dependency_authority_details",
     "alignment_dependency_premise_digest",
     "apply_alignment_dependency_proof",
