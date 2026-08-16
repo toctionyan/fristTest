@@ -1,6 +1,6 @@
-release_request: 2026-08-16T10:56:00+08:00
+release_request: 2026-08-16T12:45:00+08:00
 provider: deepseek
 model: deepseek-v4-flash
 embedding_model: text-embedding-v4
 embedding_dimension: 1024
-reason: certify dependency proof obligation-evidence closure after main a1d2d8ec5aac0b069a2a838a93a1f636dcd65d6d passed full post-merge quality and integration
+reason: certify Release 55 semantic dependency repair after main 47dbc501b5874dbe2df6631c4396cb23e515c21c passed full post-merge quality and integration
