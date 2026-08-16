@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "verification_kind": "clean_baseline_to_candidate_transition",
+  "verified_base_sha": "51dfef01c9d8453bf57cb0eaa176e390733b8dbf",
+  "verified_head_sha": "a1e94b26e519499d902e385d8922cfb0900d9156",
+  "github_actions": {
+    "run_id": 31920581085,
+    "job_id": 95099728813,
+    "workflow": "stage42-clean-candidate-verification",
+    "artifact_id": 9256233212,
+    "artifact_name": "stage42-clean-candidate-verification",
+    "artifact_sha256": "3b4f0ecf758ea444f1bbba4f40827e0e074c790819309bdbcee345135f3ad6fc"
+  },
+  "target_identity": {
+    "id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "change_ref": "portable-repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "context": "local-change",
+    "fingerprint": "3986038e8db70d6094274e5a23327b489946667386a2f7b9bc43ff700b01a21b",
+    "claim_manifest_fingerprint": "13e9f9ad488ee6a51a174e2df97686b414991e6e30ebc5d44f3887488502d8e1",
+    "policy_fingerprint": "49c73e84eb01c42ed6515cd09d7b7a9565d7f75cdcb855225a37adebf6d9f1a2"
+  },
+  "baseline": {
+    "decision": "FAIL",
+    "loop_status": "BASELINE_RECORDED",
+    "workspace_snapshot_fingerprint": "a844ad3e562a8916f98235b90f36c35f943e8a4c374cc063efda839d66520e6a",
+    "claim_id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
+    "claim_status": "FAILED",
+    "gate_id": "stage42-red-proof",
+    "gate_status": "FAIL",
+    "observed": {
+      "graph_complete": true,
+      "edges": [
+        {
+          "dependent_goal_id": "g2",
+          "requires_result_of_goal_id": "g1"
+        }
+      ],
+      "maturity": "AUTHORITATIVE",
+      "target_compatibility": "PASS",
+      "counterfactual": "PASS",
+      "adversarial_closure": "PASS"
+    }
+  },
+  "candidate": {
+    "decision": "PASS",
+    "loop_status": "CONVERGED",
+    "workspace_snapshot_fingerprint": "52e5724718fc734606da1987582799e832e0aeb060df0ea5a9b12b647b5f6f37",
+    "claim_id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
+    "claim_status": "VERIFIED",
+    "gate_id": "stage42-red-proof",
+    "gate_status": "PASS",
+    "observed": {
+      "graph_complete": false,
+      "edges": [],
+      "maturity": "GROUNDED",
+      "target_compatibility": "UNKNOWN",
+      "counterfactual": "UNKNOWN",
+      "adversarial_closure": "PASS"
+    }
+  },
+  "focused_regressions": {
+    "status": "PASS",
+    "passed": 36,
+    "duration_seconds": 0.5
+  },
+  "scope_assertions": {
+    "dependency_proof_py_unchanged": true,
+    "capability_gate_unchanged": true,
+    "transaction_authority_unchanged": true,
+    "business_authority_unchanged": true,
+    "production_activation_unchanged": true,
+    "allowed_product_paths_only": [
+      "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+      "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+      "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+      "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py"
+    ]
+  },
+  "evidence_authority": {
+    "portable_authority_claimed": false,
+    "note": "The GitHub artifact is a durable audit/reference to the clean run. Quality evidence attestations are workspace/trust-key local and are not promoted or re-signed as portable authority. Closure relies on the clean run identity, immutable target/claim/policy fingerprints, RED-to-GREEN transition, focused test result, and repository-owned CI status."
+  },
+  "result": "CLEAN_TRANSITION_VERIFIED"
+}
