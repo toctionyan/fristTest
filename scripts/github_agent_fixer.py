@@ -406,7 +406,27 @@ def verify_changed_files(
         suffix = Path(path).suffix.lower()
         absolute = root / path
         if suffix == ".py":
-            passed, output = _run([sys.executable, "-m", "py_compile", str(absolute)], root)
+            # Syntax verification must be observationally read-only. Running
+            # ``python -m py_compile`` against the candidate path creates an
+            # untracked __pycache__ entry beside governed source, which dirties
+            # the workspace and can make the independent Stage-3 commit fail for
+            # reasons caused by the verifier itself. Compile to an isolated
+            # temporary cfile instead.
+            with tempfile.TemporaryDirectory(prefix="governed-repair-pycompile-") as temp:
+                pyc = Path(temp) / "candidate.pyc"
+                passed, output = _run(
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import py_compile,sys; "
+                            "py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)"
+                        ),
+                        str(absolute),
+                        str(pyc),
+                    ],
+                    root,
+                )
         elif suffix == ".json":
             try:
                 json.loads(absolute.read_text(encoding="utf-8"))
