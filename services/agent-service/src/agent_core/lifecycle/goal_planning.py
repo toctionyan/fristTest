@@ -159,6 +159,26 @@ def _literal_spans(user_text: str, values: Any) -> tuple[str, ...]:
     return tuple(rows)
 
 
+def _dependency_observation_mismatch_ready(details: dict[str, Any]) -> bool:
+    """Allow pair-complete observation evidence to drive redeclaration only.
+
+    This is intentionally weaker than dependency authority.  It exists so a
+    candidate-blind, pair-complete mismatch can tell the semantic writer which
+    declared dependency relation to repair even while target/counterfactual
+    obligations remain UNKNOWN.  It must never be used for execution or graph
+    authority.
+    """
+
+    return bool(
+        isinstance(details, dict)
+        and details.get("dependency_maturity_authority")
+        == "deterministic_dependency_proof_reducer"
+        and details.get("dependency_observation_complete") is True
+        and details.get("dependency_observed_graph_match") is False
+        and details.get("dependency_observation_authority_effect") is False
+    )
+
+
 def _as_alignment_verdict(
     value: GoalAlignmentVerdict | dict[str, Any],
     *,
@@ -200,9 +220,15 @@ def _as_alignment_verdict(
         and details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
-        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"
-        and details.get("dependency_authority_complete") is True
-        and details.get("dependency_authority_graph_match") is False
+        and (
+            (
+                details.get("dependency_maturity_authority")
+                == "deterministic_dependency_proof_reducer"
+                and details.get("dependency_authority_complete") is True
+                and details.get("dependency_authority_graph_match") is False
+            )
+            or _dependency_observation_mismatch_ready(details)
+        )
     )
     if verdict == "exact" and not evidence:
         return GoalAlignmentVerdict(
@@ -2278,9 +2304,15 @@ def _alignment_repair_feedback(alignment: GoalAlignmentVerdict) -> dict[str, Any
         details.get("dependency_authority") == "independent_goal_alignment"
         and details.get("dependency_proof_complete") is True
         and details.get("dependency_graph_match") is False
-        and details.get("dependency_maturity_authority") == "deterministic_dependency_proof_reducer"
-        and details.get("dependency_authority_complete") is True
-        and details.get("dependency_authority_graph_match") is False
+        and (
+            (
+                details.get("dependency_maturity_authority")
+                == "deterministic_dependency_proof_reducer"
+                and details.get("dependency_authority_complete") is True
+                and details.get("dependency_authority_graph_match") is False
+            )
+            or _dependency_observation_mismatch_ready(details)
+        )
     ):
         return {}
 

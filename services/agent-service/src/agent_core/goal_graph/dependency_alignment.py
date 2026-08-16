@@ -367,6 +367,11 @@ def alignment_dependency_authority_details(
     goals: list[dict[str, Any]],
 ) -> dict[str, Any]:
     current = deepcopy(ledger) if isinstance(ledger, dict) else make_dependency_proof_ledger()
+    goal_ids = [
+        str(goal.get("goal_id") or "")
+        for goal in goals
+        if isinstance(goal, dict) and str(goal.get("goal_id") or "")
+    ]
     declared_edges = [
         {
             "dependent_goal_id": str(goal.get("goal_id") or ""),
@@ -379,8 +384,61 @@ def alignment_dependency_authority_details(
     ]
     diff = dependency_graph_diff(
         current,
-        goal_ids=[str(goal.get("goal_id") or "") for goal in goals if isinstance(goal, dict)],
+        goal_ids=goal_ids,
         declared_edges=declared_edges,
+    )
+
+    # Keep a diagnostic projection of complete pair observations separate from
+    # dependency authority.  Stage 4.2 deliberately leaves a pair GROUNDED when
+    # target/counterfactual evidence is absent, but a complete candidate-blind
+    # pair table is still safe evidence for declaration-repair feedback.  This
+    # projection never makes ``dependency_authority_complete`` true and is not
+    # consumed by the reducer.
+    expected_pairs = {
+        tuple(sorted((goal_ids[left], goal_ids[right])))
+        for left in range(len(goal_ids))
+        for right in range(left + 1, len(goal_ids))
+    }
+    observed_pairs: set[tuple[str, str]] = set()
+    observed_edges: set[tuple[str, str]] = set()
+    observed_decisions: list[dict[str, str]] = []
+    for state in (current.get("states") or {}).values():
+        if not isinstance(state, dict):
+            continue
+        goal_a = _text(state.get("goal_a_id"), limit=200)
+        goal_b = _text(state.get("goal_b_id"), limit=200)
+        relation = _text(state.get("relation"), limit=80).casefold()
+        maturity = _text(state.get("maturity"), limit=40).upper()
+        if not goal_a or not goal_b:
+            continue
+        pair = tuple(sorted((goal_a, goal_b)))
+        if (
+            pair not in expected_pairs
+            or maturity not in {"GROUNDED", "AUTHORITATIVE"}
+            or relation not in {"independent", "a_depends_on_b", "b_depends_on_a"}
+        ):
+            continue
+        observed_pairs.add(pair)
+        observed_decisions.append({
+            "goal_a_id": goal_a,
+            "goal_b_id": goal_b,
+            "relation": relation,
+        })
+        if relation == "a_depends_on_b":
+            observed_edges.add((goal_a, goal_b))
+        elif relation == "b_depends_on_a":
+            observed_edges.add((goal_b, goal_a))
+
+    declared_edge_set = {
+        (
+            str(row.get("dependent_goal_id") or ""),
+            str(row.get("requires_result_of_goal_id") or ""),
+        )
+        for row in declared_edges
+    }
+    observation_complete = observed_pairs == expected_pairs
+    observation_graph_match = bool(
+        observation_complete and observed_edges == declared_edge_set
     )
     return {
         "dependency_maturity_authority": "deterministic_dependency_proof_reducer",
@@ -392,8 +450,24 @@ def alignment_dependency_authority_details(
         "dependency_authority_unresolved_pairs": list(diff.get("unresolved_pairs") or []),
         "dependency_authority_graph_proof_digest": diff.get("graph_proof_digest"),
         "dependency_authority_ledger_digest": current.get("ledger_digest"),
+        "dependency_observation_complete": observation_complete,
+        "dependency_observed_graph_match": observation_graph_match,
+        "dependency_observed_edges": [
+            {
+                "dependent_goal_id": dependent,
+                "requires_result_of_goal_id": prerequisite,
+            }
+            for dependent, prerequisite in sorted(observed_edges)
+        ],
+        "dependency_observed_pair_decisions": sorted(
+            observed_decisions,
+            key=lambda row: (
+                str(row["goal_a_id"]),
+                str(row["goal_b_id"]),
+            ),
+        ),
+        "dependency_observation_authority_effect": False,
     }
-
 
 def dependency_authority_closed_and_matching(details: dict[str, Any]) -> bool:
     return bool(
