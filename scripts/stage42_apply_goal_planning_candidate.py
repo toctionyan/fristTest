@@ -10,6 +10,7 @@ PATH = Path("services/agent-service/src/agent_core/lifecycle/goal_planning.py")
 IMPORT_OLD = '''from agent_core.goal_graph.dependency_alignment import (
     alignment_dependency_authority_details,
     apply_alignment_dependency_proof,
+    dependency_authority_closed_and_matching,
 )
 '''
 IMPORT_NEW = '''from agent_core.goal_graph.dependency_alignment import (
@@ -20,6 +21,7 @@ IMPORT_NEW = '''from agent_core.goal_graph.dependency_alignment import (
     alignment_dependency_authority_details,
     alignment_dependency_premise_digest,
     apply_alignment_dependency_proof,
+    dependency_authority_closed_and_matching,
 )
 '''
 
