@@ -1,0 +1,66 @@
+name: governed-repair-required-guard-migration
+
+on:
+  push:
+    branches:
+      - architecture/governed-repair-rca-write-grant-20260816
+    paths:
+      - .github/governed-repair-required-guard-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: architecture/governed-repair-rca-write-grant-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply permanent machine-guard binding
+        run: |
+          set -euo pipefail
+          python -B scripts/migrate_governed_repair_required_guard.py
+          python -m py_compile \
+            scripts/github_repair_authority.py \
+            scripts/github_repair_orchestrator.py \
+            scripts/github_stage2_handoff.py \
+            scripts/github_repair_stage3.py \
+            scripts/github_repair_stage3_publish.py \
+            scripts/github_repair_stage3_record_publication.py \
+            scripts/github_repair_governance.py \
+            scripts/github_repair_baseline_acceptance.py \
+            scripts/github_repair_exact_head.py \
+            scripts/verify_governed_repair_architecture.py \
+            skill-system/tests/test_github_repair_authority.py \
+            skill-system/tests/test_github_repair_stage3_authority.py
+      - name: Run focused permanent-guard tests
+        run: |
+          set -euo pipefail
+          for pattern in \
+            test_github_repair_authority.py \
+            test_github_repair_rca.py \
+            test_github_repair_stage3_authority.py; do
+            python -B -m unittest discover -v -s skill-system/tests -p "${pattern}"
+          done
+          python -B scripts/verify_governed_repair_architecture.py
+      - name: Remove temporary migration authority
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/governed-repair-required-guard-migration.yml
+          git rm .github/governed-repair-required-guard-trigger
+          git rm scripts/migrate_governed_repair_required_guard.py
+          git diff --check
+      - name: Commit permanent guard binding
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(repair): require machine guard re-verification'
+          git push origin HEAD:architecture/governed-repair-rca-write-grant-20260816
