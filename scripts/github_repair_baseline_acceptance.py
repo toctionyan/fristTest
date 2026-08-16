@@ -24,12 +24,17 @@ CONTROL = ROOT / "skill-system" / "controller"
 if str(CONTROL) not in sys.path:
     sys.path.insert(0, str(CONTROL))
 
+from product_source_baseline_policy import (  # type: ignore  # noqa: E402
+    BASELINE_PATH,
+    BaselineMode,
+    ProductSourcePolicyError,
+    evaluate_binding,
+    load_baseline_document,
+)
 from task_run import TaskRunStore  # type: ignore  # noqa: E402
 
 GOVERNANCE_SCHEMA = "governed-repair-governance@1"
 BASELINE_SCHEMA = "governed-baseline-acceptance@1"
-BASELINE_PATH = "skill-system/registry/product-source-baseline.json"
-IGNORED_PARTS = {".venv", "node_modules", "__pycache__", ".pytest_cache"}
 
 
 class BaselineAcceptanceError(RuntimeError):
@@ -73,20 +78,6 @@ def _git(workspace: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def _hash_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _recorded_paths_under_root(recorded: dict[str, str], root_name: str) -> list[str]:
-    normalized = root_name.rstrip("/")
-    prefix = normalized + "/"
-    return sorted(
-        path
-        for path in recorded
-        if path == normalized or path.startswith(prefix)
-    )
-
-
 def _current_protected_files(
     workspace: Path,
     baseline: dict[str, Any],
@@ -95,20 +86,20 @@ def _current_protected_files(
     roots = baseline.get("protected_roots")
     if not isinstance(roots, list) or not roots:
         raise BaselineAcceptanceError("baseline protected_roots are missing")
-    current: dict[str, str] = {}
-    for raw in roots:
-        name = str(raw or "").strip().replace("\\", "/")
-        root = workspace / name
-        if not root.is_dir():
-            if _recorded_paths_under_root(recorded, name):
-                raise BaselineAcceptanceError(f"protected root is missing: {name}")
-            continue
-        for path in sorted(item for item in root.rglob("*") if item.is_file()):
-            if any(part in IGNORED_PARTS for part in path.parts):
-                continue
-            relative = path.relative_to(workspace).as_posix()
-            current[relative] = _hash_file(path)
-    return current
+    try:
+        binding = evaluate_binding(
+            workspace,
+            expected=recorded,
+            protected_roots=tuple(str(item).rstrip("/") for item in roots),
+            mode=BaselineMode.BASELINE_ACCEPTANCE,
+        )
+    except ProductSourcePolicyError as exc:
+        raise BaselineAcceptanceError(str(exc)) from exc
+    for error in binding.errors:
+        if error.startswith("protected_root_missing:"):
+            root_name = error.split(":", 1)[1]
+            raise BaselineAcceptanceError(f"protected root is missing: {root_name}")
+    return binding.current
 
 
 def _validate_governance(receipt: dict[str, Any]) -> dict[str, Any]:
@@ -169,18 +160,25 @@ def accept_baseline(
     if _git(workspace, "status", "--porcelain=v1", "--untracked-files=all"):
         raise BaselineAcceptanceError("baseline workspace must start clean")
 
+    try:
+        document = load_baseline_document(workspace)
+        binding = evaluate_binding(
+            workspace,
+            expected=document.files,
+            protected_roots=document.protected_roots,
+            mode=BaselineMode.BASELINE_ACCEPTANCE,
+        )
+    except ProductSourcePolicyError as exc:
+        raise BaselineAcceptanceError(str(exc)) from exc
+    for error in binding.errors:
+        if error.startswith("protected_root_missing:"):
+            root_name = error.split(":", 1)[1]
+            raise BaselineAcceptanceError(f"protected root is missing: {root_name}")
+
     baseline_path = workspace / BASELINE_PATH
-    baseline = _load(baseline_path)
-    files = baseline.get("files")
-    if not isinstance(files, dict):
-        raise BaselineAcceptanceError("baseline files map is missing")
-    recorded = {str(key): str(value) for key, value in files.items()}
-    current = _current_protected_files(workspace, baseline, recorded)
-    observed_drift = {
-        path
-        for path in set(recorded) | set(current)
-        if recorded.get(path) != current.get(path)
-    }
+    baseline = dict(document.payload)
+    current = dict(binding.current)
+    observed_drift = set(binding.drift_paths)
     approved_source = {
         str(path or "").strip().replace("\\", "/")
         for path in governance.get("approved_source_paths") or []
@@ -188,11 +186,7 @@ def accept_baseline(
     }
     if not approved_source:
         raise BaselineAcceptanceError("governance approved no source paths")
-    protected_roots = {
-        str(root or "").strip().replace("\\", "/").rstrip("/")
-        for root in baseline.get("protected_roots") or []
-        if str(root or "").strip()
-    }
+    protected_roots = set(document.protected_roots)
     approved = {
         path
         for path in approved_source

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 CONTROLLER = Path(__file__).resolve().parents[1] / "controller"
 if str(CONTROLLER) not in sys.path:
@@ -22,6 +24,16 @@ def write(path: Path, value: object) -> None:
         path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def baseline(files: dict[str, str]) -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "protected_roots": ["services", "web", "contracts"],
+        "file_count": len(files),
+        "files": files,
+        "generated_from": "git:" + "0" * 40,
+    }
+
+
 class ProjectCompatibilityPermitTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -35,7 +47,7 @@ class ProjectCompatibilityPermitTest(unittest.TestCase):
             write(self.root / path, "# entrypoint\n")
         write(
             self.root / "skill-system/registry/product-source-baseline.json",
-            {"files": {"services/obsolete.py": "deadbeef"}},
+            baseline({"services/obsolete.py": "d" * 64}),
         )
         self.change_id = "skill-repair-compat-001"
         case = self.root / "governance/repair-cases" / self.change_id
@@ -96,59 +108,74 @@ class ProjectCompatibilityPermitTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def _close_change(self) -> None:
+        closed = dict(self.contract)
+        closed["status"] = "closed"
+        closed["result"] = "CONVERGED"
+        write(self.root / "governance/active-change.json", closed)
+
+    def _write_current_baseline(self) -> None:
+        current_hash = file_sha256(self.root / "services/app.py")
+        write(
+            self.root / "skill-system/registry/product-source-baseline.json",
+            baseline({"services/app.py": current_hash}),
+        )
+
     def test_stale_historical_baseline_is_not_used_for_active_skill_repair(self) -> None:
         result = evaluate(self.root)
         self.assertEqual(result["status"], "PASS")
         self.assertTrue(result["baseline_authority"].startswith("change-permit:"))
-
+        self.assertEqual(result["baseline_mode"], "permit_bound")
 
     def test_closed_change_uses_promoted_historical_baseline(self) -> None:
-        current_hash = file_sha256(self.root / "services/app.py")
-        write(
-            self.root / "skill-system/registry/product-source-baseline.json",
-            {"files": {"services/app.py": current_hash}},
-        )
-        closed = dict(self.contract)
-        closed["status"] = "closed"
-        closed["result"] = "CONVERGED"
-        write(self.root / "governance/active-change.json", closed)
-
+        self._write_current_baseline()
+        self._close_change()
         result = evaluate(self.root)
-
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["baseline_authority"], "historical-registry-baseline")
 
     def test_rejected_change_cannot_override_historical_baseline(self) -> None:
-        current_hash = file_sha256(self.root / "services/app.py")
-        write(
-            self.root / "skill-system/registry/product-source-baseline.json",
-            {"files": {"services/app.py": current_hash}},
-        )
+        self._write_current_baseline()
         rejected = dict(self.contract)
         rejected["status"] = "rejected"
         rejected["result"] = "FAILED"
         write(self.root / "governance/active-change.json", rejected)
-
         result = evaluate(self.root)
-
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["baseline_authority"], "historical-registry-baseline")
 
+    def test_pull_request_historical_candidate_drift_is_pre_acceptance(self) -> None:
+        self._close_change()
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request"}, clear=False):
+            result = evaluate(self.root)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["baseline_mode"], "pr_candidate")
+        self.assertEqual(result["protected_file_count"], 1)
+        self.assertEqual(result["baseline_file_count"], 1)
+        self.assertEqual(result["drift_paths"], ["services/app.py", "services/obsolete.py"])
+
+    def test_accepted_ref_historical_candidate_drift_still_fails(self) -> None:
+        self._close_change()
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push"}, clear=False):
+            result = evaluate(self.root)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["baseline_mode"], "accepted_ref")
+        self.assertTrue(any(item.startswith("product_source_changed:") for item in result["errors"]))
+
+    def test_pull_request_invalid_historical_baseline_still_fails_closed(self) -> None:
+        self._close_change()
+        write(self.root / "skill-system/registry/product-source-baseline.json", {"files": []})
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request"}, clear=False):
+            result = evaluate(self.root)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertTrue(any(item.startswith("invalid_product_source_baseline:") for item in result["errors"]))
+        self.assertEqual(result["baseline_authority"], "unavailable")
 
     def test_pytest_cache_is_not_product_source(self) -> None:
-        current_hash = file_sha256(self.root / "services/app.py")
-        write(
-            self.root / "skill-system/registry/product-source-baseline.json",
-            {"files": {"services/app.py": current_hash}},
-        )
-        closed = dict(self.contract)
-        closed["status"] = "closed"
-        closed["result"] = "CONVERGED"
-        write(self.root / "governance/active-change.json", closed)
+        self._write_current_baseline()
+        self._close_change()
         write(self.root / "services/.pytest_cache/v/cache/nodeids", "[]")
-
         result = evaluate(self.root)
-
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["protected_file_count"], 1)
 
@@ -156,6 +183,16 @@ class ProjectCompatibilityPermitTest(unittest.TestCase):
         write(self.root / "services/app.py", "VALUE = 2\n")
         result = evaluate(self.root)
         self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["baseline_mode"], "permit_bound")
+        self.assertTrue(any("product_source_changed:services/app.py" in item for item in result["errors"]))
+
+    def test_pull_request_permit_bound_drift_still_fails_closed(self) -> None:
+        write(self.root / "services/app.py", "VALUE = 2\n")
+        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "pull_request"}, clear=False):
+            result = evaluate(self.root)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["baseline_mode"], "permit_bound")
+        self.assertTrue(result["baseline_authority"].startswith("change-permit:"))
         self.assertTrue(any("product_source_changed:services/app.py" in item for item in result["errors"]))
 
 
