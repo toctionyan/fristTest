@@ -5,14 +5,15 @@ from __future__ import annotations
 
 This controller cannot merge or deploy.  It validates the governed baseline
 acceptance receipt, requires the exact baseline commit to be the PR head, requires
-mandatory PR workflows to have succeeded on that exact SHA, marks the final
-TaskRun conditions, and emits READY_FOR_REVIEW.  A caller may then convert the
-Draft PR to Ready for review and nothing more.
+mandatory PR-triggered workflows for that exact pull request to have succeeded on
+that exact SHA, marks the final TaskRun conditions, and emits READY_FOR_REVIEW. A
+caller may then convert the Draft PR to Ready for review and nothing more.
 """
 
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,17 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _pr_number_from_url(raw: object) -> int:
+    value = str(raw or "").strip().rstrip("/")
+    match = re.search(r"/pull/(\d+)$", value)
+    if match is None:
+        raise ExactHeadError("Draft PR URL does not contain a valid pull request number")
+    number = int(match.group(1))
+    if number <= 0:
+        raise ExactHeadError("Draft PR number is invalid")
+    return number
+
+
 def finalize_exact_head(
     *,
     baseline_receipt_path: Path,
@@ -98,10 +110,16 @@ def finalize_exact_head(
         raise ExactHeadError("unsupported exact-head CI evidence")
     if str(ci.get("head_sha") or "") != exact_sha:
         raise ExactHeadError("CI evidence is not bound to the baseline commit")
-    if str(ci.get("pr_url") or "") != str(baseline.get("draft_pr_url") or ""):
+    draft_pr_url = str(baseline.get("draft_pr_url") or "")
+    if str(ci.get("pr_url") or "") != draft_pr_url:
         raise ExactHeadError("CI evidence PR binding mismatch")
+    expected_pr_number = _pr_number_from_url(draft_pr_url)
+    if int(ci.get("pr_number") or 0) != expected_pr_number:
+        raise ExactHeadError("CI evidence pull request number mismatch")
     if ci.get("pr_is_draft") is not True:
         raise ExactHeadError("PR must remain Draft during exact-head certification")
+    if str(ci.get("pr_head_sha") or "") != exact_sha:
+        raise ExactHeadError("Draft PR head is not the baseline commit")
 
     workflows = ci.get("workflows")
     if not isinstance(workflows, dict):
@@ -112,6 +130,10 @@ def finalize_exact_head(
             raise ExactHeadError(f"mandatory workflow evidence is missing: {workflow}")
         if str(row.get("head_sha") or "") != exact_sha:
             raise ExactHeadError(f"workflow {workflow} ran on the wrong SHA")
+        if row.get("event") != "pull_request":
+            raise ExactHeadError(f"workflow {workflow} is not a pull_request run")
+        if int(row.get("pr_number") or 0) != expected_pr_number:
+            raise ExactHeadError(f"workflow {workflow} ran for the wrong pull request")
         if row.get("status") != "completed" or row.get("conclusion") != "success":
             raise ExactHeadError(f"mandatory exact-head workflow did not succeed: {workflow}")
         if not str(row.get("run_id") or "").isdigit():
@@ -142,8 +164,9 @@ def finalize_exact_head(
             f"governance-sha256:{baseline.get('governance_sha256')}",
             f"baseline-acceptance-sha256:{baseline.get('baseline_acceptance_sha256')}",
             f"exact-head:{exact_sha}",
+            f"pull-request:{expected_pr_number}",
             *[
-                f"workflow:{name}:run:{workflows[name]['run_id']}"
+                f"workflow:{name}:pull-request:{expected_pr_number}:run:{workflows[name]['run_id']}"
                 for name in MANDATORY_WORKFLOWS
             ],
         ],
@@ -158,8 +181,9 @@ def finalize_exact_head(
         evidence_refs=[
             str(ci_evidence_path),
             f"exact-head:{exact_sha}",
+            f"pull-request:{expected_pr_number}",
             *[
-                f"workflow:{name}:run:{workflows[name]['run_id']}"
+                f"workflow:{name}:pull-request:{expected_pr_number}:run:{workflows[name]['run_id']}"
                 for name in MANDATORY_WORKFLOWS
             ],
         ],
@@ -187,6 +211,7 @@ def finalize_exact_head(
         "repository": baseline.get("repository"),
         "source_run_id": baseline.get("source_run_id"),
         "draft_pr_url": baseline.get("draft_pr_url"),
+        "pull_request_number": expected_pr_number,
         "repair_branch": baseline.get("repair_branch"),
         "repair_base_branch": baseline.get("repair_base_branch"),
         "published_source_sha": baseline.get("published_source_sha"),
@@ -225,7 +250,7 @@ def main() -> int:
             task_run_path=Path(args.task_run),
             output_path=Path(args.output),
         )
-    except (OSError, json.JSONDecodeError, ExactHeadError) as exc:
+    except (OSError, json.JSONDecodeError, ExactHeadError, ValueError) as exc:
         print(
             json.dumps(
                 {
