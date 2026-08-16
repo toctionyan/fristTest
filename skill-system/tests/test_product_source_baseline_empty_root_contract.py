@@ -39,24 +39,25 @@ class ProductSourceBaselineEmptyRootContractTests(unittest.TestCase):
         digest = hashlib.sha256(source.read_bytes()).hexdigest()
         return temporary, root, digest
 
+    @staticmethod
+    def _baseline(files: dict[str, str]) -> dict[str, object]:
+        return {
+            "schema_version": 2,
+            "protected_roots": ["services", "web"],
+            "file_count": len(files),
+            "files": files,
+            "generated_from": "git:" + "0" * 40,
+        }
+
     def test_verifier_allows_missing_root_with_zero_recorded_files(self) -> None:
         temporary, root, digest = self._workspace()
         with temporary:
             baseline_path = root / self.verifier.BASELINE_PATH
             baseline_path.parent.mkdir(parents=True, exist_ok=True)
             baseline_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 2,
-                        "protected_roots": ["services", "web"],
-                        "file_count": 1,
-                        "files": {"services/example.py": digest},
-                        "generated_from": "git:unused-without-parent-binding",
-                    }
-                ),
+                json.dumps(self._baseline({"services/example.py": digest})),
                 encoding="utf-8",
             )
-
             result = self.verifier.verify(root, require_parent_binding=False)
 
         self.assertEqual(result["status"], "PASS")
@@ -70,20 +71,15 @@ class ProductSourceBaselineEmptyRootContractTests(unittest.TestCase):
             baseline_path.parent.mkdir(parents=True, exist_ok=True)
             baseline_path.write_text(
                 json.dumps(
-                    {
-                        "schema_version": 2,
-                        "protected_roots": ["services", "web"],
-                        "file_count": 2,
-                        "files": {
+                    self._baseline(
+                        {
                             "services/example.py": digest,
                             "web/index.html": "0" * 64,
-                        },
-                        "generated_from": "git:unused-without-parent-binding",
-                    }
+                        }
+                    )
                 ),
                 encoding="utf-8",
             )
-
             with self.assertRaisesRegex(
                 self.verifier.BaselineVerificationError,
                 r"protected root is missing: web",
@@ -94,17 +90,11 @@ class ProductSourceBaselineEmptyRootContractTests(unittest.TestCase):
         temporary, root, digest = self._workspace()
         with temporary:
             recorded = {"services/example.py": digest}
-            baseline = {
-                "protected_roots": ["services", "web"],
-                "files": recorded,
-            }
-
             current = self.acceptance._current_protected_files(
                 root,
-                baseline,
+                {"protected_roots": ["services", "web"], "files": recorded},
                 recorded,
             )
-
         self.assertEqual(current, recorded)
 
     def test_acceptance_scanner_rejects_missing_root_with_recorded_file(self) -> None:
@@ -114,18 +104,13 @@ class ProductSourceBaselineEmptyRootContractTests(unittest.TestCase):
                 "services/example.py": digest,
                 "web/index.html": "0" * 64,
             }
-            baseline = {
-                "protected_roots": ["services", "web"],
-                "files": recorded,
-            }
-
             with self.assertRaisesRegex(
                 self.acceptance.BaselineAcceptanceError,
                 r"protected root is missing: web",
             ):
                 self.acceptance._current_protected_files(
                     root,
-                    baseline,
+                    {"protected_roots": ["services", "web"], "files": recorded},
                     recorded,
                 )
 
