@@ -1,3 +1,4 @@
+# Carrier rerun after governance workflow cleanup.
 name: release55-product-red
 
 on:
@@ -58,7 +59,6 @@ jobs:
           PY
 
           source="services/agent-service/src/agent_core/lifecycle/goal_planning.py"
-          test_file="services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
           if grep -Fq "basis in output_span or output_span in basis" "$source"; then
             cd services/agent-service
             set +e
