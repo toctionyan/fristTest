@@ -2,10 +2,10 @@ from __future__ import annotations
 
 """Canonical structural lifecycle contract for governed repair.
 
-This module defines state/gate names and protected authority facts only. It has no
+This module owns state/gate names and protected authority facts only. It has no
 source-edit, baseline, merge, deployment, or completion side effects. Runtime
-controllers project these constants into their evidence; mechanical verification
-rejects drift between the contract and those projections.
+controllers project these constants into evidence; mechanical verification rejects
+drift between this contract and those projections.
 """
 
 import hashlib
@@ -27,12 +27,14 @@ STATE_MACHINE = (
     "INDEPENDENT_REVIEW",
     "ANTI_DRIFT_PROOF",
     "PR_CERTIFICATION",
+    "GOVERNANCE_REQUIRED",
     "GOVERNANCE_CLOSED",
     "BASELINE_ACCEPTED",
     "EXACT_HEAD_CERTIFICATION",
     "READY_FOR_REVIEW",
 )
 
+# A write grant is legal only after this exact prefix has been traversed.
 PREWRITE_STATES = STATE_MACHINE[:6]
 
 GATES = (
@@ -45,6 +47,7 @@ GATES = (
     "G6_GOVERNANCE_EXACT_HEAD",
 )
 
+# These capabilities are never inherited by a product-repair write grant.
 PROTECTED_AUTHORITY = {
     "scope_expansion_allowed": False,
     "tests_oracles_write_allowed": False,
