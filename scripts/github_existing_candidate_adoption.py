@@ -241,7 +241,7 @@ def inspect(*, workspace: Path, profile_path: Path, pr_json_path: Path, output_p
         ),
     )
     task.checkpoint(
-        status="VALIDATING",
+        status="RUNNING",
         phase="EXISTING_CANDIDATE_BOUND",
         workspace_fingerprint=evidence["tree_sha"],
         evidence_refs=[str(profile_path), str(authority_path), evidence["fields"]["url"]],
