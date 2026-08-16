@@ -11,7 +11,6 @@ verification stages must validate the same digests before acting.
 
 import hashlib
 import json
-from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping
 
 from governed_repair_contract import (
@@ -19,6 +18,13 @@ from governed_repair_contract import (
     PREWRITE_STATES,
     PROTECTED_AUTHORITY,
     contract_fingerprint,
+)
+from governed_repair_path_policy import (
+    PATH_POLICY_ID,
+    RepairPathPolicyError,
+    normalize_repo_path as policy_normalize_repo_path,
+    policy_fingerprint,
+    validate_automatic_repair_paths,
 )
 
 RCA_SCHEMA = "github-governed-repair-rca@1"
@@ -80,18 +86,10 @@ def write_grant_fingerprint(grant: Mapping[str, Any]) -> str:
 
 
 def normalize_repo_path(raw: object) -> str:
-    value = str(raw or "").strip().replace("\\", "/")
-    while value.startswith("./"):
-        value = value[2:]
-    pure = PurePosixPath(value)
-    if (
-        not value
-        or pure.is_absolute()
-        or any(part in {"", ".", ".."} for part in pure.parts)
-        or pure.as_posix() != value
-    ):
-        raise RepairAuthorityError(f"invalid repository path: {raw!r}")
-    return value
+    try:
+        return policy_normalize_repo_path(raw)
+    except RepairPathPolicyError as exc:
+        raise RepairAuthorityError(str(exc)) from exc
 
 
 def normalize_paths(paths: Iterable[object]) -> tuple[str, ...]:
@@ -102,6 +100,13 @@ def normalize_paths(paths: Iterable[object]) -> tuple[str, ...]:
             raise RepairAuthorityError(f"duplicate write path: {path}")
         result.append(path)
     return tuple(result)
+
+
+def _require_automatic_path_policy(paths: Iterable[object]) -> tuple[str, ...]:
+    try:
+        return validate_automatic_repair_paths(paths)
+    except RepairPathPolicyError as exc:
+        raise RepairAuthorityError(f"automatic repair path policy denied authority: {exc}") from exc
 
 
 def failure_binding(failure_case: Mapping[str, Any]) -> dict[str, str]:
@@ -177,6 +182,8 @@ def validate_rca(
         raise RepairAuthorityError("RCA failure-case fingerprint mismatch")
 
     expected_paths = normalize_paths(candidate_paths)
+    if _require_automatic_path_policy(expected_paths) != expected_paths:
+        raise RepairAuthorityError("automatic repair path policy normalization drift")
     evidence_paths = normalize_paths(rca.get("candidate_paths") or [])
     if evidence_paths != expected_paths:
         raise RepairAuthorityError(
@@ -208,6 +215,8 @@ def validate_rca(
         raise RepairAuthorityError("RCA attempted to expand writable scope")
     if decision == "GRANT" and not recommended_paths:
         raise RepairAuthorityError("RCA GRANT recommendation has empty write scope")
+    if decision == "GRANT" and _require_automatic_path_policy(recommended_paths) != recommended_paths:
+        raise RepairAuthorityError("RCA recommended path policy normalization drift")
     if decision == "DENY" and recommended_paths:
         raise RepairAuthorityError("RCA DENY recommendation must not carry write paths")
 
@@ -240,6 +249,7 @@ def compile_write_grant(
         )
     binding = failure_binding(failure_case)
     lifecycle_sha = contract_fingerprint()
+    path_policy_sha = policy_fingerprint()
     grant: dict[str, Any] = {
         "schema": WRITE_GRANT_SCHEMA,
         "state_schema": STATE_SCHEMA,
@@ -247,6 +257,8 @@ def compile_write_grant(
         "state_history": list(PREWRITE_STATES),
         "lifecycle_contract_id": CONTRACT_ID,
         "lifecycle_contract_sha256": lifecycle_sha,
+        "path_policy_id": PATH_POLICY_ID,
+        "path_policy_sha256": path_policy_sha,
         "binding": binding,
         "failure_case_sha256": failure_case_fingerprint(failure_case),
         "rca_sha256": rca_fingerprint(rca),
@@ -269,6 +281,7 @@ def compile_write_grant(
                     f"failure-case:{failure_case_fingerprint(failure_case)}",
                     f"rca:{rca_fingerprint(rca)}",
                     f"lifecycle-contract:{lifecycle_sha}",
+                    f"path-policy:{path_policy_sha}",
                 ],
             }
         },
@@ -302,6 +315,10 @@ def validate_write_grant(
         raise RepairAuthorityError("write-grant lifecycle contract id drift")
     if str(grant.get("lifecycle_contract_sha256") or "") != contract_fingerprint():
         raise RepairAuthorityError("write-grant lifecycle contract fingerprint drift")
+    if str(grant.get("path_policy_id") or "") != PATH_POLICY_ID:
+        raise RepairAuthorityError("write-grant path policy id drift")
+    if str(grant.get("path_policy_sha256") or "") != policy_fingerprint():
+        raise RepairAuthorityError("write-grant path policy fingerprint drift")
     if grant.get("write_scope_mode") != "exact_allowlist":
         raise RepairAuthorityError("write-grant scope mode is not exact_allowlist")
     if grant.get("production_closed") is not False:
@@ -337,6 +354,8 @@ def validate_write_grant(
         )
 
     granted_paths = normalize_paths(grant.get("allowed_paths") or [])
+    if _require_automatic_path_policy(granted_paths) != granted_paths:
+        raise RepairAuthorityError("write-grant path policy normalization drift")
     if granted_paths != recommended:
         raise RepairAuthorityError(
             "write-grant path mismatch: "
@@ -368,6 +387,8 @@ def revoke_write_grant(
         "state": "RCA_READ_ONLY",
         "lifecycle_contract_id": CONTRACT_ID,
         "lifecycle_contract_sha256": contract_fingerprint(),
+        "path_policy_id": PATH_POLICY_ID,
+        "path_policy_sha256": policy_fingerprint(),
         "prior_write_grant_sha256": write_grant_fingerprint(grant),
         "failure_signature": str(failure_signature or "").strip(),
         "reason": str(reason or "repeated_failure_signature").strip(),
