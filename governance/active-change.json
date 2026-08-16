@@ -43,7 +43,29 @@
     "adversarial-reviewer",
     "release-judge"
   ],
-  "review_attestations": [],
+  "review_attestations": [
+    {
+      "role": "scope-planner",
+      "decision": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/clean-verification-record.json",
+      "evidence_sha256": "d8d458a679c92303e87d4f2300da5ee68806cf2a732b2531a3d2efb16443fa12",
+      "recorded_at": "2026-08-16T04:18:16.465230+00:00"
+    },
+    {
+      "role": "adversarial-reviewer",
+      "decision": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/clean-verification-record.json",
+      "evidence_sha256": "d8d458a679c92303e87d4f2300da5ee68806cf2a732b2531a3d2efb16443fa12",
+      "recorded_at": "2026-08-16T04:18:16.561603+00:00"
+    },
+    {
+      "role": "release-judge",
+      "decision": "PASS",
+      "evidence": ".quality/product-control-plane/repair-release55-dependency-output-role-overlap/verification.json",
+      "evidence_sha256": "889be2f49da8d53cd157d30b0a84cc316a134208826e6fb63f1cad61b76c7ae2",
+      "recorded_at": "2026-08-16T04:18:28.779429+00:00"
+    }
+  ],
   "affected_modules": [
     "agent_core.lifecycle.goal_planning"
   ],
@@ -52,16 +74,29 @@
   "baseline_evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline",
   "initial_source_fingerprint": "71a1a599fa8d0511a57f0554a0974bdedb5f0fc55cd80388cca0d7acdedf1668",
   "initial_source_file_count": 1,
-  "product_validation": null,
+  "product_validation": {
+    "verification": ".quality/release55-contract-verification",
+    "verification_mode": "quick",
+    "verification_source_fingerprint": "802e562b2bc64e6d3d065da76dfdb5fa8df392b7ce213d2d44364e36c4db93b8",
+    "verification_source_file_count": 2,
+    "verification_recorded_at": "2026-08-16T04:18:14.078804+00:00"
+  },
   "decision_record": null,
   "variance_records": [],
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
-  "verification": null,
+  "verification": {
+    "path": ".quality/product-control-plane/repair-release55-dependency-output-role-overlap/verification.json",
+    "sha256": "889be2f49da8d53cd157d30b0a84cc316a134208826e6fb63f1cad61b76c7ae2",
+    "source_fingerprint": "802e562b2bc64e6d3d065da76dfdb5fa8df392b7ce213d2d44364e36c4db93b8",
+    "source_file_count": 2,
+    "verified_at": "2026-08-16T04:18:28.778964+00:00"
+  },
   "repair_governance": "governance/repair-cases/repair-release55-dependency-output-role-overlap",
-  "repair_governance_consumed_at": null,
+  "repair_governance_consumed_at": "2026-08-16T04:18:32.618241+00:00",
   "created_at": "2026-08-16T03:43:44.619747+00:00",
-  "status": "implementing",
-  "result": "PENDING",
-  "repair_governance_permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470"
+  "status": "closed",
+  "result": "CONVERGED",
+  "repair_governance_permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470",
+  "closed_at": "2026-08-16T04:18:32.618260+00:00"
 }
