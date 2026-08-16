@@ -1,0 +1,26 @@
+{
+  "authority_effect": false,
+  "basis": {
+    "allowed_kinds": [
+      "result_condition",
+      "result_reference",
+      "result_value_input"
+    ],
+    "relation_only_required": true
+  },
+  "contract_id": "customer-agent/dependency-basis@2",
+  "contract_sha256": "1cd161fbf6871aa3a9e1782b9d695427e6e9a9b04fa063e4a34311fcaf1c327f",
+  "contract_version": 2,
+  "final_dependency_authority": "deterministic_dependency_proof_reducer",
+  "projections": {
+    "candidate_blind_dependency_rule": "[contract=customer-agent/dependency-basis@2 sha256=1cd161fbf6871aa3a9e1782b9d695427e6e9a9b04fa063e4a34311fcaf1c327f] dependency basis evidence may identify only these relation kinds: result-condition, result-reference, result-value-input. The basis itself must be relation-only. A basis must not equal a requested-output evidence span. A basis must not wrap a requested-output evidence span with action/control wording. A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible; use the smallest such literal basis. When no valid relation-only basis exists under these rules, return relation=independent.",
+    "format_repair_dependency_rule": "[contract=customer-agent/dependency-basis@2 sha256=1cd161fbf6871aa3a9e1782b9d695427e6e9a9b04fa063e4a34311fcaf1c327f] FORMAT-REPAIR PROJECTION: dependency basis evidence may identify only these relation kinds: result-condition, result-reference, result-value-input. The basis itself must be relation-only. A basis must not equal a requested-output evidence span. A basis must not wrap a requested-output evidence span with action/control wording. A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible; use the smallest such literal basis. When no valid relation-only basis exists under these rules, return relation=independent."
+  },
+  "rules": {
+    "no_valid_relation_only_basis": "independent",
+    "requested_output_equality": "forbidden",
+    "requested_output_wrapper": "forbidden",
+    "strict_nested_requested_output": "allowed"
+  },
+  "schema": "dependency-basis-projection-manifest@2"
+}
