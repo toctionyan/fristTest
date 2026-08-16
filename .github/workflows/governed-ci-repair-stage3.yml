@@ -45,6 +45,8 @@ jobs:
       source_run_id: ${{ steps.inspect.outputs.source_run_id }}
       repair_branch: ${{ steps.inspect.outputs.repair_branch }}
       repair_base_branch: ${{ steps.inspect.outputs.repair_base_branch }}
+      rca_sha256: ${{ steps.inspect.outputs.rca_sha256 }}
+      write_grant_sha256: ${{ steps.inspect.outputs.write_grant_sha256 }}
     steps:
       - name: Checkout trusted Stage-3 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -90,8 +92,7 @@ jobs:
 
           run_started_at=$(jq -r '.run_started_at // empty' stage3-source/run.json)
           [[ -n "${run_started_at}" ]]
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage2_run_id}/artifacts?per_page=100" \
-            > stage3-source/artifacts.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${stage2_run_id}/artifacts?per_page=100" > stage3-source/artifacts.json
           stage2_artifact_id=$(jq -r --arg started "${run_started_at}" '[.artifacts[]
             | select(.expired == false)
             | select(.name | startswith("governed-ci-repair-stage2-"))
@@ -105,8 +106,7 @@ jobs:
           echo "stage2_run_attempt=${stage2_run_attempt}" >> "$GITHUB_OUTPUT"
           echo "stage2_artifact_id=${stage2_artifact_id}" >> "$GITHUB_OUTPUT"
 
-      - name: Download exact Stage-2 repair candidate evidence
-        if: steps.source.outputs.stage2_artifact_id != ''
+      - name: Download exact Stage-2 authority bundle
         env:
           GH_TOKEN: ${{ github.token }}
           STAGE2_ARTIFACT_ID: ${{ steps.source.outputs.stage2_artifact_id }}
@@ -115,13 +115,25 @@ jobs:
           mkdir -p incoming
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${STAGE2_ARTIFACT_ID}/zip" > incoming/stage2.zip
           unzip -q incoming/stage2.zip -d incoming/stage2
-          result=$(find incoming/stage2 -type f -name repair-result.json -print -quit 2>/dev/null || true)
-          [[ -n "${result}" ]]
+          for required in repair-result.json task-run.json repair.patch normalized-failure-case.json rca.json write-grant.json; do
+            mapfile -t matches < <(find incoming/stage2 -type f -name "${required}" -print)
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "expected exactly one ${required}, found ${#matches[@]}" >&2
+              exit 1
+            fi
+          done
+          result=$(find incoming/stage2 -type f -name repair-result.json -print -quit)
           jq -e --arg repository "${GITHUB_REPOSITORY}" '
             .schema == "github-governed-repair-stage2@1"
             and .status == "REPAIR_CANDIDATE_READY"
             and .stage3_handoff_bound == true
+            and .governed_repair_state == "INDEPENDENT_REVIEW"
             and .repository == $repository
+            and (.rca_sha256 | type == "string" and length == 64)
+            and (.write_grant_sha256 | type == "string" and length == 64)
+            and (.write_scope | type == "array" and length > 0)
+            and (.gates.G0_SCOPE_AUTHORITY.status == "PASS")
+            and .production_closed == false
           ' "${result}" >/dev/null
 
       - name: Set up locked Python
@@ -129,23 +141,24 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Inspect immutable Stage-2 handoff
+      - name: Inspect immutable RCA-bound Stage-2 handoff
         id: inspect
         run: |
           set -euo pipefail
-          result=$(find incoming -type f -name repair-result.json -print -quit 2>/dev/null || true)
-          task_run=$(find incoming -type f -name task-run.json -print -quit 2>/dev/null || true)
-          patch=$(find incoming -type f -name repair.patch -print -quit 2>/dev/null || true)
-          if [[ -z "${result}" || -z "${task_run}" || -z "${patch}" ]]; then
-            echo "publish_allowed=false" >> "$GITHUB_OUTPUT"
-            echo "No Stage-2 repair candidate artifact was published." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          result=$(find incoming/stage2 -type f -name repair-result.json -print -quit)
+          task_run=$(find incoming/stage2 -type f -name task-run.json -print -quit)
+          patch=$(find incoming/stage2 -type f -name repair.patch -print -quit)
+          failure_case=$(find incoming/stage2 -type f -name normalized-failure-case.json -print -quit)
+          rca=$(find incoming/stage2 -type f -name rca.json -print -quit)
+          write_grant=$(find incoming/stage2 -type f -name write-grant.json -print -quit)
           mkdir -p stage3-inspect
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3.py inspect \
             --result "${result}" \
             --task-run "${task_run}" \
             --patch "${patch}" \
+            --failure-case "${failure_case}" \
+            --rca "${rca}" \
+            --write-grant "${write_grant}" \
             --output stage3-inspect/handoff.json \
             --github-output "$GITHUB_OUTPUT"
 
@@ -171,6 +184,8 @@ jobs:
       source_run_id: ${{ steps.validate.outputs.source_run_id }}
       repair_branch: ${{ steps.validate.outputs.repair_branch }}
       repair_base_branch: ${{ steps.validate.outputs.repair_base_branch }}
+      rca_sha256: ${{ steps.validate.outputs.rca_sha256 }}
+      write_grant_sha256: ${{ steps.validate.outputs.write_grant_sha256 }}
     steps:
       - name: Checkout bound Stage-3 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -188,7 +203,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Download exact Stage-2 repair candidate evidence
+      - name: Download exact Stage-2 authority bundle
         env:
           GH_TOKEN: ${{ github.token }}
           STAGE2_ARTIFACT_ID: ${{ needs.inspect.outputs.stage2_artifact_id }}
@@ -198,6 +213,10 @@ jobs:
           mkdir -p incoming
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${STAGE2_ARTIFACT_ID}/zip" > incoming/stage2.zip
           unzip -q incoming/stage2.zip -d incoming/stage2
+          for required in repair-result.json task-run.json repair.patch normalized-failure-case.json rca.json write-grant.json; do
+            mapfile -t matches < <(find incoming/stage2 -type f -name "${required}" -print)
+            [[ "${#matches[@]}" -eq 1 ]]
+          done
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -227,22 +246,31 @@ jobs:
             cd ../../../web && npm ci --ignore-scripts=false
           fi
 
-      - name: Prepare exact local repair commit
+      - name: Prepare exact local source-only repair commit
         id: prepare
         run: |
           set -euo pipefail
-          result=$(find incoming -type f -name repair-result.json -print -quit)
-          task_run=$(find incoming -type f -name task-run.json -print -quit)
-          patch=$(find incoming -type f -name repair.patch -print -quit)
+          result=$(find incoming/stage2 -type f -name repair-result.json -print -quit)
+          task_run=$(find incoming/stage2 -type f -name task-run.json -print -quit)
+          patch=$(find incoming/stage2 -type f -name repair.patch -print -quit)
+          failure_case=$(find incoming/stage2 -type f -name normalized-failure-case.json -print -quit)
+          rca=$(find incoming/stage2 -type f -name rca.json -print -quit)
+          write_grant=$(find incoming/stage2 -type f -name write-grant.json -print -quit)
           mkdir -p stage3-evidence
           cp "${task_run}" stage3-evidence/task-run.json
           cp "${result}" stage3-evidence/stage2-result.json
           cp "${patch}" stage3-evidence/repair.patch
+          cp "${failure_case}" stage3-evidence/normalized-failure-case.json
+          cp "${rca}" stage3-evidence/rca.json
+          cp "${write_grant}" stage3-evidence/write-grant.json
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3.py prepare \
             --workspace candidate \
             --result stage3-evidence/stage2-result.json \
             --task-run stage3-evidence/task-run.json \
             --patch stage3-evidence/repair.patch \
+            --failure-case stage3-evidence/normalized-failure-case.json \
+            --rca stage3-evidence/rca.json \
+            --write-grant stage3-evidence/write-grant.json \
             --plan stage3-evidence/stage3-plan.json \
             --github-output "$GITHUB_OUTPUT"
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_tree.py \
@@ -256,7 +284,7 @@ jobs:
           --plan stage3-evidence/stage3-plan.json
           --output stage3-evidence/targeted-result.json
 
-      - name: Create full Quick validation target
+      - name: Create G1-G5 Quick validation target
         env:
           CANDIDATE_SHA: ${{ steps.prepare.outputs.candidate_sha }}
         run: |
@@ -281,7 +309,7 @@ jobs:
           --mode quick
           --target candidate/.quality/targets/governed-repair-stage3-quick.md
 
-      - name: Record independent validation evidence
+      - name: Record independent G0-G5 validation evidence
         id: validate
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3.py validate
@@ -313,7 +341,6 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: write
-      actions: write
       pull-requests: write
       issues: write
     steps:
@@ -344,7 +371,7 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Recreate and verify the validated tree without running candidate code
+      - name: Recreate and verify validated source tree without running candidate code
         id: prepare-publication
         run: >-
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_publish.py
@@ -355,7 +382,7 @@ jobs:
           --output validated/stage3-evidence/publication-commit.json
           --github-output "$GITHUB_OUTPUT"
 
-      - name: Publish immutable repair branch and verified Draft PR
+      - name: Publish immutable source-only repair branch and Draft PR
         id: publish-pr
         env:
           GH_TOKEN: ${{ github.token }}
@@ -364,6 +391,8 @@ jobs:
           REPAIR_BASE: ${{ steps.prepare-publication.outputs.repair_base_branch }}
           SOURCE_RUN_ID: ${{ steps.prepare-publication.outputs.source_run_id }}
           SOURCE_HEAD_SHA: ${{ steps.prepare-publication.outputs.source_head_sha }}
+          RCA_SHA: ${{ steps.prepare-publication.outputs.rca_sha256 }}
+          WRITE_GRANT_SHA: ${{ steps.prepare-publication.outputs.write_grant_sha256 }}
         run: |
           set -euo pipefail
           base_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${REPAIR_BASE}" --jq '.object.sha')
@@ -381,22 +410,30 @@ jobs:
             git -C publisher-candidate push origin "HEAD:refs/heads/${REPAIR_BRANCH}"
             git -C publisher-candidate remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           fi
+
           existing=$(gh pr list --state open --head "${REPAIR_BRANCH}" \
             --json url,isDraft,baseRefName,headRefName --jq '.[0] // empty')
           body=$(cat <<EOF
-          ## Governed repair evidence
+          ## Governed repair: G0-G5 verified, G6 pending
 
           - Source Workflow Run ID: \`${SOURCE_RUN_ID}\`
           - Failed source SHA: \`${SOURCE_HEAD_SHA}\`
-          - Published repair SHA: \`${PUBLISHED_SHA}\`
-          - Fixed targeted regression: PASS
-          - Independent complete Quick Quality Loop: \`CI_VERIFIED\`
-          - Validation job permissions: read-only
+          - Published source-only repair SHA: \`${PUBLISHED_SHA}\`
+          - RCA SHA-256: \`${RCA_SHA}\`
+          - Exact write-grant SHA-256: \`${WRITE_GRANT_SHA}\`
+          - G0 Scope/Authority: PASS
+          - G1 Contract Projection: PASS
+          - G2 Semantic Invariant: PASS
+          - G3 Mutation/Drift: PASS
+          - G4 Final Authority: PASS
+          - G5 Integration Certification: PASS
+          - G6 Governance + Baseline + Exact Head: PENDING
+          - Protected baseline accepted: no
           - Automatic merge: disabled
-          - Production certification: not claimed
+          - Deploy: disabled
           - production_closed: false
 
-          This Draft PR contains only the immutable Stage-2 product-source paths. A read-only job validated the exact Git tree before the separate publisher recreated that same tree without executing candidate code.
+          This Draft contains only the immutable RCA-authorized product-source repair. Protected baseline acceptance is intentionally deferred until governance closes, after which exact-head pull-request CI must pass before this PR may become Ready for review.
           EOF
           )
           if [[ -n "${existing}" ]]; then
@@ -417,12 +454,11 @@ jobs:
           jq -e --arg base "${REPAIR_BASE}" --arg head "${REPAIR_BRANCH}" \
             '.isDraft == true and .baseRefName == $base and .headRefName == $head' \
             <<<"${pr_state}" >/dev/null
-          gh workflow run quality.yml --ref "${REPAIR_BRANCH}"
           echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
 
-      - name: Complete governed TaskRun after Draft publication
+      - name: Record Draft publication and require governance
         run: >-
-          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_complete.py
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_record_publication.py
           --validation-result validated/stage3-evidence/validation-result.json
           --publication-commit validated/stage3-evidence/publication-commit.json
           --task-run validated/stage3-evidence/task-run.json
@@ -439,19 +475,14 @@ jobs:
           set -euo pipefail
           issue=$(gh issue list --state open --search "[governed-ci-failure] run ${SOURCE_RUN_ID} in:title" \
             --json number --jq '.[0].number // empty')
-          status="BLOCKED"
-          full_validation="false"
-          if [[ -f validated/stage3-evidence/publication-result.json ]]; then
-            status=$(jq -r '.status // "BLOCKED"' validated/stage3-evidence/publication-result.json)
-            full_validation=$(jq -r '.full_validation_passed // false' validated/stage3-evidence/publication-result.json)
-          fi
           body=$(cat <<EOF
-          Stage 3 completed for source run \`${SOURCE_RUN_ID}\`.
+          Stage 3 independent validation completed for source run \`${SOURCE_RUN_ID}\`.
 
-          - Status: \`${status}\`
-          - Targeted and complete Quick validation: \`${full_validation}\`
+          - G0-G5: PASS
           - Draft PR: ${PR_URL:-not-published}
+          - G6 Governance + Baseline + Exact Head: PENDING
           - Automatic merge: no
+          - Deploy: no
           - production_closed: false
           EOF
           )
@@ -485,9 +516,6 @@ jobs:
           set -euo pipefail
           [[ "${GITHUB_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
-          # workflow_run chains are bounded by GitHub and rerun delivery can be a
-          # weak handoff boundary. Dispatch the exact Stage-3 attempt explicitly;
-          # the outer controller is idempotent on run-id/run-attempt.
           gh api -X POST \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-ci-repair-loop-coordinator.yml/dispatches" \
             -f ref=main \
