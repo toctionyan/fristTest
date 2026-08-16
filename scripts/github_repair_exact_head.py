@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Finalize G6 only from baseline-accepted exact-head CI evidence.
 
-This controller cannot merge or deploy.  It validates the governed baseline
+This controller cannot merge or deploy. It validates the governed baseline
 acceptance receipt, requires the exact baseline commit to be the PR head, requires
 mandatory PR-triggered workflows for that exact pull request to have succeeded on
 that exact SHA, marks the final TaskRun conditions, and emits READY_FOR_REVIEW. A
@@ -16,7 +16,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "skill-system" / "controller"
@@ -74,6 +74,55 @@ def _pr_number_from_url(raw: object) -> int:
     return number
 
 
+def validate_exact_head_ci_evidence(
+    ci: Mapping[str, Any],
+    *,
+    exact_sha: str,
+    draft_pr_url: str,
+) -> tuple[int, dict[str, Mapping[str, Any]]]:
+    """Pure fail-closed validator for the exact-PR, exact-SHA G6 CI authority.
+
+    A same-SHA push, workflow_dispatch, scheduled run, another PR, or a stale PR
+    head is insufficient even when its workflow conclusion is success.
+    """
+
+    if ci.get("schema") != "governed-repair-exact-head-ci@1":
+        raise ExactHeadError("unsupported exact-head CI evidence")
+    if str(ci.get("head_sha") or "") != exact_sha:
+        raise ExactHeadError("CI evidence is not bound to the baseline commit")
+    if str(ci.get("pr_url") or "") != draft_pr_url:
+        raise ExactHeadError("CI evidence PR binding mismatch")
+
+    expected_pr_number = _pr_number_from_url(draft_pr_url)
+    if int(ci.get("pr_number") or 0) != expected_pr_number:
+        raise ExactHeadError("CI evidence pull request number mismatch")
+    if ci.get("pr_is_draft") is not True:
+        raise ExactHeadError("PR must remain Draft during exact-head certification")
+    if str(ci.get("pr_head_sha") or "") != exact_sha:
+        raise ExactHeadError("Draft PR head is not the baseline commit")
+
+    raw_workflows = ci.get("workflows")
+    if not isinstance(raw_workflows, dict):
+        raise ExactHeadError("exact-head workflow evidence is missing")
+    workflows: dict[str, Mapping[str, Any]] = {}
+    for workflow in MANDATORY_WORKFLOWS:
+        row = raw_workflows.get(workflow)
+        if not isinstance(row, dict):
+            raise ExactHeadError(f"mandatory workflow evidence is missing: {workflow}")
+        if str(row.get("head_sha") or "") != exact_sha:
+            raise ExactHeadError(f"workflow {workflow} ran on the wrong SHA")
+        if row.get("event") != "pull_request":
+            raise ExactHeadError(f"workflow {workflow} is not a pull_request run")
+        if int(row.get("pr_number") or 0) != expected_pr_number:
+            raise ExactHeadError(f"workflow {workflow} ran for the wrong pull request")
+        if row.get("status") != "completed" or row.get("conclusion") != "success":
+            raise ExactHeadError(f"mandatory exact-head workflow did not succeed: {workflow}")
+        if not str(row.get("run_id") or "").isdigit():
+            raise ExactHeadError(f"workflow {workflow} lacks a valid run ID")
+        workflows[workflow] = row
+    return expected_pr_number, workflows
+
+
 def finalize_exact_head(
     *,
     baseline_receipt_path: Path,
@@ -106,38 +155,12 @@ def finalize_exact_head(
     exact_sha = str(baseline.get("baseline_commit_sha") or "")
     if len(exact_sha) != 40:
         raise ExactHeadError("baseline commit SHA is invalid")
-    if ci.get("schema") != "governed-repair-exact-head-ci@1":
-        raise ExactHeadError("unsupported exact-head CI evidence")
-    if str(ci.get("head_sha") or "") != exact_sha:
-        raise ExactHeadError("CI evidence is not bound to the baseline commit")
     draft_pr_url = str(baseline.get("draft_pr_url") or "")
-    if str(ci.get("pr_url") or "") != draft_pr_url:
-        raise ExactHeadError("CI evidence PR binding mismatch")
-    expected_pr_number = _pr_number_from_url(draft_pr_url)
-    if int(ci.get("pr_number") or 0) != expected_pr_number:
-        raise ExactHeadError("CI evidence pull request number mismatch")
-    if ci.get("pr_is_draft") is not True:
-        raise ExactHeadError("PR must remain Draft during exact-head certification")
-    if str(ci.get("pr_head_sha") or "") != exact_sha:
-        raise ExactHeadError("Draft PR head is not the baseline commit")
-
-    workflows = ci.get("workflows")
-    if not isinstance(workflows, dict):
-        raise ExactHeadError("exact-head workflow evidence is missing")
-    for workflow in MANDATORY_WORKFLOWS:
-        row = workflows.get(workflow)
-        if not isinstance(row, dict):
-            raise ExactHeadError(f"mandatory workflow evidence is missing: {workflow}")
-        if str(row.get("head_sha") or "") != exact_sha:
-            raise ExactHeadError(f"workflow {workflow} ran on the wrong SHA")
-        if row.get("event") != "pull_request":
-            raise ExactHeadError(f"workflow {workflow} is not a pull_request run")
-        if int(row.get("pr_number") or 0) != expected_pr_number:
-            raise ExactHeadError(f"workflow {workflow} ran for the wrong pull request")
-        if row.get("status") != "completed" or row.get("conclusion") != "success":
-            raise ExactHeadError(f"mandatory exact-head workflow did not succeed: {workflow}")
-        if not str(row.get("run_id") or "").isdigit():
-            raise ExactHeadError(f"workflow {workflow} lacks a valid run ID")
+    expected_pr_number, workflows = validate_exact_head_ci_evidence(
+        ci,
+        exact_sha=exact_sha,
+        draft_pr_url=draft_pr_url,
+    )
 
     gates = baseline.get("gates")
     if not isinstance(gates, dict):
