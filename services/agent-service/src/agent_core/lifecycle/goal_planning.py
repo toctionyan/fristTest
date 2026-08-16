@@ -47,6 +47,13 @@ from agent_core.goal_graph.dependency_alignment import (
     dependency_authority_closed_and_matching,
 )
 
+from agent_core.goal_graph.dependency_basis_contract import (
+    ALLOWED_DEPENDENCY_BASIS_KINDS,
+    dependency_basis_conflicts_with_requested_outputs,
+    render_candidate_blind_dependency_rule,
+    render_dependency_format_repair_rule,
+)
+
 GOAL_PLAN_VERSION = "turn-goal-plan@1.1"
 MAX_TURN_GOALS = 12
 
@@ -63,11 +70,7 @@ class GoalType(StrEnum):
 _ALLOWED_TYPES = {item.value for item in GoalType}
 _ALLOWED_RESULT_CARDINALITIES = {"single", "collection", "none", "unknown"}
 _ALLOWED_ALIGNMENT_VERDICTS = {"exact", "incomplete", "clarify", "indeterminate"}
-_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = {
-    "result_reference",
-    "result_condition",
-    "result_value_input",
-}
+_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = set(ALLOWED_DEPENDENCY_BASIS_KINDS)
 
 # Compatibility-only static catalog vocabulary. These patterns are consumed by
 # the legacy strong-context catalog verifier; production semantic compilation
@@ -286,24 +289,15 @@ def _requested_output_evidence_spans(goal: dict[str, Any]) -> tuple[str, ...]:
     return tuple(rows)
 
 
-def _dependency_basis_overlaps_requested_output(goal: dict[str, Any], basis_span: str) -> bool:
-    """Reject dependency proof text that is actually outcome/action evidence.
+def _dependency_basis_overlaps_requested_output(
+    goal: dict[str, Any],
+    basis_span: str,
+) -> bool:
+    """Project the canonical structural dependency-basis contract."""
 
-    A dependency basis must isolate the relation that consumes an earlier Goal
-    result.  A span that is inside a requested-output span, or merely wraps that
-    output span with control/action wording, does not independently prove a
-    result-reference/condition/value relation.  This check is domain-neutral and
-    purely structural: it compares already-declared literal evidence spans.
-    """
-    basis = _clean_text(basis_span, limit=240)
-    if not basis:
-        return False
-    # A strict relation-only basis nested inside broader requested-output evidence
-    # is structurally admissible only; semantic/adversarial proof still owns authority.
-    # Equality or a basis wrapping the requested outcome remains invalid.
-    return any(
-        basis == output_span or output_span in basis
-        for output_span in _requested_output_evidence_spans(goal)
+    return dependency_basis_conflicts_with_requested_outputs(
+        basis_span,
+        _requested_output_evidence_spans(goal),
     )
 
 
@@ -1090,8 +1084,7 @@ class ModelGoalAlignmentVerifier:
             "order, stable-ID lookup and implementation prerequisites are not dependencies."
         )
         blind_dependency_rules = [
-            "dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; "
-            "it must be disjoint from the dependent Goal requested_outputs evidence spans. A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent",
+            render_candidate_blind_dependency_rule(),
             "requested_effect fidelity is judged against the literal business effect in each Goal evidence_span and the capability-independent canonical vocabulary. description states the broad meaning, included_result_meanings adds authoritative positive boundaries, and excluded_result_meanings adds authoritative negative boundaries; an explicitly excluded user-visible result dimension can never be certified by that output_id even when its name/subject is related. Empty boundary lists add no extra claim. When no registered meaning exactly represents the requested outcome the declaration must retain open",
             "an explicit user-stated predicate that narrows the target/result population must be preserved as a literal target_candidate.scope_constraints evidence span; prose alone is not enough and no normalized business value is required here",
             "ordinary target selection/scope filtering is not a Goal.condition; Goal.condition remains reserved for the separate frozen conditional/dependency algebra",
@@ -1472,8 +1465,8 @@ class ModelGoalAlignmentVerifier:
                     "scope constraints. A same-turn target identity inherited by zero-anaphora from another local USER_TEXT branch is still target identity: do not demand it inside the later Goal evidence_span or scope_constraints, and never emit that identity phrase as a target-scope-constraint missing span. If a semantic-field mismatch exists, return verdict=incomplete and copy its smallest literal "
                     "USER_TEXT span into missing_spans without proposing a replacement field/value. For dependencies, assert one only "
                     "when a relation-only literal basis_span inside the dependent Goal proves result_reference, result_condition or result_value_input. "
-                    "The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; "
-                    "if no disjoint relation-only basis exists, return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only."
+                    + render_dependency_format_repair_rule()
+                    + " Return the complete dependency_decisions array and the strict JSON fields only."
                 )
                 prompt = {
                     "USER_TEXT_UNTRUSTED": user_text,
