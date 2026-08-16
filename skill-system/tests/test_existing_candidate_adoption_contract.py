@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import sys
 import tempfile
@@ -40,10 +41,13 @@ class ExistingCandidateAdoptionContractTests(unittest.TestCase):
         module = _load_module()
         result = module.verify(ROOT)
         self.assertEqual(result["status"], "PASS", result["errors"])
-        self.assertEqual(result["schema"], "governed-existing-candidate-adoption-contract@2")
+        self.assertEqual(result["schema"], "governed-existing-candidate-adoption-contract@3")
         self.assertEqual(result["source_pr_number"], 1348)
         self.assertEqual(result["exact_blob_count"], 8)
         self.assertFalse(result["candidate_write_authority"])
+        self.assertTrue(result["agent_test_import_environment_bound"])
+        self.assertEqual(result["agent_test_source_root"], "src")
+        self.assertTrue(result["agent_test_user_site_disabled"])
         self.assertTrue(result["failed_profile_evidence_required"])
         self.assertTrue(result["failed_profile_evidence_diagnostic_only"])
         self.assertFalse(result["failed_profile_can_be_converted_to_success"])
@@ -84,6 +88,60 @@ class ExistingCandidateAdoptionContractTests(unittest.TestCase):
             result = module.verify(isolated)
             self.assertEqual(result["status"], "FAIL")
             self.assertIn("adoption_failure_status_check_count_drift", result["errors"])
+
+    def test_runtime_regression_source_import_environment_drift_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-import-runtime-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            profile_path = isolated / module.PROFILE
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            row = next(
+                item
+                for item in profile["verification_commands"]
+                if item["id"] == "dependency-basis-runtime-regression"
+            )
+            self.assertEqual(row["argv"][:4], module.AGENT_TEST_PREFIX)
+            row["argv"][1] = "PYTHONPATH=."
+            profile_path.write_text(
+                json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertFalse(result["agent_test_import_environment_bound"])
+            self.assertIn(
+                "profile_agent_test_import_environment_drift:dependency-basis-runtime-regression",
+                result["errors"],
+            )
+
+    def test_full_python_suite_user_site_isolation_drift_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-import-suite-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            profile_path = isolated / module.PROFILE
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            row = next(
+                item
+                for item in profile["verification_commands"]
+                if item["id"] == "python-test-suites"
+            )
+            self.assertEqual(row["argv"][:4], module.AGENT_TEST_PREFIX)
+            row["argv"][2] = "PYTHONNOUSERSITE=0"
+            profile_path.write_text(
+                json.dumps(profile, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertFalse(result["agent_test_import_environment_bound"])
+            self.assertIn(
+                "profile_agent_test_import_environment_drift:python-test-suites",
+                result["errors"],
+            )
 
 
 if __name__ == "__main__":
