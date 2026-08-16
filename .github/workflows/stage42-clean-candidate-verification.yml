@@ -1,0 +1,150 @@
+name: stage42-clean-candidate-verification
+
+on:
+  pull_request:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+    paths:
+      - .github/workflows/stage42-clean-candidate-verification.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-clean-stage42-candidate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout carrier head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Reconstruct exact clean governed candidate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          clean="${RUNNER_TEMP}/stage42-clean"
+          rm -rf "$clean"
+          git worktree add --detach "$clean" "$BASE_SHA"
+          change="repair-stage4-2-dependency-obligation-evidence-pipeline"
+          case="governance/repair-cases/${change}"
+
+          cp governance/active-change.json "$clean/governance/active-change.json"
+          rm -rf "$clean/$case"
+          mkdir -p "$clean/governance/repair-cases"
+          cp -R "$case" "$clean/$case"
+
+          for path in \
+            services/agent-service/src/agent_core/goal_graph/dependency_alignment.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
+            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py
+          do
+            mkdir -p "$clean/$(dirname "$path")"
+            cp "$path" "$clean/$path"
+          done
+
+          test "$(git -C "$clean" rev-parse HEAD)" = "$BASE_SHA"
+          printf '%s\n' \
+            governance/active-change.json \
+            "$case" \
+            services/agent-service/src/agent_core/goal_graph/dependency_alignment.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
+            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py \
+            > "${RUNNER_TEMP}/stage42-overlay-allowlist.txt"
+          git -C "$clean" status --short
+
+      - name: Bootstrap locked uv in clean workspace
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r "${RUNNER_TEMP}/stage42-clean/deployment/ci/uv-requirements-linux-x86_64.txt"
+
+      - name: Install locked Agent validation environment
+        run: cd "${RUNNER_TEMP}/stage42-clean/services/agent-service" && uv sync --locked --all-groups
+
+      - name: Run focused Stage 4.2 and compatibility regressions
+        run: |
+          set -o pipefail
+          clean="${RUNNER_TEMP}/stage42-clean"
+          cd "$clean"
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
+            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py \
+            services/agent-service/tests/runtime/test_dependency_proof_authority.py \
+            skill-system/tests/test_semantic_dependency_repair_feedback.py \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-focused-pytest.log"
+
+      - name: Run canonical Stage 4.2 baseline-to-candidate Quality transition
+        run: |
+          set -o pipefail
+          clean="${RUNNER_TEMP}/stage42-clean"
+          change="repair-stage4-2-dependency-obligation-evidence-pipeline"
+          case="governance/repair-cases/${change}"
+          cd "$clean"
+          rm -rf "$case/evidence/quality-verification" ".quality/product-code/${change}/state"
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --workspace-root "$clean" \
+            --mode quick \
+            --target "$case/quality-input/target.md" \
+            --policy "$case/quality-input/focused-policy.json" \
+            --baseline-evidence "$case/evidence/quality-baseline" \
+            --evidence-dir "$case/evidence/quality-verification" \
+            --state-dir ".quality/product-code/${change}/state" \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-quality-transition.log"
+
+          services/agent-service/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          change = "repair-stage4-2-dependency-obligation-evidence-pipeline"
+          summary = json.loads((Path("governance/repair-cases") / change / "evidence/quality-verification/run-summary.json").read_text())
+          assert summary["decision"] == "PASS", summary
+          assert summary["loop_status"] == "CONVERGED", summary
+          assert summary["run_kind"] == "verification", summary
+          assert summary["claim_results"] == [{
+              "id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
+              "status": "VERIFIED",
+              "required_gates": ["stage42-red-proof"],
+              "evidence_refs": ["gate-log:stage42-red-proof"],
+          }], summary["claim_results"]
+          print(json.dumps({
+              "decision": summary["decision"],
+              "loop_status": summary["loop_status"],
+              "claim_results": summary["claim_results"],
+              "results": summary["results"],
+          }, indent=2))
+          PY
+
+      - name: Freeze clean Stage 4.2 verification evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          clean="${RUNNER_TEMP}/stage42-clean"
+          change="repair-stage4-2-dependency-obligation-evidence-pipeline"
+          out="${RUNNER_TEMP}/stage42-clean-verification"
+          rm -rf "$out"
+          mkdir -p "$out"
+          cp "${RUNNER_TEMP}/stage42-focused-pytest.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-quality-transition.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-overlay-allowlist.txt" "$out/"
+          cp -R "$clean/governance/repair-cases/${change}/evidence/quality-verification" "$out/quality-verification" 2>/dev/null || true
+          git -C "$clean" diff --check > "$out/diff-check.txt"
+          git -C "$clean" status --short > "$out/worktree-status.txt"
+          git -C "$clean" rev-parse HEAD > "$out/base-head.txt"
+
+      - name: Upload clean Stage 4.2 verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage42-clean-candidate-verification
+          path: ${{ runner.temp }}/stage42-clean-verification
+          if-no-files-found: error
+          retention-days: 30
