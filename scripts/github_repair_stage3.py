@@ -44,6 +44,7 @@ STAGE2_SCHEMA = "github-governed-repair-stage2@1"
 STAGE3_SCHEMA = "github-governed-repair-stage3@2"
 MAX_PATCH_BYTES = 2_000_000
 MAX_OUTPUT_CHARS = 40_000
+ANTI_DRIFT_REQUIRED_GATE_ID = "python-test-suites"
 
 
 class Stage3Error(RuntimeError):
@@ -652,6 +653,33 @@ def _require_permanent_guard_reverified(
     return {item: statuses[item] for item in guards}
 
 
+def _require_anti_drift_proof(summary: dict[str, Any]) -> dict[str, str]:
+    """Require the permanent mutation-kill proof to be mandatory and PASS in Quick.
+
+    The python-test-suites gate executes
+    tests/architecture/test_governed_repair_mutation_proof.py, which deliberately
+    drifts a secondary lifecycle projection and requires the architecture verifier
+    to turn RED. Removing that gate from Quick is therefore itself fail-closed.
+    """
+
+    required = {str(item) for item in summary.get("required_gate_ids") or []}
+    statuses = {
+        str(row.get("id")): str(row.get("status"))
+        for row in summary.get("results") or []
+        if isinstance(row, dict)
+    }
+    gate = ANTI_DRIFT_REQUIRED_GATE_ID
+    if gate not in required:
+        raise Stage3Error(
+            f"anti_drift_proof_not_reverified: required Quick gate missing: {gate}"
+        )
+    if statuses.get(gate) != "PASS":
+        raise Stage3Error(
+            f"anti_drift_proof_not_reverified: Quick gate did not PASS: {gate}"
+        )
+    return {gate: "PASS"}
+
+
 def record_validation(
     *,
     workspace: Path,
@@ -675,6 +703,7 @@ def record_validation(
         summary,
         plan.get("required_guard_ids") or [],
     )
+    anti_drift_proof = _require_anti_drift_proof(summary)
     workspace = workspace.resolve()
     candidate_sha = _git(workspace, "rev-parse", "HEAD")
     if candidate_sha != str(plan.get("candidate_sha") or ""):
@@ -701,7 +730,12 @@ def record_validation(
             },
             "G3_MUTATION": {
                 "status": "PASS",
-                "evidence": [str(quick_summary_path), f"quick-snapshot:{snapshot}"],
+                "governed_repair_state": "ANTI_DRIFT_PROOF",
+                "evidence": [
+                    str(quick_summary_path),
+                    f"quick-snapshot:{snapshot}",
+                    *[f"anti-drift-gate:{gate}:PASS" for gate in anti_drift_proof],
+                ],
             },
             "G4_FINAL_AUTHORITY": {
                 "status": "PASS",
@@ -747,6 +781,7 @@ def record_validation(
             "gates": gates,
             "rca_sha256": plan.get("rca_sha256"),
             "write_grant_sha256": plan.get("write_grant_sha256"),
+            "anti_drift_proof": anti_drift_proof,
         },
     )
     result = {
@@ -763,6 +798,12 @@ def record_validation(
         "write_grant_sha256": plan.get("write_grant_sha256"),
         "required_guard_ids": plan.get("required_guard_ids"),
         "permanent_guard_reverification": guard_proof,
+        "anti_drift_proof": {
+            "governed_repair_state": "ANTI_DRIFT_PROOF",
+            "required_gate_id": ANTI_DRIFT_REQUIRED_GATE_ID,
+            "gate_statuses": anti_drift_proof,
+            "status": "PASS",
+        },
         "violated_invariant": plan.get("violated_invariant"),
         "authority_owner": plan.get("authority_owner"),
         "required_permanent_guard": plan.get("required_permanent_guard"),
