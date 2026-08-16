@@ -1,0 +1,62 @@
+name: governed-repair-architecture-fixup
+
+on:
+  push:
+    branches:
+      - architecture/governed-repair-rca-write-grant-20260816
+    paths:
+      - .github/governed-repair-architecture-fixup-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  fixup:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: architecture/governed-repair-rca-write-grant-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Tighten architecture verifier and validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          verifier = Path('scripts/verify_governed_repair_architecture.py')
+          text = verifier.read_text(encoding='utf-8')
+          old = '''    if "gh pr merge" in stage3_workflow or "workflow_dispatch" in stage3_workflow and "deploy" in stage3_workflow.casefold():\n        errors.append("stage3_contains_merge_or_deploy_authority")\n'''
+          new = '''    if any(\n        marker in stage3_workflow\n        for marker in ("gh pr merge", "kubectl ", "helm upgrade", "docker push")\n    ):\n        errors.append("stage3_contains_merge_or_deploy_authority")\n'''
+          if text.count(old) != 1:
+              raise SystemExit('architecture verifier marker is not unique')
+          verifier.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          workflow = Path('.github/workflows/governed-repair-architecture-validation.yml')
+          source = workflow.read_text(encoding='utf-8')
+          anchor = '''      - name: Prove protected control boundaries\n        run: |\n          set -euo pipefail\n'''
+          replacement = '''      - name: Prove governed repair architecture\n        run: |\n          set -euo pipefail\n          python -B scripts/verify_governed_repair_architecture.py\n      - name: Prove protected control boundaries\n        run: |\n          set -euo pipefail\n'''
+          if source.count(anchor) != 1:
+              raise SystemExit('validation workflow insertion anchor is not unique')
+          workflow.write_text(source.replace(anchor, replacement, 1), encoding='utf-8')
+          PY
+          python -m py_compile scripts/verify_governed_repair_architecture.py
+          python -B scripts/verify_governed_repair_architecture.py
+      - name: Remove temporary fixup authority
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/governed-repair-architecture-fixup.yml
+          git rm .github/governed-repair-architecture-fixup-trigger
+          git diff --check
+      - name: Commit permanent fixup
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'test(repair): enforce governed architecture mechanically'
+          git push origin HEAD:architecture/governed-repair-rca-write-grant-20260816
