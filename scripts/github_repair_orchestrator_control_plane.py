@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trusted Stage-2 scope compiler for governed repair.
+"""Trusted Stage-2 scope compiler and mandatory read-only RCA authority.
 
 Stage-1 evidence may mention product source, tests/oracles, or unrelated verifier
 files. This wrapper first narrows evidence to the source PR's changed paths, then
@@ -9,18 +9,25 @@ granting write authority to tests, CI, governance, dependency manifests, or othe
 protected files. Changed-file metadata and scope compilation can only remove
 repair authority, never add it.
 
-For outer-loop repair rounds, an optional cumulative seed patch may be replayed
-only after the same immutable writable scope has been compiled. The seed cannot
-expand authority and the repair actor still cannot write protected oracles.
+Before *any* seed patch or repair edit is applied, the wrapper runs a mandatory
+read-only RCA against the clean candidate checkout. A deterministic write grant
+is compiled only from that immutable RCA and is bound to the exact failure case,
+head SHA, failure signature, and narrowed path set.
 """
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+import subprocess
 from typing import Any
 
 import github_repair_orchestrator as base
+from github_repair_authority import (
+    RepairAuthorityError,
+    compile_write_grant,
+)
+from github_repair_rca import RCAError, run_read_only_rca
 
 
 class ScopeNormalizationError(RuntimeError):
@@ -40,6 +47,14 @@ def _load_object(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _write_object(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _normalize_path(value: object) -> str:
     value = str(value or "").strip().replace("\\", "/")
     while value.startswith("./"):
@@ -56,6 +71,25 @@ def _looks_like_test_oracle(path: str) -> bool:
         or ".test." in name
         or ".spec." in name
     )
+
+
+def _assert_clean_candidate(workspace: Path) -> None:
+    completed = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=workspace,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    if completed.returncode:
+        raise ScopeNormalizationError(
+            (completed.stderr or completed.stdout or "git status failed")[-4000:]
+        )
+    if completed.stdout.strip():
+        raise ScopeNormalizationError(
+            "candidate workspace must be clean before read-only RCA and write-grant compilation"
+        )
 
 
 def normalize_failure_case(report: dict[str, Any]) -> dict[str, Any]:
@@ -79,7 +113,7 @@ def normalize_failure_case(report: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(report)
     normalized["candidate_paths"] = scoped
     normalized["stage2_scope_normalization"] = {
-        "schema": "stage2-scope-normalization@2",
+        "schema": "stage2-scope-normalization@3",
         "evidence_candidates": candidates,
         "source_changed_files": changed,
         "evidence_paths": scoped,
@@ -88,17 +122,17 @@ def normalize_failure_case(report: dict[str, Any]) -> dict[str, Any]:
         "excluded_paths": [],
         "repair_scope_status": "UNCOMPILED",
         "scope_expanded": False,
+        "rca_required": True,
+        "write_grant_required": True,
     }
     return normalized
 
 
 def compile_repair_scope(report: dict[str, Any], *, workspace: Path) -> dict[str, Any]:
-    """Compile write authority from normalized evidence using the fixer path guard.
+    """Compile maximum possible write candidates using the fixer path guard.
 
-    The authoritative write decision is delegated to ``base.validate_allowed_paths``.
-    This wrapper does not duplicate or weaken that policy. Non-writable paths remain
-    recorded as evidence; test-shaped paths are additionally marked as protected
-    oracles so a repair actor cannot mutate its own judge.
+    This result is *not* write authority. The read-only RCA may only narrow this
+    tuple, and ``github_repair_authority`` must then compile the exact grant.
     """
     normalized = normalize_failure_case(report)
     scope = dict(normalized["stage2_scope_normalization"])
@@ -122,9 +156,9 @@ def compile_repair_scope(report: dict[str, Any], *, workspace: Path) -> dict[str
         writable.append(path)
 
     if writable and protected_oracles:
-        status = "REPAIRABLE_WITH_PROTECTED_ORACLES"
+        status = "RCA_REQUIRED_WITH_PROTECTED_ORACLES"
     elif writable:
-        status = "REPAIRABLE"
+        status = "RCA_REQUIRED"
     elif protected_oracles:
         status = "TEST_CONTRACT_REVIEW_REQUIRED"
     else:
@@ -158,12 +192,42 @@ def run(
     workspace = workspace.resolve()
     evidence_root = evidence_root.resolve()
     evidence_root.mkdir(parents=True, exist_ok=True)
+
+    _assert_clean_candidate(workspace)
     report = compile_repair_scope(_load_object(failure_case_path), workspace=workspace)
     normalized_path = evidence_root / "normalized-failure-case.json"
-    normalized_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    _write_object(normalized_path, report)
+
+    candidate_paths = tuple(report.get("candidate_paths") or ())
+    if not candidate_paths:
+        raise ScopeNormalizationError(
+            "no product-source candidate remains for read-only RCA; write authority denied"
+        )
+
+    rca = run_read_only_rca(
+        workspace=workspace,
+        failure_case=report,
+        candidate_paths=candidate_paths,
+        repair_round=repair_round,
     )
+    rca_path = evidence_root / "rca.json"
+    _write_object(rca_path, rca)
+
+    grant = compile_write_grant(
+        failure_case=report,
+        rca=rca,
+        candidate_paths=candidate_paths,
+    )
+    grant_path = evidence_root / "write-grant.json"
+    _write_object(grant_path, grant)
+
+    report["stage2_scope_normalization"]["granted_paths"] = list(
+        grant["allowed_paths"]
+    )
+    report["stage2_scope_normalization"]["repair_scope_status"] = "WRITE_GRANTED"
+    report["governed_repair_state"] = "WRITE_GRANTED"
+    _write_object(normalized_path, report)
+
     return base.run_stage2(
         workspace=workspace,
         failure_case_path=normalized_path,
@@ -173,6 +237,8 @@ def run(
         seed_patch_path=seed_patch_path,
         repair_round_number=repair_round,
         max_repair_rounds=max_repair_rounds,
+        rca_path=rca_path,
+        write_grant_path=grant_path,
     )
 
 
@@ -195,16 +261,32 @@ def main() -> int:
         )
     if args.repair_round < 1 or args.repair_round > args.max_repair_rounds:
         parser.error("--repair-round must be within --max-repair-rounds")
-    return run(
-        workspace=Path(args.workspace),
-        failure_case_path=Path(args.failure_case).resolve(),
-        task_run_path=Path(args.task_run).resolve(),
-        evidence_root=Path(args.evidence_root),
-        max_cycles=args.max_cycles,
-        seed_patch_path=Path(args.seed_patch).resolve() if args.seed_patch else None,
-        repair_round=args.repair_round,
-        max_repair_rounds=args.max_repair_rounds,
-    )
+    try:
+        return run(
+            workspace=Path(args.workspace),
+            failure_case_path=Path(args.failure_case).resolve(),
+            task_run_path=Path(args.task_run).resolve(),
+            evidence_root=Path(args.evidence_root),
+            max_cycles=args.max_cycles,
+            seed_patch_path=Path(args.seed_patch).resolve() if args.seed_patch else None,
+            repair_round=args.repair_round,
+            max_repair_rounds=args.max_repair_rounds,
+        )
+    except (OSError, ScopeNormalizationError, RCAError, RepairAuthorityError, base.FixerError) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED",
+                    "state": "RCA_READ_ONLY",
+                    "write_authority": False,
+                    "error": str(exc),
+                    "production_closed": False,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        return 2
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Recreate a validated Stage-3 tree without executing candidate code.
+"""Recreate a validated Stage-3 source tree without executing candidate code.
 
-This trusted publisher runs only after the read-only validation job. It applies the
-bound Stage-2 patch to the exact failed source commit, deterministically regenerates
-control-plane-owned derived authority files, verifies the resulting Git tree matches
-the independently validated tree, and creates the local commit that may be pushed to
-a governed repair branch. It never runs candidate tests or model code.
+This trusted publisher runs only after the read-only validation job. It applies
+the immutable Stage-2 patch to the exact failed source commit, verifies that the
+resulting Git tree is byte-for-byte the independently validated tree, and creates
+the local commit that may be pushed to a governed Draft repair branch.
+
+It has deliberately *no* protected-baseline refresh authority. Governance closure
+and baseline acceptance are separate later states, followed by exact-head CI.
 """
 from __future__ import annotations
 
@@ -17,11 +19,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from refresh_product_source_baseline import (
-    BaselineRefreshError,
-    refresh_product_source_baseline,
-)
-
+STAGE3_SCHEMA = "github-governed-repair-stage3@2"
 MAX_PATCH_BYTES = 2_000_000
 
 
@@ -50,14 +48,20 @@ def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 def _git(workspace: Path, *args: str) -> str:
     completed = _run(["git", *args], workspace)
     if completed.returncode:
-        raise PublicationError((completed.stderr or completed.stdout or "git failed").strip())
+        raise PublicationError(
+            (completed.stderr or completed.stdout or "git failed").strip()
+        )
     return completed.stdout.strip()
 
 
 def _normalize(raw: str) -> str:
     value = str(raw).strip().replace("\\", "/")
     pure = PurePosixPath(value)
-    if not value or pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+    if (
+        not value
+        or pure.is_absolute()
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
         raise PublicationError(f"invalid repository path: {raw!r}")
     normalized = pure.as_posix()
     if normalized != value:
@@ -66,7 +70,12 @@ def _normalize(raw: str) -> str:
 
 
 def _changed_paths(workspace: Path) -> tuple[str, ...]:
-    rows = _git(workspace, "status", "--porcelain=v1", "--untracked-files=all").splitlines()
+    rows = _git(
+        workspace,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    ).splitlines()
     paths: list[str] = []
     for row in rows:
         raw = row[3:] if len(row) > 3 else ""
@@ -76,17 +85,39 @@ def _changed_paths(workspace: Path) -> tuple[str, ...]:
     return tuple(paths)
 
 
+def _require_gate_prefix(validation: dict[str, Any]) -> None:
+    gates = validation.get("gates")
+    if not isinstance(gates, dict):
+        raise PublicationError("governed repair gates are missing")
+    for gate in (
+        "G0_SCOPE_AUTHORITY",
+        "G1_CONTRACT_PROJECTION",
+        "G2_SEMANTIC_INVARIANT",
+        "G3_MUTATION",
+        "G4_FINAL_AUTHORITY",
+        "G5_INTEGRATION_CERTIFICATION",
+    ):
+        row = gates.get(gate)
+        if not isinstance(row, dict) or row.get("status") != "PASS":
+            raise PublicationError(f"pre-publication gate did not pass: {gate}")
+    g6 = gates.get("G6_GOVERNANCE_EXACT_HEAD")
+    if not isinstance(g6, dict) or g6.get("status") != "PENDING":
+        raise PublicationError("G6 must remain pending before governance closure")
+
+
 def _validate_metadata(plan: dict[str, Any], validation: dict[str, Any]) -> None:
-    if plan.get("schema") != "github-governed-repair-stage3@1":
+    if plan.get("schema") != STAGE3_SCHEMA:
         raise PublicationError("unsupported Stage-3 plan schema")
     if plan.get("status") != "CANDIDATE_PREPARED":
         raise PublicationError("Stage-3 plan is not a prepared candidate")
     if plan.get("tree_binding_complete") is not True:
         raise PublicationError("validated tree binding is incomplete")
-    if validation.get("schema") != "github-governed-repair-stage3@1":
+    if validation.get("schema") != STAGE3_SCHEMA:
         raise PublicationError("unsupported Stage-3 validation schema")
     if validation.get("status") != "VALIDATED_FOR_DRAFT_PR":
         raise PublicationError("Stage-3 validation is not publishable")
+    if validation.get("governed_repair_state") != "PR_CERTIFICATION":
+        raise PublicationError("Stage-3 validation is not in PR_CERTIFICATION")
     if validation.get("targeted_validation_passed") is not True:
         raise PublicationError("targeted validation did not pass")
     if validation.get("full_validation_passed") is not True:
@@ -97,6 +128,8 @@ def _validate_metadata(plan: dict[str, Any], validation: dict[str, Any]) -> None
         raise PublicationError("Draft PR publication was already asserted")
     if validation.get("production_closed") is not False:
         raise PublicationError("invalid production closure authority")
+    _require_gate_prefix(validation)
+
     for key in (
         "source_run_id",
         "head_sha",
@@ -104,33 +137,32 @@ def _validate_metadata(plan: dict[str, Any], validation: dict[str, Any]) -> None
         "repair_branch",
         "repair_base_branch",
         "changed_paths",
+        "write_scope",
+        "rca_sha256",
+        "write_grant_sha256",
+        "required_guard_ids",
+        "violated_invariant",
+        "authority_owner",
+        "required_permanent_guard",
     ):
         if validation.get(key) != plan.get(key):
             raise PublicationError(f"Stage-3 plan/validation mismatch: {key}")
+    if plan.get("derived_paths") not in ([], None):
+        raise PublicationError("Stage-3 may not publish derived baseline changes")
+    if plan.get("publication_paths") != plan.get("changed_paths"):
+        raise PublicationError("Stage-3 publication paths must equal source patch paths")
     if not str(plan.get("validated_tree_sha") or ""):
         raise PublicationError("validated Git tree identity is missing")
     if str(plan.get("validated_parent_sha") or "") != str(plan.get("head_sha") or ""):
         raise PublicationError("validated parent is not the failed source SHA")
-
-
-def _regenerate_derived_authorities(workspace: Path, plan: dict[str, Any]) -> list[str]:
-    try:
-        baseline = refresh_product_source_baseline(
-            workspace,
-            generated_from_sha=str(plan.get("head_sha") or ""),
-            allow_missing=True,
-        )
-    except BaselineRefreshError as exc:
-        raise PublicationError(str(exc)) from exc
-    derived: list[str] = []
-    if baseline.get("changed") is True and baseline.get("path"):
-        derived.append(str(baseline["path"]))
-    expected = [str(item) for item in plan.get("derived_paths") or []]
-    if derived != expected:
-        raise PublicationError(
-            f"derived authority reproduction mismatch: expected={expected} actual={derived}"
-        )
-    return derived
+    for field in (
+        "governance_closed",
+        "baseline_accepted",
+        "exact_head_certified",
+        "ready_for_review",
+    ):
+        if plan.get(field) is not False:
+            raise PublicationError(f"pre-G6 Stage-3 plan illegally asserted {field}")
 
 
 def prepare_publication(
@@ -158,58 +190,47 @@ def prepare_publication(
     if patch_sha != str(plan.get("patch_sha256") or ""):
         raise PublicationError("publisher patch digest does not match validated evidence")
 
-    source_paths = tuple(_normalize(str(item)) for item in plan.get("changed_paths") or [])
+    source_paths = tuple(
+        _normalize(str(item)) for item in plan.get("changed_paths") or []
+    )
+    write_scope = tuple(
+        _normalize(str(item)) for item in plan.get("write_scope") or []
+    )
     if not source_paths or len(set(source_paths)) != len(source_paths):
         raise PublicationError("validated source path set is empty or duplicated")
+    if any(path not in write_scope for path in source_paths):
+        raise PublicationError("validated source paths escape the immutable write grant")
+
     check = _run(
         ["git", "apply", "--check", "--whitespace=error-all", str(patch_path.resolve())],
         workspace,
     )
     if check.returncode:
-        raise PublicationError((check.stderr or check.stdout or "git apply --check failed").strip())
+        raise PublicationError(
+            (check.stderr or check.stdout or "git apply --check failed").strip()
+        )
     applied = _run(
         ["git", "apply", "--whitespace=error-all", str(patch_path.resolve())],
         workspace,
     )
     if applied.returncode:
-        raise PublicationError((applied.stderr or applied.stdout or "git apply failed").strip())
+        raise PublicationError(
+            (applied.stderr or applied.stdout or "git apply failed").strip()
+        )
     actual_source_paths = _changed_paths(workspace)
     if set(actual_source_paths) != set(source_paths) or len(actual_source_paths) != len(source_paths):
         raise PublicationError(
-            f"publisher source path mismatch: expected={list(source_paths)} actual={list(actual_source_paths)}"
+            "publisher source path mismatch: "
+            f"expected={list(source_paths)} actual={list(actual_source_paths)}"
         )
 
-    # Stage the model-owned patch first so git ls-files observes added/deleted
-    # protected files exactly as the eventual tree will contain them.  Derived
-    # authority content is then regenerated by trusted deterministic code.
     _git(workspace, "add", "-A", "--", *source_paths)
-    derived_paths = _regenerate_derived_authorities(workspace, plan)
-    if derived_paths:
-        _git(workspace, "add", "--", *derived_paths)
-
-    publication_paths = list(source_paths)
-    for path in derived_paths:
-        if path not in publication_paths:
-            publication_paths.append(path)
-    expected_publication_paths = [
-        _normalize(str(item)) for item in plan.get("publication_paths") or list(source_paths)
-    ]
-    if publication_paths != expected_publication_paths:
-        raise PublicationError(
-            "publisher dependency closure path mismatch: "
-            f"expected={expected_publication_paths} actual={publication_paths}"
-        )
-    actual_paths = list(_changed_paths(workspace))
-    if set(actual_paths) != set(publication_paths) or len(actual_paths) != len(publication_paths):
-        raise PublicationError(
-            f"publisher total path mismatch: expected={publication_paths} actual={actual_paths}"
-        )
-
     tree_sha = _git(workspace, "write-tree")
     if tree_sha != str(plan.get("validated_tree_sha") or ""):
         raise PublicationError(
             f"publisher tree mismatch: expected={plan.get('validated_tree_sha')} actual={tree_sha}"
         )
+
     _git(workspace, "config", "user.name", "github-actions[bot]")
     _git(
         workspace,
@@ -227,12 +248,14 @@ def prepare_publication(
     published_tree = _git(workspace, "rev-parse", "HEAD^{tree}")
     parent = _git(workspace, "rev-parse", "HEAD^")
     if parent != str(plan.get("head_sha") or "") or published_tree != tree_sha:
-        raise PublicationError("published commit identity does not preserve validated parent/tree")
+        raise PublicationError(
+            "published commit identity does not preserve validated parent/tree"
+        )
     if _changed_paths(workspace):
         raise PublicationError("publisher workspace is dirty after commit")
 
     result = {
-        "schema": "github-governed-repair-stage3-publication@1",
+        "schema": "github-governed-repair-stage3-publication@2",
         "status": "PUBLICATION_COMMIT_PREPARED",
         "source_run_id": str(plan.get("source_run_id")),
         "source_head_sha": str(plan.get("head_sha")),
@@ -242,10 +265,23 @@ def prepare_publication(
         "repair_branch": str(plan.get("repair_branch")),
         "repair_base_branch": str(plan.get("repair_base_branch")),
         "changed_paths": list(source_paths),
-        "derived_paths": derived_paths,
-        "publication_paths": publication_paths,
+        "write_scope": list(write_scope),
+        "rca_sha256": str(plan.get("rca_sha256")),
+        "write_grant_sha256": str(plan.get("write_grant_sha256")),
+        "required_guard_ids": list(plan.get("required_guard_ids") or []),
+        "violated_invariant": str(plan.get("violated_invariant")),
+        "authority_owner": str(plan.get("authority_owner")),
+        "required_permanent_guard": str(plan.get("required_permanent_guard")),
+        "derived_paths": [],
+        "publication_paths": list(source_paths),
+        "governed_repair_state": "PR_CERTIFICATION",
+        "gates": validation.get("gates"),
         "full_validation_passed": True,
         "draft_pr_published": False,
+        "governance_closed": False,
+        "baseline_accepted": False,
+        "exact_head_certified": False,
+        "ready_for_review": False,
         "production_closed": False,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,10 +329,27 @@ def main() -> int:
                 "repair_base_branch": result["repair_base_branch"],
                 "source_run_id": result["source_run_id"],
                 "source_head_sha": result["source_head_sha"],
+                "rca_sha256": result["rca_sha256"],
+                "write_grant_sha256": result["write_grant_sha256"],
             },
         )
-    except (OSError, json.JSONDecodeError, subprocess.SubprocessError, PublicationError) as exc:
-        print(json.dumps({"status": "BLOCKED", "error": str(exc)}), file=sys.stderr)
+    except (
+        OSError,
+        json.JSONDecodeError,
+        subprocess.SubprocessError,
+        PublicationError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED",
+                    "error": str(exc),
+                    "baseline_accepted": False,
+                    "production_closed": False,
+                }
+            ),
+            file=sys.stderr,
+        )
         return 2
     return 0
 

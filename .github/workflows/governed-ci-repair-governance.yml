@@ -1,0 +1,358 @@
+name: governed-ci-repair-governance
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage3_run_id:
+        description: Exact successful governed Stage-3 workflow run ID
+        required: true
+        type: string
+      stage3_run_attempt:
+        description: Exact Stage-3 run attempt
+        required: false
+        default: '1'
+        type: string
+      approval_token:
+        description: Type CLOSE_GOVERNANCE_AND_ACCEPT_BASELINE to acknowledge the protected G6 transition
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: governed-ci-repair-governance-${{ inputs.stage3_run_id }}-${{ inputs.stage3_run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  governance-baseline-exact-head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment:
+      name: governed-repair-governance
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Require explicit governance acknowledgement
+        env:
+          APPROVAL_TOKEN: ${{ inputs.approval_token }}
+        run: |
+          set -euo pipefail
+          if [[ "${APPROVAL_TOKEN}" != "CLOSE_GOVERNANCE_AND_ACCEPT_BASELINE" ]]; then
+            echo "explicit governance acknowledgement token is required" >&2
+            exit 1
+          fi
+
+      - name: Verify protected governance environment policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p governance-evidence
+          gh api "repos/${GITHUB_REPOSITORY}/environments/governed-repair-governance" \
+            > governance-evidence/governance-environment.json
+          jq -e '
+            .name == "governed-repair-governance"
+            and ([.protection_rules[]?
+              | select(.type == "required_reviewers")
+              | .reviewers[]?] | length) > 0
+            and ([.protection_rules[]?
+              | select(.type == "required_reviewers")
+              | .prevent_self_review] | any(. == true))
+          ' governance-evidence/governance-environment.json >/dev/null || {
+            echo "governance environment must have required reviewers and prevent self-review" >&2
+            exit 1
+          }
+
+      - name: Checkout trusted governance control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve exact successful Stage-3 publication artifact
+        id: stage3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE3_RUN_ID: ${{ inputs.stage3_run_id }}
+          STAGE3_RUN_ATTEMPT: ${{ inputs.stage3_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "${STAGE3_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${STAGE3_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${STAGE3_RUN_ID}" > incoming/stage3-run.json
+          jq -e --arg attempt "${STAGE3_RUN_ATTEMPT}" '
+            .name == "governed-ci-repair-stage3"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/stage3-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${STAGE3_RUN_ID}/artifacts?per_page=100" > incoming/artifacts.json
+          artifact_id=$(jq -r '[.artifacts[]
+            | select(.expired == false)
+            | select(.name | startswith("governed-ci-repair-stage3-published-"))]
+            | sort_by(.created_at) | reverse | .[0].id // empty' incoming/artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/stage3.zip
+          unzip -q incoming/stage3.zip -d incoming/stage3
+          for required in publication-result.json publication-commit.json validation-result.json task-run.json rca.json write-grant.json; do
+            mapfile -t matches < <(find incoming/stage3 -type f -name "${required}" -print)
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "expected exactly one ${required}, found ${#matches[@]}" >&2
+              exit 1
+            fi
+          done
+          publication=$(find incoming/stage3 -type f -name publication-result.json -print -quit)
+          jq -e '
+            .schema == "github-governed-repair-draft-publication@1"
+            and .status == "DRAFT_REPAIR_PR_PUBLISHED_AWAITING_GOVERNANCE"
+            and .governed_repair_state == "GOVERNANCE_REQUIRED"
+            and .draft_pr_published == true
+            and .governance_closed == false
+            and .baseline_accepted == false
+            and .exact_head_certified == false
+            and .ready_for_review == false
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' "${publication}" >/dev/null
+          echo "publication=${publication}" >> "$GITHUB_OUTPUT"
+
+      - name: Bind Draft PR to exact published source SHA
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION: ${{ steps.stage3.outputs.publication }}
+        run: |
+          set -euo pipefail
+          pr_url=$(jq -r '.draft_pr_url' "${PUBLICATION}")
+          source_sha=$(jq -r '.published_source_sha' "${PUBLICATION}")
+          branch=$(jq -r '.repair_branch' "${PUBLICATION}")
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
+          state=$(gh pr view "${pr_url}" --json number,isDraft,state,headRefName,headRefOid,baseRefName,url)
+          pr_number=$(jq -r '.number' <<<"${state}")
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          jq -e --arg head "${branch}" --arg sha "${source_sha}" --argjson pr_number "${pr_number}" '
+            .state == "OPEN"
+            and .isDraft == true
+            and .number == $pr_number
+            and .headRefName == $head
+            and .headRefOid == $sha
+          ' <<<"${state}" >/dev/null
+          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Close governance before any baseline mutation
+        env:
+          GOVERNANCE_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          publication="${{ steps.stage3.outputs.publication }}"
+          task=$(find incoming/stage3 -type f -name task-run.json -print -quit)
+          mkdir -p governance-evidence
+          cp "${publication}" governance-evidence/publication-result.json
+          cp "${task}" governance-evidence/task-run.json
+          cp "$(find incoming/stage3 -type f -name validation-result.json -print -quit)" governance-evidence/validation-result.json
+          cp "$(find incoming/stage3 -type f -name publication-commit.json -print -quit)" governance-evidence/publication-commit.json
+          cp "$(find incoming/stage3 -type f -name rca.json -print -quit)" governance-evidence/rca.json
+          cp "$(find incoming/stage3 -type f -name write-grant.json -print -quit)" governance-evidence/write-grant.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_governance.py \
+            --publication-receipt governance-evidence/publication-result.json \
+            --task-run governance-evidence/task-run.json \
+            --actor "${GOVERNANCE_ACTOR}" \
+            --approval-ref "github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}:environment:governed-repair-governance" \
+            --output governance-evidence/governance-receipt.json
+          jq -e '.status == "GOVERNANCE_CLOSED" and .governance_closed == true and .baseline_accepted == false' \
+            governance-evidence/governance-receipt.json >/dev/null
+
+      - name: Checkout exact governed source branch for baseline acceptance
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.pr.outputs.source_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Accept protected baseline from governance receipt only
+        id: baseline
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_baseline_acceptance.py \
+            --workspace candidate \
+            --governance-receipt governance-evidence/governance-receipt.json \
+            --task-run governance-evidence/task-run.json \
+            --output governance-evidence/baseline-acceptance.json
+          baseline_sha=$(jq -r '.baseline_commit_sha' governance-evidence/baseline-acceptance.json)
+          [[ "${baseline_sha}" =~ ^[0-9a-f]{40}$ ]]
+          actual=$(git -C candidate rev-parse HEAD)
+          [[ "${actual}" == "${baseline_sha}" ]]
+          branch="${{ steps.pr.outputs.branch }}"
+          git -C candidate push origin "HEAD:refs/heads/${branch}"
+          echo "baseline_sha=${baseline_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Prove local baseline binding after acceptance
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/verify_product_source_baseline.py \
+            --workspace candidate \
+            --require-parent-binding \
+            --output governance-evidence/post-baseline-verification.json
+          jq -e '.status == "PASS" and (.drift_paths | length == 0)' \
+            governance-evidence/post-baseline-verification.json >/dev/null
+          git -C candidate status --porcelain=v1 --untracked-files=all | tee governance-evidence/post-baseline-status.txt
+          test ! -s governance-evidence/post-baseline-status.txt
+
+      - name: Wait for mandatory exact-head pull-request workflows
+        id: exact-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+          deadline=$((SECONDS + 5400))
+          while (( SECONDS < deadline )); do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_SHA}&per_page=100" > governance-evidence/exact-head-runs.json
+            quality=$(jq -c '
+              [.workflow_runs[]
+                | select(.name == "quality")
+                | select(.head_sha == $sha)
+                | select(.event == "pull_request")
+                | select(any(.pull_requests[]?; ((.number | tostring) == $pr_number)))]
+              | sort_by(.created_at) | reverse | .[0] // empty
+            ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" governance-evidence/exact-head-runs.json)
+            skill=$(jq -c '
+              [.workflow_runs[]
+                | select(.name == "skill-self-validation")
+                | select(.head_sha == $sha)
+                | select(.event == "pull_request")
+                | select(any(.pull_requests[]?; ((.number | tostring) == $pr_number)))]
+              | sort_by(.created_at) | reverse | .[0] // empty
+            ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" governance-evidence/exact-head-runs.json)
+            if [[ -n "${quality}" && -n "${skill}" ]]; then
+              q_status=$(jq -r '.status' <<<"${quality}")
+              s_status=$(jq -r '.status' <<<"${skill}")
+              if [[ "${q_status}" == "completed" && "${s_status}" == "completed" ]]; then
+                q_conclusion=$(jq -r '.conclusion' <<<"${quality}")
+                s_conclusion=$(jq -r '.conclusion' <<<"${skill}")
+                if [[ "${q_conclusion}" != "success" || "${s_conclusion}" != "success" ]]; then
+                  echo "exact-head PR CI failed: quality=${q_conclusion}, skill=${s_conclusion}" >&2
+                  exit 1
+                fi
+                pr_state=$(gh pr view "${PR_URL}" --json number,isDraft,headRefOid,url)
+                jq -n \
+                  --arg sha "${EXACT_SHA}" \
+                  --arg pr "${PR_URL}" \
+                  --arg pr_number "${PR_NUMBER}" \
+                  --argjson pr_state "${pr_state}" \
+                  --argjson quality "${quality}" \
+                  --argjson skill "${skill}" \
+                  '{
+                    schema:"governed-repair-exact-head-ci@1",
+                    head_sha:$sha,
+                    pr_url:$pr,
+                    pr_number:($pr_number|tonumber),
+                    pr_is_draft:$pr_state.isDraft,
+                    pr_head_sha:$pr_state.headRefOid,
+                    workflows:{
+                      quality:{
+                        run_id:($quality.id|tostring),
+                        status:$quality.status,
+                        conclusion:$quality.conclusion,
+                        head_sha:$quality.head_sha,
+                        event:$quality.event,
+                        pr_number:($pr_number|tonumber),
+                        url:$quality.html_url
+                      },
+                      "skill-self-validation":{
+                        run_id:($skill.id|tostring),
+                        status:$skill.status,
+                        conclusion:$skill.conclusion,
+                        head_sha:$skill.head_sha,
+                        event:$skill.event,
+                        pr_number:($pr_number|tonumber),
+                        url:$skill.html_url
+                      }
+                    }
+                  }' > governance-evidence/exact-head-ci.json
+                jq -e --arg pr_number "${PR_NUMBER}" '
+                  .pr_is_draft == true
+                  and .pr_head_sha == .head_sha
+                  and ((.pr_number | tostring) == $pr_number)
+                  and .workflows.quality.event == "pull_request"
+                  and .workflows["skill-self-validation"].event == "pull_request"
+                  and ((.workflows.quality.pr_number | tostring) == $pr_number)
+                  and ((.workflows["skill-self-validation"].pr_number | tostring) == $pr_number)
+                ' governance-evidence/exact-head-ci.json >/dev/null
+                exit 0
+              fi
+            fi
+            sleep 30
+          done
+          echo "timed out waiting for exact-head pull-request CI" >&2
+          exit 1
+
+      - name: Finalize G6 and make PR Ready for review only
+        id: finalize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_exact_head.py \
+            --baseline-receipt governance-evidence/baseline-acceptance.json \
+            --ci-evidence governance-evidence/exact-head-ci.json \
+            --task-run governance-evidence/task-run.json \
+            --output governance-evidence/exact-head-result.json
+          jq -e '
+            .status == "READY_FOR_REVIEW"
+            and .ready_for_review == true
+            and .gates.G6_GOVERNANCE_EXACT_HEAD.status == "PASS"
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' governance-evidence/exact-head-result.json >/dev/null
+          gh pr ready "${PR_URL}"
+          state=$(gh pr view "${PR_URL}" --json isDraft,state,headRefOid)
+          jq -e --arg sha "${{ steps.baseline.outputs.baseline_sha }}" '
+            .state == "OPEN" and .isDraft == false and .headRefOid == $sha
+          ' <<<"${state}" >/dev/null
+          echo "ready_for_review=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload complete G6 evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-repair-g6-${{ inputs.stage3_run_id }}-${{ inputs.stage3_run_attempt }}
+          path: governance-evidence
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Record final review-ready state
+        if: steps.finalize.outputs.ready_for_review == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${PR_URL}" --body "G0-G6 are machine-verified on exact head \`${EXACT_SHA}\`. Governance is CLOSED through the protected governed-repair-governance environment, the protected baseline was accepted only after governance, and exact-head pull-request quality + skill-self-validation passed for the exact PR. This PR is Ready for review. Automatic merge and deployment remain disabled; production_closed=false."

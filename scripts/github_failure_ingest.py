@@ -4,6 +4,10 @@
 Logs and artifacts are untrusted data. This module never executes their contents,
 never exposes production secrets, and records a durable TaskRun so later repair
 stages can resume without screenshots or a manually supplied workflow run ID.
+
+The classifier prefers machine-readable failure envelopes and recognizes protected
+baseline drift as its own non-repairable transition instead of misclassifying it
+as an unknown product-code failure.
 """
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ if str(CONTROL) not in sys.path:
 from task_run import TaskRunStore, stable_task_id  # type: ignore  # noqa: E402
 
 SCHEMA = "github-failure-ingest@1"
+MACHINE_FAILURE_SCHEMA = "machine-failure-envelope@1"
 CODE_FAILURE_CONCLUSIONS = {"failure"}
 NON_REPAIRABLE_CONCLUSIONS = {
     "cancelled": "cancelled",
@@ -60,9 +65,19 @@ PROTECTED_PREFIXES = (
 PROTECTED_EXACT = {
     ".github/workflows/governed-ci-failure-ingest.yml",
     ".github/workflows/governed-ci-repair.yml",
+    ".github/workflows/governed-ci-repair-stage2.yml",
+    ".github/workflows/governed-ci-repair-stage3.yml",
+    ".github/workflows/governed-ci-repair-governance.yml",
     "scripts/github_failure_ingest.py",
     "scripts/github_agent_fixer.py",
     "scripts/github_repair_orchestrator.py",
+    "scripts/github_repair_orchestrator_control_plane.py",
+    "scripts/github_repair_authority.py",
+    "scripts/github_repair_rca.py",
+    "scripts/github_repair_stage3.py",
+    "scripts/github_repair_governance.py",
+    "scripts/github_repair_baseline_acceptance.py",
+    "scripts/github_repair_exact_head.py",
     "scripts/github_repair_task.py",
     "scripts/quality_loop.py",
     "scripts/repair_loop.py",
@@ -71,6 +86,9 @@ PROTECTED_EXACT = {
 PATH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.-])((?:services|scripts|tests|web|contracts|deployment|\.github/workflows)/"
     r"[A-Za-z0-9_./@+\-]+\.(?:py|js|jsx|ts|tsx|mjs|cjs|json|ya?ml|toml|md|sh))(?![A-Za-z0-9_.-])"
+)
+BASELINE_ASSERTION_PATH = re.compile(
+    r"(?m)^\s*:\s*((?:services|web|contracts)/[^\s]+)\s*$"
 )
 SECRET_PATTERNS = (
     re.compile(
@@ -142,6 +160,12 @@ def _safe_candidate(path: str, workspace: Path) -> bool:
     normalized = _normalize_repo_path(path)
     if not normalized or normalized in PROTECTED_EXACT:
         return False
+    if (
+        normalized.startswith("scripts/github_repair_")
+        or normalized == "scripts/github_stage2_handoff.py"
+        or normalized == "scripts/verify_product_source_baseline.py"
+    ):
+        return False
     if any(normalized.startswith(prefix) for prefix in PROTECTED_PREFIXES):
         return False
     resolved = (workspace / normalized).resolve()
@@ -170,11 +194,103 @@ def extract_candidate_paths(
     return found[:16]
 
 
+def _machine_failure_rows(files: list[tuple[Path, str]]) -> list[dict[str, Any]]:
+    """Parse bounded structured failure envelopes from whole files or JSONL rows."""
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def accept(payload: object, source: Path) -> None:
+        if not isinstance(payload, dict) or payload.get("schema") != MACHINE_FAILURE_SCHEMA:
+            return
+        gate_id = str(payload.get("gate_id") or "machine-failure").strip()
+        failure_kind = str(payload.get("failure_kind") or "unknown").strip().casefold()
+        detail = redact(str(payload.get("detail") or payload.get("summary") or ""))[:2000]
+        implicated: list[str] = []
+        for raw in payload.get("implicated_paths") or []:
+            path = _normalize_repo_path(str(raw))
+            if path and path not in implicated:
+                implicated.append(path)
+        identity = json.dumps(
+            {"gate": gate_id, "kind": failure_kind, "paths": implicated, "detail": detail},
+            sort_keys=True,
+        )
+        if identity in seen:
+            return
+        seen.add(identity)
+        rows.append(
+            {
+                "gate_id": gate_id,
+                "status": str(payload.get("status") or "FAIL"),
+                "category": str(payload.get("category") or "verification"),
+                "owner": str(payload.get("owner") or "machine-gate"),
+                "failure_kind": failure_kind,
+                "summary": detail,
+                "implicated_paths": implicated,
+                "evidence_source": source.name,
+                "machine_envelope": True,
+            }
+        )
+
+    for path, text in files:
+        stripped = text.strip()
+        if not stripped:
+            continue
+        try:
+            accept(json.loads(stripped), path)
+        except json.JSONDecodeError:
+            pass
+        for line in text.splitlines():
+            line = line.strip()
+            if not line.startswith("{") or MACHINE_FAILURE_SCHEMA not in line:
+                continue
+            try:
+                accept(json.loads(line), path)
+            except json.JSONDecodeError:
+                continue
+    return rows
+
+
+def _protected_baseline_rows(files: list[tuple[Path, str]]) -> list[dict[str, Any]]:
+    """Recognize the protected-baseline unittest failure even without gate JSON."""
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    marker = "test_baseline_matches_current_git_tracked_protected_snapshot"
+    for path, text in files:
+        if marker not in text:
+            continue
+        for match in BASELINE_ASSERTION_PATH.finditer(text):
+            implicated = _normalize_repo_path(match.group(1))
+            if implicated in seen:
+                continue
+            seen.add(implicated)
+            results.append(
+                {
+                    "gate_id": "protected-product-source-baseline",
+                    "status": "FAIL",
+                    "category": "governance",
+                    "owner": "skill-control-plane",
+                    "failure_kind": "protected_baseline_drift",
+                    "summary": (
+                        "Protected product-source baseline differs from the current tracked "
+                        f"snapshot: {implicated}"
+                    ),
+                    "implicated_paths": [implicated],
+                    "evidence_source": path.name,
+                    "machine_envelope": False,
+                }
+            )
+    return results
+
+
 def _summary_failures(
     files: list[tuple[Path, str]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     failures: list[dict[str, Any]] = []
     excerpts: list[str] = []
+    for row in [*_machine_failure_rows(files), *_protected_baseline_rows(files)]:
+        if row not in failures:
+            failures.append(row)
+
     for path, text in files:
         if path.name == "run-summary.json":
             try:
@@ -196,18 +312,18 @@ def _summary_failures(
                     metadata = row.get("metadata")
                     if not isinstance(metadata, dict):
                         metadata = {}
-                    failures.append(
-                        {
-                            "gate_id": str(row.get("id") or "unknown"),
-                            "status": str(row.get("status") or "FAIL"),
-                            "category": str(row.get("category") or "verification"),
-                            "owner": str(row.get("owner") or "unassigned"),
-                            "failure_kind": str(metadata.get("failure_kind") or ""),
-                            "summary": redact(
-                                str(row.get("stderr") or row.get("error") or "")
-                            )[:2000],
-                        }
-                    )
+                    failure = {
+                        "gate_id": str(row.get("id") or "unknown"),
+                        "status": str(row.get("status") or "FAIL"),
+                        "category": str(row.get("category") or "verification"),
+                        "owner": str(row.get("owner") or "unassigned"),
+                        "failure_kind": str(metadata.get("failure_kind") or ""),
+                        "summary": redact(
+                            str(row.get("stderr") or row.get("error") or "")
+                        )[:2000],
+                    }
+                    if failure not in failures:
+                        failures.append(failure)
         for line in text.splitlines():
             low = line.casefold()
             if any(
@@ -236,6 +352,9 @@ def classify(
 ) -> str:
     normalized_conclusion = conclusion.casefold()
     low = combined_text.casefold()
+    kinds = {str(row.get("failure_kind") or "").casefold() for row in failures}
+    if "protected_baseline_drift" in kinds:
+        return "protected_baseline_drift"
     if normalized_conclusion == "timed_out" or any(term in low for term in TIMEOUT_TERMS):
         return "timeout"
     if normalized_conclusion in NON_REPAIRABLE_CONCLUSIONS:
@@ -296,6 +415,12 @@ def build_report(
         if path
     ][:250]
     candidates = extract_candidate_paths(combined, workspace, source_changed_files)
+    for row in failures:
+        for raw in row.get("implicated_paths") or []:
+            path = _normalize_repo_path(str(raw))
+            if _safe_candidate(path, workspace) and path not in candidates:
+                candidates.append(path)
+    candidates = candidates[:16]
     same_repository = bool(repo_name and head_repo == repo_name)
     repair_allowed = bool(
         conclusion.casefold() in CODE_FAILURE_CONCLUSIONS
@@ -303,7 +428,13 @@ def build_report(
         and classification == "code_or_contract"
         and failures
         and candidates
-        and workflow_name != "governed-ci-repair"
+        and workflow_name
+        not in {
+            "governed-ci-repair",
+            "governed-ci-repair-stage2",
+            "governed-ci-repair-stage3",
+            "governed-ci-repair-governance",
+        }
     )
 
     if head_branch.startswith("governed-repair/"):
@@ -394,6 +525,10 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
             "source_changed",
             "validation_passed",
             "draft_pr_published",
+            "governance_closed",
+            "baseline_accepted",
+            "exact_head_certified",
+            "ready_for_review",
         ),
     )
     task.checkpoint(
@@ -402,8 +537,10 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
         workspace_fingerprint=None,
         evidence_refs=[str(path.with_name("failure-case.json"))],
         metadata={
+            "governed_repair_state": "EVIDENCE_FROZEN",
             "classification": report["classification"],
             "repair_allowed": report["repair_allowed"],
+            "production_closed": False,
         },
     )
     task.mark_condition(
@@ -417,10 +554,14 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
     if report["repair_allowed"]:
         task.checkpoint(
             status="WAITING_EXTERNAL_RESULT",
-            phase="REPAIR_READY",
+            phase="RCA_REQUIRED",
             workspace_fingerprint=None,
             evidence_refs=[str(path.with_name("failure-case.json"))],
-            metadata={"next_action": "run governed repair stage"},
+            metadata={
+                "governed_repair_state": "EVIDENCE_FROZEN",
+                "next_action": "run mandatory read-only RCA before any write grant",
+                "production_closed": False,
+            },
         )
     else:
         task.block(
@@ -433,7 +574,10 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
             ),
             attempted_strategies=("workflow-run-ingest",),
             next_action=(
-                "inspect the generated GitHub issue and provision the missing "
+                "inspect the machine-classified evidence; protected baseline drift must "
+                "enter governance/baseline acceptance rather than automatic source repair"
+                if report["classification"] == "protected_baseline_drift"
+                else "inspect the generated GitHub issue and provision the missing "
                 "environment or create a separately governed repair target"
             ),
             workspace_fingerprint=None,

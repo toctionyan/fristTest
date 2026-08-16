@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Bind a successful Stage-2 patch to immutable metadata required by Stage 3."""
+"""Bind a successful Stage-2 patch to immutable metadata required by Stage 3.
+
+The handoff preserves the Stage-1 failure authority and additionally requires the
+read-only RCA, exact write-grant digests, immutable write scope, and G0 scope
+proof already recorded by Stage 2. It never broadens or creates repair authority.
+"""
 from __future__ import annotations
 
 import argparse
@@ -9,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@1"
+SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@2"
 
 
 class HandoffError(RuntimeError):
@@ -28,15 +33,20 @@ def _sanitize_branch(value: str) -> str:
     return cleaned[:180]
 
 
+def _normalize_path(raw: object) -> str:
+    value = str(raw or "").strip().replace("\\", "/")
+    if not value or value.startswith("/") or ".." in Path(value).parts:
+        raise HandoffError(f"invalid source authority path: {raw!r}")
+    return value
+
+
 def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
     candidate_paths = failure.get("candidate_paths")
     if not isinstance(candidate_paths, list) or not candidate_paths:
         raise HandoffError("Stage-1 source authority is missing candidate_paths")
     normalized_paths: list[str] = []
     for raw in candidate_paths:
-        path = str(raw or "").strip().replace("\\", "/")
-        if not path or path.startswith("/") or ".." in Path(path).parts:
-            raise HandoffError(f"invalid Stage-1 source authority path: {raw!r}")
+        path = _normalize_path(raw)
         if path not in normalized_paths:
             normalized_paths.append(path)
 
@@ -57,7 +67,9 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         "same_repository": failure.get("same_repository") is True,
         "candidate_paths": normalized_paths,
         "repair_branch": _sanitize_branch(str(failure.get("repair_branch") or "")),
-        "repair_base_branch": _sanitize_branch(str(failure.get("repair_base_branch") or "")),
+        "repair_base_branch": _sanitize_branch(
+            str(failure.get("repair_base_branch") or "")
+        ),
     }
     if authority["schema"] != "github-failure-ingest@1" or authority["status"] != "INGESTED":
         raise HandoffError("invalid Stage-1 source authority contract")
@@ -73,7 +85,10 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         raise HandoffError("Stage-1 source authority did not authorize same-repository repair")
     if not authority["repair_branch"].startswith("governed-repair/"):
         raise HandoffError("Stage-1 source authority repair branch is invalid")
-    if not authority["repair_base_branch"] or authority["repair_base_branch"].startswith("governed-repair/"):
+    if (
+        not authority["repair_base_branch"]
+        or authority["repair_base_branch"].startswith("governed-repair/")
+    ):
         raise HandoffError("Stage-1 source authority repair base is invalid")
     return authority
 
@@ -88,7 +103,57 @@ def _authority_digest(authority: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def bind_handoff(*, failure_path: Path, result_path: Path, patch_path: Path) -> dict[str, Any]:
+def _validate_repair_authority(result: dict[str, Any]) -> None:
+    if result.get("governed_repair_state") != "INDEPENDENT_REVIEW":
+        raise HandoffError("Stage-2 candidate is not awaiting independent review")
+    if result.get("production_closed") is not False:
+        raise HandoffError("Stage-2 candidate illegally asserted production closure")
+    for field in (
+        "rca_sha256",
+        "write_grant_sha256",
+        "violated_invariant",
+        "authority_owner",
+        "required_permanent_guard",
+    ):
+        if not str(result.get(field) or "").strip():
+            raise HandoffError(f"Stage-2 repair authority is missing {field}")
+    guard_ids = result.get("required_guard_ids")
+    if (
+        not isinstance(guard_ids, list)
+        or not guard_ids
+        or any(not isinstance(item, str) or not item.strip() for item in guard_ids)
+        or len(set(guard_ids)) != len(guard_ids)
+    ):
+        raise HandoffError("Stage-2 permanent machine guard binding is missing or invalid")
+    scope = result.get("write_scope")
+    changed = result.get("changed_paths")
+    if not isinstance(scope, list) or not scope:
+        raise HandoffError("Stage-2 write_scope is missing")
+    if not isinstance(changed, list) or not changed:
+        raise HandoffError("Stage-2 changed_paths is missing")
+    normalized_scope = [_normalize_path(item) for item in scope]
+    normalized_changed = [_normalize_path(item) for item in changed]
+    if len(set(normalized_scope)) != len(normalized_scope):
+        raise HandoffError("Stage-2 write_scope contains duplicate paths")
+    if len(set(normalized_changed)) != len(normalized_changed):
+        raise HandoffError("Stage-2 changed_paths contains duplicate paths")
+    escaped = [path for path in normalized_changed if path not in normalized_scope]
+    if escaped:
+        raise HandoffError(f"Stage-2 changes escape exact write grant: {escaped}")
+    gates = result.get("gates")
+    if not isinstance(gates, dict):
+        raise HandoffError("Stage-2 G0 scope authority proof is missing")
+    g0 = gates.get("G0_SCOPE_AUTHORITY")
+    if not isinstance(g0, dict) or g0.get("status") != "PASS":
+        raise HandoffError("Stage-2 G0 scope authority did not pass")
+
+
+def bind_handoff(
+    *,
+    failure_path: Path,
+    result_path: Path,
+    patch_path: Path,
+) -> dict[str, Any]:
     failure = _load(failure_path)
     result = _load(result_path)
     if failure.get("schema") != "github-failure-ingest@1":
@@ -100,17 +165,25 @@ def bind_handoff(*, failure_path: Path, result_path: Path, patch_path: Path) -> 
     for key in ("workflow_run_id", "head_sha", "failure_signature"):
         if str(result.get(key)) != str(failure.get(key)):
             raise HandoffError(f"Stage-1/Stage-2 binding mismatch: {key}")
+    _validate_repair_authority(result)
+
     if not patch_path.is_file() or patch_path.is_symlink():
         raise HandoffError("repair patch must be a regular file")
     data = patch_path.read_bytes()
     if not data or len(data) > 2_000_000 or b"\x00" in data:
         raise HandoffError("repair patch is empty, oversized, or binary")
+
     repair_branch = _sanitize_branch(str(failure.get("repair_branch") or ""))
     repair_base = _sanitize_branch(str(failure.get("repair_base_branch") or ""))
     if not repair_branch.startswith("governed-repair/"):
         raise HandoffError("repair branch is outside governed-repair namespace")
-    if not repair_base or repair_base.startswith("governed-repair/") or repair_base == repair_branch:
+    if (
+        not repair_base
+        or repair_base.startswith("governed-repair/")
+        or repair_base == repair_branch
+    ):
         raise HandoffError("invalid repair base branch")
+
     source_authority = _source_failure_authority(failure)
     bound = dict(result)
     bound.update(
@@ -126,6 +199,10 @@ def bind_handoff(*, failure_path: Path, result_path: Path, patch_path: Path) -> 
             "stage3_handoff_bound": True,
             "full_validation_passed": False,
             "draft_pr_published": False,
+            "governance_closed": False,
+            "baseline_accepted": False,
+            "exact_head_certified": False,
+            "ready_for_review": False,
             "production_closed": False,
         }
     )
@@ -151,7 +228,16 @@ def main() -> int:
             patch_path=Path(args.patch),
         )
     except (OSError, json.JSONDecodeError, HandoffError) as exc:
-        print(json.dumps({"status": "BLOCKED", "error": str(exc)}), file=__import__("sys").stderr)
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED",
+                    "error": str(exc),
+                    "production_closed": False,
+                }
+            ),
+            file=__import__("sys").stderr,
+        )
         return 2
     return 0
 
