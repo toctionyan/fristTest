@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+"""Machine authority for governed repair RCA and exact write grants.
+
+This module is intentionally deterministic.  It never calls a model and never
+edits the candidate workspace.  It binds a read-only RCA to one immutable
+failure case, then compiles an exact allow-list write grant.  Downstream patch
+and verification stages must validate the same digests before acting.
+"""
+
+import hashlib
+import json
+from pathlib import PurePosixPath
+from typing import Any, Iterable, Mapping
+
+RCA_SCHEMA = "github-governed-repair-rca@1"
+WRITE_GRANT_SCHEMA = "github-governed-repair-write-grant@1"
+STATE_SCHEMA = "governed-repair-state@1"
+
+PREWRITE_STATES = (
+    "DETECTED",
+    "EVIDENCE_FROZEN",
+    "RCA_READ_ONLY",
+    "INVARIANT_BOUND",
+    "REPAIR_PLAN_FROZEN",
+    "WRITE_GRANTED",
+)
+
+REQUIRED_RCA_TEXT_FIELDS = (
+    "failure_class",
+    "violated_invariant",
+    "authority_owner",
+    "drifted_projection",
+    "root_cause",
+    "existing_gate_gap",
+    "required_permanent_guard",
+)
+
+_BINDING_FIELDS = (
+    "repository",
+    "workflow_run_id",
+    "workflow_run_attempt",
+    "head_sha",
+    "failure_signature",
+)
+
+
+class RepairAuthorityError(RuntimeError):
+    """Fail-closed error for governed repair authority validation."""
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def fingerprint(value: Any) -> str:
+    return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def failure_case_fingerprint(failure_case: Mapping[str, Any]) -> str:
+    return fingerprint(dict(failure_case))
+
+
+def _without_digest(payload: Mapping[str, Any], field: str) -> dict[str, Any]:
+    value = dict(payload)
+    value.pop(field, None)
+    return value
+
+
+def rca_fingerprint(rca: Mapping[str, Any]) -> str:
+    return fingerprint(_without_digest(rca, "rca_sha256"))
+
+
+def write_grant_fingerprint(grant: Mapping[str, Any]) -> str:
+    return fingerprint(_without_digest(grant, "write_grant_sha256"))
+
+
+def normalize_repo_path(raw: object) -> str:
+    value = str(raw or "").strip().replace("\\", "/")
+    while value.startswith("./"):
+        value = value[2:]
+    pure = PurePosixPath(value)
+    if (
+        not value
+        or pure.is_absolute()
+        or any(part in {"", ".", ".."} for part in pure.parts)
+        or pure.as_posix() != value
+    ):
+        raise RepairAuthorityError(f"invalid repository path: {raw!r}")
+    return value
+
+
+def normalize_paths(paths: Iterable[object]) -> tuple[str, ...]:
+    result: list[str] = []
+    for raw in paths:
+        path = normalize_repo_path(raw)
+        if path in result:
+            raise RepairAuthorityError(f"duplicate write path: {path}")
+        result.append(path)
+    return tuple(result)
+
+
+def failure_binding(failure_case: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "repository": str(failure_case.get("repository") or "").strip(),
+        "workflow_run_id": str(failure_case.get("workflow_run_id") or "").strip(),
+        "workflow_run_attempt": str(
+            failure_case.get("workflow_run_attempt") or "1"
+        ).strip(),
+        "head_sha": str(failure_case.get("head_sha") or "").strip(),
+        "failure_signature": str(
+            failure_case.get("failure_signature") or ""
+        ).strip(),
+    }
+
+
+def _require_binding(binding: Mapping[str, Any]) -> None:
+    missing = [field for field in _BINDING_FIELDS if not str(binding.get(field) or "").strip()]
+    if missing:
+        raise RepairAuthorityError(f"failure binding is missing: {missing}")
+
+
+def validate_rca(
+    rca: Mapping[str, Any],
+    *,
+    failure_case: Mapping[str, Any],
+    candidate_paths: Iterable[object],
+) -> tuple[str, ...]:
+    """Validate a model-produced RCA without granting it any authority."""
+
+    if rca.get("schema") != RCA_SCHEMA:
+        raise RepairAuthorityError("unsupported RCA schema")
+    if rca.get("read_only") is not True:
+        raise RepairAuthorityError("RCA is not marked read-only")
+    if rca.get("workspace_mutated") is not False:
+        raise RepairAuthorityError("RCA reports candidate workspace mutation")
+    if rca.get("production_closed") is not False:
+        raise RepairAuthorityError("RCA cannot close production")
+
+    expected_binding = failure_binding(failure_case)
+    _require_binding(expected_binding)
+    actual_binding = rca.get("binding")
+    if not isinstance(actual_binding, dict):
+        raise RepairAuthorityError("RCA binding is missing")
+    mismatched = [
+        field
+        for field in _BINDING_FIELDS
+        if str(actual_binding.get(field) or "") != expected_binding[field]
+    ]
+    if mismatched:
+        raise RepairAuthorityError(f"RCA failure binding mismatch: {mismatched}")
+
+    expected_failure_sha = failure_case_fingerprint(failure_case)
+    if str(rca.get("failure_case_sha256") or "") != expected_failure_sha:
+        raise RepairAuthorityError("RCA failure-case fingerprint mismatch")
+
+    expected_paths = normalize_paths(candidate_paths)
+    evidence_paths = normalize_paths(rca.get("candidate_paths") or [])
+    if evidence_paths != expected_paths:
+        raise RepairAuthorityError(
+            "RCA candidate path binding mismatch: "
+            f"expected={list(expected_paths)} actual={list(evidence_paths)}"
+        )
+
+    for field in REQUIRED_RCA_TEXT_FIELDS:
+        if not str(rca.get(field) or "").strip():
+            raise RepairAuthorityError(f"RCA is missing {field}")
+
+    plan = rca.get("repair_plan")
+    if (
+        not isinstance(plan, list)
+        or not plan
+        or any(not isinstance(item, str) or not item.strip() for item in plan)
+        or len(plan) > 12
+    ):
+        raise RepairAuthorityError("RCA repair_plan must contain 1-12 non-empty steps")
+
+    recommendation = rca.get("write_scope_recommendation")
+    if not isinstance(recommendation, dict):
+        raise RepairAuthorityError("RCA write_scope_recommendation is missing")
+    decision = str(recommendation.get("decision") or "").upper()
+    if decision not in {"GRANT", "DENY"}:
+        raise RepairAuthorityError("RCA write decision must be GRANT or DENY")
+    recommended_paths = normalize_paths(recommendation.get("paths") or [])
+    if any(path not in expected_paths for path in recommended_paths):
+        raise RepairAuthorityError("RCA attempted to expand writable scope")
+    if decision == "GRANT" and not recommended_paths:
+        raise RepairAuthorityError("RCA GRANT recommendation has empty write scope")
+    if decision == "DENY" and recommended_paths:
+        raise RepairAuthorityError("RCA DENY recommendation must not carry write paths")
+
+    if str(rca.get("rca_sha256") or "") != rca_fingerprint(rca):
+        raise RepairAuthorityError("RCA fingerprint mismatch")
+    return recommended_paths
+
+
+def compile_write_grant(
+    *,
+    failure_case: Mapping[str, Any],
+    rca: Mapping[str, Any],
+    candidate_paths: Iterable[object],
+) -> dict[str, Any]:
+    """Compile exact deterministic write authority from a validated read-only RCA."""
+
+    recommended = validate_rca(
+        rca,
+        failure_case=failure_case,
+        candidate_paths=candidate_paths,
+    )
+    recommendation = rca["write_scope_recommendation"]
+    if str(recommendation.get("decision") or "").upper() != "GRANT":
+        raise RepairAuthorityError("RCA denied write authority")
+
+    binding = failure_binding(failure_case)
+    grant: dict[str, Any] = {
+        "schema": WRITE_GRANT_SCHEMA,
+        "state_schema": STATE_SCHEMA,
+        "state": "WRITE_GRANTED",
+        "state_history": list(PREWRITE_STATES),
+        "binding": binding,
+        "failure_case_sha256": failure_case_fingerprint(failure_case),
+        "rca_sha256": rca_fingerprint(rca),
+        "allowed_paths": list(recommended),
+        "write_scope_mode": "exact_allowlist",
+        "authority": {
+            "write_authority": True,
+            "scope_expansion_allowed": False,
+            "tests_oracles_write_allowed": False,
+            "workflow_write_allowed": False,
+            "governance_write_allowed": False,
+            "skill_control_plane_write_allowed": False,
+            "baseline_write_allowed": False,
+            "dependency_manifest_write_allowed": False,
+            "secret_write_allowed": False,
+            "merge_allowed": False,
+            "deploy_allowed": False,
+            "production_close_allowed": False,
+        },
+        "invariant": str(rca["violated_invariant"]).strip(),
+        "authority_owner": str(rca["authority_owner"]).strip(),
+        "drifted_projection": str(rca["drifted_projection"]).strip(),
+        "required_permanent_guard": str(rca["required_permanent_guard"]).strip(),
+        "repair_plan": list(rca["repair_plan"]),
+        "gates": {
+            "G0_SCOPE_AUTHORITY": {
+                "status": "PASS",
+                "evidence": [
+                    f"failure-case:{failure_case_fingerprint(failure_case)}",
+                    f"rca:{rca_fingerprint(rca)}",
+                ],
+            }
+        },
+        "production_closed": False,
+    }
+    grant["write_grant_sha256"] = write_grant_fingerprint(grant)
+    return grant
+
+
+def validate_write_grant(
+    grant: Mapping[str, Any],
+    *,
+    failure_case: Mapping[str, Any],
+    rca: Mapping[str, Any],
+    candidate_paths: Iterable[object],
+) -> tuple[str, ...]:
+    """Validate exact write authority and return the immutable allowed path tuple."""
+
+    recommended = validate_rca(
+        rca,
+        failure_case=failure_case,
+        candidate_paths=candidate_paths,
+    )
+    if grant.get("schema") != WRITE_GRANT_SCHEMA:
+        raise RepairAuthorityError("unsupported write-grant schema")
+    if grant.get("state_schema") != STATE_SCHEMA or grant.get("state") != "WRITE_GRANTED":
+        raise RepairAuthorityError("write grant is not in WRITE_GRANTED state")
+    if tuple(grant.get("state_history") or ()) != PREWRITE_STATES:
+        raise RepairAuthorityError("write-grant state history drift")
+    if grant.get("write_scope_mode") != "exact_allowlist":
+        raise RepairAuthorityError("write-grant scope mode is not exact_allowlist")
+    if grant.get("production_closed") is not False:
+        raise RepairAuthorityError("write grant cannot close production")
+
+    expected_binding = failure_binding(failure_case)
+    actual_binding = grant.get("binding")
+    if not isinstance(actual_binding, dict):
+        raise RepairAuthorityError("write-grant binding is missing")
+    mismatched = [
+        field
+        for field in _BINDING_FIELDS
+        if str(actual_binding.get(field) or "") != expected_binding[field]
+    ]
+    if mismatched:
+        raise RepairAuthorityError(f"write-grant binding mismatch: {mismatched}")
+
+    if str(grant.get("failure_case_sha256") or "") != failure_case_fingerprint(failure_case):
+        raise RepairAuthorityError("write-grant failure-case fingerprint mismatch")
+    if str(grant.get("rca_sha256") or "") != rca_fingerprint(rca):
+        raise RepairAuthorityError("write-grant RCA fingerprint mismatch")
+
+    granted_paths = normalize_paths(grant.get("allowed_paths") or [])
+    if granted_paths != recommended:
+        raise RepairAuthorityError(
+            "write-grant path mismatch: "
+            f"RCA={list(recommended)} grant={list(granted_paths)}"
+        )
+
+    authority = grant.get("authority")
+    if not isinstance(authority, dict) or authority.get("write_authority") is not True:
+        raise RepairAuthorityError("write grant lacks write authority")
+    forbidden_true = [
+        key
+        for key, value in authority.items()
+        if key != "write_authority" and key.endswith("_allowed") and value is not False
+    ]
+    if forbidden_true:
+        raise RepairAuthorityError(
+            f"write grant expanded protected authority: {forbidden_true}"
+        )
+    if authority.get("scope_expansion_allowed") is not False:
+        raise RepairAuthorityError("write grant permits scope expansion")
+
+    if str(grant.get("write_grant_sha256") or "") != write_grant_fingerprint(grant):
+        raise RepairAuthorityError("write-grant fingerprint mismatch")
+    return granted_paths
+
+
+def revoke_write_grant(
+    grant: Mapping[str, Any],
+    *,
+    reason: str,
+    failure_signature: str,
+) -> dict[str, Any]:
+    """Produce a non-authoritative revocation receipt after repeated failure."""
+
+    receipt = {
+        "schema": "github-governed-repair-write-revocation@1",
+        "state": "RCA_READ_ONLY",
+        "prior_write_grant_sha256": write_grant_fingerprint(grant),
+        "failure_signature": str(failure_signature or "").strip(),
+        "reason": str(reason or "repeated_failure_signature").strip(),
+        "write_authority": False,
+        "next_action": "ARCHITECTURE_REPLAN_AND_NEW_RCA",
+        "production_closed": False,
+    }
+    receipt["revocation_sha256"] = fingerprint(receipt)
+    return receipt
