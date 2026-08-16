@@ -45,7 +45,7 @@ REQUIRED_FILES = (
     "scripts/github_repair_exact_head.py",
     "scripts/verify_product_source_baseline.py",
     "scripts/verify_governed_repair_mutation_proof.py",
-    "services/agent-service/tests/architecture/test_governed_repair_mutation_proof.py",
+    "skill-system/tests/test_governed_repair_mutation_proof.py",
     ".github/workflows/governed-ci-repair-stage3.yml",
     ".github/workflows/governed-ci-repair-governance.yml",
 )
