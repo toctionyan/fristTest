@@ -4,9 +4,9 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTROL = ROOT / "skill-system" / "controller"
@@ -34,7 +34,7 @@ def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _fixture(tmp_path: Path):
+def _fixture(tmp_path: Path) -> dict:
     workspace = tmp_path / "candidate"
     source = workspace / "services" / "agent-service" / "app.py"
     source.parent.mkdir(parents=True)
@@ -238,167 +238,193 @@ def _quick_summary(*, include_anti_drift: bool = True, original_guard_pass: bool
     }
 
 
-def test_stage2_handoff_binds_exact_rca_write_grant_and_machine_guard(tmp_path: Path) -> None:
-    fx = _fixture(tmp_path)
-    result = json.loads(fx["stage2_path"].read_text(encoding="utf-8"))
-    assert result["stage3_handoff_bound"] is True
-    assert result["patch_sha256"] == hashlib.sha256(fx["patch_path"].read_bytes()).hexdigest()
-    assert result["required_guard_ids"] == ["original-semantic-guard"]
-    assert result["rca_sha256"] == AUTHORITY.rca_fingerprint(fx["rca"])
-    assert result["write_grant_sha256"] == AUTHORITY.write_grant_fingerprint(fx["grant"])
+class GovernedRepairStage3Tests(unittest.TestCase):
+    def test_stage2_handoff_binds_exact_rca_write_grant_and_machine_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            fx = _fixture(Path(temp))
+            result = json.loads(fx["stage2_path"].read_text(encoding="utf-8"))
+            self.assertTrue(result["stage3_handoff_bound"])
+            self.assertEqual(
+                result["patch_sha256"],
+                hashlib.sha256(fx["patch_path"].read_bytes()).hexdigest(),
+            )
+            self.assertEqual(result["required_guard_ids"], ["original-semantic-guard"])
+            self.assertEqual(result["rca_sha256"], AUTHORITY.rca_fingerprint(fx["rca"]))
+            self.assertEqual(
+                result["write_grant_sha256"],
+                AUTHORITY.write_grant_fingerprint(fx["grant"]),
+            )
+
+    def test_stage3_prepare_replays_exact_patch_under_immutable_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            fx = _prepare(Path(temp))
+            plan = fx["plan"]
+            self.assertEqual(fx["source"].read_text(encoding="utf-8"), "value = 1\n")
+            self.assertEqual(plan["status"], "CANDIDATE_PREPARED")
+            self.assertEqual(plan["write_scope"], ["services/agent-service/app.py"])
+            self.assertEqual(plan["required_guard_ids"], ["original-semantic-guard"])
+            self.assertEqual(plan["governed_repair_state"], "INDEPENDENT_REVIEW")
+            self.assertEqual(_git(fx["workspace"], "status", "--porcelain"), "")
+
+    def test_stage3_rejects_tampered_patch_before_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            fx = _fixture(Path(temp))
+            fx["patch_path"].write_text(
+                fx["patch_path"].read_text(encoding="utf-8") + "# tampered\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(STAGE3.Stage3Error, "digest mismatch"):
+                STAGE3.inspect_handoff(
+                    result_path=fx["stage2_path"],
+                    task_run_path=fx["task_path"],
+                    patch_path=fx["patch_path"],
+                    failure_case_path=fx["failure_path"],
+                    rca_path=fx["rca_path"],
+                    write_grant_path=fx["grant_path"],
+                )
+
+    def test_stage3_requires_original_machine_guard_and_executable_anti_drift_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fx = _prepare(root)
+            targeted_path = root / "targeted-result.json"
+            _write(
+                targeted_path,
+                {
+                    "schema": STAGE3.STAGE3_SCHEMA,
+                    "status": "TARGETED_VALIDATION_PASSED",
+                    "candidate_sha": fx["plan"]["candidate_sha"],
+                    "rca_sha256": fx["plan"]["rca_sha256"],
+                    "write_grant_sha256": fx["plan"]["write_grant_sha256"],
+                    "required_guard_ids": fx["plan"]["required_guard_ids"],
+                    "results": [],
+                    "production_closed": False,
+                },
+            )
+
+            missing_anti_drift = root / "quick-missing-anti-drift.json"
+            _write(missing_anti_drift, _quick_summary(include_anti_drift=False))
+            with self.assertRaisesRegex(
+                STAGE3.Stage3Error, "anti_drift_proof_not_reverified"
+            ):
+                STAGE3.record_validation(
+                    workspace=fx["workspace"],
+                    plan_path=fx["plan_path"],
+                    targeted_result_path=targeted_path,
+                    quick_summary_path=missing_anti_drift,
+                    task_run_path=fx["task_path"],
+                    output_path=root / "invalid-validation.json",
+                )
+
+            quick_path = root / "quick.json"
+            _write(quick_path, _quick_summary())
+            result = STAGE3.record_validation(
+                workspace=fx["workspace"],
+                plan_path=fx["plan_path"],
+                targeted_result_path=targeted_path,
+                quick_summary_path=quick_path,
+                task_run_path=fx["task_path"],
+                output_path=root / "validation.json",
+            )
+            self.assertEqual(result["status"], "VALIDATED_FOR_DRAFT_PR")
+            self.assertEqual(result["anti_drift_proof"]["status"], "PASS")
+            self.assertEqual(
+                result["anti_drift_proof"]["governed_repair_state"],
+                "ANTI_DRIFT_PROOF",
+            )
+            self.assertEqual(result["gates"]["G3_MUTATION"]["status"], "PASS")
+            self.assertEqual(
+                result["gates"]["G3_MUTATION"]["governed_repair_state"],
+                "ANTI_DRIFT_PROOF",
+            )
+            self.assertEqual(result["governed_repair_state"], "PR_CERTIFICATION")
+
+    def test_legacy_stage3_completion_path_is_permanently_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with self.assertRaisesRegex(STAGE3.Stage3Error, "deprecated completion path"):
+                STAGE3.complete_publication(
+                    workspace=root,
+                    validation_result_path=root / "validation.json",
+                    task_run_path=root / "task.json",
+                    pr_url="https://github.com/owner/repo/pull/99",
+                    output_path=root / "out.json",
+                )
+
+    def test_draft_publication_hands_off_to_governance_without_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fx = _prepare(root)
+            targeted_path = root / "targeted-result.json"
+            _write(
+                targeted_path,
+                {
+                    "schema": STAGE3.STAGE3_SCHEMA,
+                    "status": "TARGETED_VALIDATION_PASSED",
+                    "candidate_sha": fx["plan"]["candidate_sha"],
+                    "rca_sha256": fx["plan"]["rca_sha256"],
+                    "write_grant_sha256": fx["plan"]["write_grant_sha256"],
+                    "required_guard_ids": fx["plan"]["required_guard_ids"],
+                    "results": [],
+                    "production_closed": False,
+                },
+            )
+            quick_path = root / "quick.json"
+            _write(quick_path, _quick_summary())
+            validation_path = root / "validation.json"
+            validation = STAGE3.record_validation(
+                workspace=fx["workspace"],
+                plan_path=fx["plan_path"],
+                targeted_result_path=targeted_path,
+                quick_summary_path=quick_path,
+                task_run_path=fx["task_path"],
+                output_path=validation_path,
+            )
+            publication_path = root / "publication.json"
+            publication = {
+                "schema": RECORD.PUBLICATION_SCHEMA,
+                "status": "PUBLICATION_COMMIT_PREPARED",
+                "source_run_id": validation["source_run_id"],
+                "source_head_sha": validation["head_sha"],
+                "validated_candidate_sha": validation["candidate_sha"],
+                "validated_tree_sha": "t" * 40,
+                "published_candidate_sha": "p" * 40,
+                "repair_branch": validation["repair_branch"],
+                "repair_base_branch": validation["repair_base_branch"],
+                "changed_paths": validation["changed_paths"],
+                "write_scope": validation["write_scope"],
+                "rca_sha256": validation["rca_sha256"],
+                "write_grant_sha256": validation["write_grant_sha256"],
+                "required_guard_ids": validation["required_guard_ids"],
+                "violated_invariant": validation["violated_invariant"],
+                "authority_owner": validation["authority_owner"],
+                "required_permanent_guard": validation["required_permanent_guard"],
+                "governance_closed": False,
+                "baseline_accepted": False,
+                "exact_head_certified": False,
+                "ready_for_review": False,
+                "production_closed": False,
+            }
+            _write(publication_path, publication)
+            receipt = RECORD.record_publication(
+                validation_path=validation_path,
+                publication_path=publication_path,
+                task_run_path=fx["task_path"],
+                pr_url="https://github.com/owner/repo/pull/99",
+                output_path=root / "publication-receipt.json",
+            )
+            task = json.loads(fx["task_path"].read_text(encoding="utf-8"))
+            self.assertEqual(
+                receipt["status"],
+                "DRAFT_REPAIR_PR_PUBLISHED_AWAITING_GOVERNANCE",
+            )
+            self.assertEqual(receipt["governed_repair_state"], "GOVERNANCE_REQUIRED")
+            self.assertFalse(receipt["merge_allowed"])
+            self.assertFalse(receipt["deploy_allowed"])
+            self.assertFalse(receipt["production_closed"])
+            self.assertEqual(task["status"], "WAITING_EXTERNAL_RESULT")
+            self.assertEqual(task["phase"], "STAGE4_GOVERNANCE_REQUIRED")
 
 
-def test_stage3_prepare_replays_exact_patch_under_immutable_authority(tmp_path: Path) -> None:
-    fx = _prepare(tmp_path)
-    plan = fx["plan"]
-    assert fx["source"].read_text(encoding="utf-8") == "value = 1\n"
-    assert plan["status"] == "CANDIDATE_PREPARED"
-    assert plan["write_scope"] == ["services/agent-service/app.py"]
-    assert plan["required_guard_ids"] == ["original-semantic-guard"]
-    assert plan["governed_repair_state"] == "INDEPENDENT_REVIEW"
-    assert _git(fx["workspace"], "status", "--porcelain") == ""
-
-
-def test_stage3_rejects_tampered_patch_before_validation(tmp_path: Path) -> None:
-    fx = _fixture(tmp_path)
-    fx["patch_path"].write_text(
-        fx["patch_path"].read_text(encoding="utf-8") + "# tampered\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(STAGE3.Stage3Error, match="digest mismatch"):
-        STAGE3.inspect_handoff(
-            result_path=fx["stage2_path"],
-            task_run_path=fx["task_path"],
-            patch_path=fx["patch_path"],
-            failure_case_path=fx["failure_path"],
-            rca_path=fx["rca_path"],
-            write_grant_path=fx["grant_path"],
-        )
-
-
-def test_stage3_requires_original_machine_guard_and_executable_anti_drift_gate(tmp_path: Path) -> None:
-    fx = _prepare(tmp_path)
-    targeted_path = tmp_path / "targeted-result.json"
-    _write(
-        targeted_path,
-        {
-            "schema": STAGE3.STAGE3_SCHEMA,
-            "status": "TARGETED_VALIDATION_PASSED",
-            "candidate_sha": fx["plan"]["candidate_sha"],
-            "rca_sha256": fx["plan"]["rca_sha256"],
-            "write_grant_sha256": fx["plan"]["write_grant_sha256"],
-            "required_guard_ids": fx["plan"]["required_guard_ids"],
-            "results": [],
-            "production_closed": False,
-        },
-    )
-
-    missing_anti_drift = tmp_path / "quick-missing-anti-drift.json"
-    _write(missing_anti_drift, _quick_summary(include_anti_drift=False))
-    with pytest.raises(STAGE3.Stage3Error, match="anti_drift_proof_not_reverified"):
-        STAGE3.record_validation(
-            workspace=fx["workspace"],
-            plan_path=fx["plan_path"],
-            targeted_result_path=targeted_path,
-            quick_summary_path=missing_anti_drift,
-            task_run_path=fx["task_path"],
-            output_path=tmp_path / "invalid-validation.json",
-        )
-
-    quick_path = tmp_path / "quick.json"
-    _write(quick_path, _quick_summary())
-    result = STAGE3.record_validation(
-        workspace=fx["workspace"],
-        plan_path=fx["plan_path"],
-        targeted_result_path=targeted_path,
-        quick_summary_path=quick_path,
-        task_run_path=fx["task_path"],
-        output_path=tmp_path / "validation.json",
-    )
-    assert result["status"] == "VALIDATED_FOR_DRAFT_PR"
-    assert result["anti_drift_proof"]["status"] == "PASS"
-    assert result["anti_drift_proof"]["governed_repair_state"] == "ANTI_DRIFT_PROOF"
-    assert result["gates"]["G3_MUTATION"]["status"] == "PASS"
-    assert result["gates"]["G3_MUTATION"]["governed_repair_state"] == "ANTI_DRIFT_PROOF"
-    assert result["governed_repair_state"] == "PR_CERTIFICATION"
-
-
-def test_legacy_stage3_completion_path_is_permanently_fail_closed(tmp_path: Path) -> None:
-    with pytest.raises(STAGE3.Stage3Error, match="deprecated completion path"):
-        STAGE3.complete_publication(
-            workspace=tmp_path,
-            validation_result_path=tmp_path / "validation.json",
-            task_run_path=tmp_path / "task.json",
-            pr_url="https://github.com/owner/repo/pull/99",
-            output_path=tmp_path / "out.json",
-        )
-
-
-def test_draft_publication_hands_off_to_governance_without_completion(tmp_path: Path) -> None:
-    fx = _prepare(tmp_path)
-    targeted_path = tmp_path / "targeted-result.json"
-    _write(
-        targeted_path,
-        {
-            "schema": STAGE3.STAGE3_SCHEMA,
-            "status": "TARGETED_VALIDATION_PASSED",
-            "candidate_sha": fx["plan"]["candidate_sha"],
-            "rca_sha256": fx["plan"]["rca_sha256"],
-            "write_grant_sha256": fx["plan"]["write_grant_sha256"],
-            "required_guard_ids": fx["plan"]["required_guard_ids"],
-            "results": [],
-            "production_closed": False,
-        },
-    )
-    quick_path = tmp_path / "quick.json"
-    _write(quick_path, _quick_summary())
-    validation_path = tmp_path / "validation.json"
-    validation = STAGE3.record_validation(
-        workspace=fx["workspace"],
-        plan_path=fx["plan_path"],
-        targeted_result_path=targeted_path,
-        quick_summary_path=quick_path,
-        task_run_path=fx["task_path"],
-        output_path=validation_path,
-    )
-    publication_path = tmp_path / "publication.json"
-    publication = {
-        "schema": RECORD.PUBLICATION_SCHEMA,
-        "status": "PUBLICATION_COMMIT_PREPARED",
-        "source_run_id": validation["source_run_id"],
-        "source_head_sha": validation["head_sha"],
-        "validated_candidate_sha": validation["candidate_sha"],
-        "validated_tree_sha": "t" * 40,
-        "published_candidate_sha": "p" * 40,
-        "repair_branch": validation["repair_branch"],
-        "repair_base_branch": validation["repair_base_branch"],
-        "changed_paths": validation["changed_paths"],
-        "write_scope": validation["write_scope"],
-        "rca_sha256": validation["rca_sha256"],
-        "write_grant_sha256": validation["write_grant_sha256"],
-        "required_guard_ids": validation["required_guard_ids"],
-        "violated_invariant": validation["violated_invariant"],
-        "authority_owner": validation["authority_owner"],
-        "required_permanent_guard": validation["required_permanent_guard"],
-        "governance_closed": False,
-        "baseline_accepted": False,
-        "exact_head_certified": False,
-        "ready_for_review": False,
-        "production_closed": False,
-    }
-    _write(publication_path, publication)
-    receipt = RECORD.record_publication(
-        validation_path=validation_path,
-        publication_path=publication_path,
-        task_run_path=fx["task_path"],
-        pr_url="https://github.com/owner/repo/pull/99",
-        output_path=tmp_path / "publication-receipt.json",
-    )
-    task = json.loads(fx["task_path"].read_text(encoding="utf-8"))
-    assert receipt["status"] == "DRAFT_REPAIR_PR_PUBLISHED_AWAITING_GOVERNANCE"
-    assert receipt["governed_repair_state"] == "GOVERNANCE_REQUIRED"
-    assert receipt["merge_allowed"] is False
-    assert receipt["deploy_allowed"] is False
-    assert receipt["production_closed"] is False
-    assert task["status"] == "WAITING_EXTERNAL_RESULT"
-    assert task["phase"] == "STAGE4_GOVERNANCE_REQUIRED"
+if __name__ == "__main__":
+    unittest.main()
