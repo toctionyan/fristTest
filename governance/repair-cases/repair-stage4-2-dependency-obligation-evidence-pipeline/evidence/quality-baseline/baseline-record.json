@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-16T01:32:16+00:00",
+  "generated_at": "2026-08-16T01:32:37+00:00",
   "decision": "FAIL",
   "evidence_dir": "/home/runner/work/_temp/stage42-governed/governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/quality-baseline",
   "target_identity": {

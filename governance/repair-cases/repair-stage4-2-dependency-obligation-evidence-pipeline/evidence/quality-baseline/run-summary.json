@@ -1,6 +1,6 @@
 {
   "schema_version": 6,
-  "generated_at": "2026-08-16T01:32:16+00:00",
+  "generated_at": "2026-08-16T01:32:37+00:00",
   "workspace_version": "20.6.1",
   "ci_run_identity_fingerprint_sha256": null,
   "mode": "quick",
@@ -116,8 +116,8 @@
       "blocking_level": "required",
       "repair_playbook": "repair the product evidence boundary; never weaken the focused counterexample",
       "depends_on": [],
-      "started_at": "2026-08-16T01:32:16+00:00",
-      "ended_at": "2026-08-16T01:32:16+00:00",
+      "started_at": "2026-08-16T01:32:37+00:00",
+      "ended_at": "2026-08-16T01:32:37+00:00",
       "exit_code": 1,
       "duration_ms": 201,
       "stdout": "{\"adversarial_closure\": \"PASS\", \"counterfactual\": \"PASS\", \"edges\": [{\"dependent_goal_id\": \"g2\", \"requires_result_of_goal_id\": \"g1\"}], \"graph_complete\": true, \"maturity\": \"AUTHORITATIVE\", \"target_compatibility\": \"PASS\"}\n",
