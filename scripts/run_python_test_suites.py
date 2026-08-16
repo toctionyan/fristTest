@@ -47,6 +47,15 @@ STANDARD_CONFIG_PREFIXES = (
     "WEB_CONSOLE_",
 )
 
+# External trusted-Judge binding belongs to the top-level quality controller.
+# Test subprocesses are evidence producers, not controller instances; retaining
+# these variables can make nested controller contract tests validate an unrelated
+# synthetic workspace against the outer CI Judge before the tested branch runs.
+CONTROLLER_ONLY_ENV = (
+    "SKILL_JUDGE_ROOT",
+    "SKILL_JUDGE_TRUST_MODE",
+)
+
 STANDARD_ENV = {
     "APP_PROFILE": "local",
     "LOCAL_DEV": "true",
@@ -148,6 +157,8 @@ def _run(
             "summary": {"tests": 0, "failures": 0, "errors": 0, "skipped": 0},
         }
     env = os.environ.copy()
+    for key in CONTROLLER_ONLY_ENV:
+        env.pop(key, None)
     if selector != "integration":
         for key in tuple(env):
             if key.startswith(STANDARD_CONFIG_PREFIXES):
