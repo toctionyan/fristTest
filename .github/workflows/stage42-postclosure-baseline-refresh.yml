@@ -26,17 +26,39 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Verify closed governed candidate is unchanged
+      - name: Verify closed governed candidate source identity
         run: |
           set -euo pipefail
           python - <<'PY'
           import json
+          import sys
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          sys.path.insert(0, str(root / 'skill-system/controller'))
+          from verification import source_fingerprint
+
           payload = json.load(open('governance/active-change.json', encoding='utf-8'))
+          closure = json.load(open(
+              'governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/closure-matrix.json',
+              encoding='utf-8',
+          ))
           assert payload['status'] == 'closed', payload
           assert payload['result'] == 'CONVERGED', payload
+          assert closure['result'] == 'CONVERGED', closure
+          assert closure['final_decision'] == 'CLOSED_VERIFIED', closure
+
+          verification = payload.get('verification') or {}
+          fingerprint, file_count = source_fingerprint(root, payload['allowed_paths'])
+          assert fingerprint == verification.get('source_fingerprint'), (fingerprint, verification)
+          assert file_count == verification.get('source_file_count'), (file_count, verification)
+          print(json.dumps({
+              'status': 'PASS',
+              'source_fingerprint': fingerprint,
+              'source_file_count': file_count,
+              'closure': closure['final_decision'],
+          }, sort_keys=True))
           PY
-          python -B skill-system/controller/repair_governance_cli.py \
-            validate --stage verification --result CONVERGED
 
       - name: Refresh tracked protected product-source baseline
         run: >-
