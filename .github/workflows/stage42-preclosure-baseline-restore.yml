@@ -1,0 +1,45 @@
+name: Stage42 Preclosure Baseline Restore
+
+on:
+  push:
+    branches:
+      - governance/stage4-2-final-obligation-pipeline-permit-20260816
+    paths:
+      - .github/stage42-preclosure-baseline-restore.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact governed candidate head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Restore pre-closure protected baseline and retire carrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_sha='51dfef01c9d8453bf57cb0eaa176e390733b8dbf'
+          baseline='skill-system/registry/product-source-baseline.json'
+          workflow='.github/workflows/stage42-preclosure-baseline-restore.yml'
+          trigger='.github/stage42-preclosure-baseline-restore.trigger'
+
+          git checkout "$base_sha" -- "$baseline"
+          git rm "$workflow" "$trigger"
+
+          test "$(git hash-object "$baseline")" = "$(git rev-parse "${base_sha}:${baseline}")"
+          git diff --check
+          changed="$(git diff --name-only --cached; git diff --name-only)"
+          printf '%s\n' "$changed"
+
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add "$baseline"
+          git commit -m 'chore(governance): restore preclosure product baseline'
+          git push origin HEAD:governance/stage4-2-final-obligation-pipeline-permit-20260816
