@@ -117,12 +117,12 @@ def close_governance(
     if not pr_url.startswith("https://github.com/") or "/pull/" not in pr_url:
         raise GovernanceError("governance requires a bound Draft PR URL")
 
-    approved_baseline_paths = []
+    approved_source_paths = []
     for raw in publication.get("changed_paths") or []:
         path = str(raw or "").strip().replace("\\", "/")
-        if path and path not in approved_baseline_paths:
-            approved_baseline_paths.append(path)
-    if not approved_baseline_paths:
+        if path and path not in approved_source_paths:
+            approved_source_paths.append(path)
+    if not approved_source_paths:
         raise GovernanceError("governance has no validated source paths")
 
     closed_gates = dict(gates)
@@ -151,7 +151,7 @@ def close_governance(
         "violated_invariant": publication.get("violated_invariant"),
         "authority_owner": publication.get("authority_owner"),
         "required_permanent_guard": publication.get("required_permanent_guard"),
-        "approved_baseline_paths": approved_baseline_paths,
+        "approved_source_paths": approved_source_paths,
         "governance_actor": actor,
         "approval_ref": approval_ref,
         "publication_receipt_sha256": _fingerprint(publication),

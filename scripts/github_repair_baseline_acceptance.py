@@ -165,13 +165,23 @@ def accept_baseline(
         for path in set(recorded) | set(current)
         if recorded.get(path) != current.get(path)
     }
-    approved = {
+    approved_source = {
         str(path or "").strip().replace("\\", "/")
-        for path in governance.get("approved_baseline_paths") or []
+        for path in governance.get("approved_source_paths") or []
         if str(path or "").strip()
     }
-    if not approved:
-        raise BaselineAcceptanceError("governance approved no baseline paths")
+    if not approved_source:
+        raise BaselineAcceptanceError("governance approved no source paths")
+    protected_roots = {
+        str(root or "").strip().replace("\\", "/").rstrip("/")
+        for root in baseline.get("protected_roots") or []
+        if str(root or "").strip()
+    }
+    approved = {
+        path
+        for path in approved_source
+        if any(path.startswith(root + "/") for root in protected_roots)
+    }
     if observed_drift != approved:
         raise BaselineAcceptanceError(
             "baseline drift is not exactly the governed source delta: "
@@ -246,6 +256,7 @@ def accept_baseline(
         "rca_sha256": governance.get("rca_sha256"),
         "write_grant_sha256": governance.get("write_grant_sha256"),
         "governance_sha256": governance.get("governance_sha256"),
+        "approved_source_paths": sorted(approved_source),
         "approved_baseline_paths": sorted(approved),
         "baseline_path": BASELINE_PATH,
         "gates": baseline_gates,
