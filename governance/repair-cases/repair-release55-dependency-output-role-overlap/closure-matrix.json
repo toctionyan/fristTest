@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470",
+  "diff_review_sha256": "501111b3108a19616d62abb61f95c32afd5f4a6882b903e0cd3959969d377760",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "c5974ad278e111077dc856284cf7d87df5928d41f4d500c32585c71a5e6143fb",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/clean-verification-record.json",
+      "evidence_sha256": "d8d458a679c92303e87d4f2300da5ee68806cf2a732b2531a3d2efb16443fa12"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py",
+      "evidence_sha256": "6877150b7a1c7a7f6b1362093161bdbfe6f8e9afdb73eeed9acf4989d176af81"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/diff-review.json",
+      "evidence_sha256": "501111b3108a19616d62abb61f95c32afd5f4a6882b903e0cd3959969d377760"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/clean-verification-record.json",
+      "evidence_sha256": "d8d458a679c92303e87d4f2300da5ee68806cf2a732b2531a3d2efb16443fa12"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py",
+      "evidence_sha256": "6877150b7a1c7a7f6b1362093161bdbfe6f8e9afdb73eeed9acf4989d176af81"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/release55-protected-failure.md",
+      "evidence_sha256": "a3edadaf90e08cf64fb4dba675c04f9e566e16f12a95303ba1ea900b341d6291"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py",
+      "evidence_sha256": "6877150b7a1c7a7f6b1362093161bdbfe6f8e9afdb73eeed9acf4989d176af81"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-release55-dependency-output-role-overlap/clean-verification-record.json",
+      "evidence_sha256": "d8d458a679c92303e87d4f2300da5ee68806cf2a732b2531a3d2efb16443fa12"
+    }
+  ],
+  "residual_risks": []
+}
