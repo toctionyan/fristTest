@@ -87,8 +87,15 @@ class WP08FinalProductClosureRepairTests(unittest.TestCase):
             "dependency_decisions": [decision],
             "reason_code": "target_identity_and_result_reference_are_not_scope_constraints",
         })
+        closed = _response({
+            "verdict": "exact",
+            "evidence_spans": ["查一下键盘订单", "再看看它能不能退款"],
+            "missing_spans": [],
+            "dependency_decisions": [decision],
+            "reason_code": "dependency_authority_closed",
+        })
         with patch("agent_core.config.get_model", return_value=object()), patch(
-            "agent_core.model_calls.invoke_model", side_effect=[first, false_scope_claim, corrected]
+            "agent_core.model_calls.invoke_model", side_effect=[first, false_scope_claim, corrected, closed]
         ) as invoke:
             verdict = ModelGoalAlignmentVerifier().verify(
                 user_text=text,
@@ -96,18 +103,22 @@ class WP08FinalProductClosureRepairTests(unittest.TestCase):
                 known_tools=set(),
             )
 
-        self.assertEqual(invoke.call_count, 3)
+        self.assertEqual(invoke.call_count, 4)
         self.assertTrue(verdict.exact)
         self.assertTrue(verdict.details["dependency_graph_match"])
         self.assertEqual(verdict.details["dependency_edges"], [edge])
         self.assertEqual(
             verdict.details["verifier_repair_kind"],
-            "candidate_blind_dependency_scope_constraint_reaudit",
+            "candidate_blind_dependency_authority_closure",
         )
+        self.assertTrue(verdict.details["dependency_authority_complete"])
+        self.assertTrue(verdict.details["dependency_authority_graph_match"])
         repair_message = invoke.call_args_list[2].kwargs["payload"][-1].content
         self.assertIn("Object identity, member naming, ordinary target selection", repair_message)
         self.assertIn("current-turn Goal result", repair_message)
         self.assertIn("remain incomplete", repair_message)
+        closure_message = invoke.call_args_list[3].kwargs["payload"][-1].content
+        self.assertIn("complete/matching alone is not authority", closure_message)
 
     def test_real_population_narrowing_stays_fail_closed_after_reaudit(self) -> None:
         from agent_core.lifecycle.goal_planning import ModelGoalAlignmentVerifier

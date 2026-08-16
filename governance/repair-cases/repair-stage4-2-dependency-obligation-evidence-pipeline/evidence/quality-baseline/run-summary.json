@@ -1,0 +1,148 @@
+{
+  "schema_version": 6,
+  "generated_at": "2026-08-16T01:32:37+00:00",
+  "workspace_version": "20.6.1",
+  "ci_run_identity_fingerprint_sha256": null,
+  "mode": "quick",
+  "run_kind": "baseline",
+  "decision": "FAIL",
+  "loop_status": "BASELINE_RECORDED",
+  "evidence_dir": "/home/runner/work/_temp/stage42-governed/governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/quality-baseline",
+  "judge_identity": {
+    "root": "/home/runner/work/_temp/stage42-governed",
+    "trust_mode": "workspace-fallback",
+    "controller_sha256": "9cb24dda2d0dc4d202bb2a2eca70317e90739c9cb8c96164376deb66243ea2c4"
+  },
+  "target": "/home/runner/work/_temp/stage42-governed/governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/quality-input/target.md",
+  "target_identity": {
+    "id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "change_ref": "portable-repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "context": "local-change",
+    "fingerprint": "d5ea1cc72b32159a5f2b624cd6ffc099b48b4603f2f5114cce16db8c72872455",
+    "claim_manifest_fingerprint": "13e9f9ad488ee6a51a174e2df97686b414991e6e30ebc5d44f3887488502d8e1"
+  },
+  "target_minimum_mode_declared": "quick",
+  "target_minimum_mode_derived": "quick",
+  "target_minimum_mode_effective": "quick",
+  "replan_predecessor": null,
+  "claim_manifest": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/quality-input/claim.json",
+  "claim_manifest_fingerprint": "13e9f9ad488ee6a51a174e2df97686b414991e6e30ebc5d44f3887488502d8e1",
+  "claim_manifest_evidence_file": "claim-manifest.json",
+  "requirement_catalog": null,
+  "requirement_profile": null,
+  "requirement_catalog_fingerprint": null,
+  "requirement_catalog_evidence_file": null,
+  "claim_results": [
+    {
+      "id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
+      "statement": "Pair decisions are observations only; target compatibility and current-turn result-removal counterfactual require separately validated frozen-premise-bound evidence before deterministic dependency authority can seal.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "stage42-red-proof"
+      ],
+      "evidence_refs": [
+        "gate-log:stage42-red-proof"
+      ],
+      "owner": "dependency-proof-authority",
+      "closure_requirement": "regression-transition",
+      "gate_statuses": {
+        "stage42-red-proof": "FAIL"
+      },
+      "environment_blocked_gates": [],
+      "evidence_ref_statuses": {
+        "gate-log:stage42-red-proof": "FAIL"
+      },
+      "status": "FAILED"
+    }
+  ],
+  "unverified_claim_ids": [
+    "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE"
+  ],
+  "baseline_transition_unverified_claim_ids": [],
+  "policy_fingerprint": "49c73e84eb01c42ed6515cd09d7b7a9565d7f75cdcb855225a37adebf6d9f1a2",
+  "rerun_from": null,
+  "prior_evidence": null,
+  "reused_prerequisites": [],
+  "missing_prerequisites": [],
+  "workspace_snapshot_start_fingerprint": "9cc5a2e7734704972e74f2d08ab4c882f242ac5f7db70d4de4dc5e4b8b86d385",
+  "workspace_snapshot_fingerprint": "9cc5a2e7734704972e74f2d08ab4c882f242ac5f7db70d4de4dc5e4b8b86d385",
+  "workspace_snapshot_file": "workspace-baseline.json",
+  "selected_gate_ids": [
+    "stage42-red-proof"
+  ],
+  "required_gate_ids": [
+    "stage42-red-proof"
+  ],
+  "gate_contract_fingerprints": {
+    "stage42-red-proof": "b3521984f62df0dedb9807184421c5d4f1b535caf23a0dc22e011dc697990b97"
+  },
+  "completion_eligible": false,
+  "quality_dimensions": {
+    "functional": {
+      "status": "FAIL"
+    },
+    "architecture": {
+      "status": "NOT_ASSESSED",
+      "debt_status": null,
+      "gate_status": "NOT_ASSESSED"
+    },
+    "real_model_certification": {
+      "status": "NOT_DECLARED",
+      "reason": "real-model certification requires one complete release-mode run"
+    },
+    "production_certification": {
+      "status": "NOT_DECLARED",
+      "reason": "production certification requires one complete release-mode run"
+    }
+  },
+  "evidence_attestation_file": "evidence-attestation.json",
+  "convergence": {
+    "current_round": 1,
+    "max_rounds": 8,
+    "stagnant_rounds": 0,
+    "last_failure_count": null,
+    "failed_gate_ids": [],
+    "upstream_skipped_gate_ids": []
+  },
+  "results": [
+    {
+      "id": "stage42-red-proof",
+      "name": "Stage 4.2 pair-only authority counterexample",
+      "status": "FAIL",
+      "owner": "quality-controller",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "repair_playbook": "repair the product evidence boundary; never weaken the focused counterexample",
+      "depends_on": [],
+      "started_at": "2026-08-16T01:32:37+00:00",
+      "ended_at": "2026-08-16T01:32:37+00:00",
+      "exit_code": 1,
+      "duration_ms": 201,
+      "stdout": "{\"adversarial_closure\": \"PASS\", \"counterfactual\": \"PASS\", \"edges\": [{\"dependent_goal_id\": \"g2\", \"requires_result_of_goal_id\": \"g1\"}], \"graph_complete\": true, \"maturity\": \"AUTHORITATIVE\", \"target_compatibility\": \"PASS\"}\n",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"<string>\", line 57, in <module>\nAssertionError: pair decision + closure phase minted dependency authority without obligation-specific evidence\n",
+      "metadata": {
+        "argv": [
+          "/opt/hostedtoolcache/Python/3.12.13/x64/bin/python",
+          "-B",
+          "-c",
+          "import base64;exec(base64.b64decode('aW1wb3J0IGpzb24KaW1wb3J0IHN5cwpmcm9tIHBhdGhsaWIgaW1wb3J0IFBhdGgKcm9vdCA9IFBhdGguY3dkKCkKc3lzLnBhdGguaW5zZXJ0KDAsIHN0cihyb290IC8gInNlcnZpY2VzL2FnZW50LXNlcnZpY2Uvc3JjIikpCnN5cy5wYXRoLmluc2VydCgwLCBzdHIocm9vdCAvICJzZXJ2aWNlcy9hZ2VudC1zZXJ2aWNlIikpCmZyb20gYWdlbnRfY29yZS5nb2FsX2dyYXBoIGltcG9ydCBkZXBlbmRlbmN5X2FsaWdubWVudCBhcyBicmlkZ2UKZnJvbSBhZ2VudF9jb3JlLmdvYWxfZ3JhcGggaW1wb3J0IGRlcGVuZGVuY3lfcHJvb2YgYXMgcHJvb2YKCmdvYWxzID0gWwogICAgewogICAgICAgICJnb2FsX2lkIjogImcxIiwKICAgICAgICAiZXZpZGVuY2Vfc3BhbiI6ICJJbnNwZWN0IEEiLAogICAgICAgICJyZXF1ZXN0ZWRfZWZmZWN0IjogeyJkb21haW4iOiAib3BlbiIsICJvcGVyYXRpb24iOiAiaW5zcGVjdCIsICJvYmplY3RfdHlwZSI6ICJyZWNvcmQifSwKICAgICAgICAiZGVwZW5kc19vbiI6IFtdLAogICAgfSwKICAgIHsKICAgICAgICAiZ29hbF9pZCI6ICJnMiIsCiAgICAgICAgImV2aWRlbmNlX3NwYW4iOiAidXNlIHRoYXQgcmVzdWx0IiwKICAgICAgICAicmVxdWVzdGVkX2VmZmVjdCI6IHsiZG9tYWluIjogIm9wZW4iLCAib3BlcmF0aW9uIjogInVzZSIsICJvYmplY3RfdHlwZSI6ICJyZWNvcmQifSwKICAgICAgICAiZGVwZW5kc19vbiI6IFsiZzEiXSwKICAgIH0sCl0KZGV0YWlscyA9IHsKICAgICJkZXBlbmRlbmN5X2F1dGhvcml0eSI6ICJpbmRlcGVuZGVudF9nb2FsX2FsaWdubWVudCIsCiAgICAiZGVwZW5kZW5jeV9wcm9vZl9jb21wbGV0ZSI6IFRydWUsCiAgICAiZGVwZW5kZW5jeV9ncmFwaF9tYXRjaCI6IFRydWUsCiAgICAiZGVwZW5kZW5jeV9wYWlyX2RlY2lzaW9ucyI6IFsKICAgICAgICB7CiAgICAgICAgICAgICJnb2FsX2FfaWQiOiAiZzEiLAogICAgICAgICAgICAiZ29hbF9iX2lkIjogImcyIiwKICAgICAgICAgICAgInJlbGF0aW9uIjogImJfZGVwZW5kc19vbl9hIiwKICAgICAgICAgICAgImJhc2lzX2tpbmQiOiAicmVzdWx0X3JlZmVyZW5jZSIsCiAgICAgICAgICAgICJiYXNpc19zcGFuIjogInRoYXQgcmVzdWx0IiwKICAgICAgICB9CiAgICBdLAp9CmxlZGdlciwgZ3JhcGggPSBicmlkZ2UuYXBwbHlfYWxpZ25tZW50X2RlcGVuZGVuY3lfcHJvb2YoCiAgICBOb25lLAogICAgdXNlcl90ZXh0PSJJbnNwZWN0IEEsIHVzZSB0aGF0IHJlc3VsdCIsCiAgICBnb2Fscz1nb2FscywKICAgIGRldGFpbHM9ZGV0YWlscywKICAgIHBoYXNlPSJjYW5kaWRhdGVfYmxpbmRfZGVwZW5kZW5jeV9wb3NpdGl2ZV9lZGdlX2FkanVkaWNhdGlvbiIsCikKc3RhdGUgPSBsZWRnZXJbInN0YXRlcyJdWyJnMTo6ZzIiXQpvYnNlcnZlZCA9IHsKICAgICJncmFwaF9jb21wbGV0ZSI6IGdyYXBoWyJjb21wbGV0ZSJdLAogICAgImVkZ2VzIjogZ3JhcGhbImVkZ2VzIl0sCiAgICAibWF0dXJpdHkiOiBzdGF0ZVsibWF0dXJpdHkiXSwKICAgICJ0YXJnZXRfY29tcGF0aWJpbGl0eSI6IHN0YXRlWyJvYmxpZ2F0aW9ucyJdWyJ0YXJnZXRfY29tcGF0aWJpbGl0eSJdLAogICAgImNvdW50ZXJmYWN0dWFsIjogc3RhdGVbIm9ibGlnYXRpb25zIl1bImNvdW50ZXJmYWN0dWFsIl0sCiAgICAiYWR2ZXJzYXJpYWxfY2xvc3VyZSI6IHN0YXRlWyJvYmxpZ2F0aW9ucyJdWyJhZHZlcnNhcmlhbF9jbG9zdXJlIl0sCn0KCnByaW50KGpzb24uZHVtcHMob2JzZXJ2ZWQsIHNvcnRfa2V5cz1UcnVlKSkKCmFzc2VydCBncmFwaFsiY29tcGxldGUiXSBpcyBGYWxzZSwgInBhaXIgZGVjaXNpb24gKyBjbG9zdXJlIHBoYXNlIG1pbnRlZCBkZXBlbmRlbmN5IGF1dGhvcml0eSB3aXRob3V0IG9ibGlnYXRpb24tc3BlY2lmaWMgZXZpZGVuY2UiCmFzc2VydCBzdGF0ZVsib2JsaWdhdGlvbnMiXVsidGFyZ2V0X2NvbXBhdGliaWxpdHkiXSA9PSBwcm9vZi5VTktOT1dOX1JFU1VMVCwgInRhcmdldCBjb21wYXRpYmlsaXR5IHdhcyBtYW51ZmFjdHVyZWQgaW5zdGVhZCBvZiByZW1haW5pbmcgVU5LTk9XTiIKYXNzZXJ0IHN0YXRlWyJvYmxpZ2F0aW9ucyJdWyJjb3VudGVyZmFjdHVhbCJdID09IHByb29mLlVOS05PV05fUkVTVUxULCAiY291bnRlcmZhY3R1YWwgd2FzIG1hbnVmYWN0dXJlZCBpbnN0ZWFkIG9mIHJlbWFpbmluZyBVTktOT1dOIg=='))"
+        ],
+        "structured_assessment": {
+          "adversarial_closure": "PASS",
+          "counterfactual": "PASS",
+          "edges": [
+            {
+              "dependent_goal_id": "g2",
+              "requires_result_of_goal_id": "g1"
+            }
+          ],
+          "graph_complete": true,
+          "maturity": "AUTHORITATIVE",
+          "target_compatibility": "PASS"
+        }
+      }
+    }
+  ]
+}

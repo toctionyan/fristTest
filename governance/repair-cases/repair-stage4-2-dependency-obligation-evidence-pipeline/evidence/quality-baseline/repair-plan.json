@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-08-16T01:32:37+00:00",
+  "mode": "quick",
+  "target_identity": {
+    "id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "change_ref": "portable-repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "context": "local-change",
+    "fingerprint": "d5ea1cc72b32159a5f2b624cd6ffc099b48b4603f2f5114cce16db8c72872455",
+    "claim_manifest_fingerprint": "13e9f9ad488ee6a51a174e2df97686b414991e6e30ebc5d44f3887488502d8e1"
+  },
+  "loop_status": "BASELINE_RECORDED",
+  "repairs": [
+    {
+      "gate_id": "stage42-red-proof",
+      "owner": "quality-controller",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "failure_kind": "test_or_contract",
+      "repair_playbook": "repair the product evidence boundary; never weaken the focused counterexample",
+      "evidence": {
+        "stderr": "steps/stage42-red-proof.stderr.txt",
+        "stdout": "steps/stage42-red-proof.stdout.txt"
+      },
+      "next_action": "apply the smallest fix within the declared target scope",
+      "rerun": [
+        "/opt/hostedtoolcache/Python/3.12.13/x64/bin/python",
+        "-B",
+        "/home/runner/work/_temp/stage42-governed/scripts/quality_loop.py",
+        "--workspace-root",
+        "/home/runner/work/_temp/stage42-governed",
+        "--policy",
+        "/home/runner/work/_temp/stage42-governed/governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/quality-input/focused-policy.json",
+        "--mode",
+        "quick",
+        "--rerun-from",
+        "stage42-red-proof",
+        "--target",
+        "/home/runner/work/_temp/stage42-governed/governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/quality-input/target.md"
+      ]
+    }
+  ]
+}

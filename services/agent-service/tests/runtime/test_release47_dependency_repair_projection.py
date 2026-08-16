@@ -4,6 +4,10 @@ import importlib.util
 import json
 from pathlib import Path
 
+from agent_core.goal_graph.dependency_alignment import (
+    alignment_dependency_authority_details,
+    apply_alignment_dependency_proof,
+)
 from agent_core.lifecycle.dialogue_runtime import _semantic_writer_declaration_result_projection
 from agent_core.lifecycle.goal_planning import GoalAlignmentVerdict, _alignment_repair_feedback
 
@@ -24,6 +28,52 @@ def _edge() -> dict[str, str]:
     }
 
 
+def _mature_mismatch_details(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:
+    first_span, second_span = user_text.split("，", 1)
+    declared_g2 = [
+        str(row["requires_result_of_goal_id"])
+        for row in declared
+        if row.get("dependent_goal_id") == "g2"
+    ]
+    goals = [
+        {"goal_id": "g1", "evidence_span": first_span, "depends_on": []},
+        {"goal_id": "g2", "evidence_span": second_span, "depends_on": declared_g2},
+    ]
+    decisions = (
+        [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "b_depends_on_a",
+            "basis_kind": verified[0]["basis_kind"],
+            "basis_span": verified[0]["basis_span"],
+        }]
+        if verified
+        else [{"goal_a_id": "g1", "goal_b_id": "g2", "relation": "independent"}]
+    )
+    ledger, _ = apply_alignment_dependency_proof(
+        None,
+        user_text=user_text,
+        goals=goals,
+        details={
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_proof_complete": True,
+            "dependency_graph_match": False,
+            "dependency_pair_decisions": decisions,
+        },
+        phase="candidate_blind_dependency_authority_closure",
+    )
+    return {
+        "dependency_authority": "independent_goal_alignment",
+        "dependency_proof_complete": True,
+        "dependency_graph_match": False,
+        "dependency_edges": verified,
+        "declared_dependency_edges": declared,
+        "verifier_repair_attempted": True,
+        "verifier_repair_kind": "candidate_blind_dependency_authority_closure",
+        **alignment_dependency_authority_details(ledger, goals=goals),
+    }
+
+
 def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: str) -> dict:
     alignment = GoalAlignmentVerdict(
         "incomplete",
@@ -32,15 +82,7 @@ def _mismatch_result(*, verified: list[dict], declared: list[dict], user_text: s
         "goal_alignment_dependency_graph_mismatch",
         "model",
         True,
-        {
-            "dependency_authority": "independent_goal_alignment",
-            "dependency_proof_complete": True,
-            "dependency_graph_match": False,
-            "dependency_edges": verified,
-            "declared_dependency_edges": declared,
-            "verifier_repair_attempted": True,
-            "verifier_repair_kind": "candidate_blind_dependency_reaudit",
-        },
+        _mature_mismatch_details(verified=verified, declared=declared, user_text=user_text),
     )
     return {
         "ok": False,

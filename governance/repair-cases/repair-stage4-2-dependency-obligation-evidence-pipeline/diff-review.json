@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "permit_digest": "da32d4a324b555c887eedbe554f214134f3aa7556b2ff120dd65e70549b0d9ae",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "a1ba772d13d3b09a1aa2189d487790e93123a67e8d367e9968d019b82a955e3a",
+  "candidate_source_fingerprint": "c8931cf0760fcdce14c4cc459c2cb8b1dc5a62ff6be1f70f028ca014701ef8e8",
+  "changed_paths": [
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+    "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py"
+  ],
+  "added_paths": [
+    "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py"
+  ],
+  "modified_paths": [
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

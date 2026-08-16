@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "permit_digest": "da32d4a324b555c887eedbe554f214134f3aa7556b2ff120dd65e70549b0d9ae",
+  "diff_review_sha256": "2728a7fe33e4df6a6a5cb090cb23b14e3ed534499136bee36557bb9c401a5d73",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "c8931cf0760fcdce14c4cc459c2cb8b1dc5a62ff6be1f70f028ca014701ef8e8",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/clean-verification-record.json",
+      "evidence_sha256": "9fdd416bea0d7d2555e2bccb3bac512b5d1964778318a1fce3986877d86592a3"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py",
+      "evidence_sha256": "2d8c166b0181031e7b054560a4d128c1f153d6e267cdbdbd4f37d23c2e92c14a"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/diff-review.json",
+      "evidence_sha256": "2728a7fe33e4df6a6a5cb090cb23b14e3ed534499136bee36557bb9c401a5d73"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/clean-verification-record.json",
+      "evidence_sha256": "9fdd416bea0d7d2555e2bccb3bac512b5d1964778318a1fce3986877d86592a3"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py",
+      "evidence_sha256": "2d8c166b0181031e7b054560a4d128c1f153d6e267cdbdbd4f37d23c2e92c14a"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/reproduction.json",
+      "evidence_sha256": "720d46d1e209d26dd0a43bb5474a8902fbc4a53c0ab52b4c390b80a7e74e21b9"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+      "evidence_sha256": "97df2e9860c3c5147f84d3dd0c7481e9d8cc2513d292e15dfca0f8fc498de5ad"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/clean-verification-record.json",
+      "evidence_sha256": "9fdd416bea0d7d2555e2bccb3bac512b5d1964778318a1fce3986877d86592a3"
+    }
+  ],
+  "residual_risks": []
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-16T01:32:37+00:00",
+  "decision": "FAIL",
+  "evidence_dir": "/home/runner/work/_temp/stage42-governed/governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/quality-baseline",
+  "target_identity": {
+    "id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "change_ref": "portable-repair-stage4-2-dependency-obligation-evidence-pipeline",
+    "context": "local-change",
+    "fingerprint": "d5ea1cc72b32159a5f2b624cd6ffc099b48b4603f2f5114cce16db8c72872455",
+    "claim_manifest_fingerprint": "13e9f9ad488ee6a51a174e2df97686b414991e6e30ebc5d44f3887488502d8e1"
+  },
+  "policy_fingerprint": "49c73e84eb01c42ed6515cd09d7b7a9565d7f75cdcb855225a37adebf6d9f1a2",
+  "mode": "quick",
+  "replan_predecessor": null,
+  "workspace_snapshot_file": "workspace-baseline.json",
+  "workspace_snapshot_fingerprint": "9cc5a2e7734704972e74f2d08ab4c882f242ac5f7db70d4de4dc5e4b8b86d385"
+}

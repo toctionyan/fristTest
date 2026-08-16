@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "record_type": "stage4-2-red-reproduction",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "source_head": "51dfef01c9d8453bf57cb0eaa176e390733b8dbf",
+  "process_exit_code": 0,
+  "stdout": "{\"adversarial_closure\": \"PASS\", \"counterfactual\": \"PASS\", \"edges\": [{\"dependent_goal_id\": \"g2\", \"requires_result_of_goal_id\": \"g1\"}], \"graph_complete\": true, \"maturity\": \"AUTHORITATIVE\", \"target_compatibility\": \"PASS\"}\n",
+  "stderr": "",
+  "expected_defect": {
+    "graph_complete": true,
+    "maturity": "AUTHORITATIVE",
+    "target_compatibility": "PASS",
+    "counterfactual": "PASS"
+  }
+}

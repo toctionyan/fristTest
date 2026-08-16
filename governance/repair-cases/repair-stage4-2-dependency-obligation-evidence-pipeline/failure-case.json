@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "Pair relation evidence alone leaves target compatibility and result-removal counterfactual UNKNOWN, so the pair cannot become authoritative.",
+    "actual": "The dependency alignment bridge hard-codes target_compatibility=PASS and counterfactual=PASS and derives a counterfactual digest from the same pair decision/phase, allowing an adversarial phase to seal false authority.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/evidence/reproduction.json",
+      "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+      "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+      "docs/architecture/dependency-proof-authority.md"
+    ]
+  },
+  "violated_invariants": [
+    "Verifier pair output is observation, not proof authority for every obligation.",
+    "Target compatibility and result-removal counterfactual require obligation-specific evidence bound to the frozen semantic premise.",
+    "Missing proof obligations must remain unresolved rather than being promoted to PASS."
+  ],
+  "affected_boundaries": [
+    "candidate-blind GoalAlignment semantic verifier evidence producer",
+    "pair-decision to ProofObservation bridge",
+    "target-compatibility proof obligation",
+    "current-turn result-removal counterfactual proof obligation"
+  ]
+}

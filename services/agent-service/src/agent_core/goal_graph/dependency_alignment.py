@@ -1,0 +1,490 @@
+from __future__ import annotations
+
+"""Bridge candidate-blind alignment evidence into dependency proof authority.
+
+``goal_planning`` remains the semantic verifier boundary.  A normalized pair
+relation is observation evidence only: it is not, by itself, proof that the
+pair's target semantics are compatible or that the current-turn result-removal
+counterfactual was satisfied.  Those obligations must arrive in the separate,
+premise-bound envelope produced after the candidate-blind semantic verifier has
+been structurally validated.
+
+This module is intentionally language-blind.  It validates only the evidence
+contract/binding and then delegates maturity to the pure dependency-proof
+reducer.  Missing, malformed, spoofed, relation-mismatched or premise-mismatched
+obligation evidence fails closed as ``UNKNOWN``.
+"""
+
+from copy import deepcopy
+from typing import Any
+
+from agent_core.goal_graph.dependency_proof import (
+    FAIL,
+    PASS,
+    UNKNOWN_RESULT,
+    apply_dependency_observation,
+    canonical_digest,
+    dependency_authority_for_pair,
+    dependency_graph_diff,
+    dependency_graph_from_ledger,
+    make_dependency_observation,
+    make_dependency_proof_ledger,
+)
+
+ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION = "alignment-dependency-proof-bridge@2"
+DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT = "validated-dependency-obligation-evidence@1"
+DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER = "goal-alignment-pairwise-obligation-validator@1"
+TARGET_COMPATIBILITY_EVIDENCE_CONTRACT = "dependency-target-compatibility@1"
+COUNTERFACTUAL_EVIDENCE_CONTRACT = "current-turn-result-removal-counterfactual@1"
+
+_ADVERSARIAL_CLOSURE_PHASES = {
+    "candidate_blind_dependency_positive_edge_adjudication",
+    "candidate_blind_dependency_independence_adjudication",
+    "candidate_blind_dependency_effect_collision_adjudication",
+    "candidate_blind_dependency_authority_closure",
+}
+_VALIDATED_RESULTS = {PASS, FAIL}
+
+
+def _text(value: Any, *, limit: int = 1000) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _pair_key(goal_a: str, goal_b: str) -> tuple[str, str]:
+    return tuple(sorted((str(goal_a), str(goal_b))))
+
+
+def alignment_dependency_premise_digest(
+    *,
+    user_text: str,
+    goals: list[dict[str, Any]],
+) -> str:
+    """Digest frozen semantic premises while deliberately excluding depends_on."""
+
+    projected: list[dict[str, Any]] = []
+    for goal in goals:
+        if not isinstance(goal, dict):
+            continue
+        projected.append({
+            "goal_id": _text(goal.get("goal_id"), limit=200),
+            "evidence_span": _text(goal.get("evidence_span"), limit=500),
+            "requested_effect": deepcopy(goal.get("requested_effect"))
+            if isinstance(goal.get("requested_effect"), dict)
+            else None,
+            "target_candidate": deepcopy(goal.get("target_candidate"))
+            if isinstance(goal.get("target_candidate"), dict)
+            else None,
+            "reference_expression": deepcopy(goal.get("reference_expression"))
+            if isinstance(goal.get("reference_expression"), dict)
+            else None,
+            "condition": deepcopy(goal.get("condition"))
+            if isinstance(goal.get("condition"), dict)
+            else None,
+            "expected_result_cardinality": _text(
+                goal.get("expected_result_cardinality"), limit=80
+            ),
+            "required": bool(goal.get("required", True)),
+        })
+    return canonical_digest({
+        "version": ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION,
+        "user_text": str(user_text or ""),
+        "goals": projected,
+    })
+
+
+def _unknown_obligation(reason: str) -> dict[str, Any]:
+    return {
+        "result": UNKNOWN_RESULT,
+        "evidence_digest": None,
+        "validated_evidence": None,
+        "reason": reason,
+    }
+
+
+def _validate_obligation(
+    raw: Any,
+    *,
+    expected_contract: str,
+    obligation: str,
+    goal_a: str,
+    goal_b: str,
+    relation: str,
+    premise_digest: str,
+) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return _unknown_obligation("missing_obligation_evidence")
+    if _text(raw.get("contract"), limit=160) != expected_contract:
+        return _unknown_obligation("unsupported_obligation_contract")
+    result = _text(raw.get("result"), limit=32).upper()
+    if result not in _VALIDATED_RESULTS:
+        return _unknown_obligation("unsupported_obligation_result")
+    evidence = raw.get("evidence")
+    if not isinstance(evidence, dict) or not evidence:
+        return _unknown_obligation("missing_obligation_evidence_payload")
+    digest = canonical_digest({
+        "contract": expected_contract,
+        "producer": DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER,
+        "obligation": obligation,
+        "pair": list(_pair_key(goal_a, goal_b)),
+        "relation": relation,
+        "premise_digest": premise_digest,
+        "result": result,
+        "evidence": deepcopy(evidence),
+    })
+    return {
+        "result": result,
+        "evidence_digest": digest,
+        "validated_evidence": {
+            "contract": expected_contract,
+            "result": result,
+            "evidence_digest": digest,
+            "evidence": deepcopy(evidence),
+        },
+        "reason": "validated_obligation_evidence",
+    }
+
+
+def _validated_pair_obligations(
+    details: dict[str, Any],
+    *,
+    goal_a: str,
+    goal_b: str,
+    relation: str,
+    premise_digest: str,
+) -> dict[str, dict[str, Any]]:
+    """Consume exactly one producer-owned, premise-bound evidence row per pair."""
+
+    envelope = details.get("dependency_obligation_evidence")
+    if not isinstance(envelope, dict):
+        reason = "missing_validated_evidence_envelope"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+    if _text(envelope.get("contract"), limit=160) != DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT:
+        reason = "unsupported_validated_evidence_envelope"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+    if _text(envelope.get("producer"), limit=200) != DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER:
+        reason = "unsupported_validated_evidence_producer"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+    if _text(envelope.get("premise_digest"), limit=128).casefold() != premise_digest.casefold():
+        reason = "validated_evidence_premise_mismatch"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+    rows = envelope.get("pairs")
+    if not isinstance(rows, list):
+        reason = "validated_evidence_pairs_required"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+
+    wanted = _pair_key(goal_a, goal_b)
+    matches: list[dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        row_a = _text(raw.get("goal_a_id"), limit=200)
+        row_b = _text(raw.get("goal_b_id"), limit=200)
+        if row_a and row_b and _pair_key(row_a, row_b) == wanted:
+            matches.append(raw)
+    if len(matches) != 1:
+        reason = (
+            "duplicate_validated_evidence_pair"
+            if len(matches) > 1
+            else "missing_validated_evidence_pair"
+        )
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+
+    row = matches[0]
+    if _text(row.get("relation"), limit=80).casefold() != relation:
+        reason = "validated_evidence_relation_mismatch"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+    if _text(row.get("premise_digest"), limit=128).casefold() != premise_digest.casefold():
+        reason = "validated_evidence_pair_premise_mismatch"
+        return {
+            "target_compatibility": _unknown_obligation(reason),
+            "counterfactual": _unknown_obligation(reason),
+        }
+
+    return {
+        "target_compatibility": _validate_obligation(
+            row.get("target_compatibility"),
+            expected_contract=TARGET_COMPATIBILITY_EVIDENCE_CONTRACT,
+            obligation="target_compatibility",
+            goal_a=goal_a,
+            goal_b=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+        ),
+        "counterfactual": _validate_obligation(
+            row.get("counterfactual"),
+            expected_contract=COUNTERFACTUAL_EVIDENCE_CONTRACT,
+            obligation="counterfactual",
+            goal_a=goal_a,
+            goal_b=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+        ),
+    }
+
+
+def apply_alignment_dependency_proof(
+    ledger: dict[str, Any] | None,
+    *,
+    user_text: str,
+    goals: list[dict[str, Any]],
+    details: dict[str, Any],
+    phase: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Apply one already-validated pairwise graph observation set.
+
+    Pair relation/coverage evidence can satisfy the relation's structural and
+    grounding obligations.  Target compatibility and counterfactual necessity
+    are read only from ``dependency_obligation_evidence``.  An adversarial phase
+    may satisfy only the independent ``adversarial_closure`` obligation.
+    """
+
+    current = deepcopy(ledger) if isinstance(ledger, dict) else make_dependency_proof_ledger()
+    premise_digest = alignment_dependency_premise_digest(user_text=user_text, goals=goals)
+    rows = details.get("dependency_pair_decisions")
+    if details.get("dependency_proof_complete") is not True or not isinstance(rows, list):
+        return current, dependency_graph_from_ledger(
+            current,
+            goal_ids=[str(goal.get("goal_id") or "") for goal in goals if isinstance(goal, dict)],
+        )
+
+    closure_result = PASS if str(phase or "") in _ADVERSARIAL_CLOSURE_PHASES else UNKNOWN_RESULT
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        goal_a = _text(raw.get("goal_a_id"), limit=200)
+        goal_b = _text(raw.get("goal_b_id"), limit=200)
+        relation = _text(raw.get("relation"), limit=80).casefold()
+        if not goal_a or not goal_b or not relation:
+            continue
+
+        obligations = _validated_pair_obligations(
+            details,
+            goal_a=goal_a,
+            goal_b=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+        )
+        target_evidence = obligations["target_compatibility"]
+        counterfactual_evidence = obligations["counterfactual"]
+
+        prior = dependency_authority_for_pair(current, goal_a, goal_b)
+        supersedes = None
+        if (
+            prior is not None
+            and str(prior.get("authority_relation") or prior.get("relation") or "") != relation
+        ):
+            supersedes = _text(prior.get("authority_evidence_digest"), limit=128) or None
+
+        decision_evidence = {
+            "bridge_version": ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION,
+            "phase": str(phase or ""),
+            "decision": deepcopy(raw),
+            "pairwise_proof_complete": True,
+            "source_authority": details.get("dependency_authority"),
+            "obligation_evidence_contract": DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT,
+            "obligation_evidence_producer": DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER,
+            "target_compatibility_evidence": deepcopy(target_evidence.get("validated_evidence")),
+            "target_compatibility_evidence_status": target_evidence.get("reason"),
+            "counterfactual_evidence": deepcopy(counterfactual_evidence.get("validated_evidence")),
+            "counterfactual_evidence_status": counterfactual_evidence.get("reason"),
+        }
+        counterfactual_digest = counterfactual_evidence.get("evidence_digest") or canonical_digest({
+            "contract": COUNTERFACTUAL_EVIDENCE_CONTRACT,
+            "producer": DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER,
+            "obligation": "counterfactual",
+            "pair": list(_pair_key(goal_a, goal_b)),
+            "relation": relation,
+            "premise_digest": premise_digest,
+            "result": UNKNOWN_RESULT,
+            "reason": counterfactual_evidence.get("reason"),
+        })
+        observation = make_dependency_observation(
+            goal_a_id=goal_a,
+            goal_b_id=goal_b,
+            relation=relation,
+            premise_digest=premise_digest,
+            evidence_payload=decision_evidence,
+            obligations={
+                "grounding": PASS,
+                "semantic_compatibility": PASS,
+                "target_compatibility": target_evidence["result"],
+                "counterfactual": counterfactual_evidence["result"],
+                "structural_validity": PASS,
+                "contradiction_free": PASS,
+                "adversarial_closure": closure_result,
+                "pair_coverage": PASS,
+            },
+            grounding_proof_digest=canonical_digest({
+                "pair": sorted((goal_a, goal_b)),
+                "decision": raw,
+                "proof_complete": True,
+            }),
+            counterfactual_proof_digest=str(counterfactual_digest),
+            source=f"goal_alignment:{phase or 'unspecified'}",
+            basis_kind=_text(raw.get("basis_kind"), limit=80) or None,
+            basis_span=_text(raw.get("basis_span"), limit=240) or None,
+            supersedes_evidence_digest=supersedes,
+            diagnostic_complete=bool(details.get("dependency_proof_complete")),
+            diagnostic_matching=bool(details.get("dependency_graph_match")),
+        )
+        current = apply_dependency_observation(
+            current,
+            observation,
+            current_premise_digest=premise_digest,
+        )
+
+    graph = dependency_graph_from_ledger(
+        current,
+        goal_ids=[str(goal.get("goal_id") or "") for goal in goals if isinstance(goal, dict)],
+    )
+    return current, graph
+
+
+def alignment_dependency_authority_details(
+    ledger: dict[str, Any] | None,
+    *,
+    goals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    current = deepcopy(ledger) if isinstance(ledger, dict) else make_dependency_proof_ledger()
+    goal_ids = [
+        str(goal.get("goal_id") or "")
+        for goal in goals
+        if isinstance(goal, dict) and str(goal.get("goal_id") or "")
+    ]
+    declared_edges = [
+        {
+            "dependent_goal_id": str(goal.get("goal_id") or ""),
+            "requires_result_of_goal_id": str(prerequisite),
+        }
+        for goal in goals
+        if isinstance(goal, dict)
+        for prerequisite in list(goal.get("depends_on") or [])
+        if str(goal.get("goal_id") or "") and str(prerequisite)
+    ]
+    diff = dependency_graph_diff(
+        current,
+        goal_ids=goal_ids,
+        declared_edges=declared_edges,
+    )
+
+    # Keep a diagnostic projection of complete pair observations separate from
+    # dependency authority.  Stage 4.2 deliberately leaves a pair GROUNDED when
+    # target/counterfactual evidence is absent, but a complete candidate-blind
+    # pair table is still safe evidence for declaration-repair feedback.  This
+    # projection never makes ``dependency_authority_complete`` true and is not
+    # consumed by the reducer.
+    expected_pairs = {
+        tuple(sorted((goal_ids[left], goal_ids[right])))
+        for left in range(len(goal_ids))
+        for right in range(left + 1, len(goal_ids))
+    }
+    observed_pairs: set[tuple[str, str]] = set()
+    observed_edges: set[tuple[str, str]] = set()
+    observed_decisions: list[dict[str, str]] = []
+    for state in (current.get("states") or {}).values():
+        if not isinstance(state, dict):
+            continue
+        goal_a = _text(state.get("goal_a_id"), limit=200)
+        goal_b = _text(state.get("goal_b_id"), limit=200)
+        relation = _text(state.get("relation"), limit=80).casefold()
+        maturity = _text(state.get("maturity"), limit=40).upper()
+        if not goal_a or not goal_b:
+            continue
+        pair = tuple(sorted((goal_a, goal_b)))
+        if (
+            pair not in expected_pairs
+            or maturity not in {"GROUNDED", "AUTHORITATIVE"}
+            or relation not in {"independent", "a_depends_on_b", "b_depends_on_a"}
+        ):
+            continue
+        observed_pairs.add(pair)
+        observed_decisions.append({
+            "goal_a_id": goal_a,
+            "goal_b_id": goal_b,
+            "relation": relation,
+        })
+        if relation == "a_depends_on_b":
+            observed_edges.add((goal_a, goal_b))
+        elif relation == "b_depends_on_a":
+            observed_edges.add((goal_b, goal_a))
+
+    declared_edge_set = {
+        (
+            str(row.get("dependent_goal_id") or ""),
+            str(row.get("requires_result_of_goal_id") or ""),
+        )
+        for row in declared_edges
+    }
+    observation_complete = observed_pairs == expected_pairs
+    observation_graph_match = bool(
+        observation_complete and observed_edges == declared_edge_set
+    )
+    return {
+        "dependency_maturity_authority": "deterministic_dependency_proof_reducer",
+        "dependency_authority_complete": bool(diff.get("repairable")),
+        "dependency_authority_graph_match": diff.get("reason_code") == "DEPENDENCY_GRAPH_MATCH",
+        "dependency_authority_edges": list(diff.get("authoritative_edges") or []),
+        "dependency_authority_missing_edges": list(diff.get("missing_edges") or []),
+        "dependency_authority_extra_edges": list(diff.get("extra_edges") or []),
+        "dependency_authority_unresolved_pairs": list(diff.get("unresolved_pairs") or []),
+        "dependency_authority_graph_proof_digest": diff.get("graph_proof_digest"),
+        "dependency_authority_ledger_digest": current.get("ledger_digest"),
+        "dependency_observation_complete": observation_complete,
+        "dependency_observed_graph_match": observation_graph_match,
+        "dependency_observed_edges": [
+            {
+                "dependent_goal_id": dependent,
+                "requires_result_of_goal_id": prerequisite,
+            }
+            for dependent, prerequisite in sorted(observed_edges)
+        ],
+        "dependency_observed_pair_decisions": sorted(
+            observed_decisions,
+            key=lambda row: (
+                str(row["goal_a_id"]),
+                str(row["goal_b_id"]),
+            ),
+        ),
+        "dependency_observation_authority_effect": False,
+    }
+
+def dependency_authority_closed_and_matching(details: dict[str, Any]) -> bool:
+    return bool(
+        isinstance(details, dict)
+        and details.get("dependency_authority_complete") is True
+        and details.get("dependency_authority_graph_match") is True
+    )
+
+
+__all__ = [
+    "ALIGNMENT_DEPENDENCY_PROOF_BRIDGE_VERSION",
+    "COUNTERFACTUAL_EVIDENCE_CONTRACT",
+    "DEPENDENCY_OBLIGATION_EVIDENCE_CONTRACT",
+    "DEPENDENCY_OBLIGATION_EVIDENCE_PRODUCER",
+    "TARGET_COMPATIBILITY_EVIDENCE_CONTRACT",
+    "alignment_dependency_authority_details",
+    "alignment_dependency_premise_digest",
+    "apply_alignment_dependency_proof",
+    "dependency_authority_closed_and_matching",
+]

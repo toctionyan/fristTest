@@ -85,21 +85,36 @@ def test_shared_scope_ellipsis_remains_independent() -> None:
 def test_false_declared_dependency_is_rejected_by_independent_alignment_graph() -> None:
     text = "查一下鼠标订单，然后帮我申请退款"
     goals = [_goal("g1", "查一下鼠标订单", []), _goal("g2", "帮我申请退款", ["g1"])]
+    first = _response({
+        "verdict": "incomplete",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_edges": [],
+        "reason_code": "declared_dependency_not_expressed",
+    })
+    independent = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "independent",
+        }],
+        "reason_code": "candidate_blind_independent",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model",
-        return_value=_response({
-            "verdict": "incomplete",
-            "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
-            "missing_spans": [],
-            "dependency_edges": [],
-            "reason_code": "declared_dependency_not_expressed",
-        }),
-    ):
+        "agent_core.model_calls.invoke_model", side_effect=[first, independent, independent]
+    ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.details["dependency_graph_match"] is False
-
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is False
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
 
 def test_exact_contradictory_graph_self_reaudits_candidate_blind() -> None:
     text = "查一下键盘订单，再看看它能不能退款"
@@ -205,7 +220,7 @@ def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() ->
         }],
         "reason_code": "refund_needs_query_result",
     })
-    blind_independent = _response({
+    independent = _response({
         "verdict": "exact",
         "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
         "missing_spans": [],
@@ -217,19 +232,22 @@ def test_unproposed_refund_dependency_requires_candidate_blind_confirmation() ->
         "reason_code": "same_turn_scope_is_not_result_dependency",
     })
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[false_positive, blind_independent]
+        "agent_core.model_calls.invoke_model", side_effect=[false_positive, independent, independent]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.exact
     assert verdict.details["dependency_graph_match"] is True
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is True
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
     second_payload = str(invoke.call_args_list[1].kwargs["payload"])
     assert '"depends_on"' not in second_payload
     assert "same-turn zero-anaphora" in second_payload
     assert "Never report such inherited identity text as a target-scope-constraint missing span" in second_payload
-
-
+    third_payload = str(invoke.call_args_list[2].kwargs["payload"])
+    assert "complete/matching alone is not authority" in third_payload
 
 def test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() -> None:
     text = "查一下鼠标订单，然后帮我申请退款"
@@ -259,7 +277,7 @@ def test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() 
         }],
         "reason_code": "malformed_blind_basis",
     })
-    repaired_blind_without_duplicate_evidence = _response({
+    repaired = _response({
         "verdict": "exact",
         "missing_spans": [],
         "dependency_decisions": [{
@@ -269,18 +287,30 @@ def test_dependency_format_repair_reuses_first_pass_grounded_outcome_evidence() 
         }],
         "reason_code": "repaired_pairwise_dependency_proof",
     })
+    closed = _response({
+        "verdict": "exact",
+        "evidence_spans": ["查一下鼠标订单", "帮我申请退款"],
+        "missing_spans": [],
+        "dependency_decisions": [{
+            "goal_a_id": "g1",
+            "goal_b_id": "g2",
+            "relation": "independent",
+        }],
+        "reason_code": "dependency_authority_closed",
+    })
     with patch("agent_core.config.get_model", return_value=object()), patch(
         "agent_core.model_calls.invoke_model",
-        side_effect=[false_positive, malformed_blind, repaired_blind_without_duplicate_evidence],
+        side_effect=[false_positive, malformed_blind, repaired, closed],
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
-    assert invoke.call_count == 3
+    assert invoke.call_count == 4
     assert verdict.exact
     assert verdict.evidence_spans == ("查一下鼠标订单", "帮我申请退款")
     assert verdict.details["dependency_graph_match"] is True
     assert verdict.details["dependency_proof_complete"] is True
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_format_repair"
-
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is True
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
 
 def test_unknown_and_self_dependency_edges_fail_closed() -> None:
     text = "查订单并继续处理"
@@ -342,7 +372,7 @@ def test_frozen_outcome_authority_never_reinterprets_dependency_graph() -> None:
 
 
 def test_release43_missing_dependency_without_redundant_outcome_evidence_is_repairable() -> None:
-    """Release #43: a machine-grounded graph mismatch must reach redeclaration."""
+    """Release #43: only mature graph mismatch authority may reach redeclaration."""
     from agent_core.lifecycle.goal_planning import _alignment_repair_feedback
 
     text = "查一下键盘订单，再看看它能不能退款"
@@ -360,7 +390,7 @@ def test_release43_missing_dependency_without_redundant_outcome_evidence_is_repa
         "dependency_edges": [edge],
         "reason_code": "missing_true_result_dependency",
     })
-    blind = _response({
+    positive = _response({
         "verdict": "exact",
         "missing_spans": [],
         "dependency_decisions": [{
@@ -374,11 +404,11 @@ def test_release43_missing_dependency_without_redundant_outcome_evidence_is_repa
     })
 
     with patch("agent_core.config.get_model", return_value=object()), patch(
-        "agent_core.model_calls.invoke_model", side_effect=[first, blind]
+        "agent_core.model_calls.invoke_model", side_effect=[first, positive, positive]
     ) as invoke:
         verdict = ModelGoalAlignmentVerifier().verify(user_text=text, goals=goals, known_tools=set())
 
-    assert invoke.call_count == 2
+    assert invoke.call_count == 3
     assert verdict.verdict == "incomplete"
     assert verdict.reason_code == "goal_alignment_dependency_graph_mismatch"
     assert verdict.evidence_spans == ()
@@ -387,13 +417,15 @@ def test_release43_missing_dependency_without_redundant_outcome_evidence_is_repa
     assert verdict.details["dependency_graph_match"] is False
     assert verdict.details["dependency_edges"] == [edge]
     assert verdict.details["dependency_mismatch_grounding"] == "machine_dependency_proof"
-    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_reaudit"
+    assert verdict.details["dependency_maturity_authority"] == "deterministic_dependency_proof_reducer"
+    assert verdict.details["dependency_authority_complete"] is True
+    assert verdict.details["dependency_authority_graph_match"] is False
+    assert verdict.details["verifier_repair_kind"] == "candidate_blind_dependency_authority_closure"
 
     feedback = _alignment_repair_feedback(verdict)["independent_verifier_feedback"]
     assert feedback["required_action"] == "redeclaration_preserving_grounded_dependency_graph"
     assert feedback["dependency_edges"] == [edge]
     assert feedback["candidate_declared_dependency_edges"] == []
-
 
 def test_release43_machine_dependency_proof_never_certifies_exact_without_outcome_evidence() -> None:
     """The repair changes rejection classification only; exact still needs literal outcome evidence."""

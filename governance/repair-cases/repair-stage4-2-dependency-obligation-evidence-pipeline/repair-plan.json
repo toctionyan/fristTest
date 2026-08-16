@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "root_cause_proof_sha256": "48fdb7ba8de1ce44b27416bfdc329b33f3f82985a0f293d8fd0fc8450ac7625c",
+  "status": "APPROVED",
+  "strategy": "Preserve the existing candidate-blind model response schema and deterministic reducer. At the already-trusted goal_planning semantic validation boundary, materialize a narrow producer-tagged, frozen-premise-bound obligation evidence envelope from the normalized candidate-blind pair proof and semantic verdict. Make dependency_alignment consume only that envelope for target_compatibility/counterfactual; missing or malformed evidence stays UNKNOWN. Keep adversarial_closure as its separate phase obligation and add focused producer/bridge counterexamples.",
+  "changes": [
+    {
+      "path": "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+      "responsibility": "fail-closed obligation evidence adapter",
+      "reason": "remove the proven pair-decision-to-obligation authority fabrication"
+    },
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+      "responsibility": "materialize validated obligation-specific evidence after existing candidate-blind semantic/pair validation",
+      "reason": "this is the existing semantic verifier boundary that actually observes target/effect fidelity and the mandated result counterfactual"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+      "responsibility": "prove pair-only/spoofed/malformed evidence cannot become authority",
+      "reason": "existing test currently encodes phase-only false authority"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py",
+      "responsibility": "prove semantic producer evidence can legitimately reach the unchanged reducer",
+      "reason": "prevents a fail-closed repair from permanently removing the positive authority path"
+    }
+  ],
+  "unchanged_boundaries": [
+    "dependency_proof.py remains the sole deterministic maturity/authority owner",
+    "the model JSON response schema remains unchanged",
+    "CapabilityGate and execution permits are unchanged",
+    "Draft/Grant/Attempt/Receipt transaction authority is unchanged",
+    "business tools/services are unchanged",
+    "production dependency-authority activation/default remains unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not derive target/counterfactual PASS from pair relation, phase, call count, complete/matching or Planner depends_on.",
+    "Do not trust arbitrary new raw model fields as obligation authority.",
+    "Do not add a second reducer, fallback judge or parallel dependency authority path.",
+    "Do not weaken required obligations or edit dependency_proof.py.",
+    "Do not change CapabilityGate, transaction, business tool/service or production activation paths.",
+    "Do not weaken Target/Claim/baseline/focused policy/tests to obtain PASS."
+  ],
+  "required_invariants": [
+    "pair decision remains observation only",
+    "obligation evidence is producer-tagged and bound to the exact frozen premise and pair relation",
+    "missing/malformed/spoofed obligation evidence fails closed as UNKNOWN",
+    "the deterministic reducer alone seals authority after every required obligation passes",
+    "candidate-blind verifier/model response schema remains backward-compatible"
+  ],
+  "required_tests": {
+    "focused": [
+      "pair decision plus adversarial phase without obligation envelope remains non-authoritative",
+      "validated semantic producer envelope plus adversarial closure can reach deterministic authority"
+    ],
+    "counterexamples": [
+      "raw spoof fields inside dependency_pair_decisions cannot self-elevate target/counterfactual obligations",
+      "wrong premise, wrong relation, duplicate/malformed/missing obligation evidence fails closed"
+    ],
+    "regression": [
+      "existing dependency proof reducer authority tests remain green",
+      "semantic dependency repair feedback regressions remain green without changing the model JSON response schema",
+      "product quick profile remains current and green"
+    ],
+    "negative_path": [
+      "semantic target mismatch leaves target compatibility unresolved and cannot be rescued by phase metadata",
+      "missing counterfactual evidence maps to UNKNOWN rather than PASS"
+    ]
+  },
+  "risks": [
+    "Fail-closing the bridge can expose unresolved pairs if the producer is not wired into every pairwise closing phase; the final observation must carry its own required PASS obligations because provisional reducer states do not merge obligations.",
+    "Treating a semantic mismatch as target PASS would recreate the leak; only exact or dependency-only-mismatch semantic audits may attest target compatibility.",
+    "Treating arbitrary raw pair fields as producer evidence would recreate a peer authority path; the bridge must ignore them."
+  ],
+  "rollback_plan": "Revert the four permitted Stage 4.2 product/test paths together. Never restore phase-only fabricated PASS as compatibility fallback; if the producer cannot establish evidence, leave the pair unresolved and replan."
+}

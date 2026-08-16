@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-stage4-2-dependency-obligation-evidence-pipeline",
+  "repair_plan_sha256": "70e64369855b9b7b15260767463a230539b7c844080e78092499955f64474bd5",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+    "services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py"
+  ],
+  "review_findings": [
+    "The prior two-file scope was insufficient because a fail-closed bridge requires the existing semantic verifier boundary to materialize the obligation evidence it already audits.",
+    "The expanded four-file scope is still bounded: two product owners plus focused tests; dependency_proof.py and all execution/business authority remain untouched.",
+    "No model response schema change is needed, avoiding historical fixture/protocol churn.",
+    "The positive path is explicitly required so UNKNOWN fail-closed behavior cannot become a silent permanent disablement."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Observation is not authority",
+      "assessment": "goal_planning may materialize validated evidence; only dependency_proof.py seals maturity/authority",
+      "evidence": "docs/architecture/dependency-proof-authority.md"
+    },
+    {
+      "rule": "Mandatory proof obligations fail closed",
+      "assessment": "bridge maps absent/invalid target/counterfactual evidence to UNKNOWN",
+      "evidence": "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py"
+    },
+    {
+      "rule": "Minimal governed scope",
+      "assessment": "four explicit paths cover producer, adapter and focused regressions without touching execution authority",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/root-cause-proof.json"
+    }
+  ]
+}

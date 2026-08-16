@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-stage4-2-dependency-bridge-obligation-evidence",
+  "repair_plan_sha256": "e39c20cf76bd96ec5734161ff0858d04114642b34a1d7d9079b4aed2e02160c3",
+  "plan_review_sha256": "be0d1578b416fbedbe36315a085e4be7756767f6f450c019dd3d314db7218d62",
+  "baseline_manifest_sha256": "5f8fa88bc9a393fb17e407f79cc5c02b5328939f0e47bdd56517f88140c98f4d",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "plain candidate-blind pair decision remains non-authoritative before and during adversarial closure when target/counterfactual evidence is absent",
+      "explicit validated obligation evidence can be consumed and all required PASS obligations can still reach deterministic authority"
+    ],
+    "counterexamples": [
+      "adversarial phase name plus complete/matching plus independent pair decision does not mint authority",
+      "adversarial phase name plus positive pair decision/basis does not mint authority without target/counterfactual evidence"
+    ],
+    "regression": [
+      "existing dependency proof reducer authority tests remain green",
+      "existing dependency alignment authority tests remain green after expectations are corrected to the evidence contract",
+      "Agent Quick python test suites remain green"
+    ],
+    "negative_path": [
+      "missing obligation evidence maps to UNKNOWN rather than PASS",
+      "malformed or unsupported obligation evidence cannot be treated as PASS",
+      "target incompatibility/counterfactual failure cannot be overwritten by phase/diagnostic metadata"
+    ]
+  },
+  "baseline_source_fingerprint": "56126af5770c6a34f4afafec8a51b083af3198bfaa8cf8515d7d3434fa406204",
+  "baseline_workspace_fingerprint": "0bf9bae157f46dfc5a94bf02c2e835f033301547c5aadf80842987c9a22a75d5",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "40411f732fb948319117602c71619737c1ccc96bb6de0a15bfc7b3a8eb31fcf7"
+}
