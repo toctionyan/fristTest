@@ -3,10 +3,11 @@ from __future__ import annotations
 
 """Fail-closed contract for adopting a pre-governance Draft candidate.
 
-The trusted profile binds the exact candidate blobs and fixed guards.  Adoption
-has zero candidate write authority.  Full Python verification must delegate to
-the repository's single standard-suite owner instead of duplicating its runtime
-environment.  Test evidence is written outside the candidate worktree.
+The trusted profile binds exact candidate blobs and fixed guards.  Candidate-owned
+changes may not alter the Judge/Skill trust root.  Independent Quick validation runs
+in a disposable worktree after the repository's single Stage-3 trusted-Judge
+projection owner has overlaid the current clean ``main`` Judge.  The original Draft
+candidate remains immutable and is the only workspace eligible for publication.
 """
 
 import ast
@@ -20,27 +21,32 @@ CONTROLLER = "scripts/github_existing_candidate_adoption.py"
 PYTHON_SUITE_RUNNER = "scripts/run_python_test_suites.py"
 INGEST_BRIDGE = "scripts/github_failure_ingest_control_plane.py"
 QUALITY_TARGET_CREATOR = "scripts/create_ci_quality_target.py"
+TRUSTED_JUDGE = "skill-system/controller/trusted_judge.py"
+TRUSTED_PROJECTION = "scripts/github_repair_stage3_trusted_projection.py"
 ADOPTION_WORKFLOW = ".github/workflows/governed-ci-existing-candidate-adoption.yml"
 SOLO_WORKFLOW = ".github/workflows/governed-ci-existing-candidate-solo-governance.yml"
 ADOPTION_WORKFLOW_ID = "governed-ci-existing-candidate-adoption"
 
 EXPECTED_RELEASE56_BLOBS = {
     "contracts/generated/dependency-basis-projections.json": "c25682abc81775c31c5b542a9dbf1698e50645cd",
-    "scripts/verify_dependency_basis_contract.py": "a9b9f40710f4a96cfcdf394065aa290c6f55a6fb",
-    "scripts/verify_dependency_basis_mutation_proof.py": "0da7d1af9d88b295838a1d24969b19b49125be40",
     "services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py": "6c3c45f9d80fd4e7d13c87f439987b02011506f3",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "09e279d24641b3f7a5df7d4d0811bc6c267faa07",
     "services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py": "11cd67e1ade8de78f05f8af9fb95628c90c3e7b1",
-    "skill-system/profiles/skill-unit.json": "9c8ba0bd94def7f4e8902ad63f2995003f429458",
-    "skill-system/tests/test_dependency_basis_contract_guard.py": "f4ef23af7fbc33645d98ebea1310fad289f088c6",
+    "skill-system/tests/dependency_basis_guard.py": "969810af719b3233d3a4ae1a2c8fea876ce68c0a",
+    "skill-system/tests/test_dependency_basis_contract_guard.py": "5a356f56b1cbb342e1d9e772a6fd33ee534e76dc",
 }
 
+CONTRACT_GUARD_ARGV = [
+    "{python}", "-B", "skill-system/tests/dependency_basis_guard.py", "--check", "contract",
+]
+MUTATION_GUARD_ARGV = [
+    "{python}", "-B", "skill-system/tests/dependency_basis_guard.py", "--check", "mutation",
+]
 TARGETED_RUNTIME_ARGV = [
     "/usr/bin/env", "PYTHONPATH=src", "PYTHONNOUSERSITE=1", "{agent_python}",
     "-B", "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider",
     "tests/runtime/test_release56_dependency_basis_contract.py",
 ]
-
 CANONICAL_SUITE_ARGV = [
     "/usr/bin/env",
     "-u", "QUALITY_AGENT_PYTHON",
@@ -58,6 +64,16 @@ QUICK_TARGET_WORKFLOW_MARKERS = (
     "--workflow governed-ci-existing-candidate-adoption",
     "--claims-source governance/claims/v20.6.2-project-quick-certification.json",
     "--mode quick",
+)
+TRUSTED_PROJECTION_WORKFLOW_MARKERS = (
+    "git -C candidate worktree add --detach ../validation",
+    "github_repair_stage3_trusted_projection.py",
+    "--candidate validation",
+    "--judge control",
+    "--output adoption/trusted-judge-projection.json",
+    'QUALITY_LOOP_STATE_DIR: ${{ runner.temp }}/governed-existing-candidate-adoption-state',
+    "--workspace-root validation",
+    'test -z "$(git -C validation status --porcelain=v1 --untracked-files=all)"',
 )
 
 
@@ -118,17 +134,41 @@ def _literal_dict_assignment(source: str, name: str, errors: list[str]) -> dict[
     return {}
 
 
+def _candidate_path_is_trusted_judge_input(path: str) -> bool:
+    return (
+        path == "scripts/quality_loop.py"
+        or path.startswith("scripts/quality_control/")
+        or path == "scripts/repair_loop.py"
+        or path == "scripts/source_paths.py"
+        or path.startswith("scripts/verify_")
+        or path.startswith("skill-system/controller/")
+        or path.startswith("skill-system/hooks/")
+        or path.startswith("skill-system/schemas/")
+        or path.startswith("skill-system/profiles/")
+        or path.startswith("skill-system/registry/active-")
+        or path == "skill-system/registry/deprecated-rules.json"
+        or path == "governance/quality-loop-policy.json"
+        or path.startswith("governance/evidence_schema/")
+        or path.startswith("governance/claim_schema/")
+    )
+
+
 def verify(root: Path = ROOT) -> dict[str, Any]:
     root = root.resolve()
     errors: list[str] = []
-    for path in (
+    required_files = (
         PROFILE, CONTROLLER, PYTHON_SUITE_RUNNER, INGEST_BRIDGE,
-        QUALITY_TARGET_CREATOR, ADOPTION_WORKFLOW, SOLO_WORKFLOW,
-    ):
+        QUALITY_TARGET_CREATOR, TRUSTED_JUDGE, TRUSTED_PROJECTION,
+        ADOPTION_WORKFLOW, SOLO_WORKFLOW,
+    )
+    for path in required_files:
         if not (root / path).is_file():
             errors.append(f"required_file_missing:{path}")
 
-    for path in (CONTROLLER, PYTHON_SUITE_RUNNER, INGEST_BRIDGE, QUALITY_TARGET_CREATOR):
+    for path in (
+        CONTROLLER, PYTHON_SUITE_RUNNER, INGEST_BRIDGE, QUALITY_TARGET_CREATOR,
+        TRUSTED_JUDGE, TRUSTED_PROJECTION,
+    ):
         if not (root / path).is_file():
             continue
         try:
@@ -156,6 +196,12 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"profile_binding_drift:{key}")
     if profile.get("allowed_changed_files") != EXPECTED_RELEASE56_BLOBS:
         errors.append("profile_exact_blob_allowlist_drift")
+    trusted_candidate_paths = sorted(
+        path for path in (profile.get("allowed_changed_files") or {})
+        if _candidate_path_is_trusted_judge_input(str(path))
+    )
+    if trusted_candidate_paths:
+        errors.append("profile_candidate_mutates_trusted_judge:" + ",".join(trusted_candidate_paths))
     if profile.get("required_guard_ids") != [
         "dependency-basis-contract",
         "dependency-basis-contract-mutation-proof",
@@ -164,10 +210,19 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         errors.append("profile_required_guard_drift")
     if "skill-system/registry/product-source-baseline.json" not in set(profile.get("forbidden_changed_exact") or []):
         errors.append("profile_baseline_not_forbidden")
-    if not {".github/", "governance/", "deployment/"}.issubset(set(profile.get("forbidden_changed_prefixes") or [])):
+    prefixes = set(profile.get("forbidden_changed_prefixes") or [])
+    if not {
+        ".github/", "governance/", "deployment/", "skill-system/controller/", "skill-system/profiles/"
+    }.issubset(prefixes):
         errors.append("profile_control_plane_prefix_not_forbidden")
 
     commands = _command_map(profile, errors)
+    contract_guard = commands.get("dependency-basis-contract")
+    if not isinstance(contract_guard, dict) or contract_guard.get("cwd") != "." or contract_guard.get("argv") != CONTRACT_GUARD_ARGV:
+        errors.append("profile_contract_guard_authority_drift")
+    mutation_guard = commands.get("dependency-basis-contract-mutation-proof")
+    if not isinstance(mutation_guard, dict) or mutation_guard.get("cwd") != "." or mutation_guard.get("argv") != MUTATION_GUARD_ARGV:
+        errors.append("profile_mutation_guard_authority_drift")
     targeted = commands.get("dependency-basis-runtime-regression")
     if not isinstance(targeted, dict) or targeted.get("cwd") != "services/agent-service" or targeted.get("argv") != TARGETED_RUNTIME_ARGV:
         errors.append("profile_targeted_runtime_environment_drift")
@@ -209,12 +264,8 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     except OSError as exc:
         errors.append(f"quality_target_creator_unreadable:{exc}")
         quality_target_creator = ""
-    minimum_modes = _literal_dict_assignment(
-        quality_target_creator, "WORKFLOW_MINIMUM_MODE", errors
-    ) if quality_target_creator else {}
-    claim_gates = _literal_dict_assignment(
-        quality_target_creator, "WORKFLOW_CLAIM_GATES", errors
-    ) if quality_target_creator else {}
+    minimum_modes = _literal_dict_assignment(quality_target_creator, "WORKFLOW_MINIMUM_MODE", errors) if quality_target_creator else {}
+    claim_gates = _literal_dict_assignment(quality_target_creator, "WORKFLOW_CLAIM_GATES", errors) if quality_target_creator else {}
     adoption_quick_mode_bound = minimum_modes.get(ADOPTION_WORKFLOW_ID) == "quick"
     if not adoption_quick_mode_bound:
         errors.append("quality_target_adoption_mode_drift")
@@ -226,6 +277,37 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     )
     if not adoption_quick_gates_bound:
         errors.append("quality_target_adoption_gate_contract_drift")
+
+    try:
+        trusted_judge = _text(TRUSTED_JUDGE, root)
+    except OSError as exc:
+        errors.append(f"trusted_judge_unreadable:{exc}")
+        trusted_judge = ""
+    for marker in (
+        "unmanifested_trusted_input:",
+        "candidate_extra_trusted_input:",
+        "judge_trust_root_invalid:",
+        "_matching_relpaths",
+    ):
+        if marker not in trusted_judge:
+            errors.append(f"trusted_judge_exact_surface_marker_missing:{marker}")
+
+    try:
+        projection = _text(TRUSTED_PROJECTION, root)
+    except OSError as exc:
+        errors.append(f"trusted_projection_unreadable:{exc}")
+        projection = ""
+    for marker in (
+        'SCHEMA = "github-stage3-trusted-judge-projection@1"',
+        "_prepare_judge_root",
+        "verify_candidate(candidate_root, judge_root)",
+        '"repair_patch_changed": False',
+        '"candidate_commit_changed": False',
+        '"publication_authority_changed": False',
+        '"production_closed": False',
+    ):
+        if marker not in projection:
+            errors.append(f"trusted_projection_marker_missing:{marker}")
 
     try:
         controller = _text(CONTROLLER, root)
@@ -282,16 +364,16 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     for marker in (
         "issue_comment:", "github.actor == github.repository_owner", "/governed-adopt",
         "ref: main", "path: control", "path: candidate", "mkdir -p adoption",
-        "cd candidate/services/agent-service && uv sync --locked --all-groups",
-        "cd ../business-service && uv sync --locked --all-groups",
         "github_existing_candidate_adoption.py inspect",
         "github_existing_candidate_adoption.py run-profile",
         "id: fixed_profile_validation",
         "failure() && steps.fixed_profile_validation.outcome == 'failure'",
         "profile-failure-summary.json", "profile_validation_present", '"diagnostic_only": True',
         "governed-ci-existing-candidate-adoption-failure-",
+        *TRUSTED_PROJECTION_WORKFLOW_MARKERS,
         *QUICK_TARGET_WORKFLOW_MARKERS,
         "github_existing_candidate_adoption.py finalize",
+        "--workspace candidate",
         "SKILL_JUDGE_ROOT: ${{ github.workspace }}/control",
         "SKILL_JUDGE_TRUST_MODE: external-readonly",
         "governed-ci-existing-candidate-adoption-published-",
@@ -300,9 +382,8 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     ):
         if marker.casefold() not in adoption_low:
             errors.append(f"adoption_workflow_marker_missing:{marker}")
-    adoption_quick_provenance_bound = all(
-        marker.casefold() in adoption_low for marker in QUICK_TARGET_WORKFLOW_MARKERS
-    )
+    adoption_quick_provenance_bound = all(marker.casefold() in adoption_low for marker in QUICK_TARGET_WORKFLOW_MARKERS)
+    adoption_trusted_projection_bound = all(marker.casefold() in adoption_low for marker in TRUSTED_PROJECTION_WORKFLOW_MARKERS)
     failure_condition = "failure() && steps.fixed_profile_validation.outcome == 'failure'"
     if adoption_low.count(failure_condition.casefold()) != 2:
         errors.append("adoption_failure_status_check_count_drift")
@@ -326,7 +407,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         '.candidate_origin == "existing_pr_adoption"', ".write_authority_effect == false",
         "github_repair_governance.py", "github_repair_baseline_acceptance.py",
         "verify_product_source_baseline.py", "github_repair_exact_head.py",
-        '.event == "pull_request"', ".pr_is_draft == true",
+        '.event == "pull_request"', '.pr_is_draft == true',
     ):
         if marker.casefold() not in solo_low:
             errors.append(f"solo_workflow_marker_missing:{marker}")
@@ -340,22 +421,23 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
 
     suite_errors = [item for item in errors if item.startswith("profile_python_suite_")]
     return {
-        "schema": "governed-existing-candidate-adoption-contract@5",
+        "schema": "governed-existing-candidate-adoption-contract@6",
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "profile_id": profile.get("profile_id"),
         "source_pr_number": profile.get("source_pr_number"),
         "exact_blob_count": len(profile.get("allowed_changed_files") or {}),
         "candidate_write_authority": False,
+        "candidate_trusted_judge_surface_empty": not trusted_candidate_paths,
         "targeted_runtime_import_environment_bound": "profile_targeted_runtime_environment_drift" not in errors,
         "canonical_python_suite_authority_bound": not suite_errors,
         "canonical_python_suite_owner": PYTHON_SUITE_RUNNER,
         "python_suite_evidence_outside_candidate": not any("evidence_not_external" in item for item in errors),
-        "independent_quick_target_workflow_bound": (
-            adoption_quick_mode_bound
-            and adoption_quick_gates_bound
-            and adoption_quick_provenance_bound
-        ),
+        "independent_quick_target_workflow_bound": adoption_quick_mode_bound and adoption_quick_gates_bound and adoption_quick_provenance_bound,
+        "trusted_judge_exact_surface_bound": not any(item.startswith("trusted_judge_exact_surface_marker_missing:") for item in errors),
+        "trusted_judge_projection_bound": adoption_trusted_projection_bound,
+        "trusted_judge_projection_owner": TRUSTED_PROJECTION,
+        "quick_state_outside_candidate": TRUSTED_PROJECTION_WORKFLOW_MARKERS[5].casefold() in adoption_low,
         "failed_profile_evidence_required": True,
         "failed_profile_evidence_diagnostic_only": True,
         "failed_profile_can_be_converted_to_success": False,
