@@ -1,0 +1,11 @@
+{
+  "authority_effect": false,
+  "contract_id": "customer-agent/dependency-basis@1",
+  "contract_sha256": "63c5f36176709ada177bb1a57dbfd0be3a3e426b6fef95f6a27066bad6720f51",
+  "final_dependency_authority": "deterministic_dependency_proof_reducer",
+  "projections": {
+    "candidate_blind_dependency_rule": "[contract=customer-agent/dependency-basis@1 sha256=63c5f36176709ada177bb1a57dbfd0be3a3e426b6fef95f6a27066bad6720f51] dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; it must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording. A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible because the basis itself denotes only the result-reference, result-condition or result-value-input relation; use the smallest such literal basis when one exists, otherwise the pair is independent",
+    "format_repair_dependency_rule": "[contract=customer-agent/dependency-basis@1 sha256=63c5f36176709ada177bb1a57dbfd0be3a3e426b6fef95f6a27066bad6720f51] The basis must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording; a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible. If no valid relation-only basis exists under those rules, return relation=independent."
+  },
+  "schema": "dependency-basis-projection-manifest@1"
+}
