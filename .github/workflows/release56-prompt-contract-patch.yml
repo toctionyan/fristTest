@@ -22,45 +22,87 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import ast
+          import json
           from pathlib import Path
 
           path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
           text = path.read_text(encoding='utf-8')
+          tree = ast.parse(text)
 
-          old_rule = (
-              'dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; '
-              'it must be disjoint from the dependent Goal requested_outputs evidence spans. A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent'
-          )
-          new_rule = (
-              'dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; '
-              'it must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording. '
-              'A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible because the basis itself denotes only the result-reference, result-condition or result-value-input relation; use the smallest such literal basis when one exists, otherwise the pair is independent'
-          )
+          marker_primary = 'must be disjoint from the dependent Goal requested_outputs evidence spans'
+          marker_repair = 'if no disjoint relation-only basis exists'
+          nodes = [
+              node for node in ast.walk(tree)
+              if isinstance(node, ast.Constant)
+              and isinstance(node.value, str)
+              and (marker_primary in node.value or marker_repair in node.value)
+          ]
+          primary = [node for node in nodes if marker_primary in node.value]
+          repair = [node for node in nodes if marker_repair in node.value]
+          if len(primary) != 1:
+              raise SystemExit(f'expected exactly one primary stale prompt constant, found {len(primary)}')
+          if len(repair) != 1:
+              raise SystemExit(f'expected exactly one repair stale prompt constant, found {len(repair)}')
 
-          old_repair = (
+          replacements = []
+
+          value = primary[0].value
+          old_primary_clause = 'must be disjoint from the dependent Goal requested_outputs evidence spans'
+          old_primary_tail = (
+              'A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, '
+              'proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent'
+          )
+          if old_primary_tail not in value:
+              raise SystemExit('primary stale tail not found inside parsed prompt constant')
+          value = value.replace(
+              old_primary_clause,
+              'must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording',
+              1,
+          ).replace(
+              old_primary_tail,
+              'A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible because the basis itself denotes only the result-reference, result-condition or result-value-input relation; use the smallest such literal basis when one exists, otherwise the pair is independent',
+              1,
+          )
+          replacements.append((primary[0], value))
+
+          value = repair[0].value
+          old_repair_clause = (
               'The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; '
-              'if no disjoint relation-only basis exists, return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only.'
+              'if no disjoint relation-only basis exists, return relation=independent.'
           )
-          new_repair = (
+          if old_repair_clause not in value:
+              raise SystemExit('repair stale clause not found inside parsed prompt constant')
+          value = value.replace(
+              old_repair_clause,
               'The basis must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording; '
               'a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible. '
-              'If no valid relation-only basis exists under those rules, return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only.'
+              'If no valid relation-only basis exists under those rules, return relation=independent.',
+              1,
           )
+          replacements.append((repair[0], value))
 
-          if text.count(old_rule) != 1:
-              raise SystemExit(f'expected exactly one primary stale rule, found {text.count(old_rule)}')
-          if text.count(old_repair) != 1:
-              raise SystemExit(f'expected exactly one repair stale rule, found {text.count(old_repair)}')
+          lines = text.splitlines(keepends=True)
+          offsets = [0]
+          for line in lines:
+              offsets.append(offsets[-1] + len(line))
 
-          text = text.replace(old_rule, new_rule, 1).replace(old_repair, new_repair, 1)
+          edits = []
+          for node, new_value in replacements:
+              start = offsets[node.lineno - 1] + node.col_offset
+              end = offsets[node.end_lineno - 1] + node.end_col_offset
+              edits.append((start, end, json.dumps(new_value, ensure_ascii=False)))
+          for start, end, replacement in sorted(edits, reverse=True):
+              text = text[:start] + replacement + text[end:]
+
           path.write_text(text, encoding='utf-8')
-
           final = path.read_text(encoding='utf-8')
-          assert 'must be disjoint from the dependent Goal requested_outputs evidence spans' not in final
-          assert 'if no disjoint relation-only basis exists' not in final
-          assert final.count('a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible') >= 2
+          assert marker_primary not in final
+          assert marker_repair not in final
+          assert 'a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible' in final
           assert 'must not equal a requested-output evidence span' in final
           assert 'must not wrap a requested-output evidence span with action/control wording' in final
+          ast.parse(final)
           PY
           python -m py_compile services/agent-service/src/agent_core/lifecycle/goal_planning.py
       - name: Commit exact product repair
