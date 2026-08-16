@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "verification_kind": "clean_baseline_to_candidate_transition",
+  "verified_base_sha": "b1ab036566f17d7ea52acafd23523d1420460bae",
+  "verified_head_sha": "e6b7c9169890a26fdcba7199caf26a38842ba1de",
+  "github_actions": {
+    "run_id": 31926204016,
+    "job_id": 95114075861,
+    "workflow": "release55-candidate-verification",
+    "artifact_id": 9257896660,
+    "artifact_name": "release55-clean-candidate-e6b7c9169890a26fdcba7199caf26a38842ba1de",
+    "artifact_sha256": "06097840f2a06d13affc5b10a1244ea75fc48daf5936eeccd060ca9d0114aa30"
+  },
+  "target_identity": {
+    "id": "repair-release55-dependency-output-role-overlap",
+    "change_ref": "portable-repair-release55-dependency-output-role-overlap",
+    "context": "local-change",
+    "fingerprint": "e021fd9f3f0a06d3c276089abc7eedbc9a2e501260f9089dffa26bd9612864ee",
+    "claim_manifest_fingerprint": "68568ba379a427cb29a91cc391f6f2db43b90508e9cf6775afc2d3cc8e709bd0",
+    "policy_fingerprint": "b0c3db4e7b2b9d4877e833be27b4c3822fd18a6dd09b9810868387eaba6c7d93"
+  },
+  "baseline": {
+    "decision": "FAIL",
+    "loop_status": "BASELINE_RECORDED",
+    "workspace_snapshot_fingerprint": "cd56319862c27df8fa51973969466043673f120eac45d6cd7a5d37960ef49ccb",
+    "claim_id": "RELEASE55.DEPENDENCY_OUTPUT_ROLE_OVERLAP",
+    "claim_status": "FAILED",
+    "gate_id": "release55-role-overlap-counterexample",
+    "gate_status": "FAIL",
+    "observed": {
+      "error": "goal_alignment_dependency_basis_is_requested_output:0",
+      "dependency_edges": [],
+      "dependency_pair_decisions": [],
+      "dependency_graph_match": false,
+      "dependency_proof_complete": false
+    }
+  },
+  "candidate": {
+    "decision": "PASS",
+    "loop_status": "CONVERGED",
+    "workspace_snapshot_fingerprint": "861f8b5831d8c7460a1687d6cde7fb618d3e785e56c8d1f8955846882130d7e4",
+    "claim_id": "RELEASE55.DEPENDENCY_OUTPUT_ROLE_OVERLAP",
+    "claim_status": "VERIFIED",
+    "gate_id": "release55-role-overlap-counterexample",
+    "gate_status": "PASS",
+    "observed": {
+      "error": "goal_alignment_dependency_graph_mismatch",
+      "dependency_edges": [
+        {
+          "basis_kind": "result_reference",
+          "basis_span": "它",
+          "dependent_goal_id": "g2",
+          "requires_result_of_goal_id": "g1"
+        }
+      ],
+      "dependency_pair_decisions": [
+        {
+          "basis_kind": "result_reference",
+          "basis_span": "它",
+          "goal_a_id": "g1",
+          "goal_b_id": "g2",
+          "relation": "b_depends_on_a"
+        }
+      ],
+      "dependency_graph_match": false,
+      "dependency_proof_complete": true
+    }
+  },
+  "focused_regressions": {
+    "status": "PASS",
+    "agent_runtime_passed": 52,
+    "skill_compat_passed": 6,
+    "total_passed": 58,
+    "agent_runtime_duration_seconds": 1.04,
+    "skill_compat_duration_seconds": 0.47
+  },
+  "scope_assertions": {
+    "semantic_oracle_unchanged": true,
+    "dependency_alignment_reducer_unchanged": true,
+    "dependency_proof_reducer_unchanged": true,
+    "capability_gate_unchanged": true,
+    "transaction_authority_unchanged": true,
+    "business_authority_unchanged": true,
+    "production_defaults_unchanged": true,
+    "allowed_product_paths_only": [
+      "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+      "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+    ]
+  },
+  "evidence_authority": {
+    "portable_authority_claimed": false,
+    "note": "The GitHub artifact is a durable audit/reference to the clean run. Quality evidence attestations are workspace/trust-key local and are not promoted or re-signed as portable authority. Closure relies on the clean run identity, immutable target/claim/policy fingerprints, exact-base RED-to-GREEN transition, focused regressions, and repository-owned governance verification."
+  },
+  "result": "CLEAN_TRANSITION_VERIFIED"
+}

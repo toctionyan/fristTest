@@ -1,0 +1,1 @@
+{"details": {"declared_dependency_edges": [], "dependency_authority": "independent_goal_alignment", "dependency_edges": [], "dependency_graph_match": false, "dependency_pair_decisions": [], "dependency_proof_complete": false, "expected_pair_count": 1}, "error": "goal_alignment_dependency_basis_is_requested_output:0"}

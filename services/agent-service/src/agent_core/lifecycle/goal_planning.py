@@ -298,8 +298,11 @@ def _dependency_basis_overlaps_requested_output(goal: dict[str, Any], basis_span
     basis = _clean_text(basis_span, limit=240)
     if not basis:
         return False
+    # A strict relation-only basis nested inside broader requested-output evidence
+    # is structurally admissible only; semantic/adversarial proof still owns authority.
+    # Equality or a basis wrapping the requested outcome remains invalid.
     return any(
-        basis in output_span or output_span in basis
+        basis == output_span or output_span in basis
         for output_span in _requested_output_evidence_spans(goal)
     )
 

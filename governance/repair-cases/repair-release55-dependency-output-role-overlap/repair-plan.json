@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "root_cause_proof_sha256": "0c4c55be7737ce8020c527afc630e926dfa205564c077b2b7c40ccabd93d790e",
+  "status": "APPROVED",
+  "strategy": "Narrow the structural overlap rule without changing semantic meaning or authority: reject equality and basis-wrapping-output as before, but allow a strictly smaller literal relation basis nested inside a broader requested-output evidence span to remain provisional. Existing candidate-blind counterfactual, positive-edge adversarial adjudication, obligation-evidence envelope and deterministic reducer remain authority owners.",
+  "changes": [
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+      "responsibility": "separate invalid outcome-as-basis overlap from admissible strict nested relation subspan without inferring language meaning",
+      "reason": "the reproduced coercion is localized to this structural evidence-role check"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py",
+      "responsibility": "reproduce Release #55 schema interaction and protect equal/wrapping/false-edge counterexamples",
+      "reason": "existing true-reference tests omit requested_outputs and cannot expose the production-schema collision"
+    }
+  ],
+  "unchanged_boundaries": [
+    "dependency_alignment and dependency_proof remain unchanged",
+    "Stage 4.2 obligation evidence contracts and deterministic reducer remain authority owners",
+    "semantic oracle/catalog remains unchanged",
+    "dialogue Writer projection remains unchanged",
+    "CapabilityGate, transaction authority, business tools/services and production defaults remain unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not change semantic_query_then_refund_consult oracle dependencies.",
+    "Do not accept equal or basis-wrapping requested-output evidence as relation-only proof.",
+    "Do not treat strict nested overlap as authority; it must still pass existing adversarial/obligation closure.",
+    "Do not add keywords, pronoun tables, domain-specific dependency rules or Runtime semantic inference.",
+    "Do not weaken reducer obligations, Quality gates, tests or production certification."
+  ],
+  "required_invariants": [
+    "semantic dependency meaning remains model-observed, not substring-inferred",
+    "strict nested relation basis can reach semantic adjudication",
+    "equal/wrapping outcome evidence cannot masquerade as relation proof",
+    "positive edges still require target compatibility, counterfactual and adversarial closure before deterministic authority",
+    "false execution-support dependencies can still be adjudicated independent"
+  ],
+  "required_tests": {
+    "focused": [
+      "strictly nested result-reference basis inside broader requested-output evidence reaches graph mismatch/adversarial handling",
+      "canonical true-reference case with requested_outputs can close as a positive dependency after existing adversarial confirmation"
+    ],
+    "counterexamples": [
+      "equal basis and requested-output evidence remains rejected",
+      "basis that wraps requested-output evidence remains rejected",
+      "false Draft/support-dataflow dependency is not made authoritative by nested overlap"
+    ],
+    "regression": [
+      "existing WP08 Attempt 7 false-dependency and true-reference tests remain green",
+      "Stage 4.2 dependency obligation tests remain green",
+      "product quick remains green"
+    ],
+    "negative_path": [
+      "malformed/nonliteral/unknown-goal dependency basis remains fail-closed",
+      "nested overlap never bypasses target/counterfactual/adversarial closure"
+    ]
+  },
+  "risks": [
+    "A false-positive nested basis may proceed one stage further; existing positive-edge adversarial closure must reject it before authority.",
+    "Broad output evidence remains legal annotation, so tests must prove it cannot itself become dependency authority."
+  ],
+  "rollback_plan": "Revert the goal_planning overlap refinement and focused regression together. Do not restore semantic coercion as a compatibility fallback."
+}

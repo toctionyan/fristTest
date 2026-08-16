@@ -1,0 +1,30 @@
+{
+  "version": "release55-dependency-output-role-overlap-v1",
+  "steps": [
+    {
+      "id": "release55-role-overlap-counterexample",
+      "name": "Release 55 nested relation/output evidence counterexample",
+      "modes": [
+        "quick"
+      ],
+      "kind": "shell",
+      "argv": [
+        "services/agent-service/.venv/bin/python",
+        "-B",
+        "-c",
+        "import base64;exec(base64.b64decode('CmltcG9ydCBqc29uCmZyb20gYWdlbnRfY29yZS5saWZlY3ljbGUuZ29hbF9wbGFubmluZyBpbXBvcnQgX21vZGVsX2FsaWdubWVudF9wYWlyd2lzZV9kZXBlbmRlbmN5X3Byb29mCgp1c2VyX3RleHQgPSAi5p+l5LiA5LiL6ZSu55uY6K6i5Y2V77yM5YaN55yL55yL5a6D6IO95LiN6IO96YCA5qy+Igpnb2FscyA9IFsKICAgIHsKICAgICAgICAiZ29hbF9pZCI6ICJnMSIsCiAgICAgICAgImV2aWRlbmNlX3NwYW4iOiAi5p+l5LiA5LiL6ZSu55uY6K6i5Y2VIiwKICAgICAgICAicmVxdWVzdGVkX2VmZmVjdCI6IHsKICAgICAgICAgICAgImRvbWFpbiI6ICJvcmRlciIsCiAgICAgICAgICAgICJvcGVyYXRpb24iOiAibGlzdCIsCiAgICAgICAgICAgICJvYmplY3RfdHlwZSI6ICJvcmRlciIsCiAgICAgICAgICAgICJyZXF1ZXN0ZWRfb3V0cHV0cyI6IFsKICAgICAgICAgICAgICAgIHsib3V0cHV0X2lkIjogIm9yZGVyLmNvbGxlY3Rpb24iLCAiZXZpZGVuY2Vfc3BhbiI6ICLmn6XkuIDkuIvplK7nm5jorqLljZUifQogICAgICAgICAgICBdLAogICAgICAgIH0sCiAgICAgICAgImRlcGVuZHNfb24iOiBbXSwKICAgIH0sCiAgICB7CiAgICAgICAgImdvYWxfaWQiOiAiZzIiLAogICAgICAgICJldmlkZW5jZV9zcGFuIjogIuWug+iDveS4jeiDvemAgOasviIsCiAgICAgICAgInJlcXVlc3RlZF9lZmZlY3QiOiB7CiAgICAgICAgICAgICJkb21haW4iOiAicmVmdW5kIiwKICAgICAgICAgICAgIm9wZXJhdGlvbiI6ICJhc3Nlc3NfZWxpZ2liaWxpdHkiLAogICAgICAgICAgICAib2JqZWN0X3R5cGUiOiAib3JkZXIiLAogICAgICAgICAgICAicmVxdWVzdGVkX291dHB1dHMiOiBbCiAgICAgICAgICAgICAgICB7Im91dHB1dF9pZCI6ICJyZWZ1bmQuZWxpZ2liaWxpdHkiLCAiZXZpZGVuY2Vfc3BhbiI6ICLlroPog73kuI3og73pgIDmrL4ifQogICAgICAgICAgICBdLAogICAgICAgIH0sCiAgICAgICAgImRlcGVuZHNfb24iOiBbXSwKICAgIH0sCl0KZGV0YWlscywgZXJyb3IgPSBfbW9kZWxfYWxpZ25tZW50X3BhaXJ3aXNlX2RlcGVuZGVuY3lfcHJvb2YoCiAgICB1c2VyX3RleHQ9dXNlcl90ZXh0LAogICAgZ29hbHM9Z29hbHMsCiAgICB2YWx1ZXM9W3sKICAgICAgICAiZ29hbF9hX2lkIjogImcxIiwKICAgICAgICAiZ29hbF9iX2lkIjogImcyIiwKICAgICAgICAicmVsYXRpb24iOiAiYl9kZXBlbmRzX29uX2EiLAogICAgICAgICJiYXNpc19raW5kIjogInJlc3VsdF9yZWZlcmVuY2UiLAogICAgICAgICJiYXNpc19zcGFuIjogIuWugyIsCiAgICB9XSwKKQpwcmludChqc29uLmR1bXBzKHsiZXJyb3IiOiBlcnJvciwgImRldGFpbHMiOiBkZXRhaWxzfSwgZW5zdXJlX2FzY2lpPUZhbHNlLCBzb3J0X2tleXM9VHJ1ZSkpCmFzc2VydCBlcnJvciA9PSAiZ29hbF9hbGlnbm1lbnRfZGVwZW5kZW5jeV9ncmFwaF9taXNtYXRjaCIsICgKICAgICJzdHJpY3RseSBuZXN0ZWQgcmVsYXRpb24tb25seSBiYXNpcyB3YXMgc3RydWN0dXJhbGx5IHJlamVjdGVkIGluc3RlYWQgb2YgcmVhY2hpbmcgZ3JhcGgvYWR2ZXJzYXJpYWwgYWRqdWRpY2F0aW9uOiAiCiAgICArIHN0cihlcnJvcikKKQphc3NlcnQgZGV0YWlsc1siZGVwZW5kZW5jeV9lZGdlcyJdWzBdWyJiYXNpc19zcGFuIl0gPT0gIuWugyIK'))"
+      ],
+      "owner": "quality-controller",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "repair_playbook": "repair the structural evidence-role boundary; do not change the oracle or weaken dependency authority",
+      "rerun_contract": "dependency_closure_then_downstream",
+      "depends_on": [],
+      "environment": {
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": "/home/runner/work/_temp/release55-base/services/agent-service/src:/home/runner/work/_temp/release55-base/services/agent-service"
+      },
+      "timeout_seconds": 120
+    }
+  ]
+}

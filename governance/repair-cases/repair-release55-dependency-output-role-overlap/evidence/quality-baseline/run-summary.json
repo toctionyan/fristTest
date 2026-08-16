@@ -1,0 +1,147 @@
+{
+  "schema_version": 6,
+  "generated_at": "2026-08-16T03:43:43+00:00",
+  "workspace_version": "20.6.1",
+  "ci_run_identity_fingerprint_sha256": null,
+  "mode": "quick",
+  "run_kind": "baseline",
+  "decision": "FAIL",
+  "loop_status": "BASELINE_RECORDED",
+  "evidence_dir": "/home/runner/work/_temp/release55-base/governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline",
+  "judge_identity": {
+    "root": "/home/runner/work/_temp/release55-base",
+    "trust_mode": "workspace-fallback",
+    "controller_sha256": "9cb24dda2d0dc4d202bb2a2eca70317e90739c9cb8c96164376deb66243ea2c4"
+  },
+  "target": "/home/runner/work/_temp/release55-base/governance/targets/repair-release55-dependency-output-role-overlap.md",
+  "target_identity": {
+    "id": "repair-release55-dependency-output-role-overlap",
+    "change_ref": "portable-repair-release55-dependency-output-role-overlap",
+    "context": "local-change",
+    "fingerprint": "e021fd9f3f0a06d3c276089abc7eedbc9a2e501260f9089dffa26bd9612864ee",
+    "claim_manifest_fingerprint": "68568ba379a427cb29a91cc391f6f2db43b90508e9cf6775afc2d3cc8e709bd0"
+  },
+  "target_minimum_mode_declared": "quick",
+  "target_minimum_mode_derived": "quick",
+  "target_minimum_mode_effective": "quick",
+  "replan_predecessor": null,
+  "claim_manifest": "governance/claims/repair-release55-dependency-output-role-overlap.json",
+  "claim_manifest_fingerprint": "68568ba379a427cb29a91cc391f6f2db43b90508e9cf6775afc2d3cc8e709bd0",
+  "claim_manifest_evidence_file": "claim-manifest.json",
+  "requirement_catalog": null,
+  "requirement_profile": null,
+  "requirement_catalog_fingerprint": null,
+  "requirement_catalog_evidence_file": null,
+  "claim_results": [
+    {
+      "id": "RELEASE55.DEPENDENCY_OUTPUT_ROLE_OVERLAP",
+      "statement": "A literal relation-only dependency basis nested inside a broader requested-output evidence span remains admissible as provisional semantic evidence and must reach adversarial dependency adjudication rather than being structurally coerced to independence; equal/wrapping outcome evidence remains rejected and deterministic dependency authority remains unchanged.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "release55-role-overlap-counterexample"
+      ],
+      "evidence_refs": [
+        "gate-log:release55-role-overlap-counterexample"
+      ],
+      "owner": "goal-alignment-dependency-authority",
+      "closure_requirement": "regression-transition",
+      "gate_statuses": {
+        "release55-role-overlap-counterexample": "FAIL"
+      },
+      "environment_blocked_gates": [],
+      "evidence_ref_statuses": {
+        "gate-log:release55-role-overlap-counterexample": "FAIL"
+      },
+      "status": "FAILED"
+    }
+  ],
+  "unverified_claim_ids": [
+    "RELEASE55.DEPENDENCY_OUTPUT_ROLE_OVERLAP"
+  ],
+  "baseline_transition_unverified_claim_ids": [],
+  "policy_fingerprint": "b0c3db4e7b2b9d4877e833be27b4c3822fd18a6dd09b9810868387eaba6c7d93",
+  "rerun_from": null,
+  "prior_evidence": null,
+  "reused_prerequisites": [],
+  "missing_prerequisites": [],
+  "workspace_snapshot_start_fingerprint": "a2ad6f40ca5aac66fbdbb3fb039169227a9bebadf62ae05e3053345c55675789",
+  "workspace_snapshot_fingerprint": "a2ad6f40ca5aac66fbdbb3fb039169227a9bebadf62ae05e3053345c55675789",
+  "workspace_snapshot_file": "workspace-baseline.json",
+  "selected_gate_ids": [
+    "release55-role-overlap-counterexample"
+  ],
+  "required_gate_ids": [
+    "release55-role-overlap-counterexample"
+  ],
+  "gate_contract_fingerprints": {
+    "release55-role-overlap-counterexample": "0c7a6cd9a4afd02cd4295e67ab1ab882c5a1f067e8a70e6f17105f0e0bb73ca5"
+  },
+  "completion_eligible": false,
+  "quality_dimensions": {
+    "functional": {
+      "status": "FAIL"
+    },
+    "architecture": {
+      "status": "NOT_ASSESSED",
+      "debt_status": null,
+      "gate_status": "NOT_ASSESSED"
+    },
+    "real_model_certification": {
+      "status": "NOT_DECLARED",
+      "reason": "real-model certification requires one complete release-mode run"
+    },
+    "production_certification": {
+      "status": "NOT_DECLARED",
+      "reason": "production certification requires one complete release-mode run"
+    }
+  },
+  "evidence_attestation_file": "evidence-attestation.json",
+  "convergence": {
+    "current_round": 1,
+    "max_rounds": 8,
+    "stagnant_rounds": 0,
+    "last_failure_count": null,
+    "failed_gate_ids": [],
+    "upstream_skipped_gate_ids": []
+  },
+  "results": [
+    {
+      "id": "release55-role-overlap-counterexample",
+      "name": "Release 55 nested relation/output evidence counterexample",
+      "status": "FAIL",
+      "owner": "quality-controller",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "repair_playbook": "repair the structural evidence-role boundary; do not change the oracle or weaken dependency authority",
+      "depends_on": [],
+      "started_at": "2026-08-16T03:43:43+00:00",
+      "ended_at": "2026-08-16T03:43:43+00:00",
+      "exit_code": 1,
+      "duration_ms": 201,
+      "stdout": "{\"details\": {\"declared_dependency_edges\": [], \"dependency_authority\": \"independent_goal_alignment\", \"dependency_edges\": [], \"dependency_graph_match\": false, \"dependency_pair_decisions\": [], \"dependency_proof_complete\": false, \"expected_pair_count\": 1}, \"error\": \"goal_alignment_dependency_basis_is_requested_output:0\"}\n",
+      "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"<string>\", line 46, in <module>\nAssertionError: strictly nested relation-only basis was structurally rejected instead of reaching graph/adversarial adjudication: goal_alignment_dependency_basis_is_requested_output:0\n",
+      "metadata": {
+        "argv": [
+          "services/agent-service/.venv/bin/python",
+          "-B",
+          "-c",
+          "import base64;exec(base64.b64decode('CmltcG9ydCBqc29uCmZyb20gYWdlbnRfY29yZS5saWZlY3ljbGUuZ29hbF9wbGFubmluZyBpbXBvcnQgX21vZGVsX2FsaWdubWVudF9wYWlyd2lzZV9kZXBlbmRlbmN5X3Byb29mCgp1c2VyX3RleHQgPSAi5p+l5LiA5LiL6ZSu55uY6K6i5Y2V77yM5YaN55yL55yL5a6D6IO95LiN6IO96YCA5qy+Igpnb2FscyA9IFsKICAgIHsKICAgICAgICAiZ29hbF9pZCI6ICJnMSIsCiAgICAgICAgImV2aWRlbmNlX3NwYW4iOiAi5p+l5LiA5LiL6ZSu55uY6K6i5Y2VIiwKICAgICAgICAicmVxdWVzdGVkX2VmZmVjdCI6IHsKICAgICAgICAgICAgImRvbWFpbiI6ICJvcmRlciIsCiAgICAgICAgICAgICJvcGVyYXRpb24iOiAibGlzdCIsCiAgICAgICAgICAgICJvYmplY3RfdHlwZSI6ICJvcmRlciIsCiAgICAgICAgICAgICJyZXF1ZXN0ZWRfb3V0cHV0cyI6IFsKICAgICAgICAgICAgICAgIHsib3V0cHV0X2lkIjogIm9yZGVyLmNvbGxlY3Rpb24iLCAiZXZpZGVuY2Vfc3BhbiI6ICLmn6XkuIDkuIvplK7nm5jorqLljZUifQogICAgICAgICAgICBdLAogICAgICAgIH0sCiAgICAgICAgImRlcGVuZHNfb24iOiBbXSwKICAgIH0sCiAgICB7CiAgICAgICAgImdvYWxfaWQiOiAiZzIiLAogICAgICAgICJldmlkZW5jZV9zcGFuIjogIuWug+iDveS4jeiDvemAgOasviIsCiAgICAgICAgInJlcXVlc3RlZF9lZmZlY3QiOiB7CiAgICAgICAgICAgICJkb21haW4iOiAicmVmdW5kIiwKICAgICAgICAgICAgIm9wZXJhdGlvbiI6ICJhc3Nlc3NfZWxpZ2liaWxpdHkiLAogICAgICAgICAgICAib2JqZWN0X3R5cGUiOiAib3JkZXIiLAogICAgICAgICAgICAicmVxdWVzdGVkX291dHB1dHMiOiBbCiAgICAgICAgICAgICAgICB7Im91dHB1dF9pZCI6ICJyZWZ1bmQuZWxpZ2liaWxpdHkiLCAiZXZpZGVuY2Vfc3BhbiI6ICLlroPog73kuI3og73pgIDmrL4ifQogICAgICAgICAgICBdLAogICAgICAgIH0sCiAgICAgICAgImRlcGVuZHNfb24iOiBbXSwKICAgIH0sCl0KZGV0YWlscywgZXJyb3IgPSBfbW9kZWxfYWxpZ25tZW50X3BhaXJ3aXNlX2RlcGVuZGVuY3lfcHJvb2YoCiAgICB1c2VyX3RleHQ9dXNlcl90ZXh0LAogICAgZ29hbHM9Z29hbHMsCiAgICB2YWx1ZXM9W3sKICAgICAgICAiZ29hbF9hX2lkIjogImcxIiwKICAgICAgICAiZ29hbF9iX2lkIjogImcyIiwKICAgICAgICAicmVsYXRpb24iOiAiYl9kZXBlbmRzX29uX2EiLAogICAgICAgICJiYXNpc19raW5kIjogInJlc3VsdF9yZWZlcmVuY2UiLAogICAgICAgICJiYXNpc19zcGFuIjogIuWugyIsCiAgICB9XSwKKQpwcmludChqc29uLmR1bXBzKHsiZXJyb3IiOiBlcnJvciwgImRldGFpbHMiOiBkZXRhaWxzfSwgZW5zdXJlX2FzY2lpPUZhbHNlLCBzb3J0X2tleXM9VHJ1ZSkpCmFzc2VydCBlcnJvciA9PSAiZ29hbF9hbGlnbm1lbnRfZGVwZW5kZW5jeV9ncmFwaF9taXNtYXRjaCIsICgKICAgICJzdHJpY3RseSBuZXN0ZWQgcmVsYXRpb24tb25seSBiYXNpcyB3YXMgc3RydWN0dXJhbGx5IHJlamVjdGVkIGluc3RlYWQgb2YgcmVhY2hpbmcgZ3JhcGgvYWR2ZXJzYXJpYWwgYWRqdWRpY2F0aW9uOiAiCiAgICArIHN0cihlcnJvcikKKQphc3NlcnQgZGV0YWlsc1siZGVwZW5kZW5jeV9lZGdlcyJdWzBdWyJiYXNpc19zcGFuIl0gPT0gIuWugyIK'))"
+        ],
+        "structured_assessment": {
+          "details": {
+            "declared_dependency_edges": [],
+            "dependency_authority": "independent_goal_alignment",
+            "dependency_edges": [],
+            "dependency_graph_match": false,
+            "dependency_pair_decisions": [],
+            "dependency_proof_complete": false,
+            "expected_pair_count": 1
+          },
+          "error": "goal_alignment_dependency_basis_is_requested_output:0"
+        }
+      }
+    }
+  ]
+}

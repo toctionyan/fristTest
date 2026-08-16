@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-16T03:43:43+00:00",
+  "decision": "FAIL",
+  "evidence_dir": "/home/runner/work/_temp/release55-base/governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline",
+  "target_identity": {
+    "id": "repair-release55-dependency-output-role-overlap",
+    "change_ref": "portable-repair-release55-dependency-output-role-overlap",
+    "context": "local-change",
+    "fingerprint": "e021fd9f3f0a06d3c276089abc7eedbc9a2e501260f9089dffa26bd9612864ee",
+    "claim_manifest_fingerprint": "68568ba379a427cb29a91cc391f6f2db43b90508e9cf6775afc2d3cc8e709bd0"
+  },
+  "policy_fingerprint": "b0c3db4e7b2b9d4877e833be27b4c3822fd18a6dd09b9810868387eaba6c7d93",
+  "mode": "quick",
+  "replan_predecessor": null,
+  "workspace_snapshot_file": "workspace-baseline.json",
+  "workspace_snapshot_fingerprint": "a2ad6f40ca5aac66fbdbb3fb039169227a9bebadf62ae05e3053345c55675789"
+}

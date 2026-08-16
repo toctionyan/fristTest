@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "failure_case_sha256": "b2bfba1d239c207d19be8ca440b8118b6e31d18018846dab3e8504da46698549",
+  "decision": "PROVEN",
+  "root_cause": "_dependency_basis_overlaps_requested_output treats both containment directions as equally invalid. It rejects a strictly smaller relation-only basis nested inside a broader requested-output annotation. ModelGoalAlignmentVerifier routes that structural error to candidate_blind_dependency_format_repair, whose instruction says to mark the pair independent if no disjoint basis exists. Broad output evidence can therefore erase a true result reference before positive-edge counterfactual/adversarial closure judges it.",
+  "causal_chain": [
+    "Requested-output evidence need only be a literal contiguous Goal subspan; it need not be minimal or relation-disjoint.",
+    "The consult phrase can legally use output evidence '它能不能退款' while relation-only basis is '它'.",
+    "The overlap helper rejects basis-in-output as well as equality/output-in-basis.",
+    "The repair path can then return independence when no disjoint basis exists.",
+    "Release #55 accepted empty depends_on and the protected oracle rejected the missing g2->g1 edge."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/release55-protected-failure.md",
+    "governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline/run-summary.json",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/tests/runtime/test_wp08_attempt7_final_authority_and_retry.py"
+  ],
+  "rejected_hypotheses": [
+    "The Release #55 oracle is stale: historical and current regressions define this consult as a true current-turn result dependency.",
+    "The deterministic reducer dropped an accepted edge: the protected failure reports the accepted semantic declaration itself with empty dependencies.",
+    "Stage 4.2 obligation evidence should be weakened: it is downstream of this structural admissibility failure and remains unchanged.",
+    "All overlap should be allowed: equality and a basis wrapping requested-output evidence remain structurally invalid."
+  ],
+  "affected_boundaries": [
+    "literal evidence role classification",
+    "candidate-blind dependency observation admissibility",
+    "adversarial positive-edge closure",
+    "semantic Writer repair boundary"
+  ]
+}

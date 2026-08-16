@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-08-16T03:43:43+00:00",
+  "mode": "quick",
+  "target_identity": {
+    "id": "repair-release55-dependency-output-role-overlap",
+    "change_ref": "portable-repair-release55-dependency-output-role-overlap",
+    "context": "local-change",
+    "fingerprint": "e021fd9f3f0a06d3c276089abc7eedbc9a2e501260f9089dffa26bd9612864ee",
+    "claim_manifest_fingerprint": "68568ba379a427cb29a91cc391f6f2db43b90508e9cf6775afc2d3cc8e709bd0"
+  },
+  "loop_status": "BASELINE_RECORDED",
+  "repairs": [
+    {
+      "gate_id": "release55-role-overlap-counterexample",
+      "owner": "quality-controller",
+      "category": "counterexample-regression",
+      "blocking_level": "required",
+      "failure_kind": "test_or_contract",
+      "repair_playbook": "repair the structural evidence-role boundary; do not change the oracle or weaken dependency authority",
+      "evidence": {
+        "stderr": "steps/release55-role-overlap-counterexample.stderr.txt",
+        "stdout": "steps/release55-role-overlap-counterexample.stdout.txt"
+      },
+      "next_action": "apply the smallest fix within the declared target scope",
+      "rerun": [
+        "/home/runner/work/_temp/release55-base/services/agent-service/.venv/bin/python",
+        "-B",
+        "/home/runner/work/_temp/release55-base/scripts/quality_loop.py",
+        "--workspace-root",
+        "/home/runner/work/_temp/release55-base",
+        "--policy",
+        "/home/runner/work/_temp/release55-base/governance/repair-cases/repair-release55-dependency-output-role-overlap/quality-input/focused-policy.json",
+        "--mode",
+        "quick",
+        "--rerun-from",
+        "release55-role-overlap-counterexample",
+        "--target",
+        "/home/runner/work/_temp/release55-base/governance/targets/repair-release55-dependency-output-role-overlap.md"
+      ]
+    }
+  ]
+}

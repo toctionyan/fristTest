@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "algorithm": "hmac-sha256",
+  "key_id": "3a25a6678fbcba9c",
+  "manifest_fingerprint": "7084ca9477ed6ee7b26b6be9ba15af0158db853b46797f23e849d077e6bfc3f1",
+  "files": {
+    "baseline-record.json": "9a3bfa26b7eb93324cf0b1c285909590fd7b53ac36d05a4e8c72ec687cac78db",
+    "claim-manifest.json": "26888e487cf2ee666a581ff3711eaef9e561680a7fdf0b8092ee353fe9218305",
+    "liveness/release55-role-overlap-counterexample.json": "21c4802bf80fff218dba3a8717fb0813095b6137164eeb9aa781daccdea118f1",
+    "quality-loop-policy.json": "b0c3db4e7b2b9d4877e833be27b4c3822fd18a6dd09b9810868387eaba6c7d93",
+    "repair-plan.json": "4e08deb8eae927747ec11596c23aa4790681dffe3a6d8c30857bc95b6beffbb4",
+    "run-summary.json": "19606c74caf8bbd6d91511d5179637a864aa7daaae5c0b5620bf943feca181cb",
+    "steps/release55-role-overlap-counterexample.stderr.txt": "1a1a9e8d4e0e5559b410ea3aba345f4c6f2e09d9ca53211515f99e68f0df8751",
+    "steps/release55-role-overlap-counterexample.stdout.txt": "9c4c7d617b45e231dd9df077c45f0ef5906dbbd176ee7afbd701081c2306a4b2",
+    "target.md": "a044a42548fffd2b45b57105eb4ca95e5b553350dc30c3e7946aa3aa80d7bd8d",
+    "workspace-baseline.json": "6edd4a1fe473df5d1c87079b9b0a0df8630ae23bb17eb829794055cc69638c9d"
+  },
+  "signature": "3aee8f92611abf36694070d2cc28b4bbcafad9e0c33d7213543bb0218f36817e"
+}
