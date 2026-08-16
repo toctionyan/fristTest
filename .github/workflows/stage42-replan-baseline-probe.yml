@@ -31,7 +31,7 @@ jobs:
       - name: Freeze canonical Stage 4.2 RED evidence
         run: |
           set -euo pipefail
-          change="probe-stage4-2-dependency-obligation-evidence-pipeline"
+          change="repair-stage4-2-dependency-obligation-evidence-pipeline"
           mkdir -p stage42-formal-red
           cp -R ".quality/product-code/${change}/baseline" stage42-formal-red/baseline
           cp -R ".quality/stage42-dependency-obligation-red-input" stage42-formal-red/input
