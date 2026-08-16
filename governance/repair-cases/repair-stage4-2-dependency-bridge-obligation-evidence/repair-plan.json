@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-stage4-2-dependency-bridge-obligation-evidence",
+  "root_cause_proof_sha256": "1134e7c4987feb8b310fa7b1e00872799bbdd26ae7445073c5619a3844ac3d2b",
+  "status": "APPROVED",
+  "strategy": "Make dependency_alignment a pure fail-closed evidence adapter: pair decisions continue to supply pair relation/grounding structure, but target_compatibility and counterfactual are UNKNOWN unless explicit prevalidated obligation evidence with a supported contract/result/digest is supplied. Preserve dependency_proof.py as the sole maturity/authority reducer and add minimal bridge-level positive/negative regressions.",
+  "changes": [
+    {
+      "path": "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+      "responsibility": "consume obligation-specific validated evidence without manufacturing target/counterfactual PASS",
+      "reason": "root authority leak is localized to the pair-decision -> ProofObservation bridge"
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+      "responsibility": "prove pair-only fail-closed behavior and explicit-evidence positive path",
+      "reason": "existing tests currently encode phase-only false authority and need minimal counterexample coverage"
+    }
+  ],
+  "unchanged_boundaries": [
+    "dependency_proof.py remains the single deterministic maturity and authority owner",
+    "goal_planning remains the language/model and structural pair validation boundary",
+    "CapabilityGate and execution permits are unchanged",
+    "Draft/Grant/Attempt/Receipt transaction authority is unchanged",
+    "Business Service and business tools are unchanged",
+    "production dependency-authority activation/default remains unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not turn complete/matching, phase name, call number or pair coverage into target/counterfactual authority.",
+    "Do not add a second reducer, fallback judge or parallel dependency authority path.",
+    "Do not weaken required obligations in dependency_proof.py.",
+    "Do not modify CapabilityGate, transaction, business tool/service or production activation paths.",
+    "Do not make malformed/unrecognized evidence default to PASS.",
+    "Do not weaken tests or delete assertions to make the candidate pass."
+  ],
+  "required_invariants": [
+    "pair decision remains observation only",
+    "missing obligation-specific evidence fails closed as UNKNOWN",
+    "target/counterfactual PASS requires explicit supported validated evidence",
+    "the deterministic reducer alone seals authority after every required obligation passes",
+    "existing authoritative proof stability/counterevidence semantics remain unchanged"
+  ],
+  "required_tests": {
+    "focused": [
+      "plain candidate-blind pair decision remains non-authoritative before and during adversarial closure when target/counterfactual evidence is absent",
+      "explicit validated obligation evidence can be consumed and all required PASS obligations can still reach deterministic authority"
+    ],
+    "counterexamples": [
+      "adversarial phase name plus complete/matching plus independent pair decision does not mint authority",
+      "adversarial phase name plus positive pair decision/basis does not mint authority without target/counterfactual evidence"
+    ],
+    "regression": [
+      "existing dependency proof reducer authority tests remain green",
+      "existing dependency alignment authority tests remain green after expectations are corrected to the evidence contract",
+      "Agent Quick python test suites remain green"
+    ],
+    "negative_path": [
+      "missing obligation evidence maps to UNKNOWN rather than PASS",
+      "malformed or unsupported obligation evidence cannot be treated as PASS",
+      "target incompatibility/counterfactual failure cannot be overwritten by phase/diagnostic metadata"
+    ]
+  },
+  "risks": [
+    "Fail-closing the bridge may temporarily leave more dependency pairs unresolved until the existing verifier pipeline supplies obligation-specific evidence; unresolved is safer than false authority.",
+    "An evidence adapter that trusts arbitrary raw model fields would recreate the same authority leak; only a narrow prevalidated contract may be consumed.",
+    "A broad repair touching goal planning in the same step would blur root-cause closure; producer wiring should be a separately proven next step if required."
+  ],
+  "rollback_plan": "Revert the two Stage 4.2 product/test edits together. Do not restore phase-only authority as a compatibility fallback; if obligation evidence cannot be produced, remain fail-closed and replan the producer contract separately."
+}

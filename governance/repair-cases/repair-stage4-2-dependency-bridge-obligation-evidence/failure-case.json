@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-stage4-2-dependency-bridge-obligation-evidence",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A pair decision is only observation evidence; target compatibility and result-removal counterfactual obligations remain UNKNOWN unless independent validated evidence for those obligations is supplied.",
+    "actual": "dependency_alignment.py unconditionally sets target_compatibility=PASS and counterfactual=PASS and derives the counterfactual digest from the pair decision/phase, so an adversarial phase can mature a proof without obligation-specific evidence.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-stage4-2-dependency-bridge-obligation-evidence/evidence/red-baseline.md",
+      "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+      "services/agent-service/tests/runtime/test_dependency_alignment_authority.py",
+      "docs/architecture/dependency-proof-authority.md"
+    ]
+  },
+  "violated_invariants": [
+    "Verifier output is observation, not dependency authority.",
+    "Every required dependency-proof obligation must be backed by its own admissible evidence before authority.",
+    "Target incompatibility or an unproven result counterfactual must block dependency authority rather than be silently promoted to PASS."
+  ],
+  "affected_boundaries": [
+    "pair-decision to ProofObservation bridge",
+    "target-compatibility proof obligation",
+    "current-turn result-removal counterfactual proof obligation",
+    "deterministic dependency maturity authority"
+  ]
+}

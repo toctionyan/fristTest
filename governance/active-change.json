@@ -1,16 +1,12 @@
 {
   "schema_version": 1,
-  "change_id": "certify-stage4k5-production-dependency-authority-preflight",
-  "target_kind": "certification",
-  "goal": "Read-only certify the Stage4K5 production dependency-authority activation prerequisites and fail closed on any missing deployment authority, independent trust roots, signed immutable control material, rollback custody, DB append authority, or exact production verification evidence; do not activate production.",
-  "profile": "product-certification",
+  "change_id": "repair-stage4-2-dependency-bridge-obligation-evidence",
+  "target_kind": "repair",
+  "goal": "Close the Stage 4.2 dependency bridge authority leak so pair decisions cannot manufacture target-compatibility or counterfactual PASS.",
+  "profile": "product-repair",
   "allowed_paths": [
-    "services/agent-service/app/services/dependency_authority_composition.py",
-    "services/agent-service/app/services/readiness_service.py",
-    "services/agent-service/src/agent_core/runtime/dependency_authority_control.py",
-    "services/agent-service/src/agent_core/runtime/dependency_authority_persistent_control.py",
-    "services/agent-service/src/agent_core/runtime/dependency_authority_signed_provider.py",
-    "services/agent-service/tests/runtime/test_typed_goal_dependency_production_composition.py"
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py"
   ],
   "forbidden_paths": [
     "skill-system/**",
@@ -25,18 +21,18 @@
     "CLAUDE.md"
   ],
   "invariants": [
-    "Stage4K5 K5-A is read-only and cannot mutate production configuration, deployment, control rows, rollback rows, business state, or tool authority",
-    "persistent mode is never selected automatically from storage and production remains legacy-authority unless separately authorized activation succeeds",
-    "activation signer and rollback operator identities and Ed25519 trust roots are independent; private signing keys remain outside the Agent process and repository",
-    "missing, stale, malformed, expired, untrusted, or unverifiable control evidence fails closed"
+    "pair decisions are observations, never obligation authority",
+    "missing target-compatibility or counterfactual evidence fails closed",
+    "dependency_proof.py remains the sole deterministic maturity and authority reducer",
+    "CapabilityGate, transaction, business tools and production activation are unchanged"
   ],
   "required_profiles": [
     "product-contract",
     "product-portable-conformance",
     "product-security",
-    "product-quality-release"
+    "product-quality-quick"
   ],
-  "writer_role": "none",
+  "writer_role": "product-implementer",
   "review_roles": [
     "scope-planner",
     "adversarial-reviewer",
@@ -44,25 +40,23 @@
   ],
   "review_attestations": [],
   "affected_modules": [
-    "app.services.dependency_authority_composition",
-    "agent_core.runtime.dependency_authority_control",
-    "agent_core.runtime.dependency_authority_persistent_control",
-    "agent_core.runtime.dependency_authority_signed_provider"
+    "agent_core.goal_graph.dependency_alignment"
   ],
-  "minimum_quality_mode": "release",
-  "quality_target": "governance/targets/certify-stage4k5-production-dependency-authority-preflight.md",
-  "baseline_evidence": null,
-  "initial_source_fingerprint": "a2ed705dc3f0d88f2e06268b384e4287e92b5d4ea1f1a854fcc9d911d22438b0",
-  "initial_source_file_count": 6,
+  "minimum_quality_mode": "quick",
+  "quality_target": "governance/targets/repair-stage4-2-dependency-bridge-obligation-evidence.md",
+  "baseline_evidence": "governance/repair-cases/repair-stage4-2-dependency-bridge-obligation-evidence/evidence/red-baseline.md",
+  "initial_source_fingerprint": "9044bda6bb1362daaca54651697546829166edcc9d064edd8fe6664c551fecd6",
+  "initial_source_file_count": 2,
   "product_validation": null,
   "decision_record": null,
   "variance_records": [],
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": null,
-  "repair_governance": null,
+  "repair_governance": "governance/repair-cases/repair-stage4-2-dependency-bridge-obligation-evidence",
   "repair_governance_consumed_at": null,
-  "created_at": "2026-08-15T00:29:17.362522+00:00",
-  "status": "draft",
-  "result": "PENDING"
+  "created_at": "2026-08-16T00:53:39.680807+00:00",
+  "status": "implementing",
+  "result": "PENDING",
+  "repair_governance_permit_digest": "40411f732fb948319117602c71619737c1ccc96bb6de0a15bfc7b3a8eb31fcf7"
 }

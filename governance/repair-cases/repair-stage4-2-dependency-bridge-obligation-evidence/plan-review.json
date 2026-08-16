@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-stage4-2-dependency-bridge-obligation-evidence",
+  "repair_plan_sha256": "e39c20cf76bd96ec5734161ff0858d04114642b34a1d7d9079b4aed2e02160c3",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/tests/runtime/test_dependency_alignment_authority.py"
+  ],
+  "review_findings": [
+    "The fix is narrower than changing goal_planning, CapabilityGate or transaction/business execution: the reproduced authority mint occurs inside dependency_alignment.",
+    "The plan preserves the existing deterministic reducer and strengthens its evidence boundary rather than introducing a peer authority.",
+    "Fail-closed UNKNOWN is required when target/counterfactual evidence is absent; temporary unresolved pairs are an admissible consequence and not a reason to manufacture PASS.",
+    "Positive coverage is limited to explicitly validated obligation evidence so the adapter remains extensible without trusting raw pair decisions."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single-authority cutover / observation is not authority",
+      "assessment": "dependency_proof.py remains sole maturity/authority owner; the bridge can only adapt evidence and cannot independently grant authority",
+      "evidence": "docs/architecture/dependency-proof-authority.md"
+    },
+    {
+      "rule": "Mandatory proof obligations fail closed",
+      "assessment": "target compatibility and counterfactual remain UNKNOWN when their evidence is absent or malformed",
+      "evidence": "services/agent-service/src/agent_core/goal_graph/dependency_proof.py"
+    },
+    {
+      "rule": "Minimal bounded repair",
+      "assessment": "two-path product scope closes the proven bridge leak without touching execution, transaction, business service or production activation",
+      "evidence": "governance/repair-cases/repair-stage4-2-dependency-bridge-obligation-evidence/root-cause-proof.json"
+    }
+  ]
+}
