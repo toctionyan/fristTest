@@ -41,12 +41,15 @@ jobs:
           mkdir -p "$clean/governance/repair-cases"
           cp -R "$case" "$clean/$case"
 
-          # The committed RED evidence was attested with the one-run local key
-          # from its original governed workspace.  Preserve its immutable
-          # identity for comparison, but do not copy/re-sign that evidence into
-          # a new trust domain.  Re-execute the frozen RED gate below instead.
+          # The original generated target encoded the structured value as
+          # "无；<explanation>".  Baseline mode reproduced RED, but verification
+          # correctly rejected that malformed structured metadata.  The target
+          # now keeps the same scope/claim/policy and separates the exact value
+          # "无" from explanatory prose.  Preserve the prior baseline identity
+          # as predecessor evidence; do not reuse/re-sign its transported
+          # workspace-local attestation.
           cp "$clean/$case/evidence/quality-baseline/baseline-record.json" \
-            "${RUNNER_TEMP}/stage42-canonical-baseline-record.json"
+            "${RUNNER_TEMP}/stage42-pre-normalization-baseline-record.json"
           rm -rf "$clean/$case/evidence/quality-baseline" \
                  "$clean/$case/evidence/quality-verification"
 
@@ -70,7 +73,7 @@ jobs:
       - name: Install locked Agent validation environment
         run: cd "${RUNNER_TEMP}/stage42-clean/services/agent-service" && uv sync --locked --all-groups
 
-      - name: Replay canonical RED baseline under the clean workspace trust key
+      - name: Replay normalized canonical RED baseline under the clean trust key
         run: |
           set -uo pipefail
           clean="${RUNNER_TEMP}/stage42-clean"
@@ -95,7 +98,7 @@ jobs:
           set -e
           test "$rc" -ne 0
 
-          CANONICAL_RECORD="${RUNNER_TEMP}/stage42-canonical-baseline-record.json" \
+          PREVIOUS_RECORD="${RUNNER_TEMP}/stage42-pre-normalization-baseline-record.json" \
           services/agent-service/.venv/bin/python - <<'PY'
           import json
           import os
@@ -104,26 +107,44 @@ jobs:
           replay = Path('.quality/stage42-clean-baseline')
           summary = json.loads((replay / 'run-summary.json').read_text())
           record = json.loads((replay / 'baseline-record.json').read_text())
-          canonical = json.loads(Path(os.environ['CANONICAL_RECORD']).read_text())
+          previous = json.loads(Path(os.environ['PREVIOUS_RECORD']).read_text())
 
           assert summary['run_kind'] == 'baseline', summary
           assert summary['decision'] == 'FAIL', summary
           assert summary['loop_status'] == 'BASELINE_RECORDED', summary
           assert len(summary['results']) == 1, summary['results']
-          assert summary['results'][0]['id'] == 'stage42-red-proof', summary['results']
-          assert summary['results'][0]['status'] == 'FAIL', summary['results']
+          gate = summary['results'][0]
+          assert gate['id'] == 'stage42-red-proof', gate
+          assert gate['status'] == 'FAIL', gate
+          observed = gate.get('metadata', {}).get('structured_assessment') or {}
+          assert observed.get('graph_complete') is True, observed
+          assert observed.get('maturity') == 'AUTHORITATIVE', observed
+          assert observed.get('target_compatibility') == 'PASS', observed
+          assert observed.get('counterfactual') == 'PASS', observed
           assert len(summary['claim_results']) == 1, summary['claim_results']
           assert summary['claim_results'][0]['id'] == 'STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE'
           assert summary['claim_results'][0]['status'] == 'FAILED', summary['claim_results']
-          assert record['target_identity'] == canonical['target_identity'], (record, canonical)
-          assert record['policy_fingerprint'] == canonical['policy_fingerprint'], (record, canonical)
-          assert record['workspace_snapshot_fingerprint'] == canonical['workspace_snapshot_fingerprint'], (record, canonical)
+
+          # Schema normalization must not move the semantic contract: stable
+          # target/change/context, same claim manifest, same focused policy.
+          for key in ('id', 'change_ref', 'context', 'claim_manifest_fingerprint'):
+              assert record['target_identity'][key] == previous['target_identity'][key], (
+                  key, record['target_identity'], previous['target_identity']
+              )
+          assert record['policy_fingerprint'] == previous['policy_fingerprint'], (record, previous)
+          assert record['target_identity']['fingerprint'] != previous['target_identity']['fingerprint'], (
+              'expected target text fingerprint to change after structured-field normalization',
+              record,
+              previous,
+          )
           print(json.dumps({
               'replay_decision': summary['decision'],
               'replay_loop_status': summary['loop_status'],
-              'canonical_workspace_snapshot_fingerprint': canonical['workspace_snapshot_fingerprint'],
-              'replay_workspace_snapshot_fingerprint': record['workspace_snapshot_fingerprint'],
-              'claim_status': summary['claim_results'][0]['status'],
+              'previous_target_fingerprint': previous['target_identity']['fingerprint'],
+              'normalized_target_fingerprint': record['target_identity']['fingerprint'],
+              'claim_manifest_fingerprint': record['target_identity']['claim_manifest_fingerprint'],
+              'policy_fingerprint': record['policy_fingerprint'],
+              'red_observation': observed,
           }, indent=2))
           PY
 
@@ -188,6 +209,10 @@ jobs:
           assert claim["status"] == "VERIFIED", claim
           assert claim["required_gates"] == ["stage42-red-proof"], claim
           assert claim["evidence_refs"] == ["gate-log:stage42-red-proof"], claim
+          results = summary["results"]
+          assert len(results) == 1, results
+          assert results[0]["id"] == "stage42-red-proof", results
+          assert results[0]["status"] == "PASS", results
           print(json.dumps({
               "decision": summary["decision"],
               "loop_status": summary["loop_status"],
@@ -205,7 +230,7 @@ jobs:
           out="${RUNNER_TEMP}/stage42-clean-verification"
           rm -rf "$out"
           mkdir -p "$out"
-          cp "${RUNNER_TEMP}/stage42-canonical-baseline-record.json" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-pre-normalization-baseline-record.json" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/stage42-baseline-replay.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/stage42-focused-pytest.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/stage42-quality-transition.log" "$out/" 2>/dev/null || true
