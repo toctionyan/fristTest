@@ -28,6 +28,7 @@ def _copy_contract_surface(module, destination: Path) -> None:
         module.CONTROLLER,
         module.PYTHON_SUITE_RUNNER,
         module.INGEST_BRIDGE,
+        module.QUALITY_TARGET_CREATOR,
         module.ADOPTION_WORKFLOW,
         module.SOLO_WORKFLOW,
     ):
@@ -50,7 +51,7 @@ class ExistingCandidateAdoptionContractTests(unittest.TestCase):
         module = _load_module()
         result = module.verify(ROOT)
         self.assertEqual(result["status"], "PASS", result["errors"])
-        self.assertEqual(result["schema"], "governed-existing-candidate-adoption-contract@4")
+        self.assertEqual(result["schema"], "governed-existing-candidate-adoption-contract@5")
         self.assertEqual(result["source_pr_number"], 1348)
         self.assertEqual(result["exact_blob_count"], 8)
         self.assertFalse(result["candidate_write_authority"])
@@ -58,6 +59,7 @@ class ExistingCandidateAdoptionContractTests(unittest.TestCase):
         self.assertTrue(result["canonical_python_suite_authority_bound"])
         self.assertEqual(result["canonical_python_suite_owner"], "scripts/run_python_test_suites.py")
         self.assertTrue(result["python_suite_evidence_outside_candidate"])
+        self.assertTrue(result["independent_quick_target_workflow_bound"])
         self.assertTrue(result["failed_profile_evidence_required"])
         self.assertTrue(result["failed_profile_evidence_diagnostic_only"])
         self.assertFalse(result["failed_profile_can_be_converted_to_success"])
@@ -164,6 +166,89 @@ class ExistingCandidateAdoptionContractTests(unittest.TestCase):
             self.assertEqual(result["status"], "FAIL")
             self.assertIn("profile_python_suite_authority_drift", result["errors"])
             self.assertIn("profile_python_suite_override_not_cleared:QUALITY_BUSINESS_PYTHON", result["errors"])
+
+    def test_adoption_quick_workflow_registration_removal_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-quick-registration-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            creator = isolated / module.QUALITY_TARGET_CREATOR
+            source = creator.read_text(encoding="utf-8")
+            marker = '    "governed-ci-existing-candidate-adoption": "quick",\n'
+            self.assertEqual(source.count(marker), 1)
+            creator.write_text(source.replace(marker, "", 1), encoding="utf-8")
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertFalse(result["independent_quick_target_workflow_bound"])
+            self.assertIn("quality_target_adoption_mode_drift", result["errors"])
+
+    def test_adoption_quick_workflow_mode_drift_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-quick-mode-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            creator = isolated / module.QUALITY_TARGET_CREATOR
+            source = creator.read_text(encoding="utf-8")
+            original = '    "governed-ci-existing-candidate-adoption": "quick",'
+            self.assertEqual(source.count(original), 1)
+            creator.write_text(
+                source.replace(
+                    original,
+                    '    "governed-ci-existing-candidate-adoption": "static",',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertFalse(result["independent_quick_target_workflow_bound"])
+            self.assertIn("quality_target_adoption_mode_drift", result["errors"])
+
+    def test_adoption_quick_workflow_false_identity_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-quick-provenance-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            workflow = isolated / module.ADOPTION_WORKFLOW
+            source = workflow.read_text(encoding="utf-8")
+            marker = "--workflow governed-ci-existing-candidate-adoption"
+            self.assertEqual(source.count(marker), 1)
+            workflow.write_text(
+                source.replace(marker, "--workflow quality-quick", 1),
+                encoding="utf-8",
+            )
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertFalse(result["independent_quick_target_workflow_bound"])
+            self.assertIn(
+                "adoption_workflow_marker_missing:--workflow governed-ci-existing-candidate-adoption",
+                result["errors"],
+            )
+
+    def test_adoption_quick_gate_contract_drift_is_killed(self) -> None:
+        module = _load_module()
+        with tempfile.TemporaryDirectory(prefix="existing-candidate-adoption-quick-gates-") as temp:
+            isolated = Path(temp)
+            _copy_contract_surface(module, isolated)
+            creator = isolated / module.QUALITY_TARGET_CREATOR
+            source = creator.read_text(encoding="utf-8")
+            block = '''    "governed-ci-existing-candidate-adoption": [
+        "adversarial-runtime-counterexamples",
+        "python-test-suites",
+        "frontend-vitest",
+        "coverage-baseline",
+        "full-lifecycle-canary",
+        "product-browser-journey",
+    ],'''
+            self.assertEqual(source.count(block), 1)
+            creator.write_text(
+                source.replace(block, '    "governed-ci-existing-candidate-adoption": [],', 1),
+                encoding="utf-8",
+            )
+            result = module.verify(isolated)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertFalse(result["independent_quick_target_workflow_bound"])
+            self.assertIn("quality_target_adoption_gate_contract_drift", result["errors"])
 
 
 if __name__ == "__main__":
