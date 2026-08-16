@@ -17,6 +17,7 @@
     ".github/",
     "governance/",
     "deployment/",
+    "scripts/",
     "skill-system/controller/",
     "skill-system/profiles/"
   ],
