@@ -7,18 +7,19 @@
   "existing_candidate_only": true,
   "allowed_changed_files": {
     "contracts/generated/dependency-basis-projections.json": "c25682abc81775c31c5b542a9dbf1698e50645cd",
-    "scripts/verify_dependency_basis_contract.py": "a9b9f40710f4a96cfcdf394065aa290c6f55a6fb",
-    "scripts/verify_dependency_basis_mutation_proof.py": "0da7d1af9d88b295838a1d24969b19b49125be40",
     "services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py": "6c3c45f9d80fd4e7d13c87f439987b02011506f3",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "09e279d24641b3f7a5df7d4d0811bc6c267faa07",
     "services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py": "11cd67e1ade8de78f05f8af9fb95628c90c3e7b1",
-    "skill-system/profiles/skill-unit.json": "9c8ba0bd94def7f4e8902ad63f2995003f429458",
-    "skill-system/tests/test_dependency_basis_contract_guard.py": "f4ef23af7fbc33645d98ebea1310fad289f088c6"
+    "skill-system/tests/dependency_basis_guard.py": "969810af719b3233d3a4ae1a2c8fea876ce68c0a",
+    "skill-system/tests/test_dependency_basis_contract_guard.py": "5a356f56b1cbb342e1d9e772a6fd33ee534e76dc"
   },
   "forbidden_changed_prefixes": [
     ".github/",
     "governance/",
-    "deployment/"
+    "deployment/",
+    "scripts/",
+    "skill-system/controller/",
+    "skill-system/profiles/"
   ],
   "forbidden_changed_exact": [
     "skill-system/registry/product-source-baseline.json"
@@ -32,12 +33,12 @@
     {
       "id": "dependency-basis-contract",
       "cwd": ".",
-      "argv": ["{python}", "-B", "scripts/verify_dependency_basis_contract.py"]
+      "argv": ["{python}", "-B", "skill-system/tests/dependency_basis_guard.py", "--check", "contract"]
     },
     {
       "id": "dependency-basis-contract-mutation-proof",
       "cwd": ".",
-      "argv": ["{python}", "-B", "scripts/verify_dependency_basis_mutation_proof.py"]
+      "argv": ["{python}", "-B", "skill-system/tests/dependency_basis_guard.py", "--check", "mutation"]
     },
     {
       "id": "dependency-basis-runtime-regression",
@@ -52,6 +53,6 @@
   ],
   "violated_invariant": "DEP-BASIS-CONTRACT-001",
   "authority_owner": "deterministic_dependency_proof_reducer",
-  "required_permanent_guard": "dependency-basis canonical contract plus executable mutation proof",
+  "required_permanent_guard": "non-Judge dependency-basis contract guard plus executable mutation proof",
   "production_closed": false
 }

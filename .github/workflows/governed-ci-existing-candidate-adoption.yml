@@ -128,7 +128,7 @@ jobs:
           --require-hashes --only-binary=:all:
           -r control/deployment/ci/uv-requirements-linux-x86_64.txt
 
-      - name: Install unchanged locked validation environments
+      - name: Install unchanged locked candidate validation environments
         run: |
           set -euo pipefail
           cd candidate/services/agent-service && uv sync --locked --all-groups
@@ -208,13 +208,50 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Create disposable exact-candidate validation workspace
+        run: |
+          set -euo pipefail
+          candidate_sha=$(jq -r '.published_source_sha' adoption/adoption-plan.json)
+          [[ "${candidate_sha}" =~ ^[0-9a-f]{40}$ ]]
+          rm -rf validation
+          git -C candidate worktree add --detach ../validation "${candidate_sha}"
+          [[ "$(git -C validation rev-parse HEAD)" == "${candidate_sha}" ]]
+          test -z "$(git -C validation status --porcelain=v1 --untracked-files=all)"
+
+      - name: Install locked disposable Quick environments
+        run: |
+          set -euo pipefail
+          cd validation/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          if [[ -f ../../../web/package.json ]]; then
+            cd ../../../web && npm ci --ignore-scripts=false
+          fi
+
+      - name: Project current trusted Judge into disposable validation workspace
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_stage3_trusted_projection.py \
+            --candidate validation \
+            --judge control \
+            --output adoption/trusted-judge-projection.json
+          jq -e '
+            .schema == "github-stage3-trusted-judge-projection@1"
+            and .status == "PROJECTED"
+            and .projected_file_count > 0
+            and .repair_patch_changed == false
+            and .candidate_commit_changed == false
+            and .publication_authority_changed == false
+            and .production_closed == false
+          ' adoption/trusted-judge-projection.json >/dev/null
+
       - name: Create independent G1-G5 Quick target
         run: |
           set -euo pipefail
           candidate_sha=$(jq -r '.published_source_sha' adoption/adoption-plan.json)
           [[ "${candidate_sha}" =~ ^[0-9a-f]{40}$ ]]
-          mkdir -p candidate/.quality/targets
-          cd candidate
+          mkdir -p validation/.quality/targets
+          cd validation
           services/agent-service/.venv/bin/python -B ../control/scripts/create_ci_quality_target.py \
             --output .quality/targets/governed-existing-candidate-adoption-quick.md \
             --ref "${candidate_sha}" \
@@ -224,14 +261,15 @@ jobs:
       - name: Run independent complete Quick Quality Loop
         env:
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/governed-existing-candidate-adoption-quick
+          QUALITY_LOOP_STATE_DIR: ${{ runner.temp }}/governed-existing-candidate-adoption-state
           SKILL_JUDGE_ROOT: ${{ github.workspace }}/control
           SKILL_JUDGE_TRUST_MODE: external-readonly
         run: >-
-          candidate/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py
-          --workspace-root candidate
+          validation/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py
+          --workspace-root validation
           --policy ../control/governance/quality-loop-policy.json
           --mode quick
-          --target candidate/.quality/targets/governed-existing-candidate-adoption-quick.md
+          --target validation/.quality/targets/governed-existing-candidate-adoption-quick.md
 
       - name: Finalize read-only certification for governance handoff
         run: |
@@ -239,8 +277,9 @@ jobs:
           cp "${RUNNER_TEMP}/governed-existing-candidate-adoption-quick/run-summary.json" \
             adoption/quick-summary.json
           rm -f \
-            candidate/.quality/targets/governed-existing-candidate-adoption-quick.md \
-            candidate/.quality/targets/governed-existing-candidate-adoption-quick.claims.json
+            validation/.quality/targets/governed-existing-candidate-adoption-quick.md \
+            validation/.quality/targets/governed-existing-candidate-adoption-quick.claims.json
+          test -z "$(git -C validation status --porcelain=v1 --untracked-files=all)"
           test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
           "${pythonLocation}/bin/python" -B control/scripts/github_existing_candidate_adoption.py finalize \
             --workspace candidate \
