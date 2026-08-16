@@ -9,14 +9,20 @@ on:
       - .github/workflows/release55-product-red.yml
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: read
 
 jobs:
-  focused-red:
+  red-then-implement:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
@@ -27,30 +33,90 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Install Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Confirm focused product test is RED for the intended structural reason
+      - name: Verify permit, preserve RED evidence, implement narrow fix, and prove focused GREEN
         env:
           PYTHONPATH: ${{ github.workspace }}/services/agent-service/src:${{ github.workspace }}/services/agent-service
           PYTHONDONTWRITEBYTECODE: '1'
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          cd services/agent-service
-          set +e
-          .venv/bin/python -B -m pytest -q tests/runtime/test_release55_dependency_output_role_overlap.py > "${RUNNER_TEMP}/release55-product-red.log" 2>&1
-          rc=$?
-          set -e
-          cat "${RUNNER_TEMP}/release55-product-red.log"
-          test "$rc" -ne 0
-          grep -F "goal_alignment_dependency_basis_is_requested_output:0" "${RUNNER_TEMP}/release55-product-red.log"
-          grep -F "test_strict_nested_relation_basis_reaches_dependency_graph_adjudication" "${RUNNER_TEMP}/release55-product-red.log"
-          if grep -F "ModuleNotFoundError" "${RUNNER_TEMP}/release55-product-red.log"; then
-            echo "invalid RED: import/environment failure" >&2
-            exit 1
+          change_id="repair-release55-dependency-output-role-overlap"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          change_id = "repair-release55-dependency-output-role-overlap"
+          active = json.loads(Path("governance/active-change.json").read_text(encoding="utf-8"))
+          permit = json.loads(Path(f"governance/repair-cases/{change_id}/change-permit.json").read_text(encoding="utf-8"))
+          expected = [
+              "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+              "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py",
+          ]
+          assert active["change_id"] == change_id and active["status"] == "implementing"
+          assert active["writer_role"] == "product-implementer"
+          assert permit["change_id"] == change_id and permit["status"] == "ACTIVE"
+          assert permit["allowed_paths"] == expected
+          PY
+
+          source="services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          test_file="services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+          if grep -Fq "basis in output_span or output_span in basis" "$source"; then
+            cd services/agent-service
+            set +e
+            .venv/bin/python -B -m pytest -q tests/runtime/test_release55_dependency_output_role_overlap.py > "${RUNNER_TEMP}/release55-prepatch-red.log" 2>&1
+            rc=$?
+            set -e
+            cat "${RUNNER_TEMP}/release55-prepatch-red.log"
+            test "$rc" -ne 0
+            grep -F "2 failed, 3 passed" "${RUNNER_TEMP}/release55-prepatch-red.log"
+            grep -F "goal_alignment_dependency_basis_is_requested_output:0" "${RUNNER_TEMP}/release55-prepatch-red.log"
+            if grep -F "ModuleNotFoundError" "${RUNNER_TEMP}/release55-prepatch-red.log"; then
+              echo "invalid RED: import/environment failure" >&2
+              exit 1
+            fi
+            cd ../..
+
+            python - <<'PY'
+          from pathlib import Path
+          source = Path("services/agent-service/src/agent_core/lifecycle/goal_planning.py")
+          text = source.read_text(encoding="utf-8")
+          old = "        basis in output_span or output_span in basis\n"
+          new = "        basis == output_span or output_span in basis\n"
+          assert text.count(old) == 1, text.count(old)
+          text = text.replace(old, new, 1)
+          anchor = "    return any(\n        basis == output_span or output_span in basis\n"
+          comment = (
+              "    # A strict relation-only basis nested inside broader requested-output evidence\n"
+              "    # is structurally admissible only; semantic/adversarial proof still owns authority.\n"
+              "    # Equality or a basis wrapping the requested outcome remains invalid.\n"
+          )
+          assert anchor in text
+          text = text.replace("    return any(\n        basis == output_span or output_span in basis\n", comment + anchor, 1)
+          source.write_text(text, encoding="utf-8")
+          PY
+            git diff --check -- "$source"
+            test "$(git diff --name-only -- services | wc -l)" -eq 1
+            test "$(git diff --name-only -- services)" = "$source"
           fi
-          echo "VALID_PRODUCT_RED"
-      - name: Upload focused RED log
+
+          cd services/agent-service
+          .venv/bin/python -B -m pytest -q tests/runtime/test_release55_dependency_output_role_overlap.py | tee "${RUNNER_TEMP}/release55-focused-green.log"
+          cd ../..
+
+          if ! git diff --quiet -- "$source"; then
+            git config user.name "customer-agent-product[bot]"
+            git config user.email "customer-agent-product[bot]@users.noreply.github.com"
+            git add "$source"
+            git commit -m "fix(semantic): preserve strict nested dependency relation evidence"
+            git push origin "HEAD:${HEAD_REF}"
+          else
+            echo "source repair already present; focused GREEN reconfirmed"
+          fi
+      - name: Upload Release 55 TDD evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release55-product-red-${{ github.sha }}
-          path: ${{ runner.temp }}/release55-product-red.log
-          if-no-files-found: error
+          name: release55-tdd-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/release55-prepatch-red.log
+            ${{ runner.temp }}/release55-focused-green.log
+          if-no-files-found: warn
