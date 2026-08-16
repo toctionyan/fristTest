@@ -27,3 +27,29 @@ jobs:
         run: |
           set -o pipefail
           "${pythonLocation}/bin/python" -B <(git show "${{ github.event.pull_request.head.sha }}:scripts/stage42_replan_baseline_probe.py") 2>&1 | tee stage42-baseline-probe.log
+
+      - name: Freeze canonical Stage 4.2 RED evidence
+        run: |
+          set -euo pipefail
+          change="probe-stage4-2-dependency-obligation-evidence-pipeline"
+          mkdir -p stage42-formal-red
+          cp -R ".quality/product-code/${change}/baseline" stage42-formal-red/baseline
+          cp -R ".quality/stage42-dependency-obligation-red-input" stage42-formal-red/input
+          cp stage42-baseline-probe.log stage42-formal-red/probe.log
+          git rev-parse HEAD > stage42-formal-red/SOURCE_HEAD.txt
+          git status --porcelain=v1 > stage42-formal-red/WORKTREE_STATUS.txt
+          sha256sum \
+            stage42-formal-red/baseline/baseline-record.json \
+            stage42-formal-red/baseline/run-summary.json \
+            stage42-formal-red/input/target.md \
+            stage42-formal-red/input/claim.json \
+            stage42-formal-red/input/focused-policy.json \
+            > stage42-formal-red/SHA256SUMS.txt
+
+      - name: Upload canonical Stage 4.2 RED evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage42-formal-red-baseline
+          path: stage42-formal-red
+          if-no-files-found: error
+          retention-days: 30
