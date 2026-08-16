@@ -190,7 +190,8 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         _kill_mutation(
             "canonical_rule_changed_without_projection",
             _mutate_canonical_rule_without_projection,
-            expected_error="projection_manifest_drift",
+            expected_error="mutation_not_detected:nested_rule_flipped",
+            expected_failure_kind="dependency_contract_mutation_gap",
         ),
     ]
     workspace_unchanged = _surface_fingerprint(root) == before
