@@ -6,9 +6,10 @@ from __future__ import annotations
 The adoption path may certify an *already existing* candidate only when a trusted
 main-branch profile binds its exact PR, file set and Git blob identities. It must
 never become an alternate repair writer, baseline shortcut, merge path or way to
-let candidate-owned tests authorize themselves. A failed fixed-profile run must
-also leave durable, replayable evidence without converting the failed gate into a
-successful step.
+let candidate-owned tests authorize themselves. Failed fixed-profile runs must
+leave durable, replayable evidence without converting RED to GREEN. Agent pytest
+commands must also bind the repository's src-layout import environment explicitly
+instead of depending on ambient runner/package-install behavior.
 """
 
 import ast
@@ -32,6 +33,35 @@ EXPECTED_RELEASE56_BLOBS = {
     "services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py": "11cd67e1ade8de78f05f8af9fb95628c90c3e7b1",
     "skill-system/profiles/skill-unit.json": "9c8ba0bd94def7f4e8902ad63f2995003f429458",
     "skill-system/tests/test_dependency_basis_contract_guard.py": "f4ef23af7fbc33645d98ebea1310fad289f088c6",
+}
+
+AGENT_TEST_CWD = "services/agent-service"
+AGENT_TEST_PREFIX = ["/usr/bin/env", "PYTHONPATH=src", "PYTHONNOUSERSITE=1", "{agent_python}"]
+EXPECTED_AGENT_TEST_COMMANDS = {
+    "dependency-basis-runtime-regression": AGENT_TEST_PREFIX
+    + [
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "tests/runtime/test_release56_dependency_basis_contract.py",
+    ],
+    "python-test-suites": AGENT_TEST_PREFIX
+    + [
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "-m",
+        "not integration and not preprod",
+        "tests",
+    ],
 }
 
 
@@ -99,6 +129,30 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     prefixes = set(profile.get("forbidden_changed_prefixes") or [])
     if not {".github/", "governance/", "deployment/"}.issubset(prefixes):
         errors.append("profile_control_plane_prefix_not_forbidden")
+
+    command_rows = profile.get("verification_commands")
+    command_by_id: dict[str, dict[str, Any]] = {}
+    duplicate_ids: set[str] = set()
+    if isinstance(command_rows, list):
+        for row in command_rows:
+            if not isinstance(row, dict):
+                continue
+            command_id = str(row.get("id") or "")
+            if command_id in command_by_id:
+                duplicate_ids.add(command_id)
+            command_by_id[command_id] = row
+    else:
+        errors.append("profile_verification_commands_missing")
+    if duplicate_ids:
+        errors.append("profile_verification_command_duplicate_ids")
+    for command_id, expected_argv in EXPECTED_AGENT_TEST_COMMANDS.items():
+        row = command_by_id.get(command_id)
+        if (
+            not isinstance(row, dict)
+            or row.get("cwd") != AGENT_TEST_CWD
+            or row.get("argv") != expected_argv
+        ):
+            errors.append(f"profile_agent_test_import_environment_drift:{command_id}")
 
     try:
         controller = _text(CONTROLLER, root)
@@ -228,14 +282,20 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         if forbidden.casefold() in solo_low:
             errors.append(f"solo_workflow_forbidden_authority:{forbidden}")
 
+    import_environment_errors = [
+        item for item in errors if item.startswith("profile_agent_test_import_environment_drift:")
+    ]
     return {
-        "schema": "governed-existing-candidate-adoption-contract@2",
+        "schema": "governed-existing-candidate-adoption-contract@3",
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "profile_id": profile.get("profile_id"),
         "source_pr_number": profile.get("source_pr_number"),
         "exact_blob_count": len(profile.get("allowed_changed_files") or {}),
         "candidate_write_authority": False,
+        "agent_test_import_environment_bound": not import_environment_errors,
+        "agent_test_source_root": "src",
+        "agent_test_user_site_disabled": True,
         "failed_profile_evidence_required": True,
         "failed_profile_evidence_diagnostic_only": True,
         "failed_profile_can_be_converted_to_success": False,
