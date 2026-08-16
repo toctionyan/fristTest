@@ -1,8 +1,18 @@
 {
   "schema_version": 1,
   "id": "skill-unit",
-  "description": "控制平面纯逻辑单元测试。",
+  "description": "控制平面纯逻辑单元测试，并先执行关键语义契约及真实 mutation-kill 永久守卫。",
   "commands": [
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_dependency_basis_contract.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_dependency_basis_mutation_proof.py"
+    ],
     [
       "{python}",
       "-B",
