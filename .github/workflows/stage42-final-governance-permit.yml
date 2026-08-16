@@ -1,0 +1,113 @@
+name: stage42-final-governance-permit
+
+on:
+  pull_request:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+    paths:
+      - scripts/stage42_final_governance_carrier.py
+      - .github/workflows/stage42-final-governance-permit.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  generate-governed-permit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout temporary carrier head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Create exact governed workspace from PR base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf "${RUNNER_TEMP}/stage42-governed"
+          git worktree add --detach "${RUNNER_TEMP}/stage42-governed" "${BASE_SHA}"
+          test "$(git -C "${RUNNER_TEMP}/stage42-governed" rev-parse HEAD)" = "${BASE_SHA}"
+
+      - name: Generate final Stage 4.2 repair governance and canonical RED baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -o pipefail
+          "${pythonLocation}/bin/python" -B scripts/stage42_final_governance_carrier.py \
+            --workspace "${RUNNER_TEMP}/stage42-governed" \
+            --expected-base "${BASE_SHA}" \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-final-governance.log"
+
+      - name: Export only governed state into carrier branch
+        run: |
+          set -euo pipefail
+          CHANGE_ID="repair-stage4-2-dependency-obligation-evidence-pipeline"
+          CASE="governance/repair-cases/${CHANGE_ID}"
+          WORK="${RUNNER_TEMP}/stage42-governed"
+          cp "${WORK}/governance/active-change.json" governance/active-change.json
+          rm -rf "${CASE}"
+          mkdir -p governance/repair-cases
+          cp -R "${WORK}/${CASE}" "${CASE}"
+
+          "${pythonLocation}/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+          change = "repair-stage4-2-dependency-obligation-evidence-pipeline"
+          case = Path("governance/repair-cases") / change
+          active = json.loads(Path("governance/active-change.json").read_text())
+          permit = json.loads((case / "change-permit.json").read_text())
+          baseline = json.loads((case / "evidence/quality-baseline/run-summary.json").read_text())
+          assert active["change_id"] == change
+          assert active["status"] == "implementing"
+          assert active["writer_role"] == "product-implementer"
+          assert active["repair_governance_permit_digest"] == permit["permit_digest"]
+          assert permit["status"] == "ACTIVE"
+          assert baseline["run_kind"] == "baseline"
+          assert baseline["decision"] == "FAIL"
+          assert baseline["loop_status"] == "BASELINE_RECORDED"
+          print(json.dumps({
+              "change_id": change,
+              "permit_digest": permit["permit_digest"],
+              "baseline_source_fingerprint": permit["baseline_source_fingerprint"],
+              "baseline_decision": baseline["decision"],
+              "baseline_loop_status": baseline["loop_status"],
+              "allowed_paths": permit["allowed_paths"],
+          }, indent=2))
+          PY
+
+          git diff -- governance/active-change.json "${CASE}"
+
+      - name: Commit repository-generated Stage 4.2 governance only
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          CHANGE_ID="repair-stage4-2-dependency-obligation-evidence-pipeline"
+          CASE="governance/repair-cases/${CHANGE_ID}"
+          git add governance/active-change.json "${CASE}"
+          if git diff --cached --quiet; then
+            echo "Governed Stage 4.2 state already exported."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Governance: open final Stage 4.2 obligation evidence repair"
+          git push origin "HEAD:${HEAD_REF}"
+
+      - name: Upload Stage 4.2 governance generation log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage42-final-governance-generation
+          path: ${{ runner.temp }}/stage42-final-governance.log
+          if-no-files-found: warn
+          retention-days: 30
