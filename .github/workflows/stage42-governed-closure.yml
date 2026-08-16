@@ -1,0 +1,249 @@
+name: Stage42 Governed Closure
+
+on:
+  push:
+    branches:
+      - governance/stage4-2-final-obligation-pipeline-permit-20260816
+    paths:
+      - .github/stage42-governed-closure.trigger
+
+permissions:
+  contents: write
+
+jobs:
+  close:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact preclosure candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bootstrap locked Agent environment
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Retire closure carrier from governed worktree
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/stage42-governed-closure.yml \
+                 .github/stage42-governed-closure.trigger
+
+      - name: Reproduce current-trust RED baseline then restore candidate
+        env:
+          BASE_SHA: 51dfef01c9d8453bf57cb0eaa176e390733b8dbf
+        run: |
+          set -uo pipefail
+          change='repair-stage4-2-dependency-obligation-evidence-pipeline'
+          case="governance/repair-cases/${change}"
+          baseline='.quality/stage42-contract-baseline'
+          baseline_state='.quality/stage42-contract-baseline-state'
+          paths=(
+            services/agent-service/src/agent_core/goal_graph/dependency_alignment.py
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py
+            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py
+          )
+
+          git checkout "$BASE_SHA" -- "${paths[0]}" "${paths[1]}" "${paths[2]}"
+          rm -f "${paths[3]}"
+          rm -rf "$baseline" "$baseline_state"
+
+          set +e
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --workspace-root . \
+            --mode quick \
+            --target "$case/quality-input/target.md" \
+            --policy "$case/quality-input/focused-policy.json" \
+            --evidence-dir "$baseline" \
+            --state-dir "$baseline_state" \
+            --baseline \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-closure-baseline.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          test "$rc" -ne 0
+
+          services/agent-service/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('.quality/stage42-contract-baseline/run-summary.json').read_text())
+          assert summary['run_kind'] == 'baseline', summary
+          assert summary['decision'] == 'FAIL', summary
+          assert summary['loop_status'] == 'BASELINE_RECORDED', summary
+          assert summary['claim_results'][0]['id'] == 'STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE', summary
+          assert summary['claim_results'][0]['status'] == 'FAILED', summary
+          gate = summary['results'][0]
+          assert gate['id'] == 'stage42-red-proof' and gate['status'] == 'FAIL', gate
+          observed = gate.get('metadata', {}).get('structured_assessment') or {}
+          assert observed.get('maturity') == 'AUTHORITATIVE', observed
+          assert observed.get('target_compatibility') == 'PASS', observed
+          assert observed.get('counterfactual') == 'PASS', observed
+          PY
+
+          git checkout "$GITHUB_SHA" -- "${paths[@]}"
+
+      - name: Produce current-trust focused GREEN verification
+        run: |
+          set -euo pipefail
+          change='repair-stage4-2-dependency-obligation-evidence-pipeline'
+          case="governance/repair-cases/${change}"
+          verification='.quality/stage42-contract-verification'
+          state='.quality/stage42-contract-verification-state'
+          rm -rf "$verification" "$state"
+          export PYTHONPATH="$GITHUB_WORKSPACE/services/agent-service/src${PYTHONPATH:+:$PYTHONPATH}"
+
+          services/agent-service/.venv/bin/python -B -m pytest -q \
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
+            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py \
+            services/agent-service/tests/runtime/test_dependency_proof_authority.py \
+            skill-system/tests/test_semantic_dependency_repair_feedback.py \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-closure-focused-tests.log"
+
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --workspace-root . \
+            --mode quick \
+            --target "$case/quality-input/target.md" \
+            --policy "$case/quality-input/focused-policy.json" \
+            --baseline-evidence '.quality/stage42-contract-baseline' \
+            --evidence-dir "$verification" \
+            --state-dir "$state" \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-closure-verification.log"
+
+          services/agent-service/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path('.quality/stage42-contract-verification/run-summary.json').read_text())
+          assert summary['run_kind'] == 'verification', summary
+          assert summary['decision'] == 'PASS', summary
+          assert summary['loop_status'] == 'CONVERGED', summary
+          assert summary['completion_eligible'] is True, summary
+          assert summary['claim_results'][0]['id'] == 'STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE', summary
+          assert summary['claim_results'][0]['status'] == 'VERIFIED', summary
+          gate = summary['results'][0]
+          assert gate['id'] == 'stage42-red-proof' and gate['status'] == 'PASS', gate
+          observed = gate.get('metadata', {}).get('structured_assessment') or {}
+          assert observed.get('maturity') == 'GROUNDED', observed
+          assert observed.get('target_compatibility') == 'UNKNOWN', observed
+          assert observed.get('counterfactual') == 'UNKNOWN', observed
+          PY
+
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/product_quality_bridge.py record \
+            --evidence '.quality/stage42-contract-verification' \
+            --mode quick
+
+      - name: Run repository-native diff review and independent review attestations
+        run: |
+          set -euo pipefail
+          evidence='governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline/clean-verification-record.json'
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/repair_governance_cli.py diff-review --decision PASS
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/change_contract_cli.py attest-review \
+            --role scope-planner --decision PASS --evidence "$evidence"
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/change_contract_cli.py attest-review \
+            --role adversarial-reviewer --decision PASS --evidence "$evidence"
+
+      - name: Create repository-native closure matrix
+        run: |
+          set -euo pipefail
+          case='governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline'
+          clean="$case/clean-verification-record.json"
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/repair_governance_cli.py closure-record \
+            --result CONVERGED \
+            --loop-outcome CONVERGED \
+            --evidence "original_failure=$case/evidence/reproduction.json" \
+            --evidence "focused_tests=$clean" \
+            --evidence "counterexamples=services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py" \
+            --evidence "regression=services/agent-service/tests/runtime/test_dependency_alignment_authority.py" \
+            --evidence "negative_paths=services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py" \
+            --evidence "runtime_trace=$clean" \
+            --evidence "authority_boundary=$clean" \
+            --evidence "diff_review=$case/diff-review.json"
+
+      - name: Verify and close Change Contract
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/repair_governance_cli.py validate \
+            --stage verification --result CONVERGED
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/change_contract_cli.py verify --result CONVERGED \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-contract-verify.log"
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/change_contract_cli.py close --result CONVERGED \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-contract-close.log"
+          services/agent-service/.venv/bin/python -B \
+            skill-system/controller/repair_governance_cli.py validate \
+            --stage verification --result CONVERGED
+
+      - name: Freeze closure evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/stage42-governed-closure"
+          case='governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline'
+          rm -rf "$out"
+          mkdir -p "$out"
+          cp "${RUNNER_TEMP}/stage42-closure-baseline.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-closure-focused-tests.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-closure-verification.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-contract-verify.log" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-contract-close.log" "$out/" 2>/dev/null || true
+          cp "$case/diff-review.json" "$out/" 2>/dev/null || true
+          cp "$case/closure-matrix.json" "$out/" 2>/dev/null || true
+          cp governance/active-change.json "$out/active-change.json" 2>/dev/null || true
+          cp -R .quality/stage42-contract-baseline "$out/current-trust-baseline" 2>/dev/null || true
+          cp -R .quality/stage42-contract-verification "$out/current-trust-verification" 2>/dev/null || true
+          cp -R .quality/product-control-plane "$out/product-control-plane" 2>/dev/null || true
+          git status --short > "$out/worktree-status.txt"
+          git diff --check > "$out/diff-check.txt"
+
+      - name: Upload governed closure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage42-governed-closure
+          path: ${{ runner.temp }}/stage42-governed-closure
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish closure records and retire carrier
+        run: |
+          set -euo pipefail
+          case='governance/repair-cases/repair-stage4-2-dependency-obligation-evidence-pipeline'
+          test "$(services/agent-service/.venv/bin/python - <<'PY'
+          import json
+          print(json.load(open('governance/active-change.json'))['status'])
+          PY
+          )" = 'closed'
+          test "$(services/agent-service/.venv/bin/python - <<'PY'
+          import json
+          print(json.load(open('governance/active-change.json'))['result'])
+          PY
+          )" = 'CONVERGED'
+          git diff --check
+          git add governance/active-change.json "$case/diff-review.json" "$case/closure-matrix.json" \
+            .github/workflows/stage42-governed-closure.yml \
+            .github/stage42-governed-closure.trigger
+          staged="$(git diff --cached --name-only)"
+          printf '%s\n' "$staged"
+          test -n "$staged"
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git commit -m 'Close Stage 4.2 dependency obligation repair'
+          git push origin HEAD:governance/stage4-2-final-obligation-pipeline-permit-20260816
