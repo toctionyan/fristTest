@@ -221,7 +221,6 @@ def run(
     grant_path = evidence_root / "write-grant.json"
     _write_object(grant_path, grant)
 
-    report["candidate_paths"] = list(grant["allowed_paths"])
     report["stage2_scope_normalization"]["granted_paths"] = list(
         grant["allowed_paths"]
     )
