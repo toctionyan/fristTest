@@ -103,7 +103,7 @@ def test_nonliteral_dependency_basis_remains_fail_closed() -> None:
         values=_pair(basis_span="前一个查询结果"),
     )
 
-    assert error == "goal_alignment_dependency_basis_not_literal:0"
+    assert error == "goal_alignment_dependency_basis_not_in_dependent_goal:0"
     assert details["dependency_edges"] == []
     assert details["dependency_proof_complete"] is False
 
