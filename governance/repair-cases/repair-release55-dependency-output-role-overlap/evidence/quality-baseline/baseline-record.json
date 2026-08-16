@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-16T03:40:37+00:00",
+  "generated_at": "2026-08-16T03:41:30+00:00",
   "decision": "FAIL",
   "evidence_dir": "/home/runner/work/_temp/release55-base/governance/repair-cases/repair-release55-dependency-output-role-overlap/evidence/quality-baseline",
   "target_identity": {
