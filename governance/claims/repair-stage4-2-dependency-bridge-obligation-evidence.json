@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "repair-stage4-2-dependency-bridge-obligation-evidence",
+  "claims": [
+    {
+      "id": "STAGE4_2.DEPENDENCY_BRIDGE.OBLIGATION_EVIDENCE",
+      "statement": "The dependency alignment bridge treats pair decisions as observations and cannot grant target-compatibility or counterfactual proof obligations without independently validated obligation-specific evidence; unresolved evidence fails closed and only the deterministic reducer can seal dependency authority.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "gate-log:python-test-suites"
+      ],
+      "owner": "dependency-proof-authority",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}
