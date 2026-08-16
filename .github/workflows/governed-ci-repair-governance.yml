@@ -13,7 +13,7 @@ on:
         default: '1'
         type: string
       approval_token:
-        description: Type CLOSE_GOVERNANCE_AND_ACCEPT_BASELINE to authorize G6 governance/baseline transition
+        description: Type CLOSE_GOVERNANCE_AND_ACCEPT_BASELINE to acknowledge the protected G6 transition
         required: true
         type: string
 
@@ -32,21 +32,44 @@ jobs:
   governance-baseline-exact-head:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    environment:
+      name: governed-repair-governance
     permissions:
       contents: write
       actions: read
       pull-requests: write
       issues: write
     steps:
-      - name: Require explicit governance authorization
+      - name: Require explicit governance acknowledgement
         env:
           APPROVAL_TOKEN: ${{ inputs.approval_token }}
         run: |
           set -euo pipefail
           if [[ "${APPROVAL_TOKEN}" != "CLOSE_GOVERNANCE_AND_ACCEPT_BASELINE" ]]; then
-            echo "explicit governance approval token is required" >&2
+            echo "explicit governance acknowledgement token is required" >&2
             exit 1
           fi
+
+      - name: Verify protected governance environment policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p governance-evidence
+          gh api "repos/${GITHUB_REPOSITORY}/environments/governed-repair-governance" \
+            > governance-evidence/governance-environment.json
+          jq -e '
+            .name == "governed-repair-governance"
+            and ([.protection_rules[]?
+              | select(.type == "required_reviewers")
+              | .reviewers[]?] | length) > 0
+            and ([.protection_rules[]?
+              | select(.type == "required_reviewers")
+              | .prevent_self_review] | any(. == true))
+          ' governance-evidence/governance-environment.json >/dev/null || {
+            echo "governance environment must have required reviewers and prevent self-review" >&2
+            exit 1
+          }
 
       - name: Checkout trusted governance control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -150,7 +173,7 @@ jobs:
             --publication-receipt governance-evidence/publication-result.json \
             --task-run governance-evidence/task-run.json \
             --actor "${GOVERNANCE_ACTOR}" \
-            --approval-ref "github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
+            --approval-ref "github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}:environment:governed-repair-governance" \
             --output governance-evidence/governance-receipt.json
           jq -e '.status == "GOVERNANCE_CLOSED" and .governance_closed == true and .baseline_accepted == false' \
             governance-evidence/governance-receipt.json >/dev/null
@@ -286,4 +309,4 @@ jobs:
           EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
         run: |
           set -euo pipefail
-          gh pr comment "${PR_URL}" --body "G0-G6 are machine-verified on exact head \`${EXACT_SHA}\`. Governance is CLOSED, the protected baseline was accepted only after governance, and exact-head quality + skill-self-validation passed. This PR is Ready for review. Automatic merge and deployment remain disabled; production_closed=false."
+          gh pr comment "${PR_URL}" --body "G0-G6 are machine-verified on exact head \`${EXACT_SHA}\`. Governance is CLOSED through the protected governed-repair-governance environment, the protected baseline was accepted only after governance, and exact-head quality + skill-self-validation passed. This PR is Ready for review. Automatic merge and deployment remain disabled; production_closed=false."
