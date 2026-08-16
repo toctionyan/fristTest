@@ -1,8 +1,23 @@
 {
   "schema_version": 1,
   "id": "skill-unit",
-  "description": "控制平面纯逻辑单元测试。",
+  "description": "控制平面纯逻辑单元测试，并先执行 governed-repair 架构、mutation-kill 与 fixer 路径策略投影永久守卫。",
   "commands": [
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_governed_repair_architecture.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_governed_repair_mutation_proof.py"
+    ],
+    [
+      "{python}",
+      "-B",
+      "scripts/verify_github_agent_fixer_path_policy_projection.py"
+    ],
     [
       "{python}",
       "-B",
