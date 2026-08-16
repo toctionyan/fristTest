@@ -1,0 +1,217 @@
+name: governed-ci-existing-candidate-adoption
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: governed-existing-candidate-adoption-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  certify-existing-draft:
+    if: >-
+      ${{ github.event.issue.pull_request &&
+      github.actor == github.repository_owner &&
+      startsWith(github.event.comment.body, '/governed-adopt ') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Parse exact owner adoption command
+        id: command
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_ACTOR}" == "${GITHUB_REPOSITORY_OWNER}" ]]
+          read -r verb profile_id pr_number extra <<<"${COMMENT_BODY}"
+          [[ "${verb}" == "/governed-adopt" ]]
+          [[ "${profile_id}" =~ ^[A-Za-z0-9._-]+$ ]]
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          [[ -z "${extra:-}" ]]
+          [[ "${pr_number}" == "${ISSUE_NUMBER}" ]]
+          echo "profile_id=${profile_id}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted adoption control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve trusted profile and exact Draft PR
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE_ID: ${{ steps.command.outputs.profile_id }}
+          PR_NUMBER: ${{ steps.command.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          profile="control/governance/adoption-profiles/${PROFILE_ID}.json"
+          [[ -f "${profile}" ]]
+          jq -e --argjson pr "${PR_NUMBER}" '
+            .schema == "governed-existing-candidate-adoption-profile@1"
+            and .source_pr_number == $pr
+            and .authority_effect == false
+            and .existing_candidate_only == true
+            and .production_closed == false
+          ' "${profile}" >/dev/null
+          mkdir -p adoption
+          cp "${profile}" adoption/adoption-profile.json
+          gh pr view "${PR_NUMBER}" \
+            --json number,isDraft,state,headRefName,headRefOid,baseRefName,url \
+            > adoption/pr.json
+          head_sha=$(jq -r '.headRefOid' adoption/pr.json)
+          [[ "${head_sha}" =~ ^[0-9a-f]{40}$ ]]
+          echo "head_sha=${head_sha}" >> "$GITHUB_OUTPUT"
+          echo "profile=${profile}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact existing candidate without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind current main ancestry without mutating candidate
+        run: |
+          set -euo pipefail
+          git -C candidate fetch --no-tags origin \
+            refs/heads/main:refs/remotes/origin/main
+          test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Bind exact file identities under zero write authority
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_existing_candidate_adoption.py inspect
+          --workspace candidate
+          --profile adoption/adoption-profile.json
+          --pr-json adoption/pr.json
+          --repository "$GITHUB_REPOSITORY"
+          --output adoption/adoption-plan.json
+          --authority adoption/adoption-authority.json
+          --task-run adoption/task-run.json
+
+      - name: Bootstrap locked uv from trusted toolchain manifest
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r control/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install unchanged locked validation environments
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          ./node_modules/.bin/playwright install --with-deps chromium
+          if [[ -f ../../../web/package.json ]]; then
+            cd ../../../web && npm ci --ignore-scripts=false
+          fi
+
+      - name: Run hash-bound semantic guards and targeted regression
+        run: >-
+          "${pythonLocation}/bin/python" -B control/scripts/github_existing_candidate_adoption.py run-profile
+          --workspace candidate
+          --profile adoption/adoption-profile.json
+          --plan adoption/adoption-plan.json
+          --output adoption/profile-validation.json
+
+      - name: Create independent G1-G5 Quick target
+        run: |
+          set -euo pipefail
+          candidate_sha=$(jq -r '.published_source_sha' adoption/adoption-plan.json)
+          [[ "${candidate_sha}" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p candidate/.quality/targets
+          cd candidate
+          services/agent-service/.venv/bin/python -B ../control/scripts/create_ci_quality_target.py \
+            --output .quality/targets/governed-existing-candidate-adoption-quick.md \
+            --ref "${candidate_sha}" \
+            --workflow governed-ci-existing-candidate-adoption \
+            --claims-source governance/claims/v20.6.2-project-quick-certification.json
+
+      - name: Run independent complete Quick Quality Loop
+        env:
+          QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/governed-existing-candidate-adoption-quick
+          SKILL_JUDGE_ROOT: ${{ github.workspace }}/control
+          SKILL_JUDGE_TRUST_MODE: external-readonly
+        run: >-
+          candidate/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py
+          --workspace-root candidate
+          --policy ../control/governance/quality-loop-policy.json
+          --mode quick
+          --target candidate/.quality/targets/governed-existing-candidate-adoption-quick.md
+
+      - name: Finalize read-only certification for governance handoff
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/governed-existing-candidate-adoption-quick/run-summary.json" \
+            adoption/quick-summary.json
+          rm -f \
+            candidate/.quality/targets/governed-existing-candidate-adoption-quick.md \
+            candidate/.quality/targets/governed-existing-candidate-adoption-quick.claims.json
+          test -z "$(git -C candidate status --porcelain=v1 --untracked-files=all)"
+          "${pythonLocation}/bin/python" -B control/scripts/github_existing_candidate_adoption.py finalize \
+            --workspace candidate \
+            --profile adoption/adoption-profile.json \
+            --plan adoption/adoption-plan.json \
+            --authority adoption/adoption-authority.json \
+            --profile-validation adoption/profile-validation.json \
+            --quick-summary adoption/quick-summary.json \
+            --task-run adoption/task-run.json \
+            --validation-output adoption/validation-result.json \
+            --publication-output adoption/publication-result.json \
+            --workflow-run-id "$GITHUB_RUN_ID"
+          jq -e '
+            .status == "DRAFT_REPAIR_PR_PUBLISHED_AWAITING_GOVERNANCE"
+            and .candidate_origin == "existing_pr_adoption"
+            and .write_authority_effect == false
+            and .gates.G0_SCOPE_AUTHORITY.status == "PASS"
+            and .gates.G1_CONTRACT_PROJECTION.status == "PASS"
+            and .gates.G2_SEMANTIC_INVARIANT.status == "PASS"
+            and .gates.G3_MUTATION.status == "PASS"
+            and .gates.G4_FINAL_AUTHORITY.status == "PASS"
+            and .gates.G5_INTEGRATION_CERTIFICATION.status == "PASS"
+            and .gates.G6_GOVERNANCE_EXACT_HEAD.status == "PENDING"
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' adoption/publication-result.json >/dev/null
+
+      - name: Upload immutable governance-pending adoption evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-existing-candidate-adoption-published-${{ github.run_id }}
+          path: adoption
+          retention-days: 30
+          if-no-files-found: error
