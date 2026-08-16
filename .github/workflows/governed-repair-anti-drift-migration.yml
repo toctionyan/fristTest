@@ -1,0 +1,47 @@
+name: governed-repair-anti-drift-migration
+
+on:
+  push:
+    branches:
+      - architecture/governed-repair-rca-write-grant-20260816
+    paths:
+      - .github/governed-repair-anti-drift-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: architecture/governed-repair-rca-write-grant-20260816
+          fetch-depth: 0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+      - name: Apply deterministic anti-drift migration
+        run: |
+          set -euo pipefail
+          python -B scripts/migrate_governed_repair_anti_drift.py
+          python -m py_compile scripts/github_repair_stage3.py scripts/verify_governed_repair_architecture.py scripts/verify_governed_repair_mutation_proof.py
+          git diff --check
+          grep -q 'ANTI_DRIFT_REQUIRED_GATE_ID = "python-test-suites"' scripts/github_repair_stage3.py
+          grep -q 'anti_drift_proof_not_reverified' scripts/github_repair_stage3.py
+          grep -q '"governed_repair_state": "ANTI_DRIFT_PROOF"' scripts/github_repair_stage3.py
+      - name: Remove temporary migration authority
+        run: |
+          set -euo pipefail
+          rm -f scripts/migrate_governed_repair_anti_drift.py
+          rm -f .github/workflows/governed-repair-anti-drift-migration.yml
+          rm -f .github/governed-repair-anti-drift-trigger
+      - name: Commit migrated architecture
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix(repair): require executable anti-drift proof'
+          git push origin HEAD:architecture/governed-repair-rca-write-grant-20260816
