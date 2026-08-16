@@ -9,6 +9,16 @@ import sys
 from pathlib import Path
 
 
+# These variables bind the top-level quality controller to an external trusted
+# Judge. They are controller authority, not application/test configuration, and
+# must not leak into pytest children that may invoke quality_loop.main() against
+# synthetic workspaces while exercising controller contracts.
+CONTROLLER_ONLY_ENV = (
+    "SKILL_JUDGE_ROOT",
+    "SKILL_JUDGE_TRUST_MODE",
+)
+
+
 def _can_import(python: Path, env: dict[str, str]) -> bool:
     try:
         return subprocess.run(
@@ -25,6 +35,8 @@ def _can_import(python: Path, env: dict[str, str]) -> bool:
 
 def _runtime(workspace: Path) -> tuple[Path, dict[str, str]] | None:
     base_env = os.environ.copy()
+    for key in CONTROLLER_ONLY_ENV:
+        base_env.pop(key, None)
     candidates = [
         Path(os.environ["QUALITY_AGENT_PYTHON"]).expanduser() if os.environ.get("QUALITY_AGENT_PYTHON") else None,
         workspace / "services/agent-service/.venv/bin/python",
