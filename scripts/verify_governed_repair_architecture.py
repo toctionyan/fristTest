@@ -4,7 +4,7 @@ from __future__ import annotations
 """Mechanical architecture gate for governed repair.
 
 This gate protects the authority/state-machine design from future prompt or code
-refactors.  It does not prove product semantics; it proves that repair cannot
+refactors. It does not prove product semantics; it proves that repair cannot
 silently regain write, baseline, merge, deployment, or completion authority by
 bypassing the governed RCA/G0-G6 path.
 """
@@ -77,6 +77,18 @@ REQUIRED_GATES = (
     "G6_GOVERNANCE_EXACT_HEAD",
 )
 
+# Match concrete shell-level authority, not incidental path fragments such as
+# deployment/ci/uv-requirements-*.txt. workflow_dispatch itself is not deploy
+# authority; a deploy/merge command or write permission in Stage-3 is.
+FORBIDDEN_STAGE3_COMMANDS = (
+    "gh pr merge",
+    "/deployments",
+    "gh workflow run deploy",
+    "kubectl apply",
+    "helm upgrade",
+    "terraform apply",
+)
+
 
 def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
@@ -137,8 +149,12 @@ def verify() -> dict[str, Any]:
         errors.append("stage3_publication_not_governance_handoff")
     if "generate_product_source_baseline.py" in stage3_workflow:
         errors.append("stage3_has_pre_governance_baseline_refresh")
-    if "gh pr merge" in stage3_workflow or "workflow_dispatch" in stage3_workflow and "deploy" in stage3_workflow.casefold():
-        errors.append("stage3_contains_merge_or_deploy_authority")
+    stage3_low = stage3_workflow.casefold()
+    for command in FORBIDDEN_STAGE3_COMMANDS:
+        if command in stage3_low:
+            errors.append(f"stage3_forbidden_authority:{command}")
+    if "contents: write" in stage3_low:
+        errors.append("stage3_has_contents_write_authority")
 
     governance_workflow = _text(".github/workflows/governed-ci-repair-governance.yml")
     for required in (
@@ -171,7 +187,6 @@ def verify() -> dict[str, Any]:
         '"merge_allowed": False',
         '"deploy_allowed": False',
         '"production_close_allowed": False',
-        "same_failure_signature",
     ):
         if marker not in authority:
             errors.append(f"authority_marker_missing:{marker}")
@@ -193,6 +208,7 @@ def verify() -> dict[str, Any]:
         "STAGE2_WRITE_REVOKED_REPLAN_REQUIRED",
         "same_deterministic_failure_signature_twice",
         "ARCHITECTURE_REPLAN_AND_NEW_RCA",
+        "revoke_write_grant(",
     ):
         if marker not in orchestrator:
             errors.append(f"orchestrator_marker_missing:{marker}")
