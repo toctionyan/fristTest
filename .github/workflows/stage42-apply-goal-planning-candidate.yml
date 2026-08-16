@@ -1,0 +1,73 @@
+name: stage42-apply-goal-planning-candidate
+
+on:
+  pull_request:
+    branches:
+      - fix/dependency-proof-authority-reducer-20260816
+    paths:
+      - scripts/stage42_apply_goal_planning_candidate.py
+      - .github/workflows/stage42-apply-goal-planning-candidate.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  apply-governed-product-write:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout carrier branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Assert active Stage 4.2 ChangePermit
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+          change = "repair-stage4-2-dependency-obligation-evidence-pipeline"
+          active = json.loads(Path("governance/active-change.json").read_text())
+          permit = json.loads((Path("governance/repair-cases") / change / "change-permit.json").read_text())
+          assert active["change_id"] == change
+          assert active["status"] == "implementing"
+          assert active["writer_role"] == "product-implementer"
+          assert permit["status"] == "ACTIVE"
+          assert active["repair_governance_permit_digest"] == permit["permit_digest"]
+          assert "services/agent-service/src/agent_core/lifecycle/goal_planning.py" in permit["allowed_paths"]
+          print(permit["permit_digest"])
+          PY
+
+      - name: Apply only the permitted goal-planning producer change
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B scripts/stage42_apply_goal_planning_candidate.py --workspace .
+          "${pythonLocation}/bin/python" -m py_compile services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          git diff --check -- services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          git diff -- services/agent-service/src/agent_core/lifecycle/goal_planning.py
+
+      - name: Commit only permitted product source
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          path="services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          git add "$path"
+          if git diff --cached --quiet; then
+            echo "Stage 4.2 goal-planning producer already applied."
+            exit 0
+          fi
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = "1"
+          test "$(git diff --cached --name-only)" = "$path"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Stage 4.2: materialize validated dependency obligation evidence"
+          git push origin "HEAD:${HEAD_REF}"
