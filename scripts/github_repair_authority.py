@@ -3,10 +3,10 @@ from __future__ import annotations
 
 """Machine authority for governed repair RCA and exact write grants.
 
-This module is intentionally deterministic.  It never calls a model and never
-edits the candidate workspace.  It binds a read-only RCA to one immutable
-failure case, then compiles an exact allow-list write grant.  Downstream patch
-and verification stages must validate the same digests before acting.
+This module is intentionally deterministic. It never calls a model and never
+edits the candidate workspace. It binds a read-only RCA to one immutable failure
+case, then compiles an exact allow-list write grant. Downstream patch and
+verification stages must validate the same digests before acting.
 """
 
 import hashlib
@@ -14,18 +14,16 @@ import json
 from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping
 
+from governed_repair_contract import (
+    CONTRACT_ID,
+    PREWRITE_STATES,
+    PROTECTED_AUTHORITY,
+    contract_fingerprint,
+)
+
 RCA_SCHEMA = "github-governed-repair-rca@1"
 WRITE_GRANT_SCHEMA = "github-governed-repair-write-grant@1"
 STATE_SCHEMA = "governed-repair-state@1"
-
-PREWRITE_STATES = (
-    "DETECTED",
-    "EVIDENCE_FROZEN",
-    "RCA_READ_ONLY",
-    "INVARIANT_BOUND",
-    "REPAIR_PLAN_FROZEN",
-    "WRITE_GRANTED",
-)
 
 REQUIRED_RCA_TEXT_FIELDS = (
     "failure_class",
@@ -241,11 +239,14 @@ def compile_write_grant(
             "write authority requires at least one existing machine guard from failed_gates"
         )
     binding = failure_binding(failure_case)
+    lifecycle_sha = contract_fingerprint()
     grant: dict[str, Any] = {
         "schema": WRITE_GRANT_SCHEMA,
         "state_schema": STATE_SCHEMA,
         "state": "WRITE_GRANTED",
         "state_history": list(PREWRITE_STATES),
+        "lifecycle_contract_id": CONTRACT_ID,
+        "lifecycle_contract_sha256": lifecycle_sha,
         "binding": binding,
         "failure_case_sha256": failure_case_fingerprint(failure_case),
         "rca_sha256": rca_fingerprint(rca),
@@ -254,17 +255,7 @@ def compile_write_grant(
         "write_scope_mode": "exact_allowlist",
         "authority": {
             "write_authority": True,
-            "scope_expansion_allowed": False,
-            "tests_oracles_write_allowed": False,
-            "workflow_write_allowed": False,
-            "governance_write_allowed": False,
-            "skill_control_plane_write_allowed": False,
-            "baseline_write_allowed": False,
-            "dependency_manifest_write_allowed": False,
-            "secret_write_allowed": False,
-            "merge_allowed": False,
-            "deploy_allowed": False,
-            "production_close_allowed": False,
+            **PROTECTED_AUTHORITY,
         },
         "invariant": str(rca["violated_invariant"]).strip(),
         "authority_owner": str(rca["authority_owner"]).strip(),
@@ -277,6 +268,7 @@ def compile_write_grant(
                 "evidence": [
                     f"failure-case:{failure_case_fingerprint(failure_case)}",
                     f"rca:{rca_fingerprint(rca)}",
+                    f"lifecycle-contract:{lifecycle_sha}",
                 ],
             }
         },
@@ -306,6 +298,10 @@ def validate_write_grant(
         raise RepairAuthorityError("write grant is not in WRITE_GRANTED state")
     if tuple(grant.get("state_history") or ()) != PREWRITE_STATES:
         raise RepairAuthorityError("write-grant state history drift")
+    if str(grant.get("lifecycle_contract_id") or "") != CONTRACT_ID:
+        raise RepairAuthorityError("write-grant lifecycle contract id drift")
+    if str(grant.get("lifecycle_contract_sha256") or "") != contract_fingerprint():
+        raise RepairAuthorityError("write-grant lifecycle contract fingerprint drift")
     if grant.get("write_scope_mode") != "exact_allowlist":
         raise RepairAuthorityError("write-grant scope mode is not exact_allowlist")
     if grant.get("production_closed") is not False:
@@ -350,17 +346,9 @@ def validate_write_grant(
     authority = grant.get("authority")
     if not isinstance(authority, dict) or authority.get("write_authority") is not True:
         raise RepairAuthorityError("write grant lacks write authority")
-    forbidden_true = [
-        key
-        for key, value in authority.items()
-        if key != "write_authority" and key.endswith("_allowed") and value is not False
-    ]
-    if forbidden_true:
-        raise RepairAuthorityError(
-            f"write grant expanded protected authority: {forbidden_true}"
-        )
-    if authority.get("scope_expansion_allowed") is not False:
-        raise RepairAuthorityError("write grant permits scope expansion")
+    expected_authority = {"write_authority": True, **PROTECTED_AUTHORITY}
+    if authority != expected_authority:
+        raise RepairAuthorityError("write grant protected authority drift")
 
     if str(grant.get("write_grant_sha256") or "") != write_grant_fingerprint(grant):
         raise RepairAuthorityError("write-grant fingerprint mismatch")
@@ -378,6 +366,8 @@ def revoke_write_grant(
     receipt = {
         "schema": "github-governed-repair-write-revocation@1",
         "state": "RCA_READ_ONLY",
+        "lifecycle_contract_id": CONTRACT_ID,
+        "lifecycle_contract_sha256": contract_fingerprint(),
         "prior_write_grant_sha256": write_grant_fingerprint(grant),
         "failure_signature": str(failure_signature or "").strip(),
         "reason": str(reason or "repeated_failure_signature").strip(),
