@@ -75,6 +75,7 @@ jobs:
         run: |
           set -o pipefail
           clean="${RUNNER_TEMP}/stage42-clean"
+          export PYTHONPATH="$clean/services/agent-service/src${PYTHONPATH:+:$PYTHONPATH}"
           cd "$clean"
           services/agent-service/.venv/bin/python -B -m pytest -q \
             services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
