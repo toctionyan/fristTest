@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Reconstruct exact clean governed candidate
+      - name: Reconstruct exact clean governed baseline workspace
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -41,15 +41,14 @@ jobs:
           mkdir -p "$clean/governance/repair-cases"
           cp -R "$case" "$clean/$case"
 
-          for path in \
-            services/agent-service/src/agent_core/goal_graph/dependency_alignment.py \
-            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
-            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
-            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py
-          do
-            mkdir -p "$clean/$(dirname "$path")"
-            cp "$path" "$clean/$path"
-          done
+          # The committed RED evidence was attested with the one-run local key
+          # from its original governed workspace.  Preserve its immutable
+          # identity for comparison, but do not copy/re-sign that evidence into
+          # a new trust domain.  Re-execute the frozen RED gate below instead.
+          cp "$clean/$case/evidence/quality-baseline/baseline-record.json" \
+            "${RUNNER_TEMP}/stage42-canonical-baseline-record.json"
+          rm -rf "$clean/$case/evidence/quality-baseline" \
+                 "$clean/$case/evidence/quality-verification"
 
           test "$(git -C "$clean" rev-parse HEAD)" = "$BASE_SHA"
           printf '%s\n' \
@@ -70,6 +69,78 @@ jobs:
 
       - name: Install locked Agent validation environment
         run: cd "${RUNNER_TEMP}/stage42-clean/services/agent-service" && uv sync --locked --all-groups
+
+      - name: Replay canonical RED baseline under the clean workspace trust key
+        run: |
+          set -uo pipefail
+          clean="${RUNNER_TEMP}/stage42-clean"
+          change="repair-stage4-2-dependency-obligation-evidence-pipeline"
+          case="governance/repair-cases/${change}"
+          replay=".quality/stage42-clean-baseline"
+          replay_state=".quality/stage42-clean-baseline-state"
+          cd "$clean"
+          rm -rf "$replay" "$replay_state"
+
+          set +e
+          services/agent-service/.venv/bin/python -B scripts/quality_loop.py \
+            --workspace-root "$clean" \
+            --mode quick \
+            --target "$case/quality-input/target.md" \
+            --policy "$case/quality-input/focused-policy.json" \
+            --evidence-dir "$replay" \
+            --state-dir "$replay_state" \
+            --baseline \
+            2>&1 | tee "${RUNNER_TEMP}/stage42-baseline-replay.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          test "$rc" -ne 0
+
+          CANONICAL_RECORD="${RUNNER_TEMP}/stage42-canonical-baseline-record.json" \
+          services/agent-service/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          replay = Path('.quality/stage42-clean-baseline')
+          summary = json.loads((replay / 'run-summary.json').read_text())
+          record = json.loads((replay / 'baseline-record.json').read_text())
+          canonical = json.loads(Path(os.environ['CANONICAL_RECORD']).read_text())
+
+          assert summary['run_kind'] == 'baseline', summary
+          assert summary['decision'] == 'FAIL', summary
+          assert summary['loop_status'] == 'BASELINE_RECORDED', summary
+          assert len(summary['results']) == 1, summary['results']
+          assert summary['results'][0]['id'] == 'stage42-red-proof', summary['results']
+          assert summary['results'][0]['status'] == 'FAIL', summary['results']
+          assert len(summary['claim_results']) == 1, summary['claim_results']
+          assert summary['claim_results'][0]['id'] == 'STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE'
+          assert summary['claim_results'][0]['status'] == 'FAILED', summary['claim_results']
+          assert record['target_identity'] == canonical['target_identity'], (record, canonical)
+          assert record['policy_fingerprint'] == canonical['policy_fingerprint'], (record, canonical)
+          assert record['workspace_snapshot_fingerprint'] == canonical['workspace_snapshot_fingerprint'], (record, canonical)
+          print(json.dumps({
+              'replay_decision': summary['decision'],
+              'replay_loop_status': summary['loop_status'],
+              'canonical_workspace_snapshot_fingerprint': canonical['workspace_snapshot_fingerprint'],
+              'replay_workspace_snapshot_fingerprint': record['workspace_snapshot_fingerprint'],
+              'claim_status': summary['claim_results'][0]['status'],
+          }, indent=2))
+          PY
+
+      - name: Overlay only the bounded Stage 4.2 candidate paths
+        run: |
+          set -euo pipefail
+          clean="${RUNNER_TEMP}/stage42-clean"
+          for path in \
+            services/agent-service/src/agent_core/goal_graph/dependency_alignment.py \
+            services/agent-service/src/agent_core/lifecycle/goal_planning.py \
+            services/agent-service/tests/runtime/test_dependency_alignment_authority.py \
+            services/agent-service/tests/runtime/test_dependency_obligation_evidence_pipeline.py
+          do
+            mkdir -p "$clean/$(dirname "$path")"
+            cp "$path" "$clean/$path"
+          done
+          git -C "$clean" status --short
 
       - name: Run focused Stage 4.2 and compatibility regressions
         run: |
@@ -97,7 +168,7 @@ jobs:
             --mode quick \
             --target "$case/quality-input/target.md" \
             --policy "$case/quality-input/focused-policy.json" \
-            --baseline-evidence "$case/evidence/quality-baseline" \
+            --baseline-evidence ".quality/stage42-clean-baseline" \
             --evidence-dir "$case/evidence/quality-verification" \
             --state-dir ".quality/product-code/${change}/state" \
             2>&1 | tee "${RUNNER_TEMP}/stage42-quality-transition.log"
@@ -110,12 +181,13 @@ jobs:
           assert summary["decision"] == "PASS", summary
           assert summary["loop_status"] == "CONVERGED", summary
           assert summary["run_kind"] == "verification", summary
-          assert summary["claim_results"] == [{
-              "id": "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE",
-              "status": "VERIFIED",
-              "required_gates": ["stage42-red-proof"],
-              "evidence_refs": ["gate-log:stage42-red-proof"],
-          }], summary["claim_results"]
+          claims = summary["claim_results"]
+          assert len(claims) == 1, claims
+          claim = claims[0]
+          assert claim["id"] == "STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE", claim
+          assert claim["status"] == "VERIFIED", claim
+          assert claim["required_gates"] == ["stage42-red-proof"], claim
+          assert claim["evidence_refs"] == ["gate-log:stage42-red-proof"], claim
           print(json.dumps({
               "decision": summary["decision"],
               "loop_status": summary["loop_status"],
@@ -133,9 +205,12 @@ jobs:
           out="${RUNNER_TEMP}/stage42-clean-verification"
           rm -rf "$out"
           mkdir -p "$out"
+          cp "${RUNNER_TEMP}/stage42-canonical-baseline-record.json" "$out/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}/stage42-baseline-replay.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/stage42-focused-pytest.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/stage42-quality-transition.log" "$out/" 2>/dev/null || true
           cp "${RUNNER_TEMP}/stage42-overlay-allowlist.txt" "$out/"
+          cp -R "$clean/.quality/stage42-clean-baseline" "$out/quality-baseline-replay" 2>/dev/null || true
           cp -R "$clean/governance/repair-cases/${change}/evidence/quality-verification" "$out/quality-verification" 2>/dev/null || true
           git -C "$clean" diff --check > "$out/diff-check.txt"
           git -C "$clean" status --short > "$out/worktree-status.txt"
