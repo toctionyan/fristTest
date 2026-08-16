@@ -3,9 +3,9 @@
 
 The base ingestion controller intentionally requires machine-readable failed-gate
 evidence before authorizing source repair. Some failures happen before the Quality
-Loop can upload ``run-summary.json``; the Skill control plane still emits an exact
-``product_source_changed:`` marker. This wrapper recognizes only that narrow marker,
-keeps changed-file metadata non-authoritative, and then delegates to the existing
+Loop can upload ``run-summary.json``; the Skill control plane still emits exact
+failure witnesses. This wrapper recognizes only narrow trusted witnesses, keeps
+changed-file metadata non-authoritative, and then delegates to the existing
 bounded ingestion controller.
 """
 from __future__ import annotations
@@ -13,16 +13,21 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 import github_failure_ingest as base
 
 PRODUCT_SOURCE_DRIFT_MARKER = "product_source_changed:"
 PRODUCT_SOURCE_ROOTS = ("services/", "web/", "contracts/")
+BASELINE_TEST_MARKER = "test_baseline_matches_current_git_tracked_protected_snapshot"
+BASELINE_COUNT_ASSERTION = re.compile(r"AssertionError:\s*(\d+)\s*!=\s*(\d+)")
 BRIDGE_PROTECTED_EXACT = {
     ".github/workflows/governed-ci-failure-sweeper.yml",
     ".github/workflows/governed-ci-failure-sweeper-wakeup.yml",
     ".github/workflows/governed-ci-stage2-auto-handoff.yml",
+    ".github/workflows/governed-ci-existing-candidate-adoption.yml",
+    ".github/workflows/governed-ci-existing-candidate-solo-governance.yml",
     "scripts/github_failure_ingest_control_plane.py",
     "scripts/github_failure_recovery_event.py",
     "scripts/github_failure_sweeper_event.py",
@@ -34,6 +39,8 @@ BRIDGE_PROTECTED_EXACT = {
     "scripts/github_repair_stage3_tree.py",
     "scripts/github_repair_stage3_publish.py",
     "scripts/github_repair_stage3_complete.py",
+    "scripts/github_existing_candidate_adoption.py",
+    "scripts/verify_existing_candidate_adoption_contract.py",
 }
 _ORIGINAL_SUMMARY_FAILURES = base._summary_failures
 
@@ -74,16 +81,66 @@ def _control_plane_failures(
     return rows
 
 
+def _protected_baseline_count_failures(
+    files: list[tuple[Path, str]],
+) -> list[dict[str, Any]]:
+    """Recognize baseline cardinality drift without inventing implicated source paths.
+
+    The baseline binding unittest may fail before it prints per-path differences.
+    A count mismatch is still conclusive governance evidence that the protected
+    snapshot and accepted registry differ, but it is intentionally *not* source
+    repair evidence.  Therefore this detector emits no implicated paths and can
+    never manufacture an automatic write candidate.
+    """
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[int, int]] = set()
+    for path, text in files:
+        if BASELINE_TEST_MARKER not in text:
+            continue
+        for match in BASELINE_COUNT_ASSERTION.finditer(text):
+            recorded = int(match.group(1))
+            current = int(match.group(2))
+            identity = (recorded, current)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            rows.append(
+                {
+                    "gate_id": "protected-product-source-baseline",
+                    "status": "FAIL",
+                    "category": "governance",
+                    "owner": "skill-control-plane",
+                    "failure_kind": "protected_baseline_drift",
+                    "summary": (
+                        "Protected product-source baseline file count differs from the "
+                        f"current tracked protected snapshot: recorded={recorded} current={current}"
+                    ),
+                    "implicated_paths": [],
+                    "evidence_source": path.name,
+                    "machine_envelope": False,
+                }
+            )
+    return rows
+
+
 def _summary_failures(
     files: list[tuple[Path, str]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     failures, excerpts = _ORIGINAL_SUMMARY_FAILURES(files)
     existing = {
-        (str(row.get("gate_id") or ""), str(row.get("summary") or ""))
+        (
+            str(row.get("gate_id") or ""),
+            str(row.get("failure_kind") or ""),
+            str(row.get("summary") or ""),
+        )
         for row in failures
     }
-    for row in _control_plane_failures(files):
-        identity = (str(row["gate_id"]), str(row["summary"]))
+    for row in [*_protected_baseline_count_failures(files), *_control_plane_failures(files)]:
+        identity = (
+            str(row.get("gate_id") or ""),
+            str(row.get("failure_kind") or ""),
+            str(row.get("summary") or ""),
+        )
         if identity not in existing:
             failures.append(row)
             existing.add(identity)
