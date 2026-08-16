@@ -54,7 +54,21 @@ def _git(workspace: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def _current_files(workspace: Path, roots: list[str]) -> dict[str, str]:
+def _recorded_paths_under_root(recorded: dict[str, str], root_name: str) -> list[str]:
+    normalized = root_name.rstrip("/")
+    prefix = normalized + "/"
+    return sorted(
+        path
+        for path in recorded
+        if path == normalized or path.startswith(prefix)
+    )
+
+
+def _current_files(
+    workspace: Path,
+    roots: list[str],
+    recorded: dict[str, str],
+) -> dict[str, str]:
     current: dict[str, str] = {}
     for raw in roots:
         name = str(raw or "").strip().replace("\\", "/")
@@ -62,7 +76,9 @@ def _current_files(workspace: Path, roots: list[str]) -> dict[str, str]:
             raise BaselineVerificationError(f"invalid protected root: {raw!r}")
         root = workspace / name
         if not root.is_dir():
-            raise BaselineVerificationError(f"protected root is missing: {name}")
+            if _recorded_paths_under_root(recorded, name):
+                raise BaselineVerificationError(f"protected root is missing: {name}")
+            continue
         for path in sorted(item for item in root.rglob("*") if item.is_file()):
             if any(part in IGNORED_PARTS for part in path.parts):
                 continue
@@ -84,7 +100,7 @@ def verify(workspace: Path, *, require_parent_binding: bool) -> dict[str, Any]:
         raise BaselineVerificationError("baseline files map is missing")
 
     recorded = {str(key): str(value) for key, value in files.items()}
-    current = _current_files(workspace, [str(item) for item in roots])
+    current = _current_files(workspace, [str(item) for item in roots], recorded)
     drift = sorted(
         path
         for path in set(recorded) | set(current)
