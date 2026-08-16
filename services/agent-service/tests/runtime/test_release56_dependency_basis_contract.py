@@ -9,8 +9,11 @@ import pytest
 from agent_core.goal_graph.dependency_basis_contract import (
     FINAL_DEPENDENCY_AUTHORITY,
     canonical_contract,
+    dependency_basis_conflicts_with_requested_outputs,
     mutation_detection_matrix,
     projection_manifest,
+    render_candidate_blind_dependency_rule,
+    render_dependency_format_repair_rule,
     verify_projection_manifest,
 )
 from agent_core.lifecycle.goal_planning import (
@@ -191,6 +194,61 @@ def test_projection_manifest_is_exact_and_provenanced() -> None:
     assert payload == projection_manifest()
     assert payload["authority_effect"] is False
     assert payload["final_dependency_authority"] == FINAL_DEPENDENCY_AUTHORITY
+    assert payload["rules"] == canonical_contract()["rules"]
+    assert payload["basis"] == canonical_contract()["basis"]
+
+
+def test_nested_rule_is_executable_source_for_behavior_and_prompt_projection() -> None:
+    canonical = canonical_contract()
+    mutated = canonical_contract()
+    mutated["rules"]["strict_nested_requested_output"] = "forbidden"
+
+    assert dependency_basis_conflicts_with_requested_outputs(
+        "它", ["它能不能退款"], payload=canonical
+    ) is False
+    assert dependency_basis_conflicts_with_requested_outputs(
+        "它", ["它能不能退款"], payload=mutated
+    ) is True
+    assert render_candidate_blind_dependency_rule(mutated) != render_candidate_blind_dependency_rule(
+        canonical
+    )
+    assert projection_manifest(mutated)["rules"]["strict_nested_requested_output"] == "forbidden"
+
+
+def test_equality_and_wrapper_rules_drive_structural_behavior() -> None:
+    canonical = canonical_contract()
+    equality_allowed = canonical_contract()
+    equality_allowed["rules"]["requested_output_equality"] = "allowed"
+    wrapper_allowed = canonical_contract()
+    wrapper_allowed["rules"]["requested_output_wrapper"] = "allowed"
+
+    assert dependency_basis_conflicts_with_requested_outputs(
+        "它能不能退款", ["它能不能退款"], payload=canonical
+    ) is True
+    assert dependency_basis_conflicts_with_requested_outputs(
+        "它能不能退款", ["它能不能退款"], payload=equality_allowed
+    ) is False
+    assert dependency_basis_conflicts_with_requested_outputs(
+        "看看它能不能退款", ["退款"], payload=canonical
+    ) is True
+    assert dependency_basis_conflicts_with_requested_outputs(
+        "看看它能不能退款", ["退款"], payload=wrapper_allowed
+    ) is False
+
+
+def test_independence_fallback_rule_drives_both_model_projections() -> None:
+    canonical = canonical_contract()
+    mutated = canonical_contract()
+    mutated["rules"]["no_valid_relation_only_basis"] = "dependent"
+
+    assert render_candidate_blind_dependency_rule(mutated) != render_candidate_blind_dependency_rule(
+        canonical
+    )
+    assert render_dependency_format_repair_rule(mutated) != render_dependency_format_repair_rule(
+        canonical
+    )
+    assert "relation=dependent" in render_candidate_blind_dependency_rule(mutated)
+    assert "relation=dependent" in render_dependency_format_repair_rule(mutated)
 
 
 def test_mutation_gate_detects_each_representative_drift() -> None:
