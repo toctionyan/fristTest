@@ -1,4 +1,4 @@
-name: release56-prompt-contract-patch
+name: release56-canonical-dependency-contract-migration
 
 on:
   push:
@@ -11,106 +11,214 @@ permissions:
   contents: write
 
 jobs:
-  patch:
+  migrate:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: repair/release56-dependency-verifier-nested-basis-contract-20260816
           fetch-depth: 0
-      - name: Apply exact Release 56 prompt-contract repair
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12.13'
+
+      - name: Materialize canonical contract and permanent guards
         shell: bash
+        env:
+          CONTRACT_B64: ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKIiIiQ2Fub25pY2FsIHN0cnVjdHVyYWwgY29udHJhY3QgZm9yIGN1cnJlbnQtdHVybiBHb2FsIGRlcGVuZGVuY3kgYmFzaXMgZXZpZGVuY2UuCgpUaGlzIG1vZHVsZSBvd25zIG9ubHkgdGhlIHN0cnVjdHVyYWwgbWVhbmluZyBvZiBkZXBlbmRlbmN5LWJhc2lzIGV2aWRlbmNlIGFuZCB0aGUKdGV4dCBwcm9qZWN0aW9ucyBjb25zdW1lZCBieSBzZW1hbnRpYyB2ZXJpZmllcnMuICBJdCBkZWxpYmVyYXRlbHkgaGFzIG5vIEFQSAoKdGhhdCBjYW4gd3JpdGUgYGBkZXBlbmRzX29uYGAgZWRnZXMuICBGaW5hbCBkZXBlbmRlbmN5IGF1dGhvcml0eSByZW1haW5zIHRoZQpleGlzdGluZyBkZXRlcm1pbmlzdGljIGRlcGVuZGVuY3ktcHJvb2YgcmVkdWNlci4KIiIiCgpmcm9tIGNvcHkgaW1wb3J0IGRlZXBjb3B5CmltcG9ydCBoYXNobGliCmltcG9ydCBqc29uCmZyb20gdHlwaW5nIGltcG9ydCBBbnksIEl0ZXJhYmxlLCBNYXBwaW5nCgpDT05UUkFDVF9TQ0hFTUEgPSAiZGVwZW5kZW5jeS1iYXNpcy1zdHJ1Y3R1cmFsLWNvbnRyYWN0QDEiCkNPTlRSQUNUX0lEID0gImN1c3RvbWVyLWFnZW50L2RlcGVuZGVuY3ktYmFzaXNAMEiCkZJTkFMX0RFUEVOREVOQ1lfQVVUSE9SSVRZID0gImRldGVybWluaXN0aWNfZGVwZW5kZW5jeV9wcm9vZl9yZWR1Y2VyIgpBTExPV0VEX0RFUEVOREVOQ1lfQkFTSVNfS0lORFMgPSBmcm96ZW5zZXQoCiAgICB7CiAgICAgICAgInJlc3VsdF9yZWZlcmVuY2UiLAogICAgICAgICJyZXN1bHRfY29uZGl0aW9uIiwKICAgICAgICAicmVzdWx0X3ZhbHVlX2lucHV0IiwKICAgIH0KKQoKX0NBTk9OSUNBTF9DT05UUkFDVDogZGljdFtzdHIsIEFueV0gPSB7CiAgICAic2NoZW1hIjogQ09OVFJBQ1RfU0NIRU1BLAogICAgImNvbnRyYWN0X2lkIjogQ09OVFJBQ1RfSUQsCiAgICAidmVyc2lvbiI6IDEsCiAgICAiYXV0aG9yaXR5IjogewogICAgICAgICJhdXRob3JpdHlfZWZmZWN0IjogRmFsc2UsCiAgICAgICAgImZpbmFsX2RlcGVuZGVuY3lfYXV0aG9yaXR5IjogRklOQUxfREVQRU5ERU5DWV9BVVRIT1JJVFksCiAgICB9LAogICAgImJhc2lzIjogewogICAgICAgICJhbGxvd2VkX2tpbmRzIjogc29ydGVkKEFMTE9XRURfREVQRU5ERU5DWV9CQVNJU19LSU5EUyksCiAgICAgICAgInJlbGF0aW9uX29ubHlfcmVxdWlyZWQiOiBUcnVlLAogICAgfSwKICAgICJydWxlcyI6IHsKICAgICAgICAic3RyaWN0X25lc3RlZF9yZXF1ZXN0ZWRfb3V0cHV0IjogImFsbG93ZWQiLAogICAgICAgICJyZXF1ZXN0ZWRfb3V0cHV0X2VxdWFsaXR5IjogImZvcmJpZGRlbiIsCiAgICAgICAgInJlcXVlc3RlZF9vdXRwdXRfd3JhcHBlciI6ICJmb3JiaWRkZW4iLAogICAgICAgICJub192YWxpZF9yZWxhdGlvbl9vbmx5X2Jhc2lzIjogImluZGVwZW5kZW50IiwKICAgIH0sCn0KCgpkZWYgY2Fub25pY2FsX2NvbnRyYWN0KCkgLT4gZGljdFtzdHIsIEFueV06CiAgICAiIiJSZXR1cm4gYSBkZXRhY2hlZCBjb3B5IHNvIGNhbGxlcnMgY2Fubm90IG11dGF0ZSBjYW5vbmljYWwgYXV0aG9yaXR5LiIiIgoKICAgIHJldHVybiBkZWVwY29weShfQ0FOT05JQ0FMX0NPTlRSQUNUKQoKCmRlZiBfY2Fub25pY2FsX2pzb24odmFsdWU6IE1hcHBpbmdbc3RyLCBBbnldKSAtPiBzdHI6CiAgICByZXR1cm4ganNvbi5kdW1wcygKICAgICAgICB2YWx1ZSwKICAgICAgICBlbnN1cmVfYXNjaWk9RmFsc2UsCiAgICAgICAgc29ydF9rZXlzPVRydWUsCiAgICAgICAgc2VwYXJhdG9ycz0oIiwiLCAiOiIpLAogICAgKQoKCmRlZiBjb250cmFjdF9maW5nZXJwcmludChwYXlsb2FkOiBNYXBwaW5nW3N0ciwgQW55XSB8IE5vbmUgPSBOb25lKSAtPiBzdHI6CiAgICB2YWx1ZSA9IF9DQU5PTklDQUxfQ09OVFJBQ1QgaWYgcGF5bG9hZCBpcyBOb25lIGVsc2UgcGF5bG9hZAogICAgcmV0dXJuIGhhc2hsaWIuc2hhMjU2KF9jYW5vbmljYWxfanNvbih2YWx1ZSkuZW5jb2RlKCJ1dGYtOCIpKS5oZXhkaWdlc3QoKQoKCmRlZiB2YWxpZGF0ZV9jb250cmFjdChwYXlsb2FkOiBNYXBwaW5nW3N0ciwgQW55XSB8IE5vbmUgPSBOb25lKSAtPiBsaXN0W3N0cl06CiAgICAiIiJGYWlsIGNsb3NlZCB3aGVuIGFueSBzZW1hbnRpYyBvciBhdXRob3JpdHkgZmllbGQgZHJpZnRzLiIiIgoKICAgIHZhbHVlID0gX0NBTk9OSUNBTF9DT05UUkFDVCBpZiBwYXlsb2FkIGlzIE5vbmUgZWxzZSBkaWN0KHBheWxvYWQpCiAgICBlcnJvcnM6IGxpc3Rbc3RyXSA9IFtdCiAgICBpZiB2YWx1ZSAhPSBfQ0FOT05JQ0FMX0NPTlRSQUNUOgogICAgICAgIGVycm9ycy5hcHBlbmQoImNhbm9uaWNhbF9jb250cmFjdF9kcmlmdCIpCgogICAgYXV0aG9yaXR5ID0gdmFsdWUuZ2V0KCJhdXRob3JpdHkiKSBpZiBpc2luc3RhbmNlKHZhbHVlLmdldCgiYXV0aG9yaXR5IiksIGRpY3QpIGVsc2Uge30KICAgIGlmIGF1dGhvcml0eS5nZXQoImF1dGhvcml0eV9lZmZlY3QiKSBpcyBub3QgRmFsc2U6CiAgICAgICAgZXJyb3JzLmFwcGVuZCgiY2Fub25pY2FsX2NvbnRyYWN0X2dhaW5lZF9hdXRob3JpdHkiKQogICAgaWYgYXV0aG9yaXR5LmdldCgiZmluYWxfZGVwZW5kZW5jeV9hdXRob3JpdHkiKSAhPSBGSU5BTF9ERVBFTkRFTkNZX0FVVEhPUklUWToKICAgICAgICBlcnJvcnMuYXBwZW5kKCJmaW5hbF9kZXBlbmRlbmN5X2F1dGhvcml0eV9kcmlmdCIpCgogICAgYmFzaXMgPSB2YWx1ZS5nZXQoImJhc2lzIikgaWYgaXNpbnN0YW5jZSh2YWx1ZS5nZXQoImJhc2lzIiksIGRpY3QpIGVsc2Uge30KICAgIGlmIGJhc2lzLmdldCgiYWxsb3dlZF9raW5kcyIpICE9IHNvcnRlZChBTExPV0VEX0RFUEVOREVOQ1lfQkFTSVNfS0lORFMpOgogICAgICAgIGVycm9ycy5hcHBlbmQoImJhc2lzX2tpbmRfY29udHJhY3RfZHJpZnQiKQogICAgaWYgYmFzaXMuZ2V0KCJyZWxhdGlvbl9vbmx5X3JlcXVpcmVkIikgaXMgbm90IFRydWU6CiAgICAgICAgZXJyb3JzLmFwcGVuZCgicmVsYXRpb25fb25seV9yZXF1aXJlbWVudF9kcmlmdCIpCgogICAgcnVsZXMgPSB2YWx1ZS5nZXQoInJ1bGVzIikgaWYgaXNpbnN0YW5jZSh2YWx1ZS5nZXQoInJ1bGVzIiksIGRpY3QpIGVsc2Uge30KICAgIGV4cGVjdGVkX3J1bGVzID0gX0NBTk9OSUNBTF9DT05UUkFDVFsicnVsZXMiXQogICAgZm9yIGtleSwgZXhwZWN0ZWQgaW4gZXhwZWN0ZWRfcnVsZXMuaXRlbXMoKToKICAgICAgICBpZiBydWxlcy5nZXQoa2V5KSAhPSBleHBlY3RlZDoKICAgICAgICAgICAgZXJyb3JzLmFwcGVuZChmInJ1bGVfZHJpZnQ6e2tleX0iKQogICAgcmV0dXJuIGxpc3QoZGljdC5mcm9ta2V5cyhlcnJvcnMpKQoKCmRlZiBkZXBlbmRlbmN5X2Jhc2lzX2NvbmZsaWN0c193aXRoX3JlcXVlc3RlZF9vdXRwdXRzKAogICAgYmFzaXNfc3Bhbjogc3RyLAogICAgcmVxdWVzdGVkX291dHB1dF9zcGFuczogSXRlcmFibGVbc3RyXSwKKSAtPiBib29sOgogICAgIiIiUmV0dXJuIFRydWUgb25seSBmb3IgZXF1YWxpdHkgb3IgYSBiYXNpcyB0aGF0IHdyYXBzIHJlcXVlc3RlZCBvdXRwdXQuCgogICAgQSBzdHJpY3RseSBzbWFsbGVyIGxpdGVyYWwgcmVsYXRpb24tb25seSBiYXNpcyBtYXkgYmUgbmVzdGVkIGluc2lkZSBhIGJyb2FkZXIKICAgIHJlcXVlc3RlZC1vdXRwdXQgc3Bhbi4gIFdoZXRoZXIgdGhlIGJhc2lzIGlzICpzZW1hbnRpY2FsbHkqIHJlbGF0aW9uLW9ubHkgaXMKICAgIHN0aWxsIGp1ZGdlZCBieSB0aGUgc2VtYW50aWMgdmVyaWZpZXI7IHRoaXMgZnVuY3Rpb24gcGVyZm9ybXMgb25seSB0aGUKICAgIGNhbm9uaWNhbCBzdHJ1Y3R1cmFsIGNvbnRhaW5tZW50IGNoZWNrLgogICAgIiIiCgogICAgYmFzaXMgPSBzdHIoYmFzaXNfc3BhbiBvciAiIikuc3RyaXAoKQogICAgaWYgbm90IGJhc2lzOgogICAgICAgIHJldHVybiBGYWxzZQogICAgZm9yIHJhdyBpbiByZXF1ZXN0ZWRfb3V0cHV0X3NwYW5zOgogICAgICAgIG91dHB1dCA9IHN0cihyYXcgb3IgIiIpLnN0cmlwKCkKICAgICAgICBpZiBub3Qgb3V0cHV0OgogICAgICAgICAgICBjb250aW51ZQogICAgICAgIGlmIGJhc2lzID09IG91dHB1dCBvciBvdXRwdXQgaW4gYmFzaXM6CiAgICAgICAgICAgIHJldHVybiBUcnVlCiAgICByZXR1cm4gRmFsc2UKCgpkZWYgX3Byb2plY3Rpb25fcHJvdmVuYW5jZSgpIC0+IHN0cjoKICAgIHJldHVybiBmIltjb250cmFjdD17Q09OVFJBQ1RfSUR9IHNoYTI1Nj17Y29udHJhY3RfZmluZ2VycHJpbnQoKX1dIgoKCmRlZiByZW5kZXJfY2FuZGlkYXRlX2JsaW5kX2RlcGVuZGVuY3lfcnVsZSgpIC0+IHN0cjoKICAgICIiIlJlbmRlciB0aGUgY2Fub25pY2FsIGRlcGVuZGVuY3kgcnVsZSBmb3IgdGhlIGJsaW5kIHNlbWFudGljIHZlcmlmaWVyLiIiIgoKICAgIHJldHVybiAoCiAgICAgICAgZiJ7X3Byb2plY3Rpb25fcHJvdmVuYW5jZSgpfSAiCiAgICAgICAgImRlcGVuZGVuY3kgYmFzaXMgZXZpZGVuY2UgbXVzdCBpZGVudGlmeSBvbmx5IHRoZSByZXN1bHQtcmVmZXJlbmNlLCAiCiAgICAgICAgInJlc3VsdC1jb25kaXRpb24gb3IgcmVzdWx0LXZhbHVlLWlucHV0IHJlbGF0aW9uIGl0c2VsZjsgdCBtdXN0IGJlICIKICAgICAgICAicmVsYXRpb24tb25seSwgbXVzdCBub3QgZXF1YWwgYSByZXF1ZXN0ZWQtb3V0cHV0IGV2aWRlbmNlIHNwYW4sIGFuZCAiCiAgICAgICAgIm11c3Qgbm90IHdyYXAgYSByZXF1ZXN0ZWQtb3V0cHV0IGV2aWRlbmNlIHNwYW4gd2l0aCBhY3Rpb24vY29udHJvbCB3b3JkaW5nLiAiCiAgICAgICAgIkEgc3RyaWN0bHkgc21hbGxlciByZWxhdGlvbi1vbmx5IGxpdGVyYWwgYmFzaXMgbmVzdGVkIGluc2lkZSBhIGJyb2FkZXIgIgogICAgICAgICJyZXF1ZXN0ZWQtb3V0cHV0IGV2aWRlbmNlIHNwYW4gaXMgYWRtaXNzaWJsZSBiZWNhdXNlIHRoZSBiYXNpcyBpdHNlbGYgIgogICAgICAgICJkZW5vdGVzIG9ubHkgdGhlIHJlc3VsdC1yZWZlcmVuY2UsIHJlc3VsdC1jb25kaXRpb24gb3IgcmVzdWx0LXZhbHVlLWlucHV0ICIKICAgICAgICAicmVsYXRpb247IHVzZSB0aGUgc21hbGxlc3Qgc3VjaCBsaXRlcmFsIGJhc2lzIHdoZW4gb25lIGV4aXN0cywgb3RoZXJ3aXNlICIKICAgICAgICAidGhlIHBhaXIgaXMgaW5kZXBlbmRlbnQiCiAgICApCgoKZGVmIHJlbmRlcl9kZXBlbmRlbmN5X2Zvcm1hdF9yZXBhaXJfcnVsZSgpIC0+IHN0cjoKICAgICIiIlJlbmRlciB0aGUgc2FtZSBjYW5vbmljYWwgcnVsZSBmb3Igc3RydWN0dXJlZC1vdXRwdXQgZm9ybWF0IHJlcGFpci4iIiIKCiAgICByZXR1cm4gKAogICAgICAgIGYiIntfcHJvamVjdGlvbl9wcm92ZW5hbmNlKCl9ICIKICAgICAgICAiVGhlIGJhc2lzIG11c3QgYmUgcmVsYXRpb24tb25seSwgbXVzdCBub3QgZXF1YWwgYSByZXF1ZXN0ZWQtb3V0cHV0IGV2aWRlbmNlICIKICAgICAgICAic3BhbiwgYW5kIG11c3Qgbm90IHdyYXAgYSByZXF1ZXN0ZWQtb3V0cHV0IGV2aWRlbmNlIHNwYW4gd2l0aCBhY3Rpb24vY29udHJvbCAiCiAgICAgICAgIndvcmRpbmc7IGEgc3RyaWN0bHkgc21hbGxlciByZWxhdGlvbi1vbmx5IGxpdGVyYWwgYmFzaXMgbmVzdGVkIGluc2lkZSBhICIKICAgICAgICAiYnJvYWRlciByZXF1ZXN0ZWQtb3V0cHV0IGV2aWRlbmNlIHNwYW4gaXMgYWRtaXNzaWJsZS4gSWYgbm8gdmFsaWQgIgogICAgICAgICJyZWxhdGlvbi1vbmx5IGJhc2lzIGV4aXN0cyB1bmRlciB0aG9zZSBydWxlcywgcmV0dXJuIHJlbGF0aW9uPWluZGVwZW5kZW50LiIKICAgICkKCgpkZWYgcHJvamVjdGlvbl9tYW5pZmVzdCgpIC0+IGRpY3Rbc3RyLCBBbnldOgogICAgIiIiRGV0ZXJtaW5pc3RpYyBwcm92ZW5hbmNlIHJlY29yZCBmb3IgZXZlcnkgc2VtYW50aWMgdGV4dCBwcm9qZWN0aW9uLiIiIgoKICAgIHJldHVybiB7CiAgICAgICAgInNjaGVtYSI6ICJkZXBlbmRlbmN5LWJhc2lzLXByb2plY3Rpb24tbWFuaWZlc3RAMSIsCiAgICAgICAgImNvbnRyYWN0X2lkIjogQ09OVFJBQ1RfSUQsCiAgICAgICAgImNvbnRyYWN0X3NoYTI1NiI6IGNvbnRyYWN0X2ZpbmdlcnByaW50KCksCiAgICAgICAgImZpbmFsX2RlcGVuZGVuY3lfYXV0aG9yaXR5IjogRklOQUxfREVQRU5ERU5DWV9BVVRIT1JJVFksCiAgICAgICAgImF1dGhvcml0eV9lZmZlY3QiOiBGYWxzZSwKICAgICAgICAicHJvamVjdGlvbnMiOiB7CiAgICAgICAgICAgICJjYW5kaWRhdGVfYmxpbmRfZGVwZW5kZW5jeV9ydWxlIjogcmVuZGVyX2NhbmRpZGF0ZV9ibGluZF9kZXBlbmRlbmN5X3J1bGUoKSwKICAgICAgICAgICAgImZvcm1hdF9yZXBhaXJfZGVwZW5kZW5jeV9ydWxlIjogcmVuZGVyX2RlcGVuZGVuY3lfZm9ybWF0X3JlcGFpcl9ydWxlKCksCiAgICAgICAgfSwKICAgIH0KCgpkZWYgdmVyaWZ5X3Byb2plY3Rpb25fbWFuaWZlc3QocGF5bG9hZDogTWFwcGluZ1tzdHIsIEFueV0pIC0+IGJvb2w6CiAgICByZXR1cm4gZGljdChwYXlsb2FkKSA9PSBwcm9qZWN0aW9uX21hbmlmZXN0KCkKCgpkZWYgbXV0YXRpb25fZGV0ZWN0aW9uX21hdHJpeCgpIC0+IGRpY3Rbc3RyLCBib29sXToKICAgICIiIlByb3ZlIHRoZSBndWFyZHMgcmVqZWN0IHJlcHJlc2VudGF0aXZlIHNlbWFudGljL2F1dGhvcml0eSBkcmlmdC4iIiIKCiAgICByZXN1bHRzOiBkaWN0W3N0ciwgYm9vbF0gPSB7fQoKICAgIGNvbnRyYWN0X211dGF0aW9ucyA9IHsKICAgICAgICAibmVzdGVkX3J1bGVfZmxpcHBlZCI6ICgicnVsZXMiLCAic3RyaWN0X25lc3RlZF9yZXF1ZXN0ZWRfb3V0cHV0IiwgImZvcmJpZGRlbiIpLAogICAgICAgICJlcXVhbGl0eV9ydWxlX2ZsaXBwZWQiOiAoInJ1bGVzIiwgInJlcXVlc3RlZF9vdXRwdXRfZXF1YWxpdHkiLCAiYWxsb3dlZCIpLAogICAgICAgICJ3cmFwcGVyX3J1bGVfZmxpcHBlZCI6ICgicnVsZXMiLCAicmVxdWVzdGVkX291dHB1dF93cmFwcGVyIiwgImFsbG93ZWQiKSwKICAgICAgICAicmVsYXRpb25fb25seV9kaXNhYmxlZCI6ICgiYmFzaXMiLCAicmVsYXRpb25fb25seV9yZXF1aXJlZCIsIEZhbHNlKSwKICAgICAgICAiYXV0aG9yaXR5X2NoYW5nZWQiOiAoCiAgICAgICAgICAgICJhdXRob3JpdHkiLAogICAgICAgICAgICAiZmluYWxfZGVwZW5kZW5jeV9hdXRob3JpdHkiLAogICAgICAgICAgICAibW9kZWxfZ29hbF9hbGlnbm1lbnRfdmVyaWZpZXIiLAogICAgICAgICksCiAgICAgICAgImF1dGhvcml0eV9lZmZlY3RfZW5hYmxlZCI6ICgiYXV0aG9yaXR5IiwgImF1dGhvcml0eV9lZmZlY3QiLCBUcnVlKSwKICAgIH0KICAgIGZvciBuYW1lLCAoc2VjdGlvbiwgZmllbGQsIHZhbHVlKSBpbiBjb250cmFjdF9tdXRhdGlvbnMuaXRlbXMoKToKICAgICAgICBtdXRhdGVkID0gY2Fub25pY2FsX2NvbnRyYWN0KCkKICAgICAgICBtdXRhdGVkW3NlY3Rpb25dW2ZpZWxkXSA9IHZhbHVlCiAgICAgICAgcmVzdWx0c1tuYW1lXSA9IGJvb2wodmFsaWRhdGVfY29udHJhY3QobXV0YXRlZCkpCgogICAgbWFuaWZlc3QgPSBwcm9qZWN0aW9uX21hbmlmZXN0KCkKICAgIGRyaWZ0ZWRfdGV4dCA9IGRlZXBjb3B5KG1hbmlmZXN0KQogICAgZHJpZnRlZF90ZXh0WyJwcm9qZWN0aW9ucyJdWyJjYW5kaWRhdGVfYmxpbmRfZGVwZW5kZW5jeV9ydWxlIl0gKz0gIiBEUklGVCIKICAgIHJlc3VsdHNbInByb2plY3Rpb25fdGV4dF9kcmlmdCJdID0gbm90IHZlcmlmeV9wcm9qZWN0aW9uX21hbmlmZXN0KGRyaWZ0ZWRfdGV4dCkKCiAgICBkcmlmdGVkX2hhc2ggPSBkZWVwY29weShtYW5pZmVzdCkKICAgIGRyaWZ0ZWRfaGFzaFsiY29udHJhY3Rfc2hhMjU2Il0gPSAiMCIgKiA2NAogICAgcmVzdWx0c1sicHJvamVjdGlvbl9oYXNoX2RyaWZ0Il0gPSBub3QgdmVyaWZ5X3Byb2plY3Rpb25fbWFuaWZlc3QoZHJpZnRlZF9oYXNoKQoKICAgIHJldHVybiByZXN1bHRzCg==
+          VERIFIER_B64: IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwpmcm9tIF9fZnV0dXJlX18gaW1wb3J0IGFubm90YXRpb25zCgoiIiJGYWlsLWNsb3NlZCB2ZXJpZmllciBmb3IgdGhlIGNhbm9uaWNhbCBkZXBlbmRlbmN5LWJhc2lzIGNvbnRyYWN0LiIiIgppbXBvcnQgYXJncGFyc2UKaW1wb3J0IGFzdAppbXBvcnQganNvbgpmcm9tIHBhdGhsaWIgaW1wb3J0IFBhdGgKaW1wb3J0IHN5cwpmcm9tIHR5cGluZyBpbXBvcnQgQW55CgpST09UID0gUGF0aChfX2ZpbGVfXykucmVzb2x2ZSgpLnBhcmVudHNbMV0KQUdFTlRfU1JDID0gUk9PVCAvICJzZXJ2aWNlcyIgLyAiYWdlbnQtc2VydmljZSIgLyAic3JjIgppZiBzdHIoQUdFTlRfU1JDKSBub3QgaW4gc3lzLnBhdGg6CiAgICBzeXMucGF0aC5pbnNlcnQoMCwgc3RyKEFHRU5UX1NSQykpCgpmcm9tIGFnZW50X2NvcmUuZ29hbF9ncmFwaC5kZXBlbmRlbmN5X2Jhc2lzX2NvbnRyYWN0IGltcG9ydCAoICAjIG5vcWE6IEU0MDIKICAgIENPTlRSQUNUX0lELAogICAgRklOQUxfREVQRU5ERU5DWV9BVVRIT1JJVFksCiAgICBjb250cmFjdF9maW5nZXJwcmludCwKICAgIG11dGF0aW9uX2RldGVjdGlvbl9tYXRyaXgsCiAgICBwcm9qZWN0aW9uX21hbmlmZXN0LAogICAgdmFsaWRhdGVfY29udHJhY3QsCiAgICB2ZXJpZnlfcHJvamVjdGlvbl9tYW5pZmVzdCwKKQoKTUFOSUZFU1QgPSBST09UIC8gImNvbnRyYWN0cyIgLyAiZ2VuZXJhdGVkIiAvICJkZXBlbmRlbmN5LWJhc2lzLXByb2plY3Rpb25zLmpzb24iCkdPQUxfUExBTk5JTkcgPSAoCiAgICBST09UCiAgICAvICJzZXJ2aWNlcyIKICAgIC8gImFnZW50LXNlcnZpY2UiCiAgICAvICJzcmMiCiAgICAvICJhZ2VudF9jb3JlIgogICAgLyAibGlmZWN5Y2xlIgogICAgLyAiZ29hbF9wbGFubmluZy5weSIKKQoKX1NUQUxFX1BIUkFTRVMgPSAoCiAgICAibXVzdCBiZSBkaXNqb2ludCBmcm9tIHRoZSBkZXBlbmRlbnQgR29hbCByZXF1ZXN0ZWRfb3V0cHV0cyBldmlkZW5jZSBzcGFucyIsCiAgICAiaWYgbm8gZGlzam9pbnQgcmVsYXRpb24tb25seSBiYXNpcyBleGlzdHMiLAopCgoKZGVmIF9mdW5jdGlvbl9zb3VyY2Uoc291cmNlOiBzdHIsIG5hbWU6IHN0cikgLT4gc3RyOgogICAgdHJlZSA9IGFzdC5wYXJzZShzb3VyY2UpCiAgICBmb3Igbm9kZSBpbiBhc3Qud2Fsayh0cmVlKToKICAgICAgICBpZiBpc2luc3RhbmNlKG5vZGUsIChhc3QuRnVuY3Rpb25EZWYsIGFzdC5Bc3luY0Z1bmN0aW9uRGVmKSkgYW5kIG5vZGUubmFtZSA9PSBuYW1lOgogICAgICAgICAgICBzZWdtZW50ID0gYXN0LmdldF9zb3VyY2Vfc2VnbWVudChzb3VyY2UsIG5vZGUpCiAgICAgICAgICAgIGlmIHNlZ21lbnQ6CiAgICAgICAgICAgICAgICByZXR1cm4gc2VnbWVudAogICAgcmFpc2UgVmFsdWVFcnJvcihmImZ1bmN0aW9uIG5vdCBmb3VuZDoge25hbWV9IikKCgpkZWYgdmVyaWZ5KCkgLT4gZGljdFtzdHIsIEFueV06CiAgICBlcnJvcnMgPSBsaXN0KHZhbGlkYXRlX2NvbnRyYWN0KCkpCiAgICBzb3VyY2UgPSBHT0FMX1BMQU5OSU5HLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKQogICAgYXN0LnBhcnNlKHNvdXJjZSkKCiAgICBmb3IgcGhyYXNlIGluIF9TVEFMRV9QSFJBU0VTOgogICAgICAgIGlmIHBocmFzZSBpbiBzb3VyY2U6CiAgICAgICAgICAgIGVycm9ycy5hcHBlbmQoZiJzdGFsZV9wcm9qZWN0aW9uX3RleHQ6e3BocmFzZX0iKQoKICAgIGZvciByZW5kZXJlciBpbiAoCiAgICAgICAgInJlbmRlcl9jYW5kaWRhdGVfYmxpbmRfZGVwZW5kZW5jeV9ydWxlIiwKICAgICAgICAicmVuZGVyX2RlcGVuZGVuY3lfZm9ybWF0X3JlcGFpcl9ydWxlIiwKICAgICk6CiAgICAgICAgaWYgcmVuZGVyZXIgbm90IGluIHNvdXJjZToKICAgICAgICAgICAgZXJyb3JzLmFwcGVuZChmIm1pc3NpbmdfcHJvamVjdGlvbl9yZW5kZXJlcjp7cmVuZGVyZXJ9IikKCiAgICBvdmVybGFwX3NvdXJjZSA9IF9mdW5jdGlvbl9zb3VyY2UoCiAgICAgICAgc291cmNlLAogICAgICAgICJfZGVwZW5kZW5jeV9iYXNpc19vdmVybGFwc19yZXF1ZXN0ZWRfb3V0cHV0IiwKICAgICkKICAgIGlmICJkZXBlbmRlbmN5X2Jhc2lzX2NvbmZsaWN0c193aXRoX3JlcXVlc3RlZF9vdXRwdXRzIiBub3QgaW4gb3ZlcmxhcF9zb3VyY2U6CiAgICAgICAgZXJyb3JzLmFwcGVuZCgic3RydWN0dXJhbF9wcm9qZWN0aW9uX25vdF9kZWxlZ2F0ZWQiKQogICAgaWYgImJhc2lzID09IG91dHB1dF9zcGFuIiBpbiBvdmVybGFwX3NvdXJjZSBvciAib3V0cHV0X3NwYW4gaW4gYmFzaXMiIGluIG92ZXJsYXBfc291cmNlOgogICAgICAgIGVycm9ycy5hcHBlbmQoImR1cGxpY2F0ZWRfc3RydWN0dXJhbF9zZW1hbnRpY3MiKQoKICAgIG1hbmlmZXN0X3BheWxvYWQ6IGRpY3Rbc3RyLCBBbnldIHwgTm9uZSA9IE5vbmUKICAgIGlmIG5vdCBNQU5JRkVTVC5pc19maWxlKCk6CiAgICAgICAgZXJyb3JzLmFwcGVuZCgicHJvamVjdGlvbl9tYW5pZmVzdF9taXNzaW5nIikKICAgIGVsc2U6CiAgICAgICAgbG9hZGVkID0ganNvbi5sb2FkcyhNQU5JRkVTVC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikpCiAgICAgICAgaWYgbm90IGlzaW5zdGFuY2UobG9hZGVkLCBkaWN0KToKICAgICAgICAgICAgZXJyb3JzLmFwcGVuZCgicHJvamVjdGlvbl9tYW5pZmVzdF9ub3Rfb2JqZWN0IikKICAgICAgICBlbHNlOgogICAgICAgICAgICBtYW5pZmVzdF9wYXlsb2FkID0gbG9hZGVkCiAgICAgICAgICAgIGlmIG5vdCB2ZXJpZnlfcHJvamVjdGlvbl9tYW5pZmVzdChsb2FkZWQpOgogICAgICAgICAgICAgICAgZXJyb3JzLmFwcGVuZCgicHJvamVjdGlvbl9tYW5pZmVzdF9kcmlmdCIpCgogICAgbXV0YXRpb25zID0gbXV0YXRpb25fZGV0ZWN0aW9uX21hdHJpeCgpCiAgICBmb3IgbXV0YXRpb24sIGRldGVjdGVkIGluIG11dGF0aW9ucy5pdGVtcygpOgogICAgICAgIGlmIGRldGVjdGVkIGlzIG5vdCBUcnVlOgogICAgICAgICAgICBlcnJvcnMuYXBwZW5kKGYibXV0YXRpb25fbm90X2RldGVjdGVkOnttdXRhdGlvbn0iKQoKICAgIHJldHVybiB7CiAgICAgICAgInN0YXR1cyI6ICJQQVNTIiBpZiBub3QgZXJyb3JzIGVsc2UgIkZBSUwiLAogICAgICAgICJmYWlsdXJlX2tpbmQiOiBOb25lIGlmIG5vdCBlcnJvcnMgZWxzZSAiZGVwZW5kZW5jeV9jb250cmFjdF9kcmlmdCIsCiAgICAgICAgImNvbnRyYWN0X2lkIjogQ09OVFJBQ1RfSUQsCiAgICAgICAgImNvbnRyYWN0X3NoYTI1NiI6IGNvbnRyYWN0X2ZpbmdlcnByaW50KCksCiAgICAgICAgImZpbmFsX2RlcGVuZGVuY3lfYXV0aG9yaXR5IjogRklOQUxfREVQRU5ERU5DWV9BVVRIT1JJVFksCiAgICAgICAgImF1dGhvcml0eV9lZmZlY3QiOiBGYWxzZSwKICAgICAgICAicHJvamVjdGlvbl9tYW5pZmVzdCI6IE1BTklGRVNULnJlbGF0aXZlX3RvKFJPT1QpLmFzX3Bvc2l4KCksCiAgICAgICAgIm1hbmlmZXN0X2xvYWRlZCI6IG1hbmlmZXN0X3BheWxvYWQgaXMgbm90IE5vbmUsCiAgICAgICAgIm11dGF0aW9uX2RldGVjdGlvbiI6IG11dGF0aW9ucywKICAgICAgICAiZXJyb3JzIjogZXJyb3JzLAogICAgfQoKCmRlZiBtYWluKCkgLT4gaW50OgogICAgcGFyc2VyID0gYXJncGFyc2UuQXJndW1lbnRQYXJzZXIoKQogICAgcGFyc2VyLmFkZF9hcmd1bWVudCgiLS13cml0ZS1tYW5pZmVzdCIsIGFjdGlvbj0ic3RvcmVfdHJ1ZSIpCiAgICBhcmdzID0gcGFyc2VyLnBhcnNlX2FyZ3MoKQoKICAgIGlmIGFyZ3Mud3JpdGVfbWFuaWZlc3Q6CiAgICAgICAgTUFOSUZFU1QucGFyZW50Lm1rZGlyKHBhcmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgICAgICBNQU5JRkVTVC53cml0ZV90ZXh0KAogICAgICAgICAgICBqc29uLmR1bXBzKAogICAgICAgICAgICAgICAgcHJvamVjdGlvbl9tYW5pZmVzdCgpLAogICAgICAgICAgICAgICAgZW5zdXJlX2FzY2lpPUZhbHNlLAogICAgICAgICAgICAgICAgaW5kZW50PTIsCiAgICAgICAgICAgICAgICBzb3J0X2tleXM9VHJ1ZSwKICAgICAgICAgICAgKQogICAgICAgICAgICArICJcbiIsCiAgICAgICAgICAgIGVuY29kaW5nPSJ1dGYtOCIsCiAgICAgICAgKQoKICAgIHRyeToKICAgICAgICByZXN1bHQgPSB2ZXJpZnkoKQogICAgZXhjZXB0IChPU0Vycm9yLCBWYWx1ZUVycm9yLCBqc29uLkpTT05EZWNvZGVFcnJvciwgU3ludGF4RXJyb3IpIGFzIGV4YzoKICAgICAgICByZXN1bHQgPSB7CiAgICAgICAgICAgICJzdGF0dXMiOiAiRkFJTCIsCiAgICAgICAgICAgICJmYWlsdXJlX2tpbmQiOiAiZGVwZW5kZW5jeV9jb250cmFjdF92ZXJpZmllcl9mYWlsdXJlIiwKICAgICAgICAgICAgImVycm9ycyI6IFtzdHIoZXhjKV0sCiAgICAgICAgfQogICAgcHJpbnQoanNvbi5kdW1wcyhyZXN1bHQsIGVuc3VyZV9hc2NpaT1GYWxzZSwgaW5kZW50PTIsIHNvcnRfa2V5cz1UcnVlKSkKICAgIHJldHVybiAwIGlmIHJlc3VsdC5nZXQoInN0YXR1cyIpID09ICJQQVNTIiBlbHNlIDEKCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgogICAgcmFpc2UgU3lzdGVtRXhpdChtYWluKCkpCg==
+          TEST_B64: ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKaW1wb3J0IGluc3BlY3QKaW1wb3J0IGpzb24KZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgppbXBvcnQgcHl0ZXN0Cgpmcm9tIGFnZW50X2NvcmUuZ29hbF9ncmFwaC5kZXBlbmRlbmN5X2Jhc2lzX2NvbnRyYWN0IGltcG9ydCAoCiAgICBGSU5BTF9ERVBFTkRFTkNZX0FVVEhPUklUWSwKICAgIGNhbm9uaWNhbF9jb250cmFjdCwKICAgIG11dGF0aW9uX2RldGVjdGlvbl9tYXRyaXgsCiAgICBwcm9qZWN0aW9uX21hbmlmZXN0LAogICAgdmVyaWZ5X3Byb2plY3Rpb25fbWFuaWZlc3QsCikKZnJvbSBhZ2VudF9jb3JlLmxpZmVjeWNsZS5nb2FsX3BsYW5uaW5nIGltcG9ydCAoCiAgICBNb2RlbEdvYWxBbGlnbm1lbnRWZXJpZmllciwKICAgIF9kZXBlbmRlbmN5X2Jhc2lzX292ZXJsYXBzX3JlcXVlc3RlZF9vdXRwdXQsCiAgICBfbW9kZWxfYWxpZ25tZW50X3BhaXJ3aXNlX2RlcGVuZGVuY3lfcHJvb2YsCikKCgpkZWYgX2dvYWxzKCosIG91dHB1dF9zcGFuOiBzdHIgPSAi5a6D6IO95LiN6IO96YCA6YCA6YCAIikgLT4gbGlzdFtkaWN0W3N0ciwgb2JqZWN0XV06CiAgICByZXR1cm4gWwogICAgICAgIHsKICAgICAgICAgICAgImdvYWxfaWQiOiAiZzEiLAogICAgICAgICAgICAiZXZpZGVuY2Vfc3BhbiI6ICLmn6XkuIDkuIvplK7nm5jorrLljZUjIiwKICAgICAgICAgICAgInJlcXVlc3RlZF9lZmZlY3QiOiB7CiAgICAgICAgICAgICAgICAiZG9tYWluIjogIm9yZGVyIiwKICAgICAgICAgICAgICAgICJvcGVyYXRpb24iOiAibGlzdCIsCiAgICAgICAgICAgICAgICAib2JqZWN0X3R5cGUiOiAib3JkZXIiLAogICAgICAgICAgICAgICAgInJlcXVlc3RlZF9vdXRwdXRzIjogWwogICAgICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICAgICAgIm91dHB1dF9pZCI6ICJvcmRlci5jb2xsZWN0aW9uIiwKICAgICAgICAgICAgICAgICAgICAgICAgImV2aWRlbmNlX3NwYW4iOiAi5p+l5LiA5LiL6ZSu55uY6K6i5Y2VIiwKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBdLAogICAgICAgICAgICB9LAogICAgICAgICAgICAiZGVwZW5kc19vbiI6IFtdLAogICAgICAgIH0sCiAgICAgICAgewogICAgICAgICAgICAiZ29hbF9pZCI6ICJnMiIsCiAgICAgICAgICAgICJldmlkZW5jZV9zcGFuIjogb3V0cHV0X3NwYW4sCiAgICAgICAgICAgICJyZXF1ZXN0ZWRfZWZmZWN0IjogewogICAgICAgICAgICAgICAgImRvbWFpbiI6ICJyZWZ1bmQiLAogICAgICAgICAgICAgICAgIm9wZXJhdGlvbiI6ICJhc3Nlc3NfZWxpZ2liaWxpdHkiLAogICAgICAgICAgICAgICAgIm9iamVjdF90eXBlIjogIm9yZGVyIiwKICAgICAgICAgICAgICAgICJyZXF1ZXN0ZWRfb3V0cHV0cyI6IFsKICAgICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICAgICJvdXRwdXRfaWQiOiAicmVmdW5kLmVsaWdpYmlsaXR5IiwKICAgICAgICAgICAgICAgICAgICAgICAgImV2aWRlbmNlX3NwYW4iOiBvdXRwdXRfc3BhbiwKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBdLAogICAgICAgICAgICB9LAogICAgICAgICAgICAiZGVwZW5kc19vbiI6IFtdLAogICAgICAgIH0sCiAgICBdCgoKZGVmIF9wYWlyKCosIGJhc2lzX3NwYW46IHN0cikgLT4gbGlzdFtkaWN0W3N0ciwgc3RyXV06CiAgICByZXR1cm4gWwogICAgICAgIHsKICAgICAgICAgICAgImdvYWxfYV9pZCI6ICJnMSIsCiAgICAgICAgICAgICJnb2FsX2JfaWQiOiAiZzIiLAogICAgICAgICAgICAicmVsYXRpb24iOiAiYl9kZXBlbmRzX29uX2EiLAogICAgICAgICAgICAiYmFzaXNfa2luZCI6ICJyZXN1bHRfcmVmZXJlbmNlIiwKICAgICAgICAgICAgImJhc2lzX3NwYW4iOiBiYXNpc19zcGFuLAogICAgICAgIH0KICAgIF0KCgpAcHl0ZXN0Lm1hcmsucGFyYW1ldHJpemUoCiAgICAoImRlcGVuZGVudF9zcGFuIiwgImJhc2lzX3NwYW4iKSwKICAgIFsKICAgICAgICAoIuWug+iDveS4jeiDvemAgOi0uyIsICLlrpciKSwKICAgICAgICAoIuWug+aYr+WQpuWPr+S7pemAgOi0uyIsICLlrpciKSwKICAgICAgICAoIuecseecliLlrciSpeS7pemAgOi0p+WQlyIsICLlrpciKSwKICAgIF0sCikKZGVmIHRlc3RfbmVzdGVkX3JlbGF0aW9uX29ubHlfYmFzaXNfdmFyaWFudHNfcmVhY2hfYWRqdWRpY2F0aW9uKAogICAgZGVwZW5kZW50X3NwYW46IHN0ciwKICAgIGJhc2lzX3NwYW46IHN0ciwKKSAtPiBOb25lOgogICAgZGV0YWlscywgZXJyb3IgPSBfbW9kZWxfYWxpZ25tZW50X3BhaXJ3aXNlX2RlcGVuZGVuY3lfcHJvb2YoCiAgICAgICAgdXNlcl90ZXh0PWYi5p+l5LiA5LiL6ZSu55uY6K6i5Y2V77yM5YaNentkZXBlbmRlbnRfc3Bhbn0iLAogICAgICAgIGdvYWxzPV9nb2FscyhvdXRwdXRfc3Bhbj1kZXBlbmRlbnRfc3BhbiksCiAgICAgICAgdmFsdWVzPV9wYWlyKGJhc2lzX3NwYW49YmFzaXNfc3BhbiksCiAgICApCgogICAgYXNzZXJ0IGVycm9yID09ICJnb2FsX2FsaWdubWVudF9kZXBlbmRlbmN5X2dyYXBoX21pc21hdGNoIgogICAgYXNzZXJ0IGRldGFpbHNbImRlcGVuZGVuY3lfcHJvb2ZfY29tcGxldGUiXSBpcyBUcnVlCiAgICBhc3NlcnQgZGV0YWlsc1siZGVwZW5kZW5jeV9ncmFwaF9tYXRjaCJdIGlzIEZhbHNlCiAgICBhc3NlcnQgZGV0YWlsc1siZGVwZW5kZW5jeV9lZGdlcyJdID09IFsKICAgICAgICB7CiAgICAgICAgICAgICJkZXBlbmRlbnRfZ29hbF9pZCI6ICJnMiIsCiAgICAgICAgICAgICJyZXF1aXJlc19yZXN1bHRfb2ZfZ29hbF9pZCI6ICJnMSIsCiAgICAgICAgICAgICJiYXNpc19raW5kIjogInJlc3VsdF9yZWZlcmVuY2UiLAogICAgICAgICAgICAiYmFzaXNfc3BhbiI6IGJhc2lzX3NwYW4sCiAgICAgICAgfQogICAgXQoKCgpkZWYgdGVzdF9lcXVhbF9yZXF1ZXN0ZWRfb3V0cHV0X2lzX3JlamVjdGVkX2J5X2Nhbm9uaWNhbF9wcm9qZWN0aW9uKCkgLT4gTm9uZToKICAgIGRldGFpbHMsIGVycm9yID0gX21vZGVsX2FsaWdubWVudF9wYWlyd2lzZV9kZXBlbmRlbmN5X3Byb29mKAogICAgICAgIHVzZXJfdGV4dD0i5p+l5LiA5LiL6ZSu55uY6K6i5Y2V77yM5YaN55yL55yL5a6D6IO95LiN6IO96YCA6YCA6YCAIiwKICAgICAgICBnb2Fscz1fZ29hbHMoKSwKICAgICAgICB2YWx1ZXM9X3BhaXIoYmFzaXNfc3Bhbj0i5a6D6IO95LiN6IO96YCA6YCA6YCAIiksCiAgICApCiAgICBhc3NlcnQgZXJyb3IgPT0gImdvYWxfYWxpZ25tZW50X2RlcGVuZGVuY3lfYmFzaXNfaXNfcmVxdWVzdGVkX291dHB1dDowIgogICAgYXNzZXJ0IGRldGFpbHNbImRlcGVuZGVuY3lfZWRnZXMiXSA9PSBbXQoKCgpkZWYgdGVzdF9iYXNpc193cmFwcGluZ19yZXF1ZXN0ZWRfb3V0cHV0X2lzX3JlamVjdGVkKCkgLT4gTm9uZToKICAgIGdvYWxzID0gX2dvYWxzKG91dHB1dF9zcGFuPSLpgIDmrL4iKQogICAgZ29hbHNbMV1bImV2aWRlbmNlX3NwYW4iXSA9ICLlrciSveiDveS4jeiDvemAgOi0uyIKICAgIGRldGFpbHMsIGVycm9yID0gX21vZGVsX2FsaWdubWVudF9wYWlyd2lzZV9kZXBlbmRlbmN5X3Byb29mKAogICAgICAgIHVzZXJfdGV4dD0i5p+l5LiA5LiL6ZSu55uY6K6i5Y2V77yM5YaN55yL55yL5a6D6IO95LiN6IO96YCA6YCA6YCAIiwKICAgICAgICBnb2Fscz1nb2FscywKICAgICAgICB2YWx1ZXM9X3BhaXIoYmFzaXNfc3Bhbj0i5a6D6IO95LiN6IO96YCA6YCA6YCAIiksCiAgICApCiAgICBhc3NlcnQgZXJyb3IgPT0gImdvYWxfYWxpZ25tZW50X2RlcGVuZGVuY3lfYmFzaXNfaXNfcmVxdWVzdGVkX291dHB1dDowIgogICAgYXNzZXJ0IGRldGFpbHNbImRlcGVuZGVuY3lfZWRnZXMiXSA9PSBbXQoKCgpkZWYgdGVzdF9pbmRlcGVuZGVudF9tdWx0aV9pbnRlbnRfZG9lc19ub3RfZ2Fpbl9kZXBlbmRlbmN5X2VkZ2UoKSAtPiBOb25lOgogICAgZ29hbHMgPSBbCiAgICAgICAgewogICAgICAgICAgICAiZ29hbF9pZCI6ICJnMSIsCiAgICAgICAgICAgICJldmlkZW5jZV9zcGFuIjogIuaYr+aYpOWkp+S4gOS4i+eVremUu+iupOWNlSIsCiAgICAgICAgICAgICJyZXF1ZXN0ZWRfZWZmZWN0IjogewogICAgICAgICAgICAgICAgInJlcXVlc3RlZF9vdXRwdXRzIjogWwogICAgICAgICAgICAgICAgICAgIHsib3V0cHV0X2lkIjogIm9yZGVyLmNvbGxlY3Rpb24iLCAiZXZpZGVuY2Vfc3BhbiI6ICLmn6XkuIDkuIvplK7nm5jorrLljZUifQogICAgICAgICAgICAgICAgXQogICAgICAgICAgICB9LAogICAgICAgICAgICAiZGVwZW5kc19vbiI6IFtdLAogICAgICAgIH0sCiAgICAgICAgewogICAgICAgICAgICAiZ29hbF9pZCI6ICJnMiIsCiAgICAgICAgICAgICJldmlkZW5jZV9zcGFuIjogIuWGjeafpeS4gOS4i+S8mOaDoSIsCiAgICAgICAgICAgICJyZXF1ZXN0ZWRfZWZmZWN0IjogewogICAgICAgICAgICAgICAgInJlcXVlc3RlZF9vdXRwdXRzIjogWwogICAgICAgICAgICAgICAgICAgIHsib3V0cHV0X2lkIjogImNvdXBvbi5jb2xsZWN0aW9uIiwgImV2aWRlbmNlX3NwYW4iOiAi5YaN5p+l5LiA5LiL5LyY5oOg5Yi4In0KICAgICAgICAgICAgICAgIF0KICAgICAgICAgICAgfSwKICAgICAgICAgICAgImRlcGVuZHNfb24iOiBbXSwKICAgICAgICB9LAogICAgXQogICAgZGV0YWlscywgZXJyb3IgPSBfbW9kZWxfYWxpZ25tZW50X3BhaXJ3aXNlX2RlcGVuZGVuY3lfcHJvb2YoCiAgICAgICAgdXNlcl90ZXh0PSLmn6XkuIDkuIvplK7nm5jorrLljZXvvIzlho3mn6XkuIDkuIvkvJjmg6DliLgiLAogICAgICAgIGdvYWxzPWdvYWxzLAogICAgICAgIHZhbHVlcz1bCiAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICJnb2FsX2FfaWQiOiAiZzEiLAogICAgICAgICAgICAgICAgImdvYWxfYl9pZCI6ICJnMiIsCiAgICAgICAgICAgICAgICAicmVsYXRpb24iOiAiaW5kZXBlbmRlbnQiLAogICAgICAgICAgICB9CiAgICAgICAgXSwKICAgICkKICAgIGFzc2VydCBlcnJvciBpcyBOb25lCiAgICBhc3NlcnQgZGV0YWlsc1siZGVwZW5kZW5jeV9wcm9vZl9jb21wbGV0ZSJdIGlzIFRydWUKICAgIGFzc2VydCBkZXRhaWxzWyJkZXBlbmRlbmN5X2dyYXBoX21hdGNoIl0gaXMgVHJ1ZQogICAgYXNzZXJ0IGRldGFpbHNbImRlcGVuZGVuY3lfZWRnZXMiXSA9PSBbXQoKCgpkZWYgdGVzdF9jb250cmFjdF9oYXNfbm9fZmluYWxfZWRnZV9hdXRob3JpdHkoKSAtPiBOb25lOgogICAgY29udHJhY3QgPSBjYW5vbmljYWxfY29udHJhY3QoKQogICAgYXNzZXJ0IGNvbnRyYWN0WyJhdXRob3JpdHkiXVsiYXV0aG9yaXR5X2VmZmVjdCJdIGlzIEZhbHNlCiAgICBhc3NlcnQgY29udHJhY3RbImF1dGhvcml0eSJdWyJmaW5hbF9kZXBlbmRlbmN5X2F1dGhvcml0eSJdID09IEZJTkFMX0RFUEVOREVOQ1lfQVVUSE9SSVRZCiAgICBhc3NlcnQgRklOQUxfREVQRU5ERU5DWV9BVVRIT1JJVFkgPT0gImRldGVybWluaXN0aWNfZGVwZW5kZW5jeV9wcm9vZl9yZWR1Y2VyIgoKCgpkZWYgdGVzdF9nb2FsX3BsYW5uaW5nX3VzZXNfZ2VuZXJhdGVkX3NlbWFudGljX2FuZF9zdHJ1Y3R1cmFsX3Byb2plY3Rpb25zKCkgLT4gTm9uZToKICAgIHZlcmlmaWVyX3NvdXJjZSA9IGluc3BlY3QuZ2V0c291cmNlKE1vZGVsR29hbEFsaWdubWVudFZlcmlmaWVyLnZlcmlmeSkKICAgIG92ZXJsYXBfc291cmNlID0gaW5zcGVjdC5nZXRzb3VyY2UoX2RlcGVuZGVuY3lfYmFzaXNfb3ZlcmxhcHNfcmVxdWVzdGVkX291dHB1dCkKCiAgICBhc3NlcnQgInJlbmRlcl9jYW5kaWRhdGVfYmxpbmRfZGVwZW5kZW5jeV9ydWxlKCkiIGluIHZlcmlmaWVyX3NvdXJjZQogICAgYXNzZXJ0ICJyZW5kZXJfZGVwZW5kZW5jeV9mb3JtYXRfcmVwYWlyX3J1bGUoKSIgaW4gdmVyaWZpZXJfc291cmNlCiAgICBhc3NlcnQgIm11c3QgYmUgZGlzam9pbnQgZnJvbSB0aGUgZGVwZW5kZW50IEdvYWwgcmVxdWVzdGVkX291dHB1dHMgZXZpZGVuY2Ugc3BhbnMiIG5vdCBpbiB2ZXJpZmllcl9zb3VyY2UKICAgIGFzc2VydCAiaWYgbm8gZGlzam9pbnQgcmVsYXRpb24tb25seSBiYXNpcyBleGlzdHMiIG5vdCBpbiB2ZXJpZmllcl9zb3VyY2UKCiAgICBhc3NlcnQgImRlcGVuZGVuY3lfYmFzaXNfY29uZmxpY3RzX3dpdGhfcmVxdWVzdGVkX291dHB1dHMiIGluIG92ZXJsYXBfc291cmNlCiAgICBhc3NlcnQgImJhc2lzID09IG91dHB1dF9zcGFuIiBub3QgaW4gb3ZlcmxhcF9zb3VyY2UKICAgIGFzc2VydCAib3V0cHV0X3NwYW4gaW4gYmFzaXMiIG5vdCBpbiBvdmVybGFwX3NvdXJjZQoKCgpkZWYgdGVzdF9wcm9qZWN0aW9uX21hbmlmZXN0X2lzX2V4YWN0X2FuZF9wcm92ZW5hbmNlZCgpIC0+IE5vbmU6CiAgICByZXBvX3Jvb3QgPSBQYXRoKF9fZmlsZV9fKS5yZXNvbHZlKCkucGFyZW50c1s0XQogICAgcGF0aCA9IHJlcG9fcm9vdCAvICJjb250cmFjdHMiIC8gImdlbmVyYXRlZCIgLyAiZGVwZW5kZW5jeS1iYXNpcy1wcm9qZWN0aW9ucy5qc29uIgogICAgcGF5bG9hZCA9IGpzb24ubG9hZHMocGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikpCiAgICBhc3NlcnQgdmVyaWZ5X3Byb2plY3Rpb25fbWFuaWZlc3QocGF5bG9hZCkKICAgIGFzc2VydCBwYXlsb2FkID09IHByb2plY3Rpb25fbWFuaWZlc3QoKQogICAgYXNzZXJ0IHBheWxvYWRbImF1dGhvcml0eV9lZmZlY3QiXSBpcyBGYWxzZQogICAgYXNzZXJ0IHBheWxvYWRbImZpbmFsX2RlcGVuZGVuY3lfYXV0aG9yaXR5Il0gPT0gRklOQUxfREVQRU5ERU5DWV9BVVRIT1JJVFkKCgpkZWYgdGVzdF9tdXRhdGlvbl9nYXRlX2RldGVjdHNfZWFjaF9yZXByZXNlbnRhdGl2ZV9kcmlmdCgpIC0+IE5vbmU6CiAgICByZXN1bHRzID0gbXV0YXRpb25fZGV0ZWN0aW9uX21hdHJpeCgpCiAgICBhc3NlcnQgcmVzdWx0cwogICAgYXNzZXJ0IGFsbChyZXN1bHRzLnZhbHVlcygpKSwgcmVzdWx0cwo=
         run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
           python - <<'PY'
+          from __future__ import annotations
+
           import ast
+          import base64
           import json
+          import os
+          import subprocess
           from pathlib import Path
 
-          path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
-          text = path.read_text(encoding='utf-8')
-          tree = ast.parse(text)
+          root = Path.cwd()
+          files = {
+              root / "services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py": os.environ["CONTRACT_B64"],
+              root / "scripts/verify_dependency_basis_contract.py": os.environ["VERIFIER_B64"],
+              root / "services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py": os.environ["TEST_B64"],
+          }
+          for path, encoded in files.items():
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(base64.b64decode(encoded))
 
-          marker_primary = 'must be disjoint from the dependent Goal requested_outputs evidence spans'
-          marker_repair = 'if no disjoint relation-only basis exists'
-          nodes = [
-              node for node in ast.walk(tree)
+          protected_test = "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+          original = subprocess.run(
+              ["git", "show", f"origin/main:{protected_test}"],
+              check=True,
+              stdout=subprocess.PIPE,
+          ).stdout
+          (root / protected_test).write_bytes(original)
+
+          path = root / "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          text = path.read_text(encoding="utf-8")
+
+          import_block = '''from agent_core.goal_graph.dependency_basis_contract import (
+              ALLOWED_DEPENDENCY_BASIS_KINDS,
+              dependency_basis_conflicts_with_requested_outputs,
+              render_candidate_blind_dependency_rule,
+              render_dependency_format_repair_rule,
+          )
+
+          '''
+          anchor = 'GOAL_PLAN_VERSION = "turn-goal-plan@1.1"'
+          if "from agent_core.goal_graph.dependency_basis_contract import (" not in text:
+              if anchor not in text:
+                  raise SystemExit("goal-planning import anchor missing")
+              text = text.replace(anchor, import_block + anchor, 1)
+
+          old_kinds = '''_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = {
+              "result_reference",
+              "result_condition",
+              "result_value_input",
+          }'''
+          if old_kinds in text:
+              text = text.replace(
+                  old_kinds,
+                  "_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = set(ALLOWED_DEPENDENCY_BASIS_KINDS)",
+                  1,
+              )
+          elif "_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = set(ALLOWED_DEPENDENCY_BASIS_KINDS)" not in text:
+              raise SystemExit("dependency basis kind block missing")
+
+          start_marker = "def _dependency_basis_overlaps_requested_output("
+          end_marker = "\n\ndef _model_alignment_dependency_proof("
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit("dependency overlap function boundary missing")
+          replacement = '''def _dependency_basis_overlaps_requested_output(
+              goal: dict[str, Any],
+              basis_span: str,
+          ) -> bool:
+              """Project the canonical structural dependency-basis contract.
+
+              This compatibility wrapper has no semantic or final-edge authority. The
+              canonical contract admits a strict nested relation-only subspan while
+              rejecting equality and a basis that wraps requested-output evidence.
+              """
+
+              return dependency_basis_conflicts_with_requested_outputs(
+                  basis_span,
+                  _requested_output_evidence_spans(goal),
+              )
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          tree = ast.parse(text)
+          primary_marker = "must be disjoint from the dependent Goal requested_outputs evidence spans"
+          repair_clause = (
+              "The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; "
+              "if no disjoint relation-only basis exists, return relation=independent."
+          )
+          primary_nodes = [
+              node
+              for node in ast.walk(tree)
               if isinstance(node, ast.Constant)
               and isinstance(node.value, str)
-              and (marker_primary in node.value or marker_repair in node.value)
+              and primary_marker in node.value
           ]
-          primary = [node for node in nodes if marker_primary in node.value]
-          repair = [node for node in nodes if marker_repair in node.value]
-          if len(primary) != 1:
-              raise SystemExit(f'expected exactly one primary stale prompt constant, found {len(primary)}')
-          if len(repair) != 1:
-              raise SystemExit(f'expected exactly one repair stale prompt constant, found {len(repair)}')
-
-          replacements = []
-
-          value = primary[0].value
-          old_primary_clause = 'must be disjoint from the dependent Goal requested_outputs evidence spans'
-          old_primary_tail = (
-              'A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, '
-              'proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent'
-          )
-          if old_primary_tail not in value:
-              raise SystemExit('primary stale tail not found inside parsed prompt constant')
-          value = value.replace(
-              old_primary_clause,
-              'must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording',
-              1,
-          ).replace(
-              old_primary_tail,
-              'A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible because the basis itself denotes only the result-reference, result-condition or result-value-input relation; use the smallest such literal basis when one exists, otherwise the pair is independent',
-              1,
-          )
-          replacements.append((primary[0], value))
-
-          value = repair[0].value
-          old_repair_clause = (
-              'The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; '
-              'if no disjoint relation-only basis exists, return relation=independent.'
-          )
-          if old_repair_clause not in value:
-              raise SystemExit('repair stale clause not found inside parsed prompt constant')
-          value = value.replace(
-              old_repair_clause,
-              'The basis must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording; '
-              'a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible. '
-              'If no valid relation-only basis exists under those rules, return relation=independent.',
-              1,
-          )
-          replacements.append((repair[0], value))
+          repair_nodes = [
+              node
+              for node in ast.walk(tree)
+              if isinstance(node, ast.Constant)
+              and isinstance(node.value, str)
+              and repair_clause in node.value
+          ]
+          if len(primary_nodes) != 1:
+              raise SystemExit(f"expected one stale primary projection, found {len(primary_nodes)}")
+          if len(repair_nodes) != 1:
+              raise SystemExit(f"expected one stale format-repair projection, found {len(repair_nodes)}")
 
           lines = text.splitlines(keepends=True)
           offsets = [0]
           for line in lines:
               offsets.append(offsets[-1] + len(line))
 
-          edits = []
-          for node, new_value in replacements:
-              start = offsets[node.lineno - 1] + node.col_offset
-              end = offsets[node.end_lineno - 1] + node.end_col_offset
-              edits.append((start, end, json.dumps(new_value, ensure_ascii=False)))
-          for start, end, replacement in sorted(edits, reverse=True):
-              text = text[:start] + replacement + text[end:]
+          edits: list[tuple[int, int, str]] = []
+          primary = primary_nodes[0]
+          p_start = offsets[primary.lineno - 1] + primary.col_offset
+          p_end = offsets[primary.end_lineno - 1] + primary.end_col_offset
+          edits.append((p_start, p_end, "render_candidate_blind_dependency_rule()"))
 
-          path.write_text(text, encoding='utf-8')
-          final = path.read_text(encoding='utf-8')
-          assert marker_primary not in final
-          assert marker_repair not in final
-          assert 'a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible' in final
-          assert 'must not equal a requested-output evidence span' in final
-          assert 'must not wrap a requested-output evidence span with action/control wording' in final
-          ast.parse(final)
+          repair = repair_nodes[0]
+          r_start = offsets[repair.lineno - 1] + repair.col_offset
+          r_end = offsets[repair.end_lineno - 1] + repair.end_col_offset
+          prefix, suffix = repair.value.split(repair_clause, 1)
+          repair_expr = (
+              "("
+              + json.dumps(prefix, ensure_ascii=False)
+              + " + render_dependency_format_repair_rule() + "
+              + json.dumps(suffix, ensure_ascii=False)
+              + ")"
+          )
+          edits.append((r_start, r_end, repair_expr))
+
+          for edit_start, edit_end, new_source in sorted(edits, reverse=True):
+              text = text[:edit_start] + new_source + text[edit_end:]
+
+          if primary_marker in text or "if no disjoint relation-only basis exists" in text:
+              raise SystemExit("stale dependency projection survived migration")
+          ast.parse(text)
+          path.write_text(text, encoding="utf-8")
           PY
-          python -m py_compile services/agent-service/src/agent_core/lifecycle/goal_planning.py
-      - name: Commit exact product repair
+
+          chmod +x scripts/verify_dependency_basis_contract.py
+          python -B scripts/verify_dependency_basis_contract.py --write-manifest
+          python -m py_compile             services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py             services/agent-service/src/agent_core/lifecycle/goal_planning.py             scripts/verify_dependency_basis_contract.py             services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py
+
+      - name: Install locked Agent validation environment
         shell: bash
         run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check             --require-hashes --only-binary=:all:             -r deployment/ci/uv-requirements-linux-x86_64.txt
+          cd services/agent-service
+          uv sync --locked --all-groups
+
+      - name: Prove canonical contract and semantic invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          services/agent-service/.venv/bin/python -B scripts/verify_dependency_basis_contract.py
+          cd services/agent-service
+          .venv/bin/python -B -m pytest -q -ra -p no:cacheprovider             tests/runtime/test_release55_dependency_output_role_overlap.py             tests/runtime/test_release56_dependency_basis_contract.py
+
+      - name: Remove temporary migration authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/release56-prompt-contract-patch.yml
+          git rm .github/release56-prompt-contract-patch-trigger
+          if git diff --name-only | grep -Fx 'skill-system/registry/product-source-baseline.json'; then
+            echo "Baseline refresh is forbidden before governance closure." >&2
+            exit 1
+          fi
+          if ! git diff --quiet origin/main -- services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py; then
+            echo "Protected Release 55 oracle was not restored exactly to main." >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Commit canonical contract migration
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add services/agent-service/src/agent_core/lifecycle/goal_planning.py
-          test "$(git diff --cached --name-only)" = "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
-          git commit -m 'fix(semantic): align nested dependency basis verifier contract'
+          git add -A
+          git diff --cached --name-only | sort
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'fix(semantic): canonicalize dependency basis contract'
           git push origin HEAD:repair/release56-dependency-verifier-nested-basis-contract-20260816
