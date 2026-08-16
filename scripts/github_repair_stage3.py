@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Validate Stage-2 repair artifacts and publish only a fully tested Draft candidate.
+"""Independently validate an RCA-bound Stage-2 repair candidate.
 
-Stage 3 is intentionally independent from the model fixer. It verifies the immutable
-handoff, applies the patch to the exact failed commit, runs fixed targeted suites and
-the repository Quick quality loop, then records a Draft PR publication. It never
-merges a branch, changes Secrets, runs production certification, or closes production.
+Stage 3 has no model and no patch-authoring authority. It verifies the immutable
+failure case, read-only RCA, exact write grant, and patch digests; materializes
+that exact patch on the exact failed commit; runs fixed targeted suites and the
+repository Quick quality loop; and may publish only a Draft PR. It never changes
+the repair contents, broadens scope, refreshes protected baselines, merges,
+deploys, runs production certification, or closes production.
 """
 from __future__ import annotations
 
@@ -30,10 +32,16 @@ from github_agent_fixer import (  # noqa: E402
     validate_allowed_paths,
     verify_changed_files,
 )
+from github_repair_authority import (  # noqa: E402
+    RepairAuthorityError,
+    rca_fingerprint,
+    validate_write_grant,
+    write_grant_fingerprint,
+)
 from run_python_test_suites import STANDARD_CONFIG_PREFIXES, STANDARD_ENV  # noqa: E402
 
 STAGE2_SCHEMA = "github-governed-repair-stage2@1"
-STAGE3_SCHEMA = "github-governed-repair-stage3@1"
+STAGE3_SCHEMA = "github-governed-repair-stage3@2"
 MAX_PATCH_BYTES = 2_000_000
 MAX_OUTPUT_CHARS = 40_000
 
@@ -92,9 +100,8 @@ def _changed_paths(workspace: Path) -> tuple[str, ...]:
     if completed.returncode:
         message = (completed.stderr or completed.stdout or "git status failed").strip()
         raise Stage3Error(message[:MAX_OUTPUT_CHARS])
-    rows = completed.stdout.splitlines()
     result: list[str] = []
-    for row in rows:
+    for row in completed.stdout.splitlines():
         raw = row[3:] if len(row) > 3 else ""
         path = raw.split(" -> ")[-1].strip().replace("\\", "/")
         if path and path not in result:
@@ -119,8 +126,7 @@ def _normalize_path(raw: str) -> str:
 
 
 def _open_task(path: Path) -> TaskRunStore:
-    payload = _load_object(path)
-    return TaskRunStore(path.resolve(), payload)
+    return TaskRunStore(path.resolve(), _load_object(path))
 
 
 def _task_binding(task: TaskRunStore) -> dict[str, Any]:
@@ -139,7 +145,9 @@ def _validate_binding(task: TaskRunStore, result: dict[str, Any]) -> None:
         "failure_signature": result.get("failure_signature"),
     }
     mismatched = [
-        key for key, value in expected.items() if not value or str(binding.get(key)) != str(value)
+        key
+        for key, value in expected.items()
+        if not value or str(binding.get(key)) != str(value)
     ]
     if mismatched:
         raise Stage3Error(f"Stage-2 TaskRun binding mismatch: {mismatched}")
@@ -156,6 +164,8 @@ def _validate_stage2_result(result: dict[str, Any]) -> None:
         raise Stage3Error("Stage 2 did not produce a repair candidate")
     if result.get("deterministic_file_verification_passed") is not True:
         raise Stage3Error("Stage-2 deterministic file verification did not pass")
+    if result.get("governed_repair_state") != "INDEPENDENT_REVIEW":
+        raise Stage3Error("Stage-2 result is not awaiting independent review")
     for field in ("full_validation_passed", "draft_pr_published", "production_closed"):
         if result.get(field) is not False:
             raise Stage3Error(f"invalid Stage-2 authority boundary: {field}")
@@ -167,6 +177,11 @@ def _validate_stage2_result(result: dict[str, Any]) -> None:
         "repair_branch",
         "repair_base_branch",
         "patch_sha256",
+        "rca_sha256",
+        "write_grant_sha256",
+        "violated_invariant",
+        "authority_owner",
+        "required_permanent_guard",
     ):
         if not str(result.get(field) or "").strip():
             raise Stage3Error(f"Stage-2 result is missing {field}")
@@ -178,14 +193,72 @@ def _validate_stage2_result(result: dict[str, Any]) -> None:
         raise Stage3Error("invalid repair/base branch relationship")
 
 
+def _validate_authority_bundle(
+    *,
+    result: dict[str, Any],
+    failure_case: dict[str, Any],
+    rca: dict[str, Any],
+    grant: dict[str, Any],
+    changed_paths: tuple[str, ...],
+) -> tuple[str, ...]:
+    if failure_case.get("schema") != "github-failure-ingest@1":
+        raise Stage3Error("normalized Stage-1 failure case is missing or invalid")
+    if str(failure_case.get("head_sha") or "") != str(result.get("head_sha") or ""):
+        raise Stage3Error("failure-case/Stage-2 head SHA mismatch")
+    if str(failure_case.get("failure_signature") or "") != str(
+        result.get("failure_signature") or ""
+    ):
+        raise Stage3Error("failure-case/Stage-2 failure signature mismatch")
+    candidate_paths = tuple(
+        _normalize_path(str(item)) for item in failure_case.get("candidate_paths") or []
+    )
+    if not candidate_paths:
+        raise Stage3Error("failure case has no RCA candidate paths")
+    try:
+        granted = validate_write_grant(
+            grant,
+            failure_case=failure_case,
+            rca=rca,
+            candidate_paths=candidate_paths,
+        )
+    except RepairAuthorityError as exc:
+        raise Stage3Error(f"invalid Stage-2 RCA/write grant: {exc}") from exc
+
+    if str(result.get("rca_sha256") or "") != rca_fingerprint(rca):
+        raise Stage3Error("Stage-2 RCA digest mismatch")
+    if str(result.get("write_grant_sha256") or "") != write_grant_fingerprint(grant):
+        raise Stage3Error("Stage-2 write-grant digest mismatch")
+    result_scope = tuple(_normalize_path(str(item)) for item in result.get("write_scope") or [])
+    if result_scope != granted:
+        raise Stage3Error("Stage-2 result write_scope does not equal the immutable grant")
+    unexpected = [path for path in changed_paths if path not in granted]
+    if unexpected:
+        raise Stage3Error(f"Stage-2 patch escaped the immutable write grant: {unexpected}")
+    if str(result.get("violated_invariant") or "") != str(rca.get("violated_invariant") or ""):
+        raise Stage3Error("Stage-2 violated-invariant binding mismatch")
+    if str(result.get("authority_owner") or "") != str(rca.get("authority_owner") or ""):
+        raise Stage3Error("Stage-2 authority-owner binding mismatch")
+    if str(result.get("required_permanent_guard") or "") != str(
+        rca.get("required_permanent_guard") or ""
+    ):
+        raise Stage3Error("Stage-2 permanent-guard binding mismatch")
+    return granted
+
+
 def inspect_handoff(
     *,
     result_path: Path,
     task_run_path: Path,
     patch_path: Path,
+    failure_case_path: Path,
+    rca_path: Path,
+    write_grant_path: Path,
 ) -> dict[str, Any]:
     result = _load_object(result_path)
     task = _open_task(task_run_path)
+    failure_case = _load_object(failure_case_path)
+    rca = _load_object(rca_path)
+    grant = _load_object(write_grant_path)
     _validate_stage2_result(result)
     _validate_binding(task, result)
     if not patch_path.is_file() or patch_path.is_symlink():
@@ -199,6 +272,13 @@ def inspect_handoff(
     changed = tuple(_normalize_path(str(item)) for item in result.get("changed_paths") or [])
     if not changed or len(set(changed)) != len(changed):
         raise Stage3Error("Stage-2 changed path set is empty or duplicated")
+    granted = _validate_authority_bundle(
+        result=result,
+        failure_case=failure_case,
+        rca=rca,
+        grant=grant,
+        changed_paths=changed,
+    )
     return {
         "publish_allowed": True,
         "repository": str(result["repository"]),
@@ -208,7 +288,18 @@ def inspect_handoff(
         "repair_branch": str(result["repair_branch"]),
         "repair_base_branch": str(result["repair_base_branch"]),
         "changed_paths": list(changed),
+        "write_scope": list(granted),
         "patch_sha256": digest,
+        "rca_sha256": rca_fingerprint(rca),
+        "write_grant_sha256": write_grant_fingerprint(grant),
+        "violated_invariant": str(rca["violated_invariant"]),
+        "authority_owner": str(rca["authority_owner"]),
+        "drifted_projection": str(rca["drifted_projection"]),
+        "required_permanent_guard": str(rca["required_permanent_guard"]),
+        "repair_plan": list(rca["repair_plan"]),
+        "governed_repair_state": "INDEPENDENT_REVIEW",
+        "gates": grant.get("gates") or {},
+        "production_closed": False,
     }
 
 
@@ -241,6 +332,9 @@ def prepare_candidate(
     result_path: Path,
     task_run_path: Path,
     patch_path: Path,
+    failure_case_path: Path,
+    rca_path: Path,
+    write_grant_path: Path,
     plan_path: Path,
 ) -> dict[str, Any]:
     workspace = workspace.resolve()
@@ -248,6 +342,9 @@ def prepare_candidate(
         result_path=result_path,
         task_run_path=task_run_path,
         patch_path=patch_path,
+        failure_case_path=failure_case_path,
+        rca_path=rca_path,
+        write_grant_path=write_grant_path,
     )
     actual_head = _git(workspace, "rev-parse", "HEAD")
     if actual_head != handoff["head_sha"]:
@@ -267,20 +364,27 @@ def prepare_candidate(
         timeout=180,
     )
     if check.returncode:
-        raise Stage3Error((check.stderr or check.stdout or "git apply --check failed")[:MAX_OUTPUT_CHARS])
+        raise Stage3Error(
+            (check.stderr or check.stdout or "git apply --check failed")[:MAX_OUTPUT_CHARS]
+        )
     apply_result = _run(
         ["git", "apply", "--whitespace=error-all", str(patch_path.resolve())],
         cwd=workspace,
         timeout=180,
     )
     if apply_result.returncode:
-        raise Stage3Error((apply_result.stderr or apply_result.stdout or "git apply failed")[:MAX_OUTPUT_CHARS])
+        raise Stage3Error(
+            (apply_result.stderr or apply_result.stdout or "git apply failed")[:MAX_OUTPUT_CHARS]
+        )
 
     actual_paths = _changed_paths(workspace)
     if set(actual_paths) != set(expected_paths) or len(actual_paths) != len(expected_paths):
         raise Stage3Error(
             f"applied patch path mismatch: expected={list(expected_paths)} actual={list(actual_paths)}"
         )
+    unexpected = [path for path in actual_paths if path not in set(handoff["write_scope"])]
+    if unexpected:
+        raise Stage3Error(f"applied patch escaped write grant: {unexpected}")
     try:
         validate_allowed_paths(workspace, actual_paths)
     except FixerError as exc:
@@ -308,6 +412,17 @@ def prepare_candidate(
     if _changed_paths(workspace):
         raise Stage3Error("candidate workspace is dirty after local repair commit")
 
+    gates = dict(handoff.get("gates") or {})
+    gates.update(
+        {
+            "G1_CONTRACT_PROJECTION": {"status": "PENDING_REQUIRED_QUICK_GATES"},
+            "G2_SEMANTIC_INVARIANT": {"status": "PENDING_TARGETED_VALIDATION"},
+            "G3_MUTATION": {"status": "PENDING_REQUIRED_QUICK_GATES"},
+            "G4_FINAL_AUTHORITY": {"status": "PENDING_REQUIRED_QUICK_GATES"},
+            "G5_INTEGRATION_CERTIFICATION": {"status": "PENDING_QUICK"},
+            "G6_GOVERNANCE_EXACT_HEAD": {"status": "PENDING"},
+        }
+    )
     plan = {
         "schema": STAGE3_SCHEMA,
         "status": "CANDIDATE_PREPARED",
@@ -315,6 +430,8 @@ def prepare_candidate(
         "candidate_sha": candidate_sha,
         "targeted_components": components,
         "deterministic_file_verification": verification,
+        "governed_repair_state": "INDEPENDENT_REVIEW",
+        "gates": gates,
         "full_validation_passed": False,
         "draft_pr_published": False,
         "production_closed": False,
@@ -325,11 +442,21 @@ def prepare_candidate(
         status="VALIDATING",
         phase="STAGE3_CANDIDATE_PREPARED",
         workspace_fingerprint=_diff_fingerprint(workspace),
-        evidence_refs=[str(result_path), str(patch_path), str(plan_path)],
+        evidence_refs=[
+            str(result_path),
+            str(patch_path),
+            str(failure_case_path),
+            str(rca_path),
+            str(write_grant_path),
+            str(plan_path),
+        ],
         metadata={
             "stage": 3,
+            "governed_repair_state": "INDEPENDENT_REVIEW",
             "candidate_sha": candidate_sha,
             "targeted_components": components,
+            "rca_sha256": handoff["rca_sha256"],
+            "write_grant_sha256": handoff["write_grant_sha256"],
         },
     )
     return plan
@@ -447,6 +574,9 @@ def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
         "schema": STAGE3_SCHEMA,
         "status": "TARGETED_VALIDATION_PASSED" if passed else "TARGETED_VALIDATION_FAILED",
         "candidate_sha": plan.get("candidate_sha"),
+        "rca_sha256": plan.get("rca_sha256"),
+        "write_grant_sha256": plan.get("write_grant_sha256"),
+        "governed_repair_state": "INDEPENDENT_REVIEW",
         "results": rows,
         "full_validation_passed": False,
         "draft_pr_published": False,
@@ -498,6 +628,9 @@ def record_validation(
         raise Stage3Error("targeted validation did not pass")
     if targeted.get("candidate_sha") != plan.get("candidate_sha"):
         raise Stage3Error("targeted evidence candidate SHA mismatch")
+    for field in ("rca_sha256", "write_grant_sha256"):
+        if targeted.get(field) != plan.get(field):
+            raise Stage3Error(f"targeted evidence {field} mismatch")
     summary = validate_quick_evidence(quick_summary_path)
     workspace = workspace.resolve()
     candidate_sha = _git(workspace, "rev-parse", "HEAD")
@@ -507,11 +640,49 @@ def record_validation(
     if not snapshot:
         raise Stage3Error("Quick evidence lacks workspace snapshot fingerprint")
 
+    gates = dict(plan.get("gates") or {})
+    gates.update(
+        {
+            "G1_CONTRACT_PROJECTION": {
+                "status": "PASS",
+                "evidence": [str(quick_summary_path), f"quick-snapshot:{snapshot}"],
+            },
+            "G2_SEMANTIC_INVARIANT": {
+                "status": "PASS",
+                "evidence": [str(targeted_result_path), f"candidate-sha:{candidate_sha}"],
+            },
+            "G3_MUTATION": {
+                "status": "PASS",
+                "evidence": [str(quick_summary_path), f"quick-snapshot:{snapshot}"],
+            },
+            "G4_FINAL_AUTHORITY": {
+                "status": "PASS",
+                "evidence": [str(quick_summary_path), f"quick-snapshot:{snapshot}"],
+            },
+            "G5_INTEGRATION_CERTIFICATION": {
+                "status": "PASS",
+                "evidence": [str(quick_summary_path), f"candidate-sha:{candidate_sha}"],
+            },
+            "G6_GOVERNANCE_EXACT_HEAD": {"status": "PENDING"},
+        }
+    )
+    for gate in (
+        "G0_SCOPE_AUTHORITY",
+        "G1_CONTRACT_PROJECTION",
+        "G2_SEMANTIC_INVARIANT",
+        "G3_MUTATION",
+        "G4_FINAL_AUTHORITY",
+        "G5_INTEGRATION_CERTIFICATION",
+    ):
+        if not isinstance(gates.get(gate), dict) or gates[gate].get("status") != "PASS":
+            raise Stage3Error(f"governed repair gate did not pass: {gate}")
+
     task = _open_task(task_run_path)
     task.mark_condition(
         "validation_passed",
         evidence_refs=[
-            str(targeted_result_path), str(quick_summary_path),
+            str(targeted_result_path),
+            str(quick_summary_path),
             f"candidate-sha:{candidate_sha}",
             f"quick-snapshot:{snapshot}",
         ],
@@ -521,7 +692,14 @@ def record_validation(
         phase="STAGE3_DRAFT_PR_REQUIRED",
         workspace_fingerprint=snapshot,
         evidence_refs=[str(targeted_result_path), str(quick_summary_path)],
-        metadata={"candidate_sha": candidate_sha, "quick_loop_status": "CI_VERIFIED"},
+        metadata={
+            "candidate_sha": candidate_sha,
+            "quick_loop_status": "CI_VERIFIED",
+            "governed_repair_state": "PR_CERTIFICATION",
+            "gates": gates,
+            "rca_sha256": plan.get("rca_sha256"),
+            "write_grant_sha256": plan.get("write_grant_sha256"),
+        },
     )
     result = {
         "schema": STAGE3_SCHEMA,
@@ -532,11 +710,19 @@ def record_validation(
         "repair_branch": plan.get("repair_branch"),
         "repair_base_branch": plan.get("repair_base_branch"),
         "changed_paths": plan.get("changed_paths"),
+        "write_scope": plan.get("write_scope"),
+        "rca_sha256": plan.get("rca_sha256"),
+        "write_grant_sha256": plan.get("write_grant_sha256"),
+        "violated_invariant": plan.get("violated_invariant"),
+        "authority_owner": plan.get("authority_owner"),
+        "required_permanent_guard": plan.get("required_permanent_guard"),
         "targeted_components": plan.get("targeted_components"),
         "targeted_validation_passed": True,
         "full_validation_passed": True,
         "quick_loop_status": "CI_VERIFIED",
         "quick_workspace_snapshot_fingerprint": snapshot,
+        "governed_repair_state": "PR_CERTIFICATION",
+        "gates": gates,
         "draft_pr_published": False,
         "production_closed": False,
     }
@@ -557,8 +743,16 @@ def complete_publication(
         raise Stage3Error("Stage-3 validation result is not publishable")
     if result.get("full_validation_passed") is not True:
         raise Stage3Error("full validation did not pass")
+    if result.get("governed_repair_state") != "PR_CERTIFICATION":
+        raise Stage3Error("repair candidate is not in PR_CERTIFICATION state")
     if not pr_url.startswith("https://github.com/") or "/pull/" not in pr_url:
         raise Stage3Error("a valid GitHub Draft PR URL is required")
+    gates = result.get("gates") if isinstance(result.get("gates"), dict) else {}
+    if not isinstance(gates.get("G6_GOVERNANCE_EXACT_HEAD"), dict):
+        raise Stage3Error("G6 governance/exact-head state is missing")
+    if gates["G6_GOVERNANCE_EXACT_HEAD"].get("status") != "PENDING":
+        raise Stage3Error("G6 must remain pending when the Draft PR is first published")
+
     task = _open_task(task_run_path)
     task.mark_condition(
         "draft_pr_published",
@@ -566,15 +760,20 @@ def complete_publication(
     )
     task.complete(
         workspace_fingerprint=str(result.get("quick_workspace_snapshot_fingerprint") or ""),
-        evidence_refs=[str(validation_result_path), pr_url],
+        evidence_refs=[str(validation_result_path), pr_url, "governance-g6:PENDING"],
     )
     completed = dict(result)
     completed.update(
         {
             "status": "DRAFT_REPAIR_PR_PUBLISHED",
+            "governed_repair_state": "PR_CERTIFICATION",
             "draft_pr_published": True,
             "draft_pr_url": pr_url,
             "normal_quality_dispatch_requested": True,
+            "governance_closed": False,
+            "baseline_accepted": False,
+            "exact_head_certified": False,
+            "ready_for_review": False,
             "production_closed": False,
         }
     )
@@ -602,6 +801,9 @@ def main() -> int:
     inspect_parser.add_argument("--result", required=True)
     inspect_parser.add_argument("--task-run", required=True)
     inspect_parser.add_argument("--patch", required=True)
+    inspect_parser.add_argument("--failure-case", required=True)
+    inspect_parser.add_argument("--rca", required=True)
+    inspect_parser.add_argument("--write-grant", required=True)
     inspect_parser.add_argument("--output", required=True)
     inspect_parser.add_argument("--github-output")
 
@@ -610,6 +812,9 @@ def main() -> int:
     prepare_parser.add_argument("--result", required=True)
     prepare_parser.add_argument("--task-run", required=True)
     prepare_parser.add_argument("--patch", required=True)
+    prepare_parser.add_argument("--failure-case", required=True)
+    prepare_parser.add_argument("--rca", required=True)
+    prepare_parser.add_argument("--write-grant", required=True)
     prepare_parser.add_argument("--plan", required=True)
     prepare_parser.add_argument("--github-output")
 
@@ -641,6 +846,9 @@ def main() -> int:
                 result_path=Path(args.result),
                 task_run_path=Path(args.task_run),
                 patch_path=Path(args.patch),
+                failure_case_path=Path(args.failure_case),
+                rca_path=Path(args.rca),
+                write_grant_path=Path(args.write_grant),
             )
             _write_object(Path(args.output), {"schema": STAGE3_SCHEMA, **payload})
             _github_output(Path(args.github_output) if args.github_output else None, payload)
@@ -651,6 +859,9 @@ def main() -> int:
                 result_path=Path(args.result),
                 task_run_path=Path(args.task_run),
                 patch_path=Path(args.patch),
+                failure_case_path=Path(args.failure_case),
+                rca_path=Path(args.rca),
+                write_grant_path=Path(args.write_grant),
                 plan_path=Path(args.plan),
             )
             _github_output(
@@ -660,6 +871,8 @@ def main() -> int:
                     "source_run_id": payload["source_run_id"],
                     "repair_branch": payload["repair_branch"],
                     "repair_base_branch": payload["repair_base_branch"],
+                    "rca_sha256": payload["rca_sha256"],
+                    "write_grant_sha256": payload["write_grant_sha256"],
                 },
             )
             return 0
@@ -685,6 +898,8 @@ def main() -> int:
                     "repair_branch": payload["repair_branch"],
                     "repair_base_branch": payload["repair_base_branch"],
                     "source_run_id": payload["source_run_id"],
+                    "rca_sha256": payload["rca_sha256"],
+                    "write_grant_sha256": payload["write_grant_sha256"],
                 },
             )
             return 0
@@ -697,8 +912,23 @@ def main() -> int:
                 output_path=Path(args.output),
             )
             return 0
-    except (OSError, json.JSONDecodeError, subprocess.SubprocessError, Stage3Error) as exc:
-        print(json.dumps({"status": "BLOCKED", "error": str(exc), "production_closed": False}), file=sys.stderr)
+    except (
+        OSError,
+        json.JSONDecodeError,
+        subprocess.SubprocessError,
+        Stage3Error,
+        RepairAuthorityError,
+    ) as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED",
+                    "error": str(exc),
+                    "production_closed": False,
+                }
+            ),
+            file=sys.stderr,
+        )
         return 2
     return 2
 
