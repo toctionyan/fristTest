@@ -1,0 +1,74 @@
+name: release56-prompt-contract-patch
+
+on:
+  push:
+    branches:
+      - repair/release56-dependency-verifier-nested-basis-contract-20260816
+    paths:
+      - .github/release56-prompt-contract-patch-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: repair/release56-dependency-verifier-nested-basis-contract-20260816
+          fetch-depth: 0
+      - name: Apply exact Release 56 prompt-contract repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('services/agent-service/src/agent_core/lifecycle/goal_planning.py')
+          text = path.read_text(encoding='utf-8')
+
+          old_rule = (
+              'dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; '
+              'it must be disjoint from the dependent Goal requested_outputs evidence spans. A basis inside requested-output evidence, or a broader phrase that wraps requested-output evidence with control/action wording, proves the requested outcome rather than a result dependency and must be rejected; use a relation-only literal basis when one exists, otherwise the pair is independent'
+          )
+          new_rule = (
+              'dependency basis evidence must identify only the result-reference, result-condition or result-value-input relation itself; '
+              'it must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording. '
+              'A strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible because the basis itself denotes only the result-reference, result-condition or result-value-input relation; use the smallest such literal basis when one exists, otherwise the pair is independent'
+          )
+
+          old_repair = (
+              'The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; '
+              'if no disjoint relation-only basis exists, return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only.'
+          )
+          new_repair = (
+              'The basis must be relation-only, must not equal a requested-output evidence span, and must not wrap a requested-output evidence span with action/control wording; '
+              'a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible. '
+              'If no valid relation-only basis exists under those rules, return relation=independent. Return the complete dependency_decisions array and the strict JSON fields only.'
+          )
+
+          if text.count(old_rule) != 1:
+              raise SystemExit(f'expected exactly one primary stale rule, found {text.count(old_rule)}')
+          if text.count(old_repair) != 1:
+              raise SystemExit(f'expected exactly one repair stale rule, found {text.count(old_repair)}')
+
+          text = text.replace(old_rule, new_rule, 1).replace(old_repair, new_repair, 1)
+          path.write_text(text, encoding='utf-8')
+
+          final = path.read_text(encoding='utf-8')
+          assert 'must be disjoint from the dependent Goal requested_outputs evidence spans' not in final
+          assert 'if no disjoint relation-only basis exists' not in final
+          assert final.count('a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible') >= 2
+          assert 'must not equal a requested-output evidence span' in final
+          assert 'must not wrap a requested-output evidence span with action/control wording' in final
+          PY
+          python -m py_compile services/agent-service/src/agent_core/lifecycle/goal_planning.py
+      - name: Commit exact product repair
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          test "$(git diff --cached --name-only)" = "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          git commit -m 'fix(semantic): align nested dependency basis verifier contract'
+          git push origin HEAD:repair/release56-dependency-verifier-nested-basis-contract-20260816
