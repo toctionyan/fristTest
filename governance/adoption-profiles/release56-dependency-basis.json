@@ -42,12 +42,12 @@
     {
       "id": "dependency-basis-runtime-regression",
       "cwd": "services/agent-service",
-      "argv": ["{agent_python}", "-B", "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "tests/runtime/test_release56_dependency_basis_contract.py"]
+      "argv": ["/usr/bin/env", "PYTHONPATH=src", "PYTHONNOUSERSITE=1", "{agent_python}", "-B", "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "tests/runtime/test_release56_dependency_basis_contract.py"]
     },
     {
       "id": "python-test-suites",
       "cwd": "services/agent-service",
-      "argv": ["{agent_python}", "-B", "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "-m", "not integration and not preprod", "tests"]
+      "argv": ["/usr/bin/env", "PYTHONPATH=src", "PYTHONNOUSERSITE=1", "{agent_python}", "-B", "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "-m", "not integration and not preprod", "tests"]
     }
   ],
   "violated_invariant": "DEP-BASIS-CONTRACT-001",
