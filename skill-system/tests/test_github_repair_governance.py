@@ -229,9 +229,10 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
     def test_baseline_acceptance_allows_only_exact_governed_drift(self) -> None:
         temp, root, changed, source_sha = self._repo_with_baseline()
         self.addCleanup(temp.cleanup)
-        governance_path = root / "governance.json"
-        task = root / "task.json"
-        output = root / "acceptance.json"
+        evidence = root / ".git/governed-repair-test-evidence"
+        governance_path = evidence / "governance.json"
+        task = evidence / "task.json"
+        output = evidence / "acceptance.json"
         _write_json(governance_path, self._governance_receipt(source_sha, changed))
         _write_json(task, {"status": "WAITING_EXTERNAL_RESULT", "phase": "STAGE5_BASELINE_ACCEPTANCE_REQUIRED"})
         with patch.object(baseline_acceptance, "TaskRunStore", FakeTaskRunStore):
@@ -251,8 +252,10 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
     def test_baseline_acceptance_rejects_unapproved_extra_drift(self) -> None:
         temp, root, changed, source_sha = self._repo_with_baseline(two_changed=True)
         self.addCleanup(temp.cleanup)
-        governance_path = root / "governance.json"
-        task = root / "task.json"
+        evidence = root / ".git/governed-repair-test-evidence"
+        governance_path = evidence / "governance.json"
+        task = evidence / "task.json"
+        output = evidence / "acceptance.json"
         _write_json(governance_path, self._governance_receipt(source_sha, changed[:1]))
         _write_json(task, {"status": "WAITING_EXTERNAL_RESULT", "phase": "STAGE5_BASELINE_ACCEPTANCE_REQUIRED"})
         with patch.object(baseline_acceptance, "TaskRunStore", FakeTaskRunStore):
@@ -261,7 +264,7 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
                     workspace=root,
                     governance_path=governance_path,
                     task_run_path=task,
-                    output_path=root / "acceptance.json",
+                    output_path=output,
                 )
 
     def _baseline_receipt_for_exact_head(self, exact_sha: str) -> dict[str, object]:
