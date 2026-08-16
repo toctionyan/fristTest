@@ -58,6 +58,7 @@ jobs:
           set -euo pipefail
           clean="${RUNNER_TEMP}/release55-base"
           cd "$clean"
+          export PYTHONPATH="$clean/services/agent-service/src:$clean/services/agent-service"
           change_id="repair-release55-dependency-output-role-overlap"
           case="governance/repair-cases/$change_id"
           target="governance/targets/$change_id.md"
@@ -135,6 +136,7 @@ jobs:
           set -euo pipefail
           clean="${RUNNER_TEMP}/release55-base"
           cd "$clean"
+          export PYTHONPATH="$clean/services/agent-service/src:$clean/services/agent-service"
           change_id="repair-release55-dependency-output-role-overlap"
           case="governance/repair-cases/$change_id"
           target="governance/targets/$change_id.md"
@@ -170,7 +172,11 @@ jobs:
             echo "pr_base=${{ github.event.pull_request.base.sha }}"
             echo "pr_head=${{ github.event.pull_request.head.sha }}"
             echo "source_sha256=$(sha256sum "$clean/services/agent-service/src/agent_core/lifecycle/goal_planning.py" | awk '{print $1}')"
-            echo "test_sha256=$(sha256sum "$clean/services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py" | awk '{print $1}')"
+            if [ -f "$clean/services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py" ]; then
+              echo "test_sha256=$(sha256sum "$clean/services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py" | awk '{print $1}')"
+            else
+              echo "test_sha256=NOT_OVERLAID"
+            fi
           } > "${RUNNER_TEMP}/release55-clean-candidate-identity.txt"
 
       - name: Upload clean candidate evidence
