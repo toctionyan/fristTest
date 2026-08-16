@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-release55-dependency-output-role-overlap",
+  "permit_digest": "a6cae9d1b37478755ad68d0ba867dfbea5a9d35f29c99ed20243830043b40470",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "561c5e566e6ce1c2f0a35b1429fa8df7cca4145db57cc40a80ad2ddad3dfa9ee",
+  "candidate_source_fingerprint": "c5974ad278e111077dc856284cf7d87df5928d41f4d500c32585c71a5e6143fb",
+  "changed_paths": [
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+  ],
+  "added_paths": [
+    "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
+  ],
+  "modified_paths": [
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}
