@@ -13,7 +13,7 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_REL = Path("skill-system/trusted-judge/manifest.json")
 
-# Files that define the meaning of a quality verdict.  Product tests and source
+# Files that define the meaning of a quality verdict. Product tests and source
 # remain in the candidate workspace, but a repair task may not silently rewrite
 # these controllers, schemas, or gate definitions and then use the rewritten
 # version as its own proof.
@@ -53,6 +53,11 @@ def _matching_files(root: Path, patterns: Iterable[str] = TRUSTED_PATTERNS) -> l
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
 
 
+def _matching_relpaths(root: Path) -> set[str]:
+    root = root.resolve()
+    return {path.relative_to(root).as_posix() for path in _matching_files(root)}
+
+
 def build_manifest(root: Path) -> dict[str, Any]:
     root = root.resolve()
     files = {
@@ -87,34 +92,59 @@ def load_manifest(root: Path) -> dict[str, Any]:
 
 
 def verify_root(root: Path) -> list[str]:
+    """Verify both hashes and the exact set of trust-defining inputs.
+
+    A manifest that omits a newly added file matching TRUSTED_PATTERNS is stale,
+    even if every previously listed hash still matches.  Failing closed on the
+    file set prevents a candidate or control checkout from adding a new Judge
+    input outside the signed/derived manifest and having it silently ignored.
+    """
     root = root.resolve()
     try:
         payload = load_manifest(root)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [str(exc)]
+    expected_files = {str(rel) for rel in (payload.get("files") or {})}
+    actual_files = _matching_relpaths(root)
     errors: list[str] = []
+    for rel in sorted(actual_files - expected_files):
+        errors.append(f"unmanifested_trusted_input:{rel}")
+    for rel in sorted(expected_files - actual_files):
+        errors.append(f"missing:{rel}")
     for rel, expected in sorted((payload.get("files") or {}).items()):
         path = root / str(rel)
         if not path.is_file():
-            errors.append(f"missing:{rel}")
+            if f"missing:{rel}" not in errors:
+                errors.append(f"missing:{rel}")
         elif sha256(path) != str(expected):
             errors.append(f"fingerprint_mismatch:{rel}")
     return errors
 
 
 def verify_candidate(candidate_root: Path, judge_root: Path) -> list[str]:
-    """Compare candidate trust-root inputs with the immutable Judge manifest."""
+    """Compare the candidate's exact trusted surface with the Judge manifest."""
     candidate_root = candidate_root.resolve()
     judge_root = judge_root.resolve()
+    judge_errors = verify_root(judge_root)
+    if judge_errors:
+        return [f"judge_trust_root_invalid:{item}" for item in judge_errors]
     try:
         payload = load_manifest(judge_root)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [str(exc)]
+    expected_files = {str(rel) for rel in (payload.get("files") or {})}
+    actual_files = _matching_relpaths(candidate_root)
     errors: list[str] = []
+    for rel in sorted(actual_files - expected_files):
+        errors.append(f"candidate_extra_trusted_input:{rel}")
+    for rel in sorted(expected_files - actual_files):
+        errors.append(f"candidate_missing:{rel}")
     for rel, expected in sorted((payload.get("files") or {}).items()):
         path = candidate_root / str(rel)
         if not path.is_file():
-            errors.append(f"candidate_missing:{rel}")
+            marker = f"candidate_missing:{rel}"
+            if marker not in errors:
+                errors.append(marker)
         elif sha256(path) != str(expected):
             errors.append(f"candidate_trust_root_changed:{rel}")
     return errors
