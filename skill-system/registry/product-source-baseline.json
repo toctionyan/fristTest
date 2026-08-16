@@ -1,9 +1,10 @@
 {
-  "file_count": 621,
+  "file_count": 624,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
     "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21",
+    "contracts/generated/dependency-basis-projections.json": "630dfb47ca4519ce69b94b528489390e7df6af2d178c035a9e435909e35b539e",
     "services/agent-service/.env.example": "9d827bf61c3e1f08082b723fa5f18c9ff5b25693cee34928370ef6a69ebcdfb8",
     "services/agent-service/.gitignore": "865aff3868d71c17bb463346cf6483752f4fb778bce2528b84dcd9584b2157bd",
     "services/agent-service/.python-version": "aa0d6581054e6e4ff3f91839deca7a854ad37221b8784d060b42d0f847ff1a3b",
@@ -137,6 +138,7 @@
     "services/agent-service/src/agent_core/goal_graph/cutover_gate.py": "4d65e9c617464cd121042906d2ae16d9e71d0c329b2908fdf61d5e6e1b7c8b6b",
     "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py": "b50555e378b2fa26f1fec485f08730e812e55e0b385d607f2c76b29da6a505ff",
     "services/agent-service/src/agent_core/goal_graph/dependency_authority.py": "0e427db0e1b1c1b4886cbb50c98603585a236421530685cadb10029f1b61141c",
+    "services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py": "3659a481438761540188d94d2eb7b25396f19dd3090ac967367420c156aa660a",
     "services/agent-service/src/agent_core/goal_graph/dependency_proof.py": "2c91d553b0927d459eb4a145ece71ee72629d71ab9a69e95887347bc0c5ec928",
     "services/agent-service/src/agent_core/goal_graph/handoff_simulation.py": "52f074999d958fce53eae95120787b29c937e6664bdeb072364890eca90f0d69",
     "services/agent-service/src/agent_core/goal_graph/runtime_authority.py": "f5468c71da9b16d9737129b546499f795a593e40293b987d57c1b0b920577c7f",
@@ -172,7 +174,7 @@
     "services/agent-service/src/agent_core/lifecycle/goal_granularity.py": "476782478c6bb924fc8fb2065db2fe73b7fc3e36f3f3c1cf05fc7dcfe3323705",
     "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py": "7f452744f00beb18e4c97a782a43cc56e4e387970b93e6a09910af2be64caf1a",
     "services/agent-service/src/agent_core/lifecycle/goal_outputs.py": "bb96998180c8177d6317764f998e3928a3d2a39d801fc207854f5595fe861a2e",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "719c17e0804fae8804ac969db8ee3e47fbdfe4f041c7763f54d1d1726579d456",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "4cc26d3fa9ca99d44253bfdfa4e8d47a876347eb2e17f2dfdd885225aa226cb9",
     "services/agent-service/src/agent_core/lifecycle/graph.py": "07213f0f5f7322e240012be70aca0c2c0cd1981ea127387f0a8afb0f344e0aea",
     "services/agent-service/src/agent_core/lifecycle/graph_routes.py": "8e6e64d06da64112030021e7a77a71191afdd98b87e019e22a6280866042edc0",
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "43f8954962cb902f192ac4dbe95357abc13d7f930a34ac94ad8dadc55d7d236e",
@@ -525,6 +527,7 @@
     "services/agent-service/tests/runtime/test_release52_dependency_independence_adjudication.py": "4d07aaa6df37d86f9ab06d1e248b8da4662955dba10d6dbd10167d509c26c60a",
     "services/agent-service/tests/runtime/test_release53_blind_semantic_grounding_adjudication.py": "c40e1b3ad03a15ff8d18e7db6025698b42b5184a81ba1c974ed7443e591b79ef",
     "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py": "6877150b7a1c7a7f6b1362093161bdbfe6f8e9afdb73eeed9acf4989d176af81",
+    "services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py": "9174e67dbaf4aaf8d375113417771f4a5187ec77be77293252b5b5648046e48d",
     "services/agent-service/tests/runtime/test_requested_output_exactness_redeclaration_feedback.py": "5ca39ae79dafd3ac89ab32f74c68d5f82a30b189821a14a79938bfbe3c2309aa",
     "services/agent-service/tests/runtime/test_scope_constraint_redeclaration_feedback.py": "84f32a86ea7e75276930768f4d2e394e27ec3307370359e7e54ef7651dc48943",
     "services/agent-service/tests/runtime/test_scripted_chat_model.py": "062c682a9f977cbbb48922cbae7c9257c3a21dfdeebcbfb91ba738b2b533743c",
@@ -623,8 +626,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-16T12:23:53+08:00",
-  "generated_from": "git:a4bba996b24200fa8062971fe0eed90efd544bdb",
+  "generated_at": "2026-08-16T23:37:20+00:00",
+  "generated_from": "git:bffb8f888a40acd794e5eaf4162b5e2209c8ac87",
   "protected_roots": [
     "services",
     "web",
