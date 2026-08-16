@@ -6,7 +6,9 @@ from __future__ import annotations
 The adoption path may certify an *already existing* candidate only when a trusted
 main-branch profile binds its exact PR, file set and Git blob identities. It must
 never become an alternate repair writer, baseline shortcut, merge path or way to
-let candidate-owned tests authorize themselves.
+let candidate-owned tests authorize themselves. A failed fixed-profile run must
+also leave durable, replayable evidence without converting the failed gate into a
+successful step.
 """
 
 import ast
@@ -162,6 +164,12 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "ref: main",
         "github_existing_candidate_adoption.py inspect",
         "github_existing_candidate_adoption.py run-profile",
+        "id: fixed_profile_validation",
+        "steps.fixed_profile_validation.outcome == 'failure'",
+        "profile-failure-summary.json",
+        "profile_validation_present",
+        '"diagnostic_only": True',
+        "governed-ci-existing-candidate-adoption-failure-",
         "github_existing_candidate_adoption.py finalize",
         "SKILL_JUDGE_ROOT: ${{ github.workspace }}/control",
         "SKILL_JUDGE_TRUST_MODE: external-readonly",
@@ -176,6 +184,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     for forbidden in (
         "contents: write",
         "pull-requests: write",
+        "continue-on-error",
         "github_repair_baseline_acceptance.py",
         "github_repair_governance.py",
         "gh pr merge",
@@ -217,13 +226,16 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"solo_workflow_forbidden_authority:{forbidden}")
 
     return {
-        "schema": "governed-existing-candidate-adoption-contract@1",
+        "schema": "governed-existing-candidate-adoption-contract@2",
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "profile_id": profile.get("profile_id"),
         "source_pr_number": profile.get("source_pr_number"),
         "exact_blob_count": len(profile.get("allowed_changed_files") or {}),
         "candidate_write_authority": False,
+        "failed_profile_evidence_required": True,
+        "failed_profile_evidence_diagnostic_only": True,
+        "failed_profile_can_be_converted_to_success": False,
         "baseline_before_governance_allowed": False,
         "automatic_merge_allowed": False,
         "production_closed": False,
