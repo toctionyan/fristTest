@@ -165,7 +165,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "github_existing_candidate_adoption.py inspect",
         "github_existing_candidate_adoption.py run-profile",
         "id: fixed_profile_validation",
-        "steps.fixed_profile_validation.outcome == 'failure'",
+        "failure() && steps.fixed_profile_validation.outcome == 'failure'",
         "profile-failure-summary.json",
         "profile_validation_present",
         '"diagnostic_only": True',
@@ -181,6 +181,9 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     ):
         if marker.casefold() not in adoption_low:
             errors.append(f"adoption_workflow_marker_missing:{marker}")
+    failure_condition = "failure() && steps.fixed_profile_validation.outcome == 'failure'"
+    if adoption_low.count(failure_condition.casefold()) != 2:
+        errors.append("adoption_failure_status_check_count_drift")
     for forbidden in (
         "contents: write",
         "pull-requests: write",
