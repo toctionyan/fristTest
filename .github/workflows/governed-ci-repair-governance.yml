@@ -183,8 +183,12 @@ jobs:
       - name: Prove local baseline binding after acceptance
         run: |
           set -euo pipefail
-          "${pythonLocation}/bin/python" -B candidate/scripts/generate_product_source_baseline.py --help >/dev/null 2>&1 || true
-          "${pythonLocation}/bin/python" -B candidate/skill-system/tests/test_product_source_baseline_binding.py >/dev/null 2>&1 || true
+          "${pythonLocation}/bin/python" -B control/scripts/verify_product_source_baseline.py \
+            --workspace candidate \
+            --require-parent-binding \
+            --output governance-evidence/post-baseline-verification.json
+          jq -e '.status == "PASS" and (.drift_paths | length == 0)' \
+            governance-evidence/post-baseline-verification.json >/dev/null
           git -C candidate status --porcelain=v1 --untracked-files=all | tee governance-evidence/post-baseline-status.txt
           test ! -s governance-evidence/post-baseline-status.txt
 
