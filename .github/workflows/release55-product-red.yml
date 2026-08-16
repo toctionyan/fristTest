@@ -28,6 +28,9 @@ jobs:
       - name: Install Agent validation environment
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Confirm focused product test is RED for the intended structural reason
+        env:
+          PYTHONPATH: ${{ github.workspace }}/services/agent-service/src:${{ github.workspace }}/services/agent-service
+          PYTHONDONTWRITEBYTECODE: '1'
         run: |
           set -euo pipefail
           cd services/agent-service
