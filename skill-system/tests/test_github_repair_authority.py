@@ -19,6 +19,10 @@ from github_repair_authority import (  # noqa: E402
     revoke_write_grant,
     validate_write_grant,
 )
+from governed_repair_path_policy import (  # noqa: E402
+    PATH_POLICY_ID,
+    policy_fingerprint,
+)
 
 
 class GovernedRepairAuthorityTests(unittest.TestCase):
@@ -77,6 +81,8 @@ class GovernedRepairAuthorityTests(unittest.TestCase):
             (self.path,),
         )
         self.assertEqual(grant["state"], "WRITE_GRANTED")
+        self.assertEqual(grant["path_policy_id"], PATH_POLICY_ID)
+        self.assertEqual(grant["path_policy_sha256"], policy_fingerprint())
         self.assertFalse(grant["authority"]["scope_expansion_allowed"])
         self.assertFalse(grant["authority"]["merge_allowed"])
         self.assertFalse(grant["authority"]["deploy_allowed"])
@@ -161,6 +167,57 @@ class GovernedRepairAuthorityTests(unittest.TestCase):
                 candidate_paths=self.failure["candidate_paths"],
             )
 
+    def test_tampered_path_policy_binding_is_rejected(self) -> None:
+        grant = compile_write_grant(
+            failure_case=self.failure,
+            rca=self.rca,
+            candidate_paths=self.failure["candidate_paths"],
+        )
+        grant["path_policy_sha256"] = "0" * 64
+        from github_repair_authority import write_grant_fingerprint
+        grant["write_grant_sha256"] = write_grant_fingerprint(grant)
+        with self.assertRaises(RepairAuthorityError):
+            validate_write_grant(
+                grant,
+                failure_case=self.failure,
+                rca=self.rca,
+                candidate_paths=self.failure["candidate_paths"],
+            )
+
+    def test_write_grant_compiler_cannot_mint_test_path_authority(self) -> None:
+        protected = "services/agent-service/tests/runtime/test_hidden_failure.py"
+        failure = dict(self.failure)
+        failure["candidate_paths"] = [protected]
+        rca = dict(self.rca)
+        rca["binding"] = failure_binding(failure)
+        rca["failure_case_sha256"] = failure_case_fingerprint(failure)
+        rca["candidate_paths"] = [protected]
+        rca["write_scope_recommendation"] = {"decision": "GRANT", "paths": [protected]}
+        rca["rca_sha256"] = rca_fingerprint(rca)
+        with self.assertRaisesRegex(RepairAuthorityError, "path policy denied authority"):
+            compile_write_grant(
+                failure_case=failure,
+                rca=rca,
+                candidate_paths=failure["candidate_paths"],
+            )
+
+    def test_write_grant_compiler_cannot_mint_control_plane_authority(self) -> None:
+        protected = ".github/workflows/quality.yml"
+        failure = dict(self.failure)
+        failure["candidate_paths"] = [protected]
+        rca = dict(self.rca)
+        rca["binding"] = failure_binding(failure)
+        rca["failure_case_sha256"] = failure_case_fingerprint(failure)
+        rca["candidate_paths"] = [protected]
+        rca["write_scope_recommendation"] = {"decision": "GRANT", "paths": [protected]}
+        rca["rca_sha256"] = rca_fingerprint(rca)
+        with self.assertRaisesRegex(RepairAuthorityError, "path policy denied authority"):
+            compile_write_grant(
+                failure_case=failure,
+                rca=rca,
+                candidate_paths=failure["candidate_paths"],
+            )
+
     def test_repeated_failure_revokes_write(self) -> None:
         grant = compile_write_grant(
             failure_case=self.failure,
@@ -175,6 +232,7 @@ class GovernedRepairAuthorityTests(unittest.TestCase):
         self.assertFalse(receipt["write_authority"])
         self.assertEqual(receipt["state"], "RCA_READ_ONLY")
         self.assertEqual(receipt["next_action"], "ARCHITECTURE_REPLAN_AND_NEW_RCA")
+        self.assertEqual(receipt["path_policy_sha256"], policy_fingerprint())
 
 
 if __name__ == "__main__":
