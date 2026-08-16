@@ -48,7 +48,7 @@ def main() -> int:
         "- 验收 ID：`STAGE4_2.DEPENDENCY_OBLIGATION_PIPELINE`\n\n"
         "Pair relation evidence alone must not satisfy target compatibility or result-removal counterfactual obligations. A separately validated, premise-bound obligation record can satisfy those obligations and the deterministic dependency reducer remains the only authority seal.\n\n"
         "## 基线\n\n"
-        "Current bridge hard-codes target_compatibility=PASS and counterfactual=PASS from a pair decision; current goal-planning normalization drops distinct obligation evidence.\n\n"
+        "Baseline source is the exact restored pre-Stage-4.2 feature head. It still hard-codes target_compatibility=PASS and counterfactual=PASS from a pair decision, while goal-planning normalization carries no separate obligation evidence. The canonical baseline run below must determine whether an existing acceptance gate reproduces this defect before any product write.\n\n"
         "## 修复轮次\n\n- 最大轮次：8\n- 当前轮次：1\n- 失败后：只根据本目标的结构化 Repair Plan 修改唯一 Owner；没有有效进展时停止并重新规划。\n",
         encoding="utf-8",
     )
