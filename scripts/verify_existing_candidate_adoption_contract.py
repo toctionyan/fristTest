@@ -4,7 +4,7 @@ from __future__ import annotations
 """Fail-closed static contract for migration of pre-governance Draft candidates.
 
 The adoption path may certify an *already existing* candidate only when a trusted
-main-branch profile binds its exact PR, file set and Git blob identities.  It must
+main-branch profile binds its exact PR, file set and Git blob identities. It must
 never become an alternate repair writer, baseline shortcut, merge path or way to
 let candidate-owned tests authorize themselves.
 """
@@ -28,7 +28,7 @@ EXPECTED_RELEASE56_BLOBS = {
     "services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py": "6c3c45f9d80fd4e7d13c87f439987b02011506f3",
     "services/agent-service/src/agent_core/lifecycle/goal_planning.py": "09e279d24641b3f7a5df7d4d0811bc6c267faa07",
     "services/agent-service/tests/runtime/test_release56_dependency_basis_contract.py": "11cd67e1ade8de78f05f8af9fb95628c90c3e7b1",
-    "skill-system/profiles/skill-unit.json": "74c583dfc40003df1abacdccdb0fd7b39f564bd3",
+    "skill-system/profiles/skill-unit.json": "9c8ba0bd94def7f4e8902ad63f2995003f429458",
     "skill-system/tests/test_dependency_basis_contract_guard.py": "f4ef23af7fbc33645d98ebea1310fad289f088c6",
 }
 
@@ -144,7 +144,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "BASELINE_COUNT_ASSERTION",
         '"failure_kind": "protected_baseline_drift"',
         '"implicated_paths": []',
-        "existing-candidate adoption",
+        '"scripts/github_existing_candidate_adoption.py"',
     ):
         if marker not in ingest:
             errors.append(f"baseline_classifier_marker_missing:{marker}")
@@ -197,13 +197,13 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         "GITHUB_REPOSITORY_OWNER",
         '"governed-ci-existing-candidate-adoption"',
         "governed-ci-existing-candidate-adoption-published-",
-        ".candidate_origin == "existing_pr_adoption"",
+        '.candidate_origin == "existing_pr_adoption"',
         ".write_authority_effect == false",
         "github_repair_governance.py",
         "github_repair_baseline_acceptance.py",
         "verify_product_source_baseline.py",
         "github_repair_exact_head.py",
-        ".event == \"pull_request\"",
+        '.event == "pull_request"',
         ".pr_is_draft == true",
     ):
         if marker.casefold() not in solo_low:
