@@ -46,8 +46,8 @@
     },
     {
       "id": "python-test-suites",
-      "cwd": "services/agent-service",
-      "argv": ["/usr/bin/env", "PYTHONPATH=src", "PYTHONNOUSERSITE=1", "{agent_python}", "-B", "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "-m", "not integration and not preprod", "tests"]
+      "cwd": ".",
+      "argv": ["/usr/bin/env", "-u", "QUALITY_AGENT_PYTHON", "-u", "QUALITY_BUSINESS_PYTHON", "PYTHONNOUSERSITE=1", "{python}", "-B", "../control/scripts/run_python_test_suites.py", ".", "--mode", "standard", "--junit-dir", "../adoption/profile-runtime/junit", "--coverage-dir", "../adoption/profile-runtime/coverage"]
     }
   ],
   "violated_invariant": "DEP-BASIS-CONTRACT-001",
