@@ -30,132 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --no-tags
-          python - <<'PY'
-          from __future__ import annotations
-
-          import ast
-          import json
-          import subprocess
-          from pathlib import Path
-
-          root = Path.cwd()
-
-          protected_test = "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py"
-          original = subprocess.run(
-              ["git", "show", f"origin/main:{protected_test}"],
-              check=True,
-              stdout=subprocess.PIPE,
-          ).stdout
-          (root / protected_test).write_bytes(original)
-
-          path = root / "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
-          text = path.read_text(encoding="utf-8")
-
-          import_block = """from agent_core.goal_graph.dependency_basis_contract import (
-              ALLOWED_DEPENDENCY_BASIS_KINDS,
-              dependency_basis_conflicts_with_requested_outputs,
-              render_candidate_blind_dependency_rule,
-              render_dependency_format_repair_rule,
-          )
-
-          """
-          anchor = 'GOAL_PLAN_VERSION = "turn-goal-plan@1.1"'
-          if "from agent_core.goal_graph.dependency_basis_contract import (" not in text:
-              if anchor not in text:
-                  raise SystemExit("goal-planning import anchor missing")
-              text = text.replace(anchor, import_block + anchor, 1)
-
-          old_kinds = """_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = {
-              "result_reference",
-              "result_condition",
-              "result_value_input",
-          }"""
-          if old_kinds in text:
-              text = text.replace(
-                  old_kinds,
-                  "_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = set(ALLOWED_DEPENDENCY_BASIS_KINDS)",
-                  1,
-              )
-          elif "_ALLOWED_ALIGNMENT_DEPENDENCY_BASIS_KINDS = set(ALLOWED_DEPENDENCY_BASIS_KINDS)" not in text:
-              raise SystemExit("dependency basis kind block missing")
-
-          start_marker = "def _dependency_basis_overlaps_requested_output("
-          end_marker = "\n\ndef _model_alignment_dependency_proof("
-          start = text.find(start_marker)
-          end = text.find(end_marker, start)
-          if start < 0 or end < 0:
-              raise SystemExit("dependency overlap function boundary missing")
-          replacement = """def _dependency_basis_overlaps_requested_output(
-              goal: dict[str, Any],
-              basis_span: str,
-          ) -> bool:
-              # Project the canonical structural dependency-basis contract.
-              return dependency_basis_conflicts_with_requested_outputs(
-                  basis_span,
-                  _requested_output_evidence_spans(goal),
-              )
-          """
-          text = text[:start] + replacement + text[end:]
-
-          tree = ast.parse(text)
-          primary_marker = "must be disjoint from the dependent Goal requested_outputs evidence spans"
-          repair_clause = (
-              "The basis must not be requested-output evidence and must not wrap a requested-output evidence span with action/control wording; "
-              "if no disjoint relation-only basis exists, return relation=independent."
-          )
-          primary_nodes = [
-              node
-              for node in ast.walk(tree)
-              if isinstance(node, ast.Constant)
-              and isinstance(node.value, str)
-              and primary_marker in node.value
-          ]
-          repair_nodes = [
-              node
-              for node in ast.walk(tree)
-              if isinstance(node, ast.Constant)
-              and isinstance(node.value, str)
-              and repair_clause in node.value
-          ]
-          if len(primary_nodes) != 1:
-              raise SystemExit(f"expected one stale primary projection, found {len(primary_nodes)}")
-          if len(repair_nodes) != 1:
-              raise SystemExit(f"expected one stale format-repair projection, found {len(repair_nodes)}")
-
-          lines = text.splitlines(keepends=True)
-          offsets = [0]
-          for line in lines:
-              offsets.append(offsets[-1] + len(line))
-
-          edits: list[tuple[int, int, str]] = []
-          primary = primary_nodes[0]
-          p_start = offsets[primary.lineno - 1] + primary.col_offset
-          p_end = offsets[primary.end_lineno - 1] + primary.end_col_offset
-          edits.append((p_start, p_end, "render_candidate_blind_dependency_rule()"))
-
-          repair = repair_nodes[0]
-          r_start = offsets[repair.lineno - 1] + repair.col_offset
-          r_end = offsets[repair.end_lineno - 1] + repair.end_col_offset
-          prefix, suffix = repair.value.split(repair_clause, 1)
-          repair_expr = (
-              "("
-              + json.dumps(prefix, ensure_ascii=False)
-              + " + render_dependency_format_repair_rule() + "
-              + json.dumps(suffix, ensure_ascii=False)
-              + ")"
-          )
-          edits.append((r_start, r_end, repair_expr))
-
-          for edit_start, edit_end, new_source in sorted(edits, reverse=True):
-              text = text[:edit_start] + new_source + text[edit_end:]
-
-          if primary_marker in text or "if no disjoint relation-only basis exists" in text:
-              raise SystemExit("stale dependency projection survived migration")
-          ast.parse(text)
-          path.write_text(text, encoding="utf-8")
-          PY
-
-          chmod +x scripts/verify_dependency_basis_contract.py
+          python -B scripts/migrate_release56_dependency_contract.py
           python -B scripts/verify_dependency_basis_contract.py --write-manifest
           python -m py_compile \
             services/agent-service/src/agent_core/goal_graph/dependency_basis_contract.py \
@@ -189,6 +64,7 @@ jobs:
           set -euo pipefail
           git rm .github/workflows/release56-prompt-contract-patch.yml
           git rm .github/release56-prompt-contract-patch-trigger
+          git rm scripts/migrate_release56_dependency_contract.py
           if git diff --name-only | grep -Fx 'skill-system/registry/product-source-baseline.json'; then
             echo "Baseline refresh is forbidden before governance closure." >&2
             exit 1
