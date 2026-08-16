@@ -1,0 +1,97 @@
+name: release55-product-implement
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release55-product-implement.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  implement:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verify active ChangePermit and patch only allowed source
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          change_id = "repair-release55-dependency-output-role-overlap"
+          source = Path("services/agent-service/src/agent_core/lifecycle/goal_planning.py")
+          active = json.loads(Path("governance/active-change.json").read_text(encoding="utf-8"))
+          permit = json.loads(Path(f"governance/repair-cases/{change_id}/change-permit.json").read_text(encoding="utf-8"))
+          assert active["change_id"] == change_id
+          assert active["status"] == "implementing"
+          assert active["writer_role"] == "product-implementer"
+          assert permit["change_id"] == change_id
+          assert permit["status"] == "ACTIVE"
+          assert permit["allowed_paths"] == [
+              "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+              "services/agent-service/tests/runtime/test_release55_dependency_output_role_overlap.py",
+          ]
+
+          text = source.read_text(encoding="utf-8")
+          old = '''def _dependency_basis_overlaps_requested_output(goal: dict[str, Any], basis_span: str) -> bool:
+    """Reject dependency proof text that is actually outcome/action evidence.
+
+    A dependency basis must isolate the relation that consumes an earlier Goal
+    result.  A span that is inside a requested-output span, or merely wraps that
+    output span with control/action wording, does not independently prove a
+    result-reference/condition/value relation.  This check is domain-neutral and
+    purely structural: it compares already-declared literal evidence spans.
+    """
+    basis = _clean_text(basis_span, limit=240)
+    if not basis:
+        return False
+    return any(
+        basis in output_span or output_span in basis
+        for output_span in _requested_output_evidence_spans(goal)
+    )
+'''
+          new = '''def _dependency_basis_overlaps_requested_output(goal: dict[str, Any], basis_span: str) -> bool:
+    """Reject outcome evidence masquerading as a dependency relation basis.
+
+    Requested-output evidence may legally cover a broader literal Goal phrase
+    than the relation-only subspan found by the independent dependency verifier.
+    A strict subspan is therefore only *structurally admissible*; it grants no
+    authority and must still pass the existing counterfactual/adversarial proof
+    obligations and deterministic reducer.  Equality, or a dependency basis that
+    wraps the requested outcome, remains invalid because it does not isolate the
+    relation from the outcome/action evidence.  This check is domain-neutral and
+    interprets no user vocabulary.
+    """
+    basis = _clean_text(basis_span, limit=240)
+    if not basis:
+        return False
+    return any(
+        basis == output_span or output_span in basis
+        for output_span in _requested_output_evidence_spans(goal)
+    )
+'''
+          count = text.count(old)
+          assert count == 1, f"expected one governed overlap helper, found {count}"
+          source.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          git diff --check -- services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          test "$(git diff --name-only -- services | wc -l)" -eq 1
+          test "$(git diff --name-only -- services)" = "services/agent-service/src/agent_core/lifecycle/goal_planning.py"
+          git config user.name "customer-agent-product[bot]"
+          git config user.email "customer-agent-product[bot]@users.noreply.github.com"
+          git add services/agent-service/src/agent_core/lifecycle/goal_planning.py
+          git commit -m "fix(semantic): preserve strict nested dependency relation evidence"
+          git push origin "HEAD:${HEAD_REF}"
