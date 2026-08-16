@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from agent_core.lifecycle.goal_planning import _model_alignment_pairwise_dependency_proof
+import inspect
+
+from agent_core.lifecycle.goal_planning import (
+    ModelGoalAlignmentVerifier,
+    _model_alignment_pairwise_dependency_proof,
+)
 
 
 def _goals(*, output_span: str = "它能不能退款") -> list[dict[str, object]]:
@@ -124,3 +129,18 @@ def test_nested_relation_basis_is_only_provisional_not_authority() -> None:
     assert error == "goal_alignment_dependency_graph_mismatch"
     assert details["dependency_graph_match"] is False
     assert details["dependency_proof_complete"] is True
+
+
+def test_candidate_blind_dependency_prompt_matches_nested_basis_structural_contract() -> None:
+    """Semantic verifier instructions must match the structural basis boundary."""
+
+    source = inspect.getsource(ModelGoalAlignmentVerifier.verify)
+
+    assert "must be disjoint from the dependent Goal requested_outputs evidence spans" not in source
+    assert "if no disjoint relation-only basis exists" not in source
+    assert (
+        "a strictly smaller relation-only literal basis nested inside a broader requested-output evidence span is admissible"
+        in source
+    )
+    assert "must not equal a requested-output evidence span" in source
+    assert "must not wrap a requested-output evidence span with action/control wording" in source
