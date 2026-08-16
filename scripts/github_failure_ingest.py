@@ -160,6 +160,12 @@ def _safe_candidate(path: str, workspace: Path) -> bool:
     normalized = _normalize_repo_path(path)
     if not normalized or normalized in PROTECTED_EXACT:
         return False
+    if (
+        normalized.startswith("scripts/github_repair_")
+        or normalized == "scripts/github_stage2_handoff.py"
+        or normalized == "scripts/verify_product_source_baseline.py"
+    ):
+        return False
     if any(normalized.startswith(prefix) for prefix in PROTECTED_PREFIXES):
         return False
     resolved = (workspace / normalized).resolve()

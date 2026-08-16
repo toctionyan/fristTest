@@ -738,47 +738,7 @@ def complete_publication(
     pr_url: str,
     output_path: Path,
 ) -> dict[str, Any]:
-    result = _load_object(validation_result_path)
-    if result.get("status") != "VALIDATED_FOR_DRAFT_PR":
-        raise Stage3Error("Stage-3 validation result is not publishable")
-    if result.get("full_validation_passed") is not True:
-        raise Stage3Error("full validation did not pass")
-    if result.get("governed_repair_state") != "PR_CERTIFICATION":
-        raise Stage3Error("repair candidate is not in PR_CERTIFICATION state")
-    if not pr_url.startswith("https://github.com/") or "/pull/" not in pr_url:
-        raise Stage3Error("a valid GitHub Draft PR URL is required")
-    gates = result.get("gates") if isinstance(result.get("gates"), dict) else {}
-    if not isinstance(gates.get("G6_GOVERNANCE_EXACT_HEAD"), dict):
-        raise Stage3Error("G6 governance/exact-head state is missing")
-    if gates["G6_GOVERNANCE_EXACT_HEAD"].get("status") != "PENDING":
-        raise Stage3Error("G6 must remain pending when the Draft PR is first published")
-
-    task = _open_task(task_run_path)
-    task.mark_condition(
-        "draft_pr_published",
-        evidence_refs=[pr_url, f"candidate-sha:{result.get('candidate_sha')}"],
-    )
-    task.complete(
-        workspace_fingerprint=str(result.get("quick_workspace_snapshot_fingerprint") or ""),
-        evidence_refs=[str(validation_result_path), pr_url, "governance-g6:PENDING"],
-    )
-    completed = dict(result)
-    completed.update(
-        {
-            "status": "DRAFT_REPAIR_PR_PUBLISHED",
-            "governed_repair_state": "PR_CERTIFICATION",
-            "draft_pr_published": True,
-            "draft_pr_url": pr_url,
-            "normal_quality_dispatch_requested": True,
-            "governance_closed": False,
-            "baseline_accepted": False,
-            "exact_head_certified": False,
-            "ready_for_review": False,
-            "production_closed": False,
-        }
-    )
-    _write_object(output_path, completed)
-    return completed
+    raise Stage3Error("deprecated completion path: use github_repair_stage3_record_publication.py, governance closure, baseline acceptance, and exact-head G6")
 
 
 def _github_output(path: Path | None, values: dict[str, Any]) -> None:
