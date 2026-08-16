@@ -41,9 +41,6 @@ REQUIRED_FILES = (
     ".github/workflows/governed-ci-repair-governance.yml",
 )
 
-# The canonical contract is deliberately excluded from projection evidence. If a
-# state/gate exists only in the contract but no runtime/controller projection uses
-# it, the architecture gate must fail rather than prove itself tautologically.
 PROJECTION_FILES = tuple(path for path in REQUIRED_FILES if path != CANONICAL_CONTRACT_PATH)
 
 FORBIDDEN_FILES = (
@@ -66,8 +63,6 @@ REQUIRED_TASK_CONDITIONS = (
 REQUIRED_STATES = STATE_MACHINE
 REQUIRED_GATES = GATES
 
-# Concrete shell-level forbidden authorities. Incidental path fragments such as
-# deployment/ci/uv-requirements-*.txt are not deployment authority.
 FORBIDDEN_STAGE3_COMMANDS = (
     "gh pr merge",
     "/deployments",
@@ -78,22 +73,12 @@ FORBIDDEN_STAGE3_COMMANDS = (
 )
 
 
-def _text(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
+def _text(path: str, *, root: Path) -> str:
+    return (root / path).read_text(encoding="utf-8")
 
 
-def _python_functions(path: str) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
-    source = _text(path)
-    tree = ast.parse(source)
-    return {
-        node.name: node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-
-
-def _function_source(path: str, name: str) -> str:
-    source = _text(path)
+def _function_source(path: str, name: str, *, root: Path) -> str:
+    source = _text(path, root=root)
     tree = ast.parse(source)
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
@@ -104,8 +89,6 @@ def _function_source(path: str, name: str) -> str:
 
 
 def _workflow_job_block(source: str, job_name: str) -> str:
-    """Return one top-level workflow job block without requiring a YAML library."""
-
     lines = source.splitlines()
     marker = f"  {job_name}:"
     try:
@@ -121,20 +104,23 @@ def _workflow_job_block(source: str, job_name: str) -> str:
     return "\n".join(lines[start:end])
 
 
-def verify() -> dict[str, Any]:
+def verify(root: Path = ROOT) -> dict[str, Any]:
+    root = root.resolve()
     errors: list[str] = []
 
     for path in REQUIRED_FILES:
-        if not (ROOT / path).is_file():
+        if not (root / path).is_file():
             errors.append(f"required_file_missing:{path}")
     for path in FORBIDDEN_FILES:
-        if (ROOT / path).exists():
+        if (root / path).exists():
             errors.append(f"legacy_bypass_present:{path}")
 
     python_files = [path for path in REQUIRED_FILES if path.endswith(".py")]
     for path in python_files:
+        if not (root / path).is_file():
+            continue
         try:
-            ast.parse(_text(path))
+            ast.parse(_text(path, root=root))
         except (OSError, SyntaxError) as exc:
             errors.append(f"python_parse_failure:{path}:{exc}")
 
@@ -142,6 +128,7 @@ def verify() -> dict[str, Any]:
         stage3_complete = _function_source(
             "scripts/github_repair_stage3.py",
             "complete_publication",
+            root=root,
         )
         if "task.complete(" in stage3_complete:
             errors.append("stage3_pre_governance_task_complete_present")
@@ -150,7 +137,11 @@ def verify() -> dict[str, Any]:
     except (OSError, SyntaxError, ValueError) as exc:
         errors.append(f"stage3_complete_guard_unverifiable:{exc}")
 
-    stage3_workflow = _text(".github/workflows/governed-ci-repair-stage3.yml")
+    try:
+        stage3_workflow = _text(".github/workflows/governed-ci-repair-stage3.yml", root=root)
+    except OSError as exc:
+        errors.append(f"stage3_workflow_unreadable:{exc}")
+        stage3_workflow = ""
     if "github_repair_stage3_record_publication.py" not in stage3_workflow:
         errors.append("stage3_publication_not_governance_handoff")
     if "generate_product_source_baseline.py" in stage3_workflow:
@@ -160,10 +151,6 @@ def verify() -> dict[str, Any]:
         if command in stage3_low:
             errors.append(f"stage3_forbidden_authority:{command}")
 
-    # Independent inspection/validation must be read-only. The single publish job
-    # may write only after validation succeeds so it can push the immutable repair
-    # branch and create a Draft PR. This is publication authority, not merge,
-    # baseline, governance, deployment, or completion authority.
     for job_name in ("inspect", "validate"):
         block = _workflow_job_block(stage3_workflow, job_name).casefold()
         if not block:
@@ -198,7 +185,13 @@ def verify() -> dict[str, Any]:
             if forbidden.casefold() in publish_low:
                 errors.append(f"stage3_publish_forbidden_authority:{forbidden}")
 
-    governance_workflow = _text(".github/workflows/governed-ci-repair-governance.yml")
+    try:
+        governance_workflow = _text(
+            ".github/workflows/governed-ci-repair-governance.yml", root=root
+        )
+    except OSError as exc:
+        errors.append(f"governance_workflow_unreadable:{exc}")
+        governance_workflow = ""
     for required in (
         "CLOSE_GOVERNANCE_AND_ACCEPT_BASELINE",
         "github_repair_governance.py",
@@ -221,7 +214,11 @@ def verify() -> dict[str, Any]:
     ):
         errors.append("exact_head_precedes_baseline_acceptance")
 
-    authority = _text("scripts/github_repair_authority.py")
+    try:
+        authority = _text("scripts/github_repair_authority.py", root=root)
+    except OSError as exc:
+        errors.append(f"authority_unreadable:{exc}")
+        authority = ""
     for marker in (
         "from governed_repair_contract import",
         "PREWRITE_STATES",
@@ -235,7 +232,7 @@ def verify() -> dict[str, Any]:
     if "PREWRITE_STATES = (" in authority:
         errors.append("authority_duplicates_canonical_prewrite_states")
 
-    rca = _text("scripts/github_repair_rca.py")
+    rca = _text("scripts/github_repair_rca.py", root=root) if (root / "scripts/github_repair_rca.py").is_file() else ""
     for marker in (
         '"read_only": True',
         '"workspace_mutated": False',
@@ -246,7 +243,7 @@ def verify() -> dict[str, Any]:
         if marker not in rca:
             errors.append(f"rca_marker_missing:{marker}")
 
-    orchestrator = _text("scripts/github_repair_orchestrator.py")
+    orchestrator = _text("scripts/github_repair_orchestrator.py", root=root) if (root / "scripts/github_repair_orchestrator.py").is_file() else ""
     for marker in (
         "validate_write_grant(",
         "STAGE2_WRITE_REVOKED_REPLAN_REQUIRED",
@@ -258,7 +255,7 @@ def verify() -> dict[str, Any]:
         if marker not in orchestrator:
             errors.append(f"orchestrator_marker_missing:{marker}")
 
-    ingest = _text("scripts/github_failure_ingest.py")
+    ingest = _text("scripts/github_failure_ingest.py", root=root) if (root / "scripts/github_failure_ingest.py").is_file() else ""
     for condition in REQUIRED_TASK_CONDITIONS:
         if f'"{condition}"' not in ingest:
             errors.append(f"task_condition_missing:{condition}")
@@ -268,9 +265,9 @@ def verify() -> dict[str, Any]:
         errors.append("protected_baseline_drift_not_classified")
 
     aggregate = "\n".join(
-        _text(path)
+        _text(path, root=root)
         for path in PROJECTION_FILES
-        if (ROOT / path).is_file()
+        if (root / path).is_file()
     )
     if "permanent_guard_not_reverified" not in aggregate:
         errors.append("permanent_guard_reverification_missing")
@@ -281,7 +278,7 @@ def verify() -> dict[str, Any]:
         if gate not in aggregate:
             errors.append(f"canonical_gate_not_projected:{gate}")
 
-    exact = _text("scripts/github_repair_exact_head.py")
+    exact = _text("scripts/github_repair_exact_head.py", root=root) if (root / "scripts/github_repair_exact_head.py").is_file() else ""
     for marker in (
         'MANDATORY_WORKFLOWS = ("skill-self-validation", "quality")',
         '"merge_allowed": False',
@@ -291,7 +288,7 @@ def verify() -> dict[str, Any]:
         if marker not in exact:
             errors.append(f"exact_head_marker_missing:{marker}")
 
-    baseline = _text("scripts/github_repair_baseline_acceptance.py")
+    baseline = _text("scripts/github_repair_baseline_acceptance.py", root=root) if (root / "scripts/github_repair_baseline_acceptance.py").is_file() else ""
     if "observed_drift != approved" not in baseline:
         errors.append("baseline_exact_drift_equality_missing")
     if 'changed.splitlines() != [BASELINE_PATH]' not in baseline:
