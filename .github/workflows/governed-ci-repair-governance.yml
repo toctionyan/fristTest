@@ -139,14 +139,18 @@ jobs:
           source_sha=$(jq -r '.published_source_sha' "${PUBLICATION}")
           branch=$(jq -r '.repair_branch' "${PUBLICATION}")
           [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
-          state=$(gh pr view "${pr_url}" --json isDraft,state,headRefName,headRefOid,baseRefName,url)
-          jq -e --arg head "${branch}" --arg sha "${source_sha}" '
+          state=$(gh pr view "${pr_url}" --json number,isDraft,state,headRefName,headRefOid,baseRefName,url)
+          pr_number=$(jq -r '.number' <<<"${state}")
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          jq -e --arg head "${branch}" --arg sha "${source_sha}" --argjson pr_number "${pr_number}" '
             .state == "OPEN"
             and .isDraft == true
+            and .number == $pr_number
             and .headRefName == $head
             and .headRefOid == $sha
           ' <<<"${state}" >/dev/null
           echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${source_sha}" >> "$GITHUB_OUTPUT"
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
 
@@ -221,13 +225,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
+          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
           deadline=$((SECONDS + 5400))
           while (( SECONDS < deadline )); do
             gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_SHA}&per_page=100" > governance-evidence/exact-head-runs.json
-            quality=$(jq -c '[.workflow_runs[] | select(.name == "quality") | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | .[0] // empty' --arg sha "${EXACT_SHA}" governance-evidence/exact-head-runs.json)
-            skill=$(jq -c '[.workflow_runs[] | select(.name == "skill-self-validation") | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | .[0] // empty' --arg sha "${EXACT_SHA}" governance-evidence/exact-head-runs.json)
+            quality=$(jq -c '
+              [.workflow_runs[]
+                | select(.name == "quality")
+                | select(.head_sha == $sha)
+                | select(.event == "pull_request")
+                | select(any(.pull_requests[]?; ((.number | tostring) == $pr_number)))]
+              | sort_by(.created_at) | reverse | .[0] // empty
+            ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" governance-evidence/exact-head-runs.json)
+            skill=$(jq -c '
+              [.workflow_runs[]
+                | select(.name == "skill-self-validation")
+                | select(.head_sha == $sha)
+                | select(.event == "pull_request")
+                | select(any(.pull_requests[]?; ((.number | tostring) == $pr_number)))]
+              | sort_by(.created_at) | reverse | .[0] // empty
+            ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" governance-evidence/exact-head-runs.json)
             if [[ -n "${quality}" && -n "${skill}" ]]; then
               q_status=$(jq -r '.status' <<<"${quality}")
               s_status=$(jq -r '.status' <<<"${skill}")
@@ -235,13 +255,14 @@ jobs:
                 q_conclusion=$(jq -r '.conclusion' <<<"${quality}")
                 s_conclusion=$(jq -r '.conclusion' <<<"${skill}")
                 if [[ "${q_conclusion}" != "success" || "${s_conclusion}" != "success" ]]; then
-                  echo "exact-head CI failed: quality=${q_conclusion}, skill=${s_conclusion}" >&2
+                  echo "exact-head PR CI failed: quality=${q_conclusion}, skill=${s_conclusion}" >&2
                   exit 1
                 fi
-                pr_state=$(gh pr view "${PR_URL}" --json isDraft,headRefOid,url)
+                pr_state=$(gh pr view "${PR_URL}" --json number,isDraft,headRefOid,url)
                 jq -n \
                   --arg sha "${EXACT_SHA}" \
                   --arg pr "${PR_URL}" \
+                  --arg pr_number "${PR_NUMBER}" \
                   --argjson pr_state "${pr_state}" \
                   --argjson quality "${quality}" \
                   --argjson skill "${skill}" \
@@ -249,20 +270,45 @@ jobs:
                     schema:"governed-repair-exact-head-ci@1",
                     head_sha:$sha,
                     pr_url:$pr,
+                    pr_number:($pr_number|tonumber),
                     pr_is_draft:$pr_state.isDraft,
                     pr_head_sha:$pr_state.headRefOid,
                     workflows:{
-                      quality:{run_id:($quality.id|tostring),status:$quality.status,conclusion:$quality.conclusion,head_sha:$quality.head_sha,url:$quality.html_url},
-                      "skill-self-validation":{run_id:($skill.id|tostring),status:$skill.status,conclusion:$skill.conclusion,head_sha:$skill.head_sha,url:$skill.html_url}
+                      quality:{
+                        run_id:($quality.id|tostring),
+                        status:$quality.status,
+                        conclusion:$quality.conclusion,
+                        head_sha:$quality.head_sha,
+                        event:$quality.event,
+                        pr_number:($pr_number|tonumber),
+                        url:$quality.html_url
+                      },
+                      "skill-self-validation":{
+                        run_id:($skill.id|tostring),
+                        status:$skill.status,
+                        conclusion:$skill.conclusion,
+                        head_sha:$skill.head_sha,
+                        event:$skill.event,
+                        pr_number:($pr_number|tonumber),
+                        url:$skill.html_url
+                      }
                     }
                   }' > governance-evidence/exact-head-ci.json
-                jq -e '.pr_is_draft == true and .pr_head_sha == .head_sha' governance-evidence/exact-head-ci.json >/dev/null
+                jq -e --arg pr_number "${PR_NUMBER}" '
+                  .pr_is_draft == true
+                  and .pr_head_sha == .head_sha
+                  and ((.pr_number | tostring) == $pr_number)
+                  and .workflows.quality.event == "pull_request"
+                  and .workflows["skill-self-validation"].event == "pull_request"
+                  and ((.workflows.quality.pr_number | tostring) == $pr_number)
+                  and ((.workflows["skill-self-validation"].pr_number | tostring) == $pr_number)
+                ' governance-evidence/exact-head-ci.json >/dev/null
                 exit 0
               fi
             fi
             sleep 30
           done
-          echo "timed out waiting for exact-head CI" >&2
+          echo "timed out waiting for exact-head pull-request CI" >&2
           exit 1
 
       - name: Finalize G6 and make PR Ready for review only
@@ -309,4 +355,4 @@ jobs:
           EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
         run: |
           set -euo pipefail
-          gh pr comment "${PR_URL}" --body "G0-G6 are machine-verified on exact head \`${EXACT_SHA}\`. Governance is CLOSED through the protected governed-repair-governance environment, the protected baseline was accepted only after governance, and exact-head quality + skill-self-validation passed. This PR is Ready for review. Automatic merge and deployment remain disabled; production_closed=false."
+          gh pr comment "${PR_URL}" --body "G0-G6 are machine-verified on exact head \`${EXACT_SHA}\`. Governance is CLOSED through the protected governed-repair-governance environment, the protected baseline was accepted only after governance, and exact-head pull-request quality + skill-self-validation passed for the exact PR. This PR is Ready for review. Automatic merge and deployment remain disabled; production_closed=false."
