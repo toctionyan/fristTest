@@ -255,6 +255,7 @@ def accept_baseline(
         "validated_tree_sha": governance.get("validated_tree_sha"),
         "rca_sha256": governance.get("rca_sha256"),
         "write_grant_sha256": governance.get("write_grant_sha256"),
+        "required_guard_ids": list(governance.get("required_guard_ids") or []),
         "governance_sha256": governance.get("governance_sha256"),
         "approved_source_paths": sorted(approved_source),
         "approved_baseline_paths": sorted(approved),

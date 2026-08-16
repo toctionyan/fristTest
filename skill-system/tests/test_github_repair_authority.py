@@ -32,6 +32,7 @@ class GovernedRepairAuthorityTests(unittest.TestCase):
             "head_sha": "a" * 40,
             "failure_signature": "b" * 64,
             "candidate_paths": [self.path],
+            "failed_gates": [{"gate_id": "semantic-contract", "status": "FAIL"}],
         }
         self.rca = {
             "schema": RCA_SCHEMA,
@@ -124,6 +125,37 @@ class GovernedRepairAuthorityTests(unittest.TestCase):
         self.rca["rca_sha256"] = rca_fingerprint(self.rca)
         with self.assertRaises(RepairAuthorityError):
             compile_write_grant(
+                failure_case=self.failure,
+                rca=self.rca,
+                candidate_paths=self.failure["candidate_paths"],
+            )
+
+    def test_missing_machine_guard_denies_write_authority(self) -> None:
+        failure = dict(self.failure)
+        failure["failed_gates"] = []
+        rca = dict(self.rca)
+        rca["failure_case_sha256"] = failure_case_fingerprint(failure)
+        rca["binding"] = failure_binding(failure)
+        rca["rca_sha256"] = rca_fingerprint(rca)
+        with self.assertRaises(RepairAuthorityError):
+            compile_write_grant(
+                failure_case=failure,
+                rca=rca,
+                candidate_paths=failure["candidate_paths"],
+            )
+
+    def test_tampered_permanent_guard_binding_is_rejected(self) -> None:
+        grant = compile_write_grant(
+            failure_case=self.failure,
+            rca=self.rca,
+            candidate_paths=self.failure["candidate_paths"],
+        )
+        grant["required_guard_ids"] = ["different-gate"]
+        from github_repair_authority import write_grant_fingerprint
+        grant["write_grant_sha256"] = write_grant_fingerprint(grant)
+        with self.assertRaises(RepairAuthorityError):
+            validate_write_grant(
+                grant,
                 failure_case=self.failure,
                 rca=self.rca,
                 candidate_paths=self.failure["candidate_paths"],

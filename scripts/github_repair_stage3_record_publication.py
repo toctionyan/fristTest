@@ -90,6 +90,7 @@ def record_publication(
     for field in (
         "rca_sha256",
         "write_grant_sha256",
+        "required_guard_ids",
         "violated_invariant",
         "authority_owner",
         "required_permanent_guard",

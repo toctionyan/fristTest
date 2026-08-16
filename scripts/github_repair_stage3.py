@@ -169,6 +169,14 @@ def _validate_stage2_result(result: dict[str, Any]) -> None:
     for field in ("full_validation_passed", "draft_pr_published", "production_closed"):
         if result.get(field) is not False:
             raise Stage3Error(f"invalid Stage-2 authority boundary: {field}")
+    guard_ids = result.get("required_guard_ids")
+    if (
+        not isinstance(guard_ids, list)
+        or not guard_ids
+        or any(not isinstance(item, str) or not item.strip() for item in guard_ids)
+        or len(set(guard_ids)) != len(guard_ids)
+    ):
+        raise Stage3Error("Stage-2 result lacks immutable permanent guard IDs")
     for field in (
         "repository",
         "workflow_run_id",
@@ -228,6 +236,10 @@ def _validate_authority_bundle(
         raise Stage3Error("Stage-2 RCA digest mismatch")
     if str(result.get("write_grant_sha256") or "") != write_grant_fingerprint(grant):
         raise Stage3Error("Stage-2 write-grant digest mismatch")
+    result_guard_ids = tuple(str(item or "").strip() for item in result.get("required_guard_ids") or [])
+    grant_guard_ids = tuple(str(item or "").strip() for item in grant.get("required_guard_ids") or [])
+    if result_guard_ids != grant_guard_ids or not result_guard_ids:
+        raise Stage3Error("Stage-2 permanent guard binding does not equal the write grant")
     result_scope = tuple(_normalize_path(str(item)) for item in result.get("write_scope") or [])
     if result_scope != granted:
         raise Stage3Error("Stage-2 result write_scope does not equal the immutable grant")
@@ -289,6 +301,7 @@ def inspect_handoff(
         "repair_base_branch": str(result["repair_base_branch"]),
         "changed_paths": list(changed),
         "write_scope": list(granted),
+        "required_guard_ids": list(result.get("required_guard_ids") or []),
         "patch_sha256": digest,
         "rca_sha256": rca_fingerprint(rca),
         "write_grant_sha256": write_grant_fingerprint(grant),
@@ -576,6 +589,7 @@ def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
         "candidate_sha": plan.get("candidate_sha"),
         "rca_sha256": plan.get("rca_sha256"),
         "write_grant_sha256": plan.get("write_grant_sha256"),
+        "required_guard_ids": plan.get("required_guard_ids"),
         "governed_repair_state": "INDEPENDENT_REVIEW",
         "results": rows,
         "full_validation_passed": False,
@@ -613,6 +627,31 @@ def validate_quick_evidence(summary_path: Path) -> dict[str, Any]:
     return summary
 
 
+def _require_permanent_guard_reverified(
+    summary: dict[str, Any],
+    guard_ids: Iterable[str],
+) -> dict[str, str]:
+    """Require every original machine guard to be mandatory and PASS in Quick."""
+
+    required = {str(item) for item in summary.get("required_gate_ids") or []}
+    statuses = {
+        str(row.get("id")): str(row.get("status"))
+        for row in summary.get("results") or []
+        if isinstance(row, dict)
+    }
+    guards = tuple(str(item or "").strip() for item in guard_ids)
+    if not guards or any(not item for item in guards) or len(set(guards)) != len(guards):
+        raise Stage3Error("permanent_guard_not_reverified: invalid required_guard_ids")
+    missing_required = [item for item in guards if item not in required]
+    failed = [item for item in guards if statuses.get(item) != "PASS"]
+    if missing_required or failed:
+        raise Stage3Error(
+            "permanent_guard_not_reverified: "
+            f"not_required={missing_required} not_pass={failed}"
+        )
+    return {item: statuses[item] for item in guards}
+
+
 def record_validation(
     *,
     workspace: Path,
@@ -632,6 +671,10 @@ def record_validation(
         if targeted.get(field) != plan.get(field):
             raise Stage3Error(f"targeted evidence {field} mismatch")
     summary = validate_quick_evidence(quick_summary_path)
+    guard_proof = _require_permanent_guard_reverified(
+        summary,
+        plan.get("required_guard_ids") or [],
+    )
     workspace = workspace.resolve()
     candidate_sha = _git(workspace, "rev-parse", "HEAD")
     if candidate_sha != str(plan.get("candidate_sha") or ""):
@@ -649,7 +692,12 @@ def record_validation(
             },
             "G2_SEMANTIC_INVARIANT": {
                 "status": "PASS",
-                "evidence": [str(targeted_result_path), f"candidate-sha:{candidate_sha}"],
+                "evidence": [
+                    str(targeted_result_path),
+                    str(quick_summary_path),
+                    f"candidate-sha:{candidate_sha}",
+                    *[f"permanent-guard:{gate}:PASS" for gate in guard_proof],
+                ],
             },
             "G3_MUTATION": {
                 "status": "PASS",
@@ -713,6 +761,8 @@ def record_validation(
         "write_scope": plan.get("write_scope"),
         "rca_sha256": plan.get("rca_sha256"),
         "write_grant_sha256": plan.get("write_grant_sha256"),
+        "required_guard_ids": plan.get("required_guard_ids"),
+        "permanent_guard_reverification": guard_proof,
         "violated_invariant": plan.get("violated_invariant"),
         "authority_owner": plan.get("authority_owner"),
         "required_permanent_guard": plan.get("required_permanent_guard"),

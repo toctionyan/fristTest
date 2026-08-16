@@ -117,6 +117,14 @@ def _validate_repair_authority(result: dict[str, Any]) -> None:
     ):
         if not str(result.get(field) or "").strip():
             raise HandoffError(f"Stage-2 repair authority is missing {field}")
+    guard_ids = result.get("required_guard_ids")
+    if (
+        not isinstance(guard_ids, list)
+        or not guard_ids
+        or any(not isinstance(item, str) or not item.strip() for item in guard_ids)
+        or len(set(guard_ids)) != len(guard_ids)
+    ):
+        raise HandoffError("Stage-2 permanent machine guard binding is missing or invalid")
     scope = result.get("write_scope")
     changed = result.get("changed_paths")
     if not isinstance(scope, list) or not scope:

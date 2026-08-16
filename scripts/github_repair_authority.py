@@ -126,6 +126,24 @@ def _require_binding(binding: Mapping[str, Any]) -> None:
         raise RepairAuthorityError(f"failure binding is missing: {missing}")
 
 
+def required_guard_ids(failure_case: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return the immutable machine guards that originally caught this failure."""
+
+    rows = failure_case.get("failed_gates")
+    if not isinstance(rows, list):
+        return ()
+    result: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        gate_id = str(row.get("gate_id") or "").strip()
+        if not gate_id or "\n" in gate_id or "\r" in gate_id:
+            continue
+        if gate_id not in result:
+            result.append(gate_id)
+    return tuple(result)
+
+
 def validate_rca(
     rca: Mapping[str, Any],
     *,
@@ -217,6 +235,11 @@ def compile_write_grant(
     if str(recommendation.get("decision") or "").upper() != "GRANT":
         raise RepairAuthorityError("RCA denied write authority")
 
+    guard_ids = required_guard_ids(failure_case)
+    if not guard_ids:
+        raise RepairAuthorityError(
+            "write authority requires at least one existing machine guard from failed_gates"
+        )
     binding = failure_binding(failure_case)
     grant: dict[str, Any] = {
         "schema": WRITE_GRANT_SCHEMA,
@@ -227,6 +250,7 @@ def compile_write_grant(
         "failure_case_sha256": failure_case_fingerprint(failure_case),
         "rca_sha256": rca_fingerprint(rca),
         "allowed_paths": list(recommended),
+        "required_guard_ids": list(guard_ids),
         "write_scope_mode": "exact_allowlist",
         "authority": {
             "write_authority": True,
@@ -303,6 +327,18 @@ def validate_write_grant(
         raise RepairAuthorityError("write-grant failure-case fingerprint mismatch")
     if str(grant.get("rca_sha256") or "") != rca_fingerprint(rca):
         raise RepairAuthorityError("write-grant RCA fingerprint mismatch")
+
+    expected_guard_ids = required_guard_ids(failure_case)
+    if not expected_guard_ids:
+        raise RepairAuthorityError(
+            "write authority requires at least one existing machine guard from failed_gates"
+        )
+    actual_guard_ids = tuple(str(item or "").strip() for item in grant.get("required_guard_ids") or [])
+    if actual_guard_ids != expected_guard_ids:
+        raise RepairAuthorityError(
+            "write-grant permanent guard binding mismatch: "
+            f"expected={list(expected_guard_ids)} actual={list(actual_guard_ids)}"
+        )
 
     granted_paths = normalize_paths(grant.get("allowed_paths") or [])
     if granted_paths != recommended:

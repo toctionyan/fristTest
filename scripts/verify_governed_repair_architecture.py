@@ -261,6 +261,7 @@ def verify() -> dict[str, Any]:
         "STAGE2_WRITE_REVOKED_REPLAN_REQUIRED",
         "same_deterministic_failure_signature_twice",
         "ARCHITECTURE_REPLAN_AND_NEW_RCA",
+        "required_guard_ids",
         "revoke_write_grant(",
     ):
         if marker not in orchestrator:
@@ -280,6 +281,8 @@ def verify() -> dict[str, Any]:
         for path in REQUIRED_FILES
         if (ROOT / path).is_file()
     )
+    if "permanent_guard_not_reverified" not in aggregate:
+        errors.append("permanent_guard_reverification_missing")
     for state in REQUIRED_STATES:
         if state not in aggregate:
             errors.append(f"state_missing:{state}")

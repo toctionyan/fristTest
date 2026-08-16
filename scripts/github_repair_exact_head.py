@@ -193,6 +193,7 @@ def finalize_exact_head(
         "baseline_commit_sha": exact_sha,
         "rca_sha256": baseline.get("rca_sha256"),
         "write_grant_sha256": baseline.get("write_grant_sha256"),
+        "required_guard_ids": list(baseline.get("required_guard_ids") or []),
         "governance_sha256": baseline.get("governance_sha256"),
         "baseline_acceptance_sha256": baseline.get("baseline_acceptance_sha256"),
         "exact_head_ci_sha256": _fingerprint(ci),

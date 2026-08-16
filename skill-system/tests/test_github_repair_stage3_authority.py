@@ -31,6 +31,7 @@ class Stage3AuthorityTests(unittest.TestCase):
             "head_sha": "a" * 40,
             "failure_signature": "b" * 64,
             "candidate_paths": [self.path],
+            "failed_gates": [{"gate_id": "semantic-contract", "status": "FAIL"}],
         }
         self.rca = {
             "schema": RCA_SCHEMA,
@@ -73,6 +74,7 @@ class Stage3AuthorityTests(unittest.TestCase):
             "repair_branch": "governed-repair/quality-123",
             "repair_base_branch": "main",
             "write_scope": [self.path],
+            "required_guard_ids": ["semantic-contract"],
             "changed_paths": [self.path],
             "rca_sha256": self.rca["rca_sha256"],
             "write_grant_sha256": self.grant["write_grant_sha256"],
@@ -117,6 +119,32 @@ class Stage3AuthorityTests(unittest.TestCase):
                 rca=self.rca,
                 grant=tampered,
                 changed_paths=(self.path,),
+            )
+
+    def test_permanent_guard_must_be_mandatory_and_pass(self) -> None:
+        summary = {
+            "required_gate_ids": ["semantic-contract"],
+            "results": [{"id": "semantic-contract", "status": "PASS"}],
+        }
+        self.assertEqual(
+            stage3._require_permanent_guard_reverified(summary, ["semantic-contract"]),
+            {"semantic-contract": "PASS"},
+        )
+        with self.assertRaises(stage3.Stage3Error):
+            stage3._require_permanent_guard_reverified(
+                {
+                    "required_gate_ids": ["other"],
+                    "results": [{"id": "semantic-contract", "status": "PASS"}],
+                },
+                ["semantic-contract"],
+            )
+        with self.assertRaises(stage3.Stage3Error):
+            stage3._require_permanent_guard_reverified(
+                {
+                    "required_gate_ids": ["semantic-contract"],
+                    "results": [{"id": "semantic-contract", "status": "FAIL"}],
+                },
+                ["semantic-contract"],
             )
 
     def test_legacy_stage3_complete_path_is_fail_closed(self) -> None:

@@ -380,6 +380,7 @@ def run_stage2(
         "authority_owner": rca.get("authority_owner"),
         "required_permanent_guard": rca.get("required_permanent_guard"),
         "allowed_paths": list(allowed_paths),
+        "required_guard_ids": list(grant.get("required_guard_ids") or []),
     }
 
     task.checkpoint(
@@ -576,6 +577,7 @@ def run_stage2(
                 "cycles": cycles,
                 "changed_paths": list(current_paths),
                 "write_scope": list(allowed_paths),
+                "required_guard_ids": list(grant.get("required_guard_ids") or []),
                 "patch": str(patch_path),
                 "rca_sha256": rca_sha,
                 "write_grant_sha256": grant_sha,

@@ -148,6 +148,7 @@ def close_governance(
         "validated_tree_sha": tree_sha,
         "rca_sha256": publication.get("rca_sha256"),
         "write_grant_sha256": publication.get("write_grant_sha256"),
+        "required_guard_ids": list(publication.get("required_guard_ids") or []),
         "violated_invariant": publication.get("violated_invariant"),
         "authority_owner": publication.get("authority_owner"),
         "required_permanent_guard": publication.get("required_permanent_guard"),
