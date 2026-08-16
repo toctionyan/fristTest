@@ -176,6 +176,12 @@ def _fixture(tmp_path: Path) -> dict:
         ),
     )
     task.checkpoint(
+        status="RUNNING",
+        phase="STAGE2_REPAIR_CANDIDATE_READY",
+        workspace_fingerprint=None,
+        evidence_refs=[str(stage2_path)],
+    )
+    task.checkpoint(
         status="WAITING_EXTERNAL_RESULT",
         phase="STAGE3_VALIDATION_REQUIRED",
         workspace_fingerprint=None,
