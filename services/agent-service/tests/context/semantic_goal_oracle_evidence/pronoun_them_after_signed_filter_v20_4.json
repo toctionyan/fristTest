@@ -1,0 +1,96 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:pronoun_them_after_signed_filter",
+  "case_id": "pronoun_them_after_signed_filter",
+  "family": "pronoun_reference",
+  "lifecycle_status": "oracle_only",
+  "executable_case_ids": [],
+  "authority": {
+    "kind": "independent_user_utterance_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "我都买了什么？"
+      },
+      {
+        "turn": 2,
+        "text": "哪些签收了？"
+      },
+      {
+        "turn": 3,
+        "text": "它们都能退吗？"
+      }
+    ]
+  },
+  "semantic_goal_oracle": {
+    "turns": [
+      {
+        "turn": 1,
+        "goals": [
+          {
+            "goal_type": "order_list",
+            "state": "query",
+            "target_scope": "customer_orders",
+            "expected_cardinality": "collection"
+          }
+        ]
+      },
+      {
+        "turn": 2,
+        "goals": [
+          {
+            "goal_type": "order_filter",
+            "state": "query",
+            "source_scope": "turn_1_visible_order_collection",
+            "predicate": {
+              "field": "delivery_status",
+              "semantic_value": "已签收"
+            },
+            "expected_cardinality": "collection"
+          }
+        ]
+      },
+      {
+        "turn": 3,
+        "goals": [
+          {
+            "goal_type": "refund_eligibility_consult",
+            "state": "consult",
+            "referent": "turn_2_visible_signed_order_collection",
+            "expected_cardinality": "collection",
+            "member_policy": "assess_every_member_without_widening_scope"
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      "Turn 2 filters the customer-visible Turn 1 order collection instead of re-listing an unrelated full population.",
+      "Turn 3 pronoun 它们 refers to exactly the visible signed-order collection produced by Turn 2.",
+      "Turn 3 is a refund-eligibility consultation, not a refund creation or submission request.",
+      "Every member of the referenced collection is assessed; Runtime must not silently collapse the collection to one arbitrary order.",
+      "Turn 3 must not widen the target back to the Turn 1 all-orders collection or to hidden draft/focus state."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "已签收订单集合",
+      "该集合中每个订单的退款/退货资格"
+    ],
+    "must_not_cover": [
+      "未签收订单的退款资格",
+      "创建退款申请",
+      "提交退款申请",
+      "任意单个订单替代整个集合"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "requires_collection_fixture_with_at_least_two_members": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}
