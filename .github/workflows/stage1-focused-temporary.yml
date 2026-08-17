@@ -24,7 +24,5 @@ jobs:
       - name: Install locked Agent environment
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Run only Stage 1 reference-continuity regression
-        run: >-
-          services/agent-service/.venv/bin/python -B -m pytest
-          services/agent-service/tests/context/test_transaction_commit_reference_continuity.py
-          -q
+        working-directory: services/agent-service
+        run: .venv/bin/python -B -m pytest tests/context/test_transaction_commit_reference_continuity.py -q
