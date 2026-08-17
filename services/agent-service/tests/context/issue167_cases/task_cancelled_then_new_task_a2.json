@@ -174,7 +174,7 @@
                     {
                       "operation": "SET_GOAL_LIFECYCLE",
                       "goal_id": "cancel_goal",
-                      "expected_revision": 2,
+                      "expected_revision": 3,
                       "from": "BLOCKED",
                       "to": "CANCELLED",
                       "evidence_span": "不取消了"
