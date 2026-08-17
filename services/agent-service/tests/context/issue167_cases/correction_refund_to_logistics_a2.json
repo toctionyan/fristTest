@@ -1,0 +1,201 @@
+{
+  "id": "correction_refund_to_logistics",
+  "category": "correction_override",
+  "turns": [
+    {"role": "user", "text": "帮我退了这个订单"},
+    {"role": "assistant", "expected": "clarify_unresolved_refund_target_without_draft"},
+    {"role": "user", "text": "算了，我只是想查物流"},
+    {"role": "assistant", "expected": "withdraw_refund_keep_logistics_goal_and_clarify_target"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "replace_refund_effect_with_logistics_without_guessing_target",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "guess_refund_target",
+    "keep_refund_effect_after_correction",
+    "create_or_commit_refund_after_correction",
+    "replace_logistics_goal_with_generic_clarification_goal"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "帮我退了这个订单",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "action",
+            "evidence_span": "帮我退了这个订单",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["ask_user_clarification"]
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "用户要求退款，但这个订单没有唯一绑定",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "为用户指定的订单创建退款申请",
+                      "evidence_span": "帮我退了这个订单",
+                      "goal_type": "action",
+                      "expected_result_cardinality": "one",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "refund",
+                        "operation": "create",
+                        "object_type": "order",
+                        "raw_description": "为用户指定的订单创建退款申请",
+                        "requested_outputs": [
+                          {
+                            "output_id": "refund.request",
+                            "evidence_span": "帮我退了这个订单"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:refund-to-logistics:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "ask_user_clarification",
+                "args": {
+                  "question": "请说明你指的是哪一笔订单。",
+                  "reason": "当前可见范围有多笔订单，不能根据‘这个订单’任意猜测退款目标。",
+                  "evidence_handles": [],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:refund-to-logistics:t1:clarify"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["ask_user_clarification"],
+        "required_tools": ["ask_user_clarification"],
+        "expected": {
+          "terminal_statuses": ["GeneralFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["NOT_REQUIRED"],
+          "public_interaction": "clarification",
+          "trace": {
+            "must_include": [],
+            "must_not_include": ["prepare_refund", "commit_action", "get_order_logistics"]
+          },
+          "draft": {"count": 0},
+          "port_calls": {"preview_operation": {"max": 0}, "execute_command": {"max": 0}},
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "算了，我只是想查物流",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "我只是想查物流",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["ask_user_clarification"]
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "撤回退款请求，只查询物流；订单目标仍需明确",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "查询用户所指订单的物流",
+                      "evidence_span": "我只是想查物流",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "one",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "shipment",
+                        "operation": "track",
+                        "object_type": "shipment",
+                        "raw_description": "查询用户所指订单的物流",
+                        "requested_outputs": [
+                          {
+                            "output_id": "shipment.tracking",
+                            "evidence_span": "我只是想查物流"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:refund-to-logistics:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "ask_user_clarification",
+                "args": {
+                  "question": "请说明要查询哪一笔订单的物流。",
+                  "reason": "退款请求已经撤回，但当前仍没有唯一订单目标。",
+                  "evidence_handles": [],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:refund-to-logistics:t2:clarify"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["ask_user_clarification"],
+        "required_tools": ["ask_user_clarification"],
+        "expected": {
+          "terminal_statuses": ["GeneralFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["NOT_REQUIRED"],
+          "public_interaction": "clarification",
+          "trace": {
+            "must_include": [],
+            "must_not_include": ["prepare_refund", "commit_action", "get_order_logistics"]
+          },
+          "draft": {"count": 0},
+          "port_calls": {"preview_operation": {"max": 0}, "execute_command": {"max": 0}},
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {"behavior": "guess_refund_target", "kind": "no_business_write"},
+      {"behavior": "keep_refund_effect_after_correction", "kind": "trace_absent", "tool_names": ["prepare_refund", "commit_action"]},
+      {"behavior": "create_or_commit_refund_after_correction", "kind": "no_business_write"},
+      {"behavior": "replace_logistics_goal_with_generic_clarification_goal", "kind": "no_business_write"}
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["ask_user_clarification", "get_order_logistics"],
+    "preproduction_forbidden_tools": ["prepare_refund", "commit_action"]
+  }
+}
