@@ -3,8 +3,10 @@
   "oracle_id": "semantic-goal-oracle:pronoun_them_after_signed_filter",
   "case_id": "pronoun_them_after_signed_filter",
   "family": "pronoun_reference",
-  "lifecycle_status": "oracle_only",
-  "executable_case_ids": [],
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "pronoun_them_after_signed_filter"
+  ],
   "authority": {
     "kind": "independent_user_utterance_evidence",
     "derived_from_runtime_output": false,
@@ -89,7 +91,9 @@
   },
   "a2_promotion_gate": {
     "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
     "requires_collection_fixture_with_at_least_two_members": true,
+    "collection_fixture_requirement_complete": true,
     "requires_first_meaningful_red_before_runtime_edit": true,
     "runtime_edit_authorized": false
   }
