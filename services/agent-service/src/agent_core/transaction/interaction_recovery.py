@@ -9,7 +9,7 @@ Draft, Grant or Attempt and never interprets user language as authorization.
 
 from typing import Any
 
-from agent_core.ledger import append_entries
+from agent_core.ledger import append_entries, artifact_entry, find_handle, scope_for_state
 from agent_core.storage.repositories.base import TransactionScope
 from agent_core.transaction.active_draft import active_draft_patch, get_active_draft_id
 
@@ -65,6 +65,52 @@ def _recoverable_authority_offer(row: dict[str, Any]) -> dict[str, Any] | None:
     return offer
 
 
+def _restore_target_reference(
+    state: dict[str, Any], ledger: list[dict[str, Any]], offer: dict[str, Any]
+) -> list[dict[str, Any]] | None:
+    """Restore only stable target identity, never mutable business facts."""
+    handle = str(offer.get("target_handle") or "")
+    if not handle:
+        return None
+    if find_handle(
+        ledger,
+        handle,
+        scope=scope_for_state(state),
+        allowed_kinds={"artifact"},
+        active_only=False,
+    ) is not None:
+        return ledger
+
+    reference = offer.get("target_reference") if isinstance(offer.get("target_reference"), dict) else {}
+    if str(reference.get("handle") or "") != handle:
+        return None
+    resource_type = str(reference.get("resource_type") or "")
+    resource_id = str(reference.get("resource_id") or "")
+    if not resource_type or not resource_id:
+        return None
+
+    expected_scope = scope_for_state(state)
+    stored_scope = reference.get("scope") if isinstance(reference.get("scope"), dict) else {}
+    for key in ("tenant_id", "user_id", "thread_id"):
+        stored = str(stored_scope.get(key) or "")
+        expected = str(expected_scope.get(key) or "")
+        if stored and stored != expected:
+            return None
+
+    restored_target = artifact_entry(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        label=str(reference.get("label") or f"{resource_type}:{resource_id}"),
+        facts={},
+        scope=expected_scope,
+        turn=int(state.get("turn_index") or 0),
+        source="transaction_repository_target_reference",
+        freshness_version=1,
+        handle=handle,
+    )
+    return append_entries(ledger, [restored_target])
+
+
 def restore_awaiting_authority_projection(
     state: dict[str, Any], *, transactions: Any
 ) -> dict[str, Any] | None:
@@ -96,7 +142,14 @@ def restore_awaiting_authority_projection(
     if offer is None:
         return None
     draft_id = str(offer.get("draft_id") or offer.get("handle") or "")
-    ledger = append_entries(list(state.get("artifact_ledger") or []), [offer])
+    ledger = list(state.get("artifact_ledger") or [])
+    ledger = _restore_target_reference(state, ledger, offer)
+    if ledger is None:
+        # A card without a trustworthy target locator would be actionable but
+        # impossible to preflight safely. Fail closed instead of inventing a
+        # target from conversation text or creating a replacement Draft.
+        return None
+    ledger = append_entries(ledger, [offer])
     return {
         "artifact_ledger": ledger,
         **active_draft_patch(draft_id),

@@ -81,7 +81,7 @@ def _grant_expiry(offer: dict[str, Any]) -> str | None:
 def _draft_projection(offer: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "kind", "handle", "draft_id", "draft_revision", "draft_state", "label",
-        "action_id", "operation", "target_handle", "input_values", "preview",
+        "action_id", "operation", "target_handle", "target_reference", "input_values", "preview",
         "required_inputs", "input_schema", "input_form_id", "input_form_version",
         "input_step", "interaction_revision", "input_errors", "suggested_input",
         "authority_protocol", "authority_requirement", "authority_revision",

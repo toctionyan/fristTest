@@ -127,6 +127,30 @@ def _mark_offer_awaiting_authority(state: dict[str, Any], offer: dict[str, Any],
     next_offer["confirmation_id"] = str(uuid4())
     next_offer["confirmation_version"] = int(offer.get("confirmation_version") or 0) + 1
     next_offer["updated_turn"] = int(state.get("turn_index") or 0)
+
+    # Persist a locator for the already-verified target so a lost Workflow
+    # checkpoint can rebuild the card and commit preflight boundary.  Do not
+    # copy mutable business facts here: Business Service remains authoritative
+    # and commit-time preflight must re-read current state.
+    existing_reference = offer.get("target_reference") if isinstance(offer.get("target_reference"), dict) else None
+    if existing_reference is not None:
+        next_offer["target_reference"] = deepcopy(existing_reference)
+    else:
+        target = find_handle(
+            ledger,
+            str(offer.get("target_handle") or ""),
+            scope=scope_for_state(state),
+            allowed_kinds={"artifact"},
+            active_only=False,
+        )
+        if target is not None:
+            next_offer["target_reference"] = {
+                "handle": str(target.get("handle") or ""),
+                "resource_type": str(target.get("resource_type") or ""),
+                "resource_id": str(target.get("resource_id") or ""),
+                "label": str(target.get("label") or ""),
+                "scope": deepcopy(target.get("scope") or scope_for_state(state)),
+            }
     persist_draft_from_offer(state=state, offer=next_offer, draft_state="AWAITING_AUTHORIZATION")
     return append_entries(ledger, [next_offer]), next_offer
 

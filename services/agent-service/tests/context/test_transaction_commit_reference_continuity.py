@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from agent_core.composition import get_runtime_registry
-from agent_core.context.visible_result_refs import mark_visible_result_refs, visible_result_refs_from_ledger
+from agent_core.context.visible_result_refs import mark_visible_result_refs, validate_runtime_result_ref, visible_result_refs_from_ledger
 from agent_core.ledger import artifact_entry, offer_entry
 from agent_core.runtime.outcomes import outcome
 from agent_core.transaction import transition_draft
@@ -93,3 +93,22 @@ def test_successful_cancel_commit_releases_refreshed_business_resource_as_next_t
     assert released_target["resource_type"] == "order"
     assert released_target["facts"]["status"] == "已取消"
     assert released_target["presentation_origin"]["origin"] == "customer_final_response"
+
+    # Prove the next user turn can bind "它" to the released cancelled order.
+    next_turn_state = {
+        **state,
+        **patch,
+        "turn_index": 6,
+        "current_user_input": "它现在什么状态？",
+        "artifact_ledger": released,
+        "tool_trace": [],
+    }
+    checked, error = validate_runtime_result_ref(
+        state=next_turn_state,
+        result_ref=target["handle"],
+        expected_shape="one",
+    )
+    assert error is None
+    assert checked is not None
+    assert checked["reference_kind"] == "customer_visible"
+    assert checked["member_handles"] == [target["handle"]]
