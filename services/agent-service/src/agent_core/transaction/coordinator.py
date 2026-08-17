@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent_core.transaction.model import canonical_command_payload, command_digest_for_offer
+from agent_core.storage.repositories.base import TransactionScope
 from agent_core.transaction.failure import classify_business_failure
 
 
@@ -133,7 +134,21 @@ def issue_grant_for_authority(*, state: dict[str, Any], offer: dict[str, Any], a
     grant_id = str(authority.get("grant_id") or f"grant:{uuid4().hex}")
     digest = str(offer.get("command_digest") or command_digest_for_offer(offer))
     store = transaction_store(state)
-    persist_draft_from_offer(state=state, offer=offer, draft_state=str(offer.get("draft_state") or "AWAITING_AUTHORIZATION"))
+    draft_id = str(offer.get("draft_id") or offer.get("handle") or "")
+    scoped_getter = getattr(store, "get_draft_for_scope", None)
+    if callable(scoped_getter):
+        current = scoped_getter(
+            scope=TransactionScope(tenant_id=scope["tenant_id"], user_id=scope["user_id"], thread_id=scope["thread_id"]),
+            draft_id=draft_id,
+        )
+        if current is not None:
+            if str(current.get("draft_state") or "").upper() != "AWAITING_AUTHORIZATION":
+                raise ValueError("canonical Draft is no longer awaiting authority")
+            if int(current.get("draft_revision") or 0) != int(offer.get("draft_revision") or 1):
+                raise ValueError("canonical Draft revision no longer matches authority card")
+    persisted = persist_draft_from_offer(state=state, offer=offer, draft_state="AWAITING_AUTHORIZATION")
+    if str(persisted.get("draft_state") or "").upper() != "AWAITING_AUTHORIZATION":
+        raise ValueError("canonical Draft rejected stale authority projection")
     record = store.issue_grant(
         grant_id=grant_id,
         tenant_id=scope["tenant_id"],

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from agent_core.storage.repositories.base import TransactionScope, ActiveDraftValidationCode, ActiveDraftValidationResult
+from agent_core.operations.draft import TERMINAL_DRAFT_STATES
 
 from agent_core.persistence.thread_store import ThreadOwnershipError, ThreadTenantMismatchError
 from agent_core.persistence.database_settings import DatabaseSettings
@@ -756,6 +757,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
     def reserve_grant_and_start_attempt(self, **kwargs: Any) -> dict[str, Any]:
         grants = self.t["transaction_grants"]
         attempts = self.t["transaction_attempts"]
+        drafts = self.t["transaction_drafts"]
         kwargs.setdefault("correlation_id", get_correlation_id())
         now = _now()
         key = str(kwargs["idempotency_key"])
@@ -767,36 +769,57 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                 if existing:
                     grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
                     return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": self._decode_row(existing) or {}}
-                conn.execute(grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED", grants.c.expires_at.is_not(None), grants.c.expires_at <= now)).values(state="EXPIRED", revoked_at=now, reason="grant_expired"))
-                reserved = conn.execute(grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED", self.sa.or_(grants.c.expires_at.is_(None), grants.c.expires_at > now))).values(state="RESERVED", reserved_at=now, attempt_id=attempt_id))
+
+                canonical = _row(conn.execute(self.sa.select(drafts).where(self.sa.and_(
+                    drafts.c.draft_id == kwargs["draft_id"],
+                    drafts.c.tenant_id == kwargs["tenant_id"],
+                    drafts.c.user_id == kwargs["user_id"],
+                    drafts.c.thread_id == kwargs["thread_id"],
+                ))).first())
+                canonical_payload = self._decode_row(canonical) if canonical else None
+                if canonical_payload:
+                    canonical_state = str(canonical_payload.get("draft_state") or "").upper()
+                    snapshot_mismatch = (
+                        int(canonical_payload.get("draft_revision") or 0) != int(kwargs["draft_revision"])
+                        or str(canonical_payload.get("command_digest") or "") != str(kwargs["command_digest"] or "")
+                    )
+                    if canonical_state in TERMINAL_DRAFT_STATES or snapshot_mismatch:
+                        reason = "draft_terminal" if canonical_state in TERMINAL_DRAFT_STATES else "draft_snapshot_mismatch"
+                        conn.execute(
+                            grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED"))
+                            .values(state="REVOKED", revoked_at=now, reason=reason)
+                        )
+                        grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
+                        return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": {}}
+
+                conn.execute(
+                    grants.update().where(self.sa.and_(
+                        grants.c.grant_id == grant_id, grants.c.state == "ISSUED",
+                        grants.c.expires_at.is_not(None), grants.c.expires_at <= now,
+                    )).values(state="EXPIRED", revoked_at=now, reason="grant_expired")
+                )
+                reserved = conn.execute(
+                    grants.update().where(self.sa.and_(
+                        grants.c.grant_id == grant_id, grants.c.state == "ISSUED",
+                        self.sa.or_(grants.c.expires_at.is_(None), grants.c.expires_at > now),
+                    )).values(state="RESERVED", reserved_at=now, attempt_id=attempt_id)
+                )
                 grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
                 if int(reserved.rowcount or 0) != 1:
                     return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": {}}
                 payload = kwargs["canonical_payload"]
                 values = {
                     "attempt_id": attempt_id,
-                    "tenant_id": kwargs["tenant_id"],
-                    "user_id": kwargs["user_id"],
-                    "thread_id": kwargs["thread_id"],
-                    "draft_id": kwargs["draft_id"],
-                    "draft_revision": int(kwargs["draft_revision"]),
-                    "grant_id": grant_id,
-                    "action_id": kwargs["action_id"],
-                    "command_digest": kwargs["command_digest"],
-                    "idempotency_key": key,
-                    "canonical_payload_json": _json(payload),
+                    "tenant_id": kwargs["tenant_id"], "user_id": kwargs["user_id"], "thread_id": kwargs["thread_id"],
+                    "draft_id": kwargs["draft_id"], "draft_revision": int(kwargs["draft_revision"]),
+                    "grant_id": grant_id, "action_id": kwargs["action_id"], "command_digest": kwargs["command_digest"],
+                    "idempotency_key": key, "canonical_payload_json": _json(payload),
                     "business_command_envelope_json": _json(kwargs.get("business_command_envelope")) if kwargs.get("business_command_envelope") is not None else None,
-                    "state": "STARTED",
-                    "business_result_json": None,
-                    "receipt_handle": None,
-                    "error_code": None,
-                    "error": None,
-                    "created_at": now,
-                    "updated_at": now,
-                    "reconciled_at": None,
+                    "state": "STARTED", "business_result_json": None, "receipt_handle": None,
+                    "error_code": None, "error": None, "created_at": now, "updated_at": now,
+                    "reconciled_at": None, "correlation_id": kwargs.get("correlation_id"),
                 }
                 conn.execute(attempts.insert().values(**values))
-                drafts = self.t["transaction_drafts"]
                 projection = kwargs.get("draft_projection") or {}
                 draft_values = {
                     "draft_id": kwargs["draft_id"], "tenant_id": kwargs["tenant_id"], "user_id": kwargs["user_id"],
@@ -804,7 +827,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                     "action_id": kwargs["action_id"], "command_digest": kwargs["command_digest"],
                     "command_envelope_json": _json(kwargs.get("business_command_envelope")) if kwargs.get("business_command_envelope") is not None else None,
                     "projection_json": _json(projection), "active_grant_id": grant_id, "current_attempt_id": attempt_id,
-                    "created_at": now, "updated_at": now,
+                    "created_at": now, "updated_at": now, "correlation_id": kwargs.get("correlation_id"),
                 }
                 existing_draft = _row(conn.execute(self.sa.select(drafts).where(drafts.c.draft_id == kwargs["draft_id"])).first())
                 if existing_draft:
@@ -814,8 +837,6 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                 attempt = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == attempt_id)).first())
                 return {"reserved": True, "grant": self._decode_row(grant) or {}, "created": True, "attempt": self._decode_row(attempt) or {}}
         except self.sa.exc.IntegrityError:
-            # A concurrent process may have created the idempotency record after
-            # our read.  The transaction rolls back, so re-read safely.
             existing = self.get_attempt_by_idempotency_key(key) or {}
             return {"reserved": False, "grant": self.get_grant(grant_id) or {}, "created": False, "attempt": existing}
 
@@ -835,6 +856,12 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
         with self.p.conn() as conn:
             existing = _row(conn.execute(self.sa.select(table).where(table.c.draft_id == values["draft_id"])).first())
             if existing:
+                existing_payload = self._decode_row(existing) or {}
+                existing_state = str(existing_payload.get("draft_state") or "").upper()
+                existing_revision = int(existing_payload.get("draft_revision") or 0)
+                incoming_revision = int(values.get("draft_revision") or 0)
+                if existing_state in TERMINAL_DRAFT_STATES or existing_revision > incoming_revision:
+                    return existing_payload
                 conn.execute(table.update().where(table.c.draft_id == values["draft_id"]).values(**{k:v for k,v in values.items() if k not in {"draft_id", "created_at"}}))
             else:
                 conn.execute(table.insert().values(**values))
@@ -922,6 +949,14 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
         if current_attempt_id is not None: values["current_attempt_id"] = current_attempt_id
         if projection is not None: values["projection_json"] = _json(projection)
         with self.p.conn() as conn:
+            existing = _row(conn.execute(self.sa.select(table).where(table.c.draft_id == draft_id)).first())
+            if not existing:
+                return
+            current = self._decode_row(existing) or {}
+            if str(current.get("draft_state") or "").upper() in TERMINAL_DRAFT_STATES:
+                return
+            if draft_revision is not None and int(current.get("draft_revision") or 0) > int(draft_revision):
+                return
             conn.execute(table.update().where(table.c.draft_id == draft_id).values(**values))
 
     def list_drafts_by_thread(self, *, tenant_id: str, user_id: str, thread_id: str, limit: int = 100) -> list[dict[str, Any]]:

@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from app.schemas.chat_schema import ActionAuthorityRequest
+from app.services.agent_service import AgentService
+from agent_core.ledger import append_entries, artifact_entry, find_handle, offer_entry
+from agent_core.persistence.action_lifecycle_store import TransactionLifecycleStore
+from agent_core.persistence.database_settings import DatabaseSettings
+from agent_core.persistence.sqlalchemy_provider import build_sqlalchemy_store_provider
+from agent_core.runtime.outcomes import outcome
+from agent_core.transaction import transition_draft
+from agent_core.transaction.coordinator import issue_grant_for_authority
+from agent_core.transaction.deps import TransactionExecutionDeps
+
+SCOPE = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "stage8-terminal"}
+
+
+def _offer(*, state: str = "AWAITING_AUTHORIZATION") -> dict:
+    row = offer_entry(
+        action_id="create_refund", operation="APPLY_REFUND", target_handle="artifact:order:10002",
+        input_values={"reason": "质量问题", "expected_version": 1},
+        preview={"decision": "ALLOWED", "snapshot": {"version": 1}}, scope=SCOPE,
+        turn=2, label="退款申请", handle="draft:refund:stage8-terminal",
+    )
+    row["confirmation_id"] = "confirm-stage8"
+    row["confirmation_version"] = 1
+    row["authority_revision"] = 2
+    return transition_draft(row, state)
+
+
+def _create(store, offer: dict, *, state: str | None = None) -> dict:
+    return store.create_draft(
+        draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_revision=offer["draft_revision"], draft_state=state or offer["draft_state"], action_id=offer["action_id"],
+        command_digest=offer["command_digest"], command_envelope=offer.get("business_command_envelope"), projection=offer,
+    )
+
+
+def test_sqlite_terminal_draft_rejects_stale_create_and_advance(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    offer = _offer()
+    _create(store, offer)
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+    store.record_receipt(
+        receipt_id="receipt:sqlite-stage8", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id="attempt:sqlite-stage8", receipt_handle="h_receipt:sqlite-stage8", receipt_state="SUCCESS",
+        business_result={"success": True, "data": {"refund_id": "R-stage8"}}, business_resource_id="R-stage8",
+    )
+    _create(store, offer, state="AWAITING_AUTHORIZATION")
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+    store.advance_draft(offer["draft_id"], draft_state="SUBMISSION_UNKNOWN", draft_revision=offer["draft_revision"])
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+
+
+def test_sqlalchemy_terminal_draft_rejects_stale_create_and_advance(tmp_path: Path) -> None:
+    db_file = tmp_path / "agent-sqlalchemy.db"
+    provider = build_sqlalchemy_store_provider(DatabaseSettings(backend="sqlite", database_url=f"sqlite:///{db_file}", sqlite_path=db_file, create_schema=True))
+    try:
+        store = provider.transactions
+        offer = _offer()
+        _create(store, offer)
+        store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+        _create(store, offer, state="AWAITING_AUTHORIZATION")
+        assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+        store.advance_draft(offer["draft_id"], draft_state="SUBMISSION_UNKNOWN", draft_revision=offer["draft_revision"])
+        assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+    finally:
+        provider.close()
+
+
+def test_ledger_terminal_offer_cannot_be_reopened_by_stale_projection() -> None:
+    committed = _offer(state="COMMITTED")
+    stale = _offer(state="AWAITING_AUTHORIZATION")
+    stale["updated_turn"] = int(committed.get("updated_turn") or 0) + 1
+    ledger = append_entries([committed], [stale])
+    row = find_handle(ledger, committed["handle"], scope=SCOPE, allowed_kinds={"offer"}, active_only=False)
+    assert row is not None and row["draft_state"] == "COMMITTED"
+
+
+def test_atomic_reserve_cannot_create_attempt_against_terminal_draft(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    offer = _offer()
+    _create(store, offer)
+    store.issue_grant(
+        grant_id="grant-stage8", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
+        confirmation_id=offer["confirmation_id"], client_request_id="client-stage8", actor_id=SCOPE["user_id"], actor_role="customer",
+    )
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+    result = store.reserve_grant_and_start_attempt(
+        grant_id="grant-stage8", attempt_id="attempt-stage8-late", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+        thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], action_id=offer["action_id"],
+        command_digest=offer["command_digest"], idempotency_key="idem-stage8-late", canonical_payload={"action_id": offer["action_id"]},
+        business_command_envelope=None, draft_projection=offer,
+    )
+    assert result["reserved"] is False and result["created"] is False and result["attempt"] == {}
+    assert store.get_attempt("attempt-stage8-late") is None
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+    assert store.get_grant("grant-stage8")["state"] == "REVOKED"
+
+
+def test_internal_grant_minting_rejects_terminal_canonical_draft(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    offer = _offer()
+    _create(store, offer)
+    store.advance_draft(offer["draft_id"], draft_state="REVOKED", draft_revision=offer["draft_revision"])
+    state = {"current_tenant_id": SCOPE["tenant_id"], "current_user_id": SCOPE["user_id"], "current_thread_id": SCOPE["thread_id"], "_transaction_repository": store}
+    authority = {"actor_id": SCOPE["user_id"], "actor_role": "customer", "client_request_id": "late-authority-stage8", "authority_type": "ui_confirmed"}
+    with pytest.raises(ValueError, match="no longer awaiting authority"):
+        issue_grant_for_authority(state=state, offer=offer, authority=authority)
+    assert store.list_grants_by_thread(**SCOPE) == []
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "REVOKED"
+
+
+def test_stale_browser_authority_is_rejected_by_durable_terminal_state(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    offer = _offer()
+    _create(store, offer)
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+    stale_values = {"turn_index": 2, "focused_draft_id": offer["draft_id"], "artifact_ledger": [offer]}
+
+    class _Hydrator:
+        def values(self, _graph, **_kwargs):
+            return dict(stale_values)
+
+    service = AgentService.__new__(AgentService)
+    service.transactions = store
+    service.checkpoint_hydrator = _Hydrator()
+    service._config_for_request = lambda *_args, **_kwargs: {"configurable": {"thread_id": "ignored"}}
+    request = ActionAuthorityRequest(
+        thread_id=SCOPE["thread_id"], user_id=SCOPE["user_id"], role="customer", tenant_id=SCOPE["tenant_id"],
+        decision="approved", authority_type="ui_confirmed", offer_handle=offer["draft_id"], action_id=offer["action_id"],
+        target_handle=offer["target_handle"], confirmation_id=offer["confirmation_id"], confirmation_version=1,
+        conversation_revision=2, client_request_id="late-browser-stage8",
+    )
+    assert service._validate_action_authority(object(), request) == "durable_draft_not_awaiting_authority"
+
+
+def test_duplicate_after_success_receipt_projects_committed_without_business_write(tmp_path: Path, monkeypatch) -> None:
+    import agent_core.transaction.commit_runtime as runtime
+
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    target = artifact_entry(
+        resource_type="order", resource_id="10002", label="机械键盘（订单 10002）",
+        facts={"order_id": "10002", "status": "已签收", "version": 1}, scope=SCOPE,
+        turn=2, source="test", freshness_version=1, handle="artifact:order:10002",
+    )
+    envelope = {
+        "contract": "business_adapter.commit@1", "method": "POST", "path": "/refunds",
+        "action_id": "create_refund", "operation": "APPLY_REFUND",
+        "target": {"resource_type": "order", "resource_id": "10002"},
+        "input": {"reason": "质量问题", "expected_version": 1},
+        "actor_scope": {"tenant_id": SCOPE["tenant_id"], "user_id": SCOPE["user_id"]},
+    }
+    offer = _offer(state="AUTHORIZED")
+    offer["business_command_envelope"] = envelope
+    offer = transition_draft(offer, "AUTHORIZED")
+    offer["active_grant_id"] = "grant-known"
+    _create(store, offer, state="COMMITTED")
+    store.record_receipt(
+        receipt_id="receipt-known", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id="attempt-known", receipt_handle="h_receipt:known", receipt_state="SUCCESS",
+        business_result={"success": True, "data": {"refund_id": "R-known", "version": 1}}, business_resource_id="R-known",
+    )
+
+    monkeypatch.setattr(runtime, "snapshot_matches_registry", lambda _offer: True)
+    monkeypatch.setattr(runtime, "validate_ui_authority", lambda **_kwargs: (True, "ok"))
+    monkeypatch.setattr(runtime, "_refresh_offer_preflight", lambda *_args, **_kwargs: ({"success": True}, {"decision": "ALLOWED", "snapshot": {"version": 1}}, []))
+    monkeypatch.setattr(runtime, "_build_business_command_envelope", lambda *_args, **_kwargs: dict(envelope))
+    monkeypatch.setattr(runtime, "reserve_grant_and_start_attempt", lambda **_kwargs: (
+        {"reserved": False, "grant": {"state": "CONSUMED"}},
+        {"created": False, "attempt": {"attempt_id": "attempt-known", "state": "ACKED", "idempotency_key": "idem-known"}},
+    ))
+    monkeypatch.setattr(runtime, "_new_resource_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(runtime, "_execute_business_command_envelope", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate must not call Business Service")))
+
+    state = {
+        "current_tenant_id": SCOPE["tenant_id"], "current_user_id": SCOPE["user_id"], "current_thread_id": SCOPE["thread_id"],
+        "current_role": "customer", "turn_index": 2, "artifact_ledger": [target, offer], "focused_draft_id": offer["draft_id"],
+        "commit_authority": {"grant_id": "grant-known", "command_digest": offer["command_digest"]},
+        "action_queue": [], "tool_trace": [], "_transaction_repository": store,
+    }
+    patch = runtime.commit_action_node(state, deps=TransactionExecutionDeps(business_port=SimpleNamespace(), outcome_factory=outcome))
+    assert patch["status"] == "ActionAlreadyCommitted"
+    row = find_handle(patch["artifact_ledger"], offer["handle"], scope=SCOPE, allowed_kinds={"offer"}, active_only=False)
+    assert row is not None and row["draft_state"] == "COMMITTED"
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"

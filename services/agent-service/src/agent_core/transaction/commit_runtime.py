@@ -365,8 +365,28 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
     attempt_id = str(attempt.get("attempt_id") or "") or None
     idempotency_key = str(attempt.get("idempotency_key") or stable_idempotency_key(state, refreshed))
     if not reservation.get("reserved"):
-        # A duplicate click, a second tab, or a previous process may already own
-        # this grant.  Fail closed and show a read-only reconciliation state.
+        repository = transaction_store(state)
+        existing_receipt = repository.get_receipt_by_attempt(attempt_id) if attempt_id else None
+        if isinstance(existing_receipt, dict):
+            known_result = existing_receipt.get("business_result") if isinstance(existing_receipt.get("business_result"), dict) else {}
+            receipt_state = str(existing_receipt.get("receipt_state") or "").upper()
+            if receipt_state == "SUCCESS" and bool(known_result.get("success")):
+                return _transaction_commit_update(
+                    state, ledger, refreshed, result=dict(known_result), draft_state="COMMITTED",
+                    attempt_id=attempt_id, idempotency_key=idempotency_key,
+                    status="ActionAlreadyCommitted", write_receipt=False, deps=deps,
+                )
+            if receipt_state == "FAILED":
+                known_attempt_state = str(attempt.get("state") or "").upper()
+                known_failure_state = known_attempt_state if known_attempt_state in {"FAILED_RETRYABLE", "FAILED_FINAL"} else "FAILED_FINAL"
+                return _transaction_commit_update(
+                    state, ledger, refreshed,
+                    result=dict(known_result or {"success": False, "error": "业务提交已失败。"}),
+                    draft_state=known_failure_state, attempt_id=attempt_id, idempotency_key=idempotency_key,
+                    status="ActionAlreadyFailed", write_receipt=False, deps=deps,
+                )
+        # No Receipt means the exact existing Attempt is genuinely uncertain.
+        # Never execute a second business command; reconciliation owns recovery.
         unknown = transition_draft(refreshed, "SUBMISSION_UNKNOWN", reason="grant_already_reserved_or_consumed")
         unknown["commit_attempt_id"] = attempt_id
         ledger = append_entries(ledger, [unknown])

@@ -13,7 +13,7 @@ from time import time
 from typing import Any
 from uuid import uuid4
 
-from agent_core.operations.draft import display_projection, ensure_transaction_draft, transition_draft
+from agent_core.operations.draft import TERMINAL_DRAFT_STATES, display_projection, ensure_transaction_draft, transition_draft
 
 LEDGER_SCHEMA_VERSION = 12
 MAX_LEDGER_ENTRIES = 200
@@ -108,8 +108,12 @@ def normalize_ledger(entries: list[dict[str, Any]] | None, *, now: float | None 
         if not isinstance(raw, dict) or not _valid_entry(raw):
             continue
         item = deepcopy(raw)
+        handle = str(item.get("handle") or "")
+        previous = deduped.get(handle)
         if str(item.get("kind") or "") == "offer":
-            item = ensure_transaction_draft(item, previous=deduped.get(str(item.get("handle") or "")))
+            if previous is not None and str(previous.get("kind") or "") == "offer" and str(previous.get("draft_state") or "").upper() in TERMINAL_DRAFT_STATES:
+                continue
+            item = ensure_transaction_draft(item, previous=previous)
         if _expired(item, now=current):
             if str(item.get("kind") or "") == "offer":
                 # The canonical transaction state decides expiry.  Projection-only status
@@ -323,6 +327,12 @@ def append_entries(existing: list[dict[str, Any]] | None, additions: list[dict[s
         current = merged.get(str(raw["handle"]))
         candidate = deepcopy(raw)
         if str(candidate.get("kind") or "") == "offer":
+            if (
+                isinstance(current, dict)
+                and str(current.get("kind") or "") == "offer"
+                and str(current.get("draft_state") or "").upper() in TERMINAL_DRAFT_STATES
+            ):
+                continue
             candidate = ensure_transaction_draft(candidate, previous=current if isinstance(current, dict) else None)
         if current is not None:
             candidate["version"] = max(int(current.get("version") or 0) + 1, int(candidate.get("version") or 0))

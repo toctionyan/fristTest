@@ -483,6 +483,28 @@ class AgentService:
         offer = next((item for item in ledger if isinstance(item, dict) and item.get("handle") == expected_handle), None)
         if not offer or self._draft_state_for_validation(offer) != "AWAITING_AUTHORIZATION":
             return "offer_not_awaiting_authority"
+        repository = getattr(self, "transactions", None)
+        get_durable = getattr(repository, "get_draft_for_scope", None)
+        if callable(get_durable):
+            durable = get_durable(
+                scope=TransactionScope(
+                    tenant_id=str(request.tenant_id or "default"),
+                    user_id=str(request.user_id),
+                    thread_id=str(request.thread_id),
+                ),
+                draft_id=expected_handle,
+            )
+            if durable is None:
+                return "durable_draft_missing"
+            if self._draft_state_for_validation(durable) != "AWAITING_AUTHORIZATION":
+                return "durable_draft_not_awaiting_authority"
+            if int(durable.get("draft_revision") or 0) != int(offer.get("draft_revision") or 0):
+                return "durable_draft_revision_mismatch"
+            durable_projection = durable.get("projection") if isinstance(durable.get("projection"), dict) else {}
+            if str(durable_projection.get("confirmation_id") or "") != str(offer.get("confirmation_id") or ""):
+                return "durable_confirmation_id_mismatch"
+            if int(durable_projection.get("confirmation_version") or 0) != int(offer.get("confirmation_version") or 0):
+                return "durable_confirmation_version_mismatch"
         if str(offer.get("action_id") or "") != request.action_id:
             return "action_id_mismatch"
         if str(offer.get("target_handle") or "") != request.target_handle:
