@@ -151,3 +151,78 @@ def attempt_persistence_update_decision(
     if existing_receipt and incoming_receipt and existing_receipt != incoming_receipt:
         return False, "attempt_receipt_handle_conflict"
     return True, "attempt_transition_valid"
+
+
+def grant_consumption_decision(
+    grant: dict[str, Any] | None,
+    *,
+    attempt: dict[str, Any] | None,
+    receipt: dict[str, Any] | None,
+    attempt_id: str | None,
+    receipt_handle: str | None,
+) -> tuple[bool, str]:
+    """Validate the single legal Grant consumption boundary.
+
+    Consumption means a successful business effect is durably known.  The
+    exact Grant must therefore already own the exact ACKED Attempt and the
+    exact SUCCESS Receipt.  No caller may use ``consume_grant`` as a generic
+    state setter.
+    """
+    if not isinstance(grant, dict) or not grant:
+        return False, "grant_missing"
+    grant_state = str(grant.get("state") or "").upper()
+    requested_attempt = str(attempt_id or "")
+    requested_receipt = str(receipt_handle or "")
+
+    if grant_state == "CONSUMED":
+        if (
+            requested_attempt
+            and requested_receipt
+            and str(grant.get("attempt_id") or "") == requested_attempt
+            and str(grant.get("receipt_handle") or "") == requested_receipt
+        ):
+            return True, "already_consumed_same_binding"
+        return False, "consumed_grant_binding_immutable"
+
+    if grant_state != "RESERVED":
+        return False, f"grant_not_reserved:{grant_state or 'UNKNOWN'}"
+    if not requested_attempt:
+        return False, "consume_attempt_id_required"
+    if not requested_receipt:
+        return False, "consume_receipt_handle_required"
+    if str(grant.get("attempt_id") or "") != requested_attempt:
+        return False, "grant_attempt_binding_mismatch"
+
+    if not isinstance(attempt, dict) or not attempt:
+        return False, "consume_attempt_missing"
+    if str(attempt.get("attempt_id") or "") != requested_attempt:
+        return False, "consume_attempt_identity_mismatch"
+    if str(attempt.get("grant_id") or "") != str(grant.get("grant_id") or ""):
+        return False, "consume_attempt_grant_mismatch"
+    for field in ("tenant_id", "user_id", "thread_id", "draft_id"):
+        if str(attempt.get(field) or "") != str(grant.get(field) or ""):
+            return False, f"consume_attempt_scope_mismatch:{field}"
+    if int(attempt.get("draft_revision") or 0) != int(grant.get("draft_revision") or 0):
+        return False, "consume_attempt_revision_mismatch"
+    if str(attempt.get("command_digest") or "") != str(grant.get("command_digest") or ""):
+        return False, "consume_attempt_command_mismatch"
+    if str(attempt.get("state") or "").upper() != ATTEMPT_ACKED:
+        return False, "consume_attempt_not_acked"
+    if str(attempt.get("receipt_handle") or "") != requested_receipt:
+        return False, "consume_attempt_receipt_mismatch"
+
+    if not isinstance(receipt, dict) or not receipt:
+        return False, "consume_receipt_missing"
+    if str(receipt.get("attempt_id") or "") != requested_attempt:
+        return False, "consume_receipt_attempt_mismatch"
+    if str(receipt.get("receipt_handle") or "") != requested_receipt:
+        return False, "consume_receipt_handle_mismatch"
+    if str(receipt.get("receipt_state") or "").upper() != "SUCCESS":
+        return False, "consume_receipt_not_success"
+    for field in ("tenant_id", "user_id", "thread_id", "draft_id"):
+        if str(receipt.get(field) or "") != str(grant.get(field) or ""):
+            return False, f"consume_receipt_scope_mismatch:{field}"
+    result = receipt.get("business_result") if isinstance(receipt.get("business_result"), dict) else {}
+    if result.get("success") is not True:
+        return False, "consume_receipt_result_not_success"
+    return True, "grant_consumption_valid"

@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from agent_core.persistence.sqlite_base import SQLiteBase
 from agent_core.operations.draft import draft_persistence_update_decision
-from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, validate_receipt_binding
+from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, grant_consumption_decision, validate_receipt_binding
 
 
 def _now() -> str:
@@ -835,12 +835,33 @@ class TransactionLifecycleStore(SQLiteBase):
                 raise
 
     def consume_grant(self, grant_id: str, *, attempt_id: str | None = None, receipt_handle: str | None = None) -> None:
-        self.execute(
-            """UPDATE transaction_grants SET state='CONSUMED', consumed_at=?,
-               attempt_id=COALESCE(?, attempt_id), receipt_handle=COALESCE(?, receipt_handle)
-               WHERE grant_id=?""",
-            (_now(), attempt_id, receipt_handle, grant_id),
-        )
+        with self.lock:
+            grant_row = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+            grant = self._decode_row(dict(grant_row)) if grant_row else None
+            attempt_row = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (str(attempt_id or ""),)).fetchone()
+            attempt = self._decode_row(dict(attempt_row)) if attempt_row else None
+            receipt_row = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (str(attempt_id or ""),)).fetchone()
+            receipt = self._decode_row(dict(receipt_row)) if receipt_row else None
+            allowed, reason = grant_consumption_decision(
+                grant,
+                attempt=attempt,
+                receipt=receipt,
+                attempt_id=attempt_id,
+                receipt_handle=receipt_handle,
+            )
+            if not allowed:
+                return
+            if str((grant or {}).get("state") or "").upper() == "CONSUMED":
+                return
+            updated = self.conn.execute(
+                """UPDATE transaction_grants SET state='CONSUMED', consumed_at=?, attempt_id=?, receipt_handle=?
+                   WHERE grant_id=? AND state='RESERVED' AND attempt_id=?""",
+                (_now(), str(attempt_id or ""), str(receipt_handle or ""), grant_id, str(attempt_id or "")),
+            )
+            if int(updated.rowcount or 0) != 1:
+                self.conn.rollback()
+                return
+            self.conn.commit()
 
     def revoke_grant(self, grant_id: str, *, reason: str) -> None:
         self.execute(

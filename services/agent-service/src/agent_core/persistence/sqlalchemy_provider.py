@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from agent_core.storage.repositories.base import TransactionScope, ActiveDraftValidationCode, ActiveDraftValidationResult
 from agent_core.operations.draft import draft_persistence_update_decision
-from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, validate_receipt_binding
+from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, grant_consumption_decision, validate_receipt_binding
 
 from agent_core.persistence.thread_store import ThreadOwnershipError, ThreadTenantMismatchError
 from agent_core.persistence.database_settings import DatabaseSettings
@@ -1025,9 +1025,40 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             return self._decode_row(_row(conn.execute(self.sa.select(table).where(table.c.attempt_id == attempt_id)).first()))
 
     def consume_grant(self, grant_id: str, *, attempt_id: str | None = None, receipt_handle: str | None = None) -> None:
-        table = self.t["transaction_grants"]
+        grants = self.t["transaction_grants"]
+        attempts = self.t["transaction_attempts"]
+        receipts = self.t["transaction_receipts"]
+        requested_attempt = str(attempt_id or "")
         with self.p.conn() as conn:
-            conn.execute(table.update().where(table.c.grant_id == grant_id).values(state="CONSUMED", consumed_at=_now(), attempt_id=attempt_id, receipt_handle=receipt_handle))
+            grant_row = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
+            grant = self._decode_row(grant_row) if grant_row else None
+            attempt_row = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == requested_attempt)).first()) if requested_attempt else None
+            attempt = self._decode_row(attempt_row) if attempt_row else None
+            receipt_row = _row(conn.execute(self.sa.select(receipts).where(receipts.c.attempt_id == requested_attempt)).first()) if requested_attempt else None
+            receipt = self._decode_row(receipt_row) if receipt_row else None
+            allowed, _reason = grant_consumption_decision(
+                grant,
+                attempt=attempt,
+                receipt=receipt,
+                attempt_id=attempt_id,
+                receipt_handle=receipt_handle,
+            )
+            if not allowed:
+                return
+            if str((grant or {}).get("state") or "").upper() == "CONSUMED":
+                return
+            conn.execute(
+                grants.update().where(self.sa.and_(
+                    grants.c.grant_id == grant_id,
+                    grants.c.state == "RESERVED",
+                    grants.c.attempt_id == requested_attempt,
+                )).values(
+                    state="CONSUMED",
+                    consumed_at=_now(),
+                    attempt_id=requested_attempt,
+                    receipt_handle=str(receipt_handle or ""),
+                )
+            )
 
     def revoke_grant(self, grant_id: str, *, reason: str) -> None:
         table = self.t["transaction_grants"]

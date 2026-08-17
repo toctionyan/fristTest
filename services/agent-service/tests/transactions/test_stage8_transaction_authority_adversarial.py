@@ -449,3 +449,140 @@ def test_sqlalchemy_receipt_attempt_binding_and_monotonicity(tmp_path: Path) -> 
         assert durable is not None and durable["state"] == "ACKED"
     finally:
         provider.close()
+
+
+
+def _start_stage8_grant(store, *, suffix: str):
+    offer = _offer()
+    _create(store, offer, state="AWAITING_AUTHORIZATION")
+    state, authority, attempt = _start_transaction_attempt(store, offer, client_request_id=f"grant-{suffix}")
+    return offer, state, authority, attempt
+
+
+def _complete_stage8_success(store, offer: dict, attempt: dict, *, suffix: str) -> dict:
+    attempt_id = str(attempt["attempt_id"])
+    result = {"success": True, "data": {"refund_id": f"R-{suffix}"}}
+    handle = f"h_receipt:{suffix}"
+    receipt = store.record_receipt(
+        receipt_id=f"receipt-{suffix}",
+        tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle=handle,
+        receipt_state="SUCCESS", business_result=result, business_resource_id=f"R-{suffix}",
+    )
+    store.transition_attempt(attempt_id, state="ACKED", business_result=result, receipt_handle=handle)
+    return receipt
+
+
+def test_revoked_grant_cannot_be_consumed(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-revoked.db")
+    offer = _offer()
+    state = {"current_tenant_id": SCOPE["tenant_id"], "current_user_id": SCOPE["user_id"], "current_thread_id": SCOPE["thread_id"], "_transaction_repository": store}
+    authority = issue_grant_for_authority(
+        state=state, offer=offer,
+        authority={"actor_id": SCOPE["user_id"], "actor_role": "customer", "client_request_id": "grant-revoked", "authority_type": "ui_confirmed"},
+    )
+    grant_id = str(authority["grant_id"])
+    store.revoke_grant(grant_id, reason="cancelled")
+    store.consume_grant(grant_id, attempt_id="attempt-late", receipt_handle="h_receipt:late")
+    grant = store.get_grant(grant_id)
+    assert grant is not None
+    assert grant["state"] == "REVOKED"
+    assert not grant.get("consumed_at")
+
+
+def test_issued_grant_cannot_skip_attempt_and_receipt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-issued.db")
+    offer = _offer()
+    state = {"current_tenant_id": SCOPE["tenant_id"], "current_user_id": SCOPE["user_id"], "current_thread_id": SCOPE["thread_id"], "_transaction_repository": store}
+    authority = issue_grant_for_authority(
+        state=state, offer=offer,
+        authority={"actor_id": SCOPE["user_id"], "actor_role": "customer", "client_request_id": "grant-issued", "authority_type": "ui_confirmed"},
+    )
+    grant_id = str(authority["grant_id"])
+    store.consume_grant(grant_id, attempt_id="attempt-never-created", receipt_handle="h_receipt:none")
+    grant = store.get_grant(grant_id)
+    assert grant is not None
+    assert grant["state"] == "ISSUED"
+    assert not grant.get("consumed_at")
+
+
+def test_reserved_grant_requires_exact_acked_attempt_and_success_receipt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-binding.db")
+    offer, _state, authority, attempt = _start_stage8_grant(store, suffix="binding")
+    grant_id = str(authority["grant_id"])
+    attempt_id = str(attempt["attempt_id"])
+    assert store.get_grant(grant_id)["state"] == "RESERVED"
+
+    store.consume_grant(grant_id, attempt_id="attempt-wrong", receipt_handle="h_receipt:wrong")
+    assert store.get_grant(grant_id)["state"] == "RESERVED"
+
+    receipt = _complete_stage8_success(store, offer, attempt, suffix="binding")
+    store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle="h_receipt:wrong")
+    assert store.get_grant(grant_id)["state"] == "RESERVED"
+
+    store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle=str(receipt["receipt_handle"]))
+    grant = store.get_grant(grant_id)
+    assert grant is not None
+    assert grant["state"] == "CONSUMED"
+    assert grant["attempt_id"] == attempt_id
+    assert grant["receipt_handle"] == receipt["receipt_handle"]
+
+
+def test_consumed_grant_is_idempotent_and_binding_immutable(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-consumed.db")
+    offer, _state, authority, attempt = _start_stage8_grant(store, suffix="consumed")
+    grant_id = str(authority["grant_id"])
+    attempt_id = str(attempt["attempt_id"])
+    receipt = _complete_stage8_success(store, offer, attempt, suffix="consumed")
+    handle = str(receipt["receipt_handle"])
+    store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle=handle)
+    first = dict(store.get_grant(grant_id) or {})
+    store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle=handle)
+    second = dict(store.get_grant(grant_id) or {})
+    assert second["state"] == "CONSUMED"
+    assert second["attempt_id"] == first["attempt_id"] == attempt_id
+    assert second["receipt_handle"] == first["receipt_handle"] == handle
+
+    store.consume_grant(grant_id, attempt_id="attempt-other", receipt_handle="h_receipt:other")
+    final = store.get_grant(grant_id)
+    assert final is not None
+    assert final["state"] == "CONSUMED"
+    assert final["attempt_id"] == attempt_id
+    assert final["receipt_handle"] == handle
+
+
+def test_reserved_grant_cannot_consume_before_receipt_and_ack(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-ordering.db")
+    offer, _state, authority, attempt = _start_stage8_grant(store, suffix="ordering")
+    grant_id = str(authority["grant_id"])
+    attempt_id = str(attempt["attempt_id"])
+    store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle="h_receipt:not-yet")
+    assert store.get_grant(grant_id)["state"] == "RESERVED"
+    receipt = _complete_stage8_success(store, offer, attempt, suffix="ordering")
+    store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle=str(receipt["receipt_handle"]))
+    assert store.get_grant(grant_id)["state"] == "CONSUMED"
+
+
+def test_sqlalchemy_grant_consumption_enforces_exact_binding(tmp_path: Path) -> None:
+    db_file = tmp_path / "grant-binding-sqla.db"
+    provider = build_sqlalchemy_store_provider(DatabaseSettings(backend="sqlite", database_url=f"sqlite:///{db_file}", sqlite_path=db_file, create_schema=True))
+    try:
+        store = provider.transactions
+        offer, _state, authority, attempt = _start_stage8_grant(store, suffix="sqla")
+        grant_id = str(authority["grant_id"])
+        attempt_id = str(attempt["attempt_id"])
+        store.consume_grant(grant_id, attempt_id="attempt-wrong", receipt_handle="h_receipt:wrong")
+        assert store.get_grant(grant_id)["state"] == "RESERVED"
+        receipt = _complete_stage8_success(store, offer, attempt, suffix="sqla")
+        store.consume_grant(grant_id, attempt_id=attempt_id, receipt_handle=str(receipt["receipt_handle"]))
+        consumed = store.get_grant(grant_id)
+        assert consumed is not None
+        assert consumed["state"] == "CONSUMED"
+        assert consumed["attempt_id"] == attempt_id
+        store.consume_grant(grant_id, attempt_id="attempt-other", receipt_handle="h_receipt:other")
+        final = store.get_grant(grant_id)
+        assert final is not None
+        assert final["attempt_id"] == attempt_id
+        assert final["receipt_handle"] == receipt["receipt_handle"]
+    finally:
+        provider.close()
