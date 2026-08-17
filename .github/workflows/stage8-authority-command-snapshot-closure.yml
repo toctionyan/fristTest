@@ -1,0 +1,210 @@
+name: Temporary Stage 8 Authority Command Snapshot Closure
+
+"on":
+  push:
+    branches: [fix/proof-authority-lifecycle-20260816]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: "${{ github.event.head_commit.message == 'chore: execute Stage 8 authority command snapshot closure' }}"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Bind the exact command snapshot before authority
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str, *, label: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              target.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          command_module = Path('services/agent-service/src/agent_core/transaction/command_envelope.py')
+          if command_module.exists():
+              raise SystemExit('command envelope module already exists')
+          command_module.write_text('''from __future__ import annotations\n\n"""Deterministic adapter command construction for transaction snapshots.\n\nThis module owns no lifecycle state and grants no authority.  It translates an\nalready-selected operation, verified target and actor scope into the exact\nBusiness Service command that the Transaction Repository will bind to a Draft.\n"""\n\nfrom typing import Any\n\nfrom agent_core.business import ActorContext\nfrom agent_core.modules import current_runtime_registry\nfrom agent_core.transaction.coordinator import stable_command_id\n\n\ndef actor_context_from_state(state: dict[str, Any]) -> ActorContext:\n    permissions = tuple(str(item) for item in (state.get("actor_permissions") or []) if str(item))\n    return ActorContext(\n        user_id=str(state.get("current_user_id") or ""),\n        role=str(state.get("current_role") or "customer"),\n        tenant_id=str(state.get("current_tenant_id") or "") or None,\n        subject_user_id=str(state.get("current_subject") or state.get("current_user_id") or "") or None,\n        subject=str(state.get("current_subject") or "") or None,\n        permissions=permissions,\n    )\n\n\ndef build_business_command_envelope(\n    state: dict[str, Any],\n    offer: dict[str, Any],\n    target: dict[str, Any],\n) -> dict[str, Any]:\n    """Build the immutable adapter command before an authority card is exposed."""\n    action = str(offer.get("action_id") or "")\n    registry = current_runtime_registry()\n    plugin = registry.operations.get(action)\n    if plugin is None or action not in set(registry.preparable_action_ids()):\n        raise ValueError(f"未实现的业务动作：{action}")\n    target_id = str(target.get("resource_id") or "")\n    commit_target = {\n        "resource_type": str(target.get("resource_type") or ""),\n        "resource_id": target_id,\n    }\n    envelope = plugin.build_business_command_envelope(\n        actor=actor_context_from_state(state),\n        target=commit_target,\n        input_values=dict(offer.get("input_values") or {}),\n        preview=offer.get("preview") if isinstance(offer.get("preview"), dict) else None,\n    )\n    envelope["command_id"] = str(offer.get("command_id") or stable_command_id(state, offer))\n    return envelope\n''', encoding='utf-8')
+
+          gateway_path = 'services/agent-service/src/agent_core/transaction/gateway_runtime.py'
+          replace_once(
+              gateway_path,
+              'from agent_core.business import ActorContext\nfrom agent_core.business import BusinessServiceError\n',
+              'from agent_core.business import BusinessServiceError\n',
+              label='gateway ActorContext import',
+          )
+          replace_once(
+              gateway_path,
+              'from agent_core.transaction.coordinator import persist_draft_from_offer, transaction_store\n',
+              'from agent_core.transaction.coordinator import persist_draft_from_offer, transaction_store\nfrom agent_core.transaction.command_envelope import actor_context_from_state as _actor_context_from_state, build_business_command_envelope\n',
+              label='gateway command envelope import',
+          )
+          replace_once(
+              gateway_path,
+              '''def _actor_context_from_state(state: dict[str, Any]) -> ActorContext:\n    permissions = tuple(str(item) for item in (state.get("actor_permissions") or []) if str(item))\n    return ActorContext(\n        user_id=str(state.get("current_user_id") or ""),\n        role=str(state.get("current_role") or "customer"),\n        tenant_id=str(state.get("current_tenant_id") or "") or None,\n        subject_user_id=str(state.get("current_subject") or state.get("current_user_id") or "") or None,\n        subject=str(state.get("current_subject") or "") or None,\n        permissions=permissions,\n    )\n\n\n''',
+              '',
+              label='gateway actor context implementation',
+          )
+          replace_once(
+              gateway_path,
+              '    next_offer = transition_draft(offer, "AWAITING_AUTHORIZATION")\n',
+              '''    prior = find_handle(\n        ledger,\n        str(offer.get("handle") or ""),\n        scope=scope_for_state(state),\n        allowed_kinds={"offer"},\n        active_only=False,\n    )\n    next_offer = transition_draft(offer, "AWAITING_AUTHORIZATION", previous=prior)\n''',
+              label='authority boundary canonical revision',
+          )
+          replace_once(
+              gateway_path,
+              '''    ledger, pending = _mark_offer_awaiting_authority(state, offer, ledger)\n    result = {\n''',
+              '''    # Freeze the exact Business Service command before exposing the\n    # authority card.  The subsequent AuthorityGrant binds this persisted\n    # Draft revision/digest; approval never creates or rewrites the command.\n    try:\n        refreshed["business_command_envelope"] = build_business_command_envelope(state, refreshed, target)\n    except ValueError as exc:\n        failed = transition_draft(refreshed, "FAILED_FINAL", reason="authority_command_envelope_invalid", previous=offer)\n        failed["updated_turn"] = int(state.get("turn_index") or 0)\n        persist_draft_from_offer(state=state, offer=failed, draft_state="FAILED_FINAL")\n        ledger = append_entries(ledger, [failed])\n        result = {\n            "decision": "rejected",\n            "reason": str(exc),\n            "offer_handle": handle,\n            "action_id": offer.get("action_id"),\n            "risk_level": policy.risk_level,\n        }\n        return _gateway_observation_update(\n            state, queue, ledger, result,\n            phase="action_gateway" if queue else "agent_loop",\n            status="ActionCommandEnvelopeInvalid",\n        )\n    refreshed["command_id"] = str((refreshed.get("business_command_envelope") or {}).get("command_id") or "")\n    ledger, pending = _mark_offer_awaiting_authority(state, refreshed, ledger)\n    result = {\n''',
+              label='gateway frozen authority snapshot',
+          )
+
+          interaction_path = 'services/agent-service/src/agent_core/transaction/interaction_runtime.py'
+          replace_once(
+              interaction_path,
+              'from agent_core.transaction.commit_runtime import _build_business_command_envelope\n',
+              '',
+              label='interaction commit builder dependency',
+          )
+          replace_once(
+              interaction_path,
+              '''        try:\n            prepared=deepcopy(offer)\n            prepared["business_command_envelope"]=_build_business_command_envelope(state,prepared,target)\n            prepared=transition_draft(prepared,"AWAITING_AUTHORIZATION")\n            prepared["updated_turn"]=current_revision\n            ledger=append_entries(ledger,[prepared])\n            offer=find_handle(ledger,handle,scope=scope_for_state(state),allowed_kinds={"offer"},active_only=False) or prepared\n        except ValueError as exc:\n            return {"current_final_answer":f"无法生成可提交的业务命令：{exc}",**active_draft_patch(None),"pending_confirmation_id":None,"pending_confirmation_version":None,"response_contract":None,"commit_authority":None,"phase":"final","status":"ActionCommandEnvelopeInvalid"}\n        authority = issue_grant_for_authority(state=state, offer=offer, authority=authority)\n''',
+              '''        prepared = deepcopy(offer)\n        envelope = prepared.get("business_command_envelope") if isinstance(prepared.get("business_command_envelope"), dict) else {}\n        if not envelope or not str(envelope.get("command_id") or ""):\n            return {"current_final_answer":"待授权业务命令快照缺失，未执行任何业务写操作。",**active_draft_patch(None),"pending_confirmation_id":None,"pending_confirmation_version":None,"response_contract":None,"commit_authority":None,"phase":"final","status":"ActionCommandEnvelopeInvalid"}\n        prepared = transition_draft(prepared, "AWAITING_AUTHORIZATION", previous=offer)\n        prepared["updated_turn"] = current_revision\n        ledger = append_entries(ledger, [prepared])\n        offer = find_handle(ledger, handle, scope=scope_for_state(state), allowed_kinds={"offer"}, active_only=False) or prepared\n        authority = issue_grant_for_authority(state=state, offer=offer, authority=authority)\n''',
+              label='authority consumes frozen command only',
+          )
+
+          commit_path = 'services/agent-service/src/agent_core/transaction/commit_runtime.py'
+          replace_once(
+              commit_path,
+              'from agent_core.transaction.coordinator import (\n',
+              'from agent_core.transaction.command_envelope import build_business_command_envelope\nfrom agent_core.transaction.coordinator import (\n',
+              label='commit command envelope import',
+          )
+          old_builder = '''def _build_business_command_envelope(state: dict[str, Any], offer: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:\n    """Build the immutable adapter command that an authority actually approves."""\n    action = str(offer.get("action_id") or "")\n    plugin = current_runtime_registry().operations.get(action)\n    if action not in COMMITTABLE_TRANSACTION_ACTION_IDS or plugin is None:\n        raise ValueError(f"未实现的业务动作：{action}")\n    target_id = str(target.get("resource_id") or "")\n    commit_target = {"resource_type": str(target.get("resource_type") or ""), "resource_id": target_id}\n    envelope = plugin.build_business_command_envelope(\n        actor=_actor_context_from_state(state), target=commit_target,\n        input_values=dict(offer.get("input_values") or {}),\n        preview=offer.get("preview") if isinstance(offer.get("preview"), dict) else None,\n    )\n    envelope["command_id"] = str(offer.get("command_id") or stable_command_id(state, offer))\n    return envelope\n\n\n'''
+          new_builder = '''def _build_business_command_envelope(state: dict[str, Any], offer: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:\n    """Compatibility wrapper around the single deterministic command builder."""\n    return build_business_command_envelope(state, offer, target)\n\n\n'''
+          replace_once(commit_path, old_builder, new_builder, label='commit command builder implementation')
+
+          test_path = 'services/agent-service/tests/transactions/test_transaction_protocol.py'
+          test_file = Path(test_path)
+          test_text = test_file.read_text(encoding='utf-8')
+          regression = '''\n\ndef test_awaiting_authority_persists_frozen_command_revision_before_grant(tmp_path: Path, monkeypatch):\n    from agent_core.transaction import coordinator, gateway_runtime\n\n    store = TransactionLifecycleStore(tmp_path / "authority-snapshot.db")\n    monkeypatch.setattr(coordinator, "transaction_store", lambda _state=None: store)\n    state = {\n        "current_tenant_id": "tenant-a",\n        "current_user_id": "u001",\n        "current_thread_id": "t001",\n        "current_role": "customer",\n        "turn_index": 1,\n    }\n    original = _offer()\n    coordinator.persist_draft_from_offer(state=state, offer=original, draft_state="READY")\n    frozen = dict(original)\n    frozen["business_command_envelope"] = {\n        "contract": "business_adapter.commit@1",\n        "method": "POST",\n        "path": "/refunds",\n        "action_id": "create_refund",\n        "operation": "APPLY_REFUND",\n        "target": {"resource_type": "order", "resource_id": "10002"},\n        "input": {"reason": "质量问题", "expected_version": 1},\n        "actor_scope": {"tenant_id": "tenant-a", "user_id": "u001"},\n        "command_id": "cmd:test-authority-snapshot",\n    }\n    frozen["command_id"] = "cmd:test-authority-snapshot"\n\n    ledger, pending = gateway_runtime._mark_offer_awaiting_authority(state, frozen, [original])\n    durable = store.get_draft_for_scope(\n        scope=coordinator.TransactionScope(tenant_id="tenant-a", user_id="u001", thread_id="t001"),\n        draft_id=pending["draft_id"],\n    )\n    assert pending["draft_revision"] == original["draft_revision"] + 1\n    assert durable is not None\n    assert durable["draft_revision"] == pending["draft_revision"]\n    assert durable["command_digest"] == pending["command_digest"]\n    assert durable["draft_state"] == "AWAITING_AUTHORIZATION"\n    assert any(row.get("handle") == pending["handle"] for row in ledger)\n\n    authority = coordinator.issue_grant_for_authority(\n        state=state,\n        offer=pending,\n        authority={"actor_id": "u001", "actor_role": "customer", "client_request_id": "client:snapshot"},\n    )\n    assert authority["grant_id"]\n    assert authority["draft_revision"] == pending["draft_revision"]\n    assert authority["command_digest"] == pending["command_digest"]\n'''
+          if 'def test_awaiting_authority_persists_frozen_command_revision_before_grant' in test_text:
+              raise SystemExit('authority snapshot regression already exists')
+          test_file.write_text(test_text.rstrip() + regression + '\n', encoding='utf-8')
+
+          # The UI-authority module may no longer depend on commit-time command construction.
+          interaction = Path(interaction_path).read_text(encoding='utf-8')
+          if '_build_business_command_envelope' in interaction or 'commit_runtime import' in interaction:
+              raise SystemExit('interaction runtime still constructs a command at authority time')
+          gateway = Path(gateway_path).read_text(encoding='utf-8')
+          if 'build_business_command_envelope(state, refreshed, target)' not in gateway:
+              raise SystemExit('gateway did not freeze command snapshot before authority')
+          PY
+          git diff --check
+
+      - name: Verify architecture boundary before runtime proof
+        run: |
+          set -euo pipefail
+          python -m unittest skill-system/tests/test_architecture_cycle_debt.py
+          python architecture-skill/scripts/verify_convergence.py --workspace-root . >/tmp/convergence.json
+          cat /tmp/convergence.json
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked service environments
+        run: |
+          cd services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+
+      - name: Run focused transaction regressions
+        working-directory: services/agent-service
+        env:
+          PYTHONPATH: src
+          APP_PROFILE: local
+        run: >-
+          .venv/bin/python -B -m pytest
+          tests/transactions/test_transaction_protocol.py
+          tests/transactions/test_stage8_transaction_authority_adversarial.py
+          -m 'not integration'
+          -q
+
+      - name: Run the real full lifecycle canary
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: services/agent-service/.venv/bin/python -B scripts/verify_full_lifecycle_canary.py
+
+      - name: Commit bounded fix and remove executor
+        run: |
+          set -euo pipefail
+          rm .github/workflows/stage8-authority-command-snapshot-closure.yml
+          cat > /tmp/expected <<'EOF'
+          .github/workflows/stage8-authority-command-snapshot-closure.yml
+          services/agent-service/src/agent_core/transaction/command_envelope.py
+          services/agent-service/src/agent_core/transaction/commit_runtime.py
+          services/agent-service/src/agent_core/transaction/gateway_runtime.py
+          services/agent-service/src/agent_core/transaction/interaction_runtime.py
+          services/agent-service/tests/transactions/test_transaction_protocol.py
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u > /tmp/actual
+          diff -u /tmp/expected /tmp/actual
+          git diff --check
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add -A -- \
+            .github/workflows/stage8-authority-command-snapshot-closure.yml \
+            services/agent-service/src/agent_core/transaction/command_envelope.py \
+            services/agent-service/src/agent_core/transaction/commit_runtime.py \
+            services/agent-service/src/agent_core/transaction/gateway_runtime.py \
+            services/agent-service/src/agent_core/transaction/interaction_runtime.py \
+            services/agent-service/tests/transactions/test_transaction_protocol.py
+          git diff --cached --check
+          git commit -m 'fix: bind authority to frozen transaction command snapshot'
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Refresh protected product-source baseline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root = Path('.').resolve()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          roots = tuple(str(value) for value in payload['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *roots], cwd=root)
+          tracked = sorted(item.decode() for item in raw.split(b'\0') if item)
+          payload['generated_from'] = 'git:' + os.environ['SOURCE_SHA']
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['file_count'] = len(tracked)
+          payload['files'] = {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in tracked}
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print({'generated_from': payload['generated_from'], 'file_count': len(tracked)})
+          PY
+          python -m unittest skill-system/tests/test_product_source_baseline_binding.py
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = 'skill-system/registry/product-source-baseline.json'
+
+      - name: Publish fix and refreshed baseline
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'chore: refresh Stage 8 authority-snapshot baseline'
+          git push origin HEAD:fix/proof-authority-lifecycle-20260816
