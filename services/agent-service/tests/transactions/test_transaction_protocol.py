@@ -374,3 +374,52 @@ def test_sqlalchemy_transaction_lifecycle_store_supports_atomic_grant_attempt(tm
         assert duplicate["attempt"]["attempt_id"] == "attempt-sql"
     finally:
         provider.close()
+
+def test_awaiting_authority_persists_frozen_command_revision_before_grant(tmp_path: Path, monkeypatch):
+    from agent_core.transaction import coordinator, gateway_runtime
+
+    store = TransactionLifecycleStore(tmp_path / "authority-snapshot.db")
+    monkeypatch.setattr(coordinator, "transaction_store", lambda _state=None: store)
+    state = {
+        "current_tenant_id": "tenant-a",
+        "current_user_id": "u001",
+        "current_thread_id": "t001",
+        "current_role": "customer",
+        "turn_index": 1,
+    }
+    original = _offer()
+    coordinator.persist_draft_from_offer(state=state, offer=original, draft_state="READY")
+    frozen = dict(original)
+    frozen["business_command_envelope"] = {
+        "contract": "business_adapter.commit@1",
+        "method": "POST",
+        "path": "/refunds",
+        "action_id": "create_refund",
+        "operation": "APPLY_REFUND",
+        "target": {"resource_type": "order", "resource_id": "10002"},
+        "input": {"reason": "质量问题", "expected_version": 1},
+        "actor_scope": {"tenant_id": "tenant-a", "user_id": "u001"},
+        "command_id": "cmd:test-authority-snapshot",
+    }
+    frozen["command_id"] = "cmd:test-authority-snapshot"
+
+    ledger, pending = gateway_runtime._mark_offer_awaiting_authority(state, frozen, [original])
+    durable = store.get_draft_for_scope(
+        scope=coordinator.TransactionScope(tenant_id="tenant-a", user_id="u001", thread_id="t001"),
+        draft_id=pending["draft_id"],
+    )
+    assert pending["draft_revision"] == original["draft_revision"] + 1
+    assert durable is not None
+    assert durable["draft_revision"] == pending["draft_revision"]
+    assert durable["command_digest"] == pending["command_digest"]
+    assert durable["draft_state"] == "AWAITING_AUTHORIZATION"
+    assert any(row.get("handle") == pending["handle"] for row in ledger)
+
+    authority = coordinator.issue_grant_for_authority(
+        state=state,
+        offer=pending,
+        authority={"actor_id": "u001", "actor_role": "customer", "client_request_id": "client:snapshot"},
+    )
+    assert authority["grant_id"]
+    assert authority["draft_revision"] == pending["draft_revision"]
+    assert authority["command_digest"] == pending["command_digest"]

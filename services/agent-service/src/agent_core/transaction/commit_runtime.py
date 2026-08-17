@@ -13,6 +13,7 @@ from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.transaction import DRAFT_REQUIRES_REVIEW, command_digest_for_offer, transition_draft
 from agent_core.transaction.active_draft import active_draft_patch, get_active_draft_id
 from agent_core.transaction.failure import classify_business_failure
+from agent_core.transaction.command_envelope import build_business_command_envelope
 from agent_core.transaction.coordinator import (
     record_transaction_receipt,
     reserve_grant_and_start_attempt,
@@ -49,20 +50,8 @@ def _idempotency_key(state: dict[str, Any], offer: dict[str, Any]) -> str:
 
 
 def _build_business_command_envelope(state: dict[str, Any], offer: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    """Build the immutable adapter command that an authority actually approves."""
-    action = str(offer.get("action_id") or "")
-    plugin = current_runtime_registry().operations.get(action)
-    if action not in COMMITTABLE_TRANSACTION_ACTION_IDS or plugin is None:
-        raise ValueError(f"未实现的业务动作：{action}")
-    target_id = str(target.get("resource_id") or "")
-    commit_target = {"resource_type": str(target.get("resource_type") or ""), "resource_id": target_id}
-    envelope = plugin.build_business_command_envelope(
-        actor=_actor_context_from_state(state), target=commit_target,
-        input_values=dict(offer.get("input_values") or {}),
-        preview=offer.get("preview") if isinstance(offer.get("preview"), dict) else None,
-    )
-    envelope["command_id"] = str(offer.get("command_id") or stable_command_id(state, offer))
-    return envelope
+    """Compatibility wrapper around the single deterministic command builder."""
+    return build_business_command_envelope(state, offer, target)
 
 
 def _execute_business_command_envelope(
