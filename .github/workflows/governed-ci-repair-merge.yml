@@ -21,8 +21,11 @@ permissions:
   contents: read
   actions: read
 
+# Serialize canonical merge authority consumption in this repository. This does
+# not create merge authority; it only narrows the base-tip race between two
+# canonical merge workflow runs.
 concurrency:
-  group: governed-ci-repair-merge-${{ inputs.exact_head_run_id }}-${{ inputs.exact_head_run_attempt }}
+  group: governed-ci-repair-merge-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -129,20 +132,44 @@ jobs:
           ' merge-evidence/exact-head-result.json >/dev/null
           pr_number=$(jq -r '.pull_request_number' merge-evidence/exact-head-result.json)
           pr_url=$(jq -r '.draft_pr_url' merge-evidence/exact-head-result.json)
+          base_branch=$(jq -r '.repair_base_branch' merge-evidence/exact-head-result.json)
           [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          [[ -n "${base_branch}" && "${base_branch}" != "null" ]]
           echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
           echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+          echo "base_branch=${base_branch}" >> "$GITHUB_OUTPUT"
 
-      - name: Issue exact PR-head-base MergeGrant
-        id: grant
+      - name: Preflight exact PR head, live base tip, and mandatory checks
+        id: boundary
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.source.outputs.pr_number }}
-          ACTOR: ${{ github.actor }}
-          OWNER: ${{ github.repository_owner }}
+          BASE_BRANCH: ${{ steps.source.outputs.base_branch }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > merge-evidence/pr-before-grant.json
+
+          # Pull request .base.sha is not live-main authority. Bind the grant to
+          # the branch ref observed now instead.
+          for attempt in 1 2 3 4 5; do
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > merge-evidence/pr-before-grant.json
+            mergeable=$(jq -r '.mergeable // "unknown"' merge-evidence/pr-before-grant.json)
+            [[ "${mergeable}" != "unknown" ]] && break
+            sleep 2
+          done
+          jq -e --arg base_branch "${BASE_BRANCH}" '
+            .state == "open"
+            and .draft == false
+            and .mergeable == true
+            and .base.ref == $base_branch
+          ' merge-evidence/pr-before-grant.json >/dev/null || {
+            echo "PR is not open/ready/mergeable on the certified base branch" >&2
+            exit 1
+          }
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BASE_BRANCH}" > merge-evidence/base-before-grant.json
+          jq -e '.object.type == "commit" and (.object.sha | test("^[0-9a-f]{40}$"))' \
+            merge-evidence/base-before-grant.json >/dev/null
+
           jq '{
             number:.number,
             url:.html_url,
@@ -150,11 +177,46 @@ jobs:
             is_draft:.draft,
             head_sha:.head.sha,
             base_branch:.base.ref,
-            base_sha:.base.sha
+            historical_pr_base_sha:.base.sha,
+            mergeable:.mergeable,
+            mergeable_state:.mergeable_state
           }' merge-evidence/pr-before-grant.json > merge-evidence/pr-state.json
+          jq --arg branch "${BASE_BRANCH}" '{branch:$branch, sha:.object.sha}' \
+            merge-evidence/base-before-grant.json > merge-evidence/base-state.json
+
+          HEAD_SHA=$(jq -r '.head_sha' merge-evidence/pr-state.json)
+          LIVE_BASE_SHA=$(jq -r '.sha' merge-evidence/base-state.json)
+          [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${LIVE_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
+            > merge-evidence/exact-head-required-runs.json
+          jq -e '
+            def successful($name):
+              ([.workflow_runs[]
+                | select(.name == $name
+                         and .status == "completed"
+                         and .conclusion == "success")] | length) > 0;
+            successful("quality") and successful("skill-self-validation")
+          ' merge-evidence/exact-head-required-runs.json >/dev/null || {
+            echo "mandatory exact-head pull-request workflows are not both successful" >&2
+            exit 1
+          }
+
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "base_sha=${LIVE_BASE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Issue exact PR-head-live-base MergeGrant
+        id: grant
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_merge_grant.py \
             --exact-head-receipt merge-evidence/exact-head-result.json \
             --pr-state merge-evidence/pr-state.json \
+            --base-state merge-evidence/base-state.json \
             --actor "${ACTOR}" \
             --repository-owner "${OWNER}" \
             --approval-ref "github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}:owner-exact-head-merge" \
@@ -163,28 +225,53 @@ jobs:
             .status == "MERGE_GRANT_ISSUED"
             and .grant_consumed == false
             and .merge_allowed == true
+            and .base_sha_authority == "live_branch_tip"
             and .deploy_allowed == false
             and .production_closed == false
           ' merge-evidence/merge-grant.json >/dev/null
           echo "head_sha=$(jq -r '.head_sha' merge-evidence/merge-grant.json)" >> "$GITHUB_OUTPUT"
           echo "base_sha=$(jq -r '.base_sha' merge-evidence/merge-grant.json)" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$(jq -r '.base_branch' merge-evidence/merge-grant.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Recheck grant binding immediately before merge
+      - name: Recheck grant binding and mandatory checks immediately before merge
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.source.outputs.pr_number }}
           HEAD_SHA: ${{ steps.grant.outputs.head_sha }}
           BASE_SHA: ${{ steps.grant.outputs.base_sha }}
+          BASE_BRANCH: ${{ steps.grant.outputs.base_branch }}
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > merge-evidence/pr-before-merge.json
-          jq -e --arg head "${HEAD_SHA}" --arg base "${BASE_SHA}" '
+          jq -e --arg head "${HEAD_SHA}" --arg base_branch "${BASE_BRANCH}" '
             .state == "open"
             and .draft == false
+            and .mergeable == true
             and .head.sha == $head
-            and .base.sha == $base
+            and .base.ref == $base_branch
           ' merge-evidence/pr-before-merge.json >/dev/null || {
-            echo "PR head/base drifted after MergeGrant issuance" >&2
+            echo "PR head/base branch/mergeability drifted after MergeGrant issuance" >&2
+            exit 1
+          }
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BASE_BRANCH}" > merge-evidence/base-before-merge.json
+          jq -e --arg base "${BASE_SHA}" '.object.type == "commit" and .object.sha == $base' \
+            merge-evidence/base-before-merge.json >/dev/null || {
+            echo "live base drifted after MergeGrant issuance" >&2
+            exit 1
+          }
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
+            > merge-evidence/exact-head-required-runs-before-merge.json
+          jq -e '
+            def successful($name):
+              ([.workflow_runs[]
+                | select(.name == $name
+                         and .status == "completed"
+                         and .conclusion == "success")] | length) > 0;
+            successful("quality") and successful("skill-self-validation")
+          ' merge-evidence/exact-head-required-runs-before-merge.json >/dev/null || {
+            echo "mandatory exact-head checks changed before merge" >&2
             exit 1
           }
 
@@ -209,7 +296,7 @@ jobs:
             and .parents[0].sha == $base
             and .parents[1].sha == $head
           ' merge-evidence/merge-commit.json >/dev/null || {
-            echo "merged commit parent identity does not match the consumed exact base/head grant" >&2
+            echo "merged commit parent identity does not match the consumed exact live-base/head grant" >&2
             exit 1
           }
           jq -n \
@@ -224,6 +311,7 @@ jobs:
               merge_grant_sha256:$grant_sha,
               head_sha:$head,
               base_sha:$base,
+              base_sha_authority:"live_branch_tip",
               grant_consumed:true,
               merge_allowed:false,
               deploy_allowed:false,
@@ -248,4 +336,4 @@ jobs:
           MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
         run: |
           set -euo pipefail
-          gh pr comment "${PR_URL}" --body "Exact-head MergeGrant was issued and consumed in one owner-authorized workflow run. Merge commit: \`${MERGE_SHA}\`. The grant carried merge authority only; deploy_allowed=false and production_closed=false."
+          gh pr comment "${PR_URL}" --body "Exact-head MergeGrant was issued from the live base tip and consumed in one owner-authorized workflow run. Merge commit: \`${MERGE_SHA}\`. The grant carried merge authority only; deploy_allowed=false and production_closed=false."
