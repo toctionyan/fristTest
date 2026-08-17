@@ -1,0 +1,255 @@
+{
+  "id": "visible_subset_then_action_clarify",
+  "category": "visible_result_filter",
+  "turns": [
+    {"role": "user", "text": "列出已签收订单"},
+    {"role": "assistant", "expected": "answer_signed_visible_subset"},
+    {"role": "user", "text": "它们里面能退的有哪些？"},
+    {"role": "assistant", "expected": "answer_refund_eligibility_only_within_visible_subset"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "filter_visible_signed_subset_then_assess_eligibility_without_widening_or_write",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "ignore_signed_filter_and_show_all_orders",
+    "widen_pronoun_scope_beyond_visible_subset",
+    "collapse_visible_subset_to_one_order",
+    "turn_eligibility_consultation_into_refund_write"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "variant": "two_signed_orders",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "列出已签收订单",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "列出已签收订单",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["list_orders"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "list",
+              "object_type": "order",
+              "requested_outputs": [
+                {"output_id": "order.collection", "evidence_span": "列出已签收订单"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "只列出当前用户订单中已签收的可见子集",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "筛选并列出当前用户的已签收订单",
+                      "evidence_span": "列出已签收订单",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "collection",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "order",
+                        "operation": "list",
+                        "object_type": "order",
+                        "raw_description": "筛选并列出当前用户的已签收订单",
+                        "requested_outputs": [
+                          {"output_id": "order.collection", "evidence_span": "列出已签收订单"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:visible-subset:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "list_orders",
+                "args": {
+                  "target": {
+                    "mode": "pipeline",
+                    "source_kind": "all_orders",
+                    "steps": [
+                      {
+                        "op": "filter",
+                        "predicate": {
+                          "field": "status",
+                          "comparison": "eq",
+                          "value": "已签收",
+                          "source_span": "已签收",
+                          "value_span": "已签收"
+                        }
+                      }
+                    ]
+                  },
+                  "expected_shape": "collection",
+                  "reference_span": "列出已签收订单",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:visible-subset:t1:signed"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已列出当前已签收订单。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:visible-subset:t1:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["list_orders", "respond_to_user"],
+        "required_tools": ["list_orders", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {"must_include": ["list_orders"], "must_not_include": []},
+          "draft": {"count": 0},
+          "port_calls": {"read_resource": {"min": 2}, "execute_command": {"max": 0}},
+          "result_assertions": [
+            {"tool": "list_orders", "path": "result.data.count", "equals": 2}
+          ],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "它们里面能退的有哪些？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "consult",
+            "evidence_span": "它们里面能退的有哪些？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["evaluate_refund_eligibility"],
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "assess_eligibility",
+              "object_type": "order",
+              "requested_outputs": [
+                {"output_id": "refund.eligibility", "evidence_span": "它们里面能退的有哪些？"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "只在上一轮可见已签收订单子集中逐笔核验哪些订单具备退款资格",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "逐笔核验上一轮已签收可见子集的退款资格",
+                      "evidence_span": "它们里面能退的有哪些？",
+                      "goal_type": "consult",
+                      "expected_result_cardinality": "collection",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "refund",
+                        "operation": "assess_eligibility",
+                        "object_type": "order",
+                        "raw_description": "逐笔核验上一轮已签收可见子集的退款资格",
+                        "requested_outputs": [
+                          {"output_id": "refund.eligibility", "evidence_span": "它们里面能退的有哪些？"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:visible-subset:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "evaluate_refund_eligibility",
+                "args": {
+                  "target": {
+                    "mode": "collection",
+                    "left_handle": "$previous_turn.data.result_handle"
+                  },
+                  "reference_span": "它们",
+                  "question_span": "它们里面能退的有哪些？",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:visible-subset:t2:eligibility"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已只针对刚才已签收订单子集逐笔核验退款资格。",
+                  "evidence_handles": ["$previous_turn.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:visible-subset:t2:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["evaluate_refund_eligibility", "respond_to_user"],
+        "required_tools": ["evaluate_refund_eligibility", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["evaluate_refund_eligibility"],
+            "must_not_include": ["prepare_refund", "action_gateway", "commit_action"]
+          },
+          "draft": {"count": 0},
+          "port_calls": {"preview_operation": 2, "execute_command": {"max": 0}},
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {"behavior": "ignore_signed_filter_and_show_all_orders", "kind": "no_business_write"},
+      {"behavior": "widen_pronoun_scope_beyond_visible_subset", "kind": "no_business_write"},
+      {"behavior": "collapse_visible_subset_to_one_order", "kind": "no_business_write"},
+      {"behavior": "turn_eligibility_consultation_into_refund_write", "kind": "trace_absent", "tool_names": ["prepare_refund", "commit_action"]}
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["list_orders", "evaluate_refund_eligibility"],
+    "preproduction_forbidden_tools": ["prepare_refund", "commit_action"]
+  }
+}
