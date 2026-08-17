@@ -80,19 +80,29 @@ def test_issue167_correction_rebinds_both_goals_to_keyboard_through_real_lifecyc
     assert corrected.user_text == "不是耳机，是键盘"
 
     first_logistics = json.dumps(_tool_results(first.result, "get_order_logistics"), ensure_ascii=False)
-    first_eligibility = json.dumps(_tool_results(first.result, "evaluate_refund_eligibility"), ensure_ascii=False)
     corrected_logistics = json.dumps(_tool_results(corrected.result, "get_order_logistics"), ensure_ascii=False)
-    corrected_eligibility = json.dumps(_tool_results(corrected.result, "evaluate_refund_eligibility"), ensure_ascii=False)
+    first_eligibility = _tool_results(first.result, "evaluate_refund_eligibility")
+    corrected_eligibility = _tool_results(corrected.result, "evaluate_refund_eligibility")
 
-    # The first turn is intentionally the stale target.  The correction must
-    # re-observe both branches against the keyboard order rather than reusing
-    # either earphone result as authority.
+    # Logistics returns the bound order identity directly.  Eligibility's public
+    # result deliberately exposes a business preview instead of repeating the
+    # order ID, so its target identity is asserted at the authoritative
+    # BusinessPort boundary below rather than by searching presentation text.
     assert "10001" in first_logistics
-    assert "10001" in first_eligibility
     assert "10002" in corrected_logistics
-    assert "10002" in corrected_eligibility
     assert "10001" not in corrected_logistics
-    assert "10001" not in corrected_eligibility
+
+    assert len(first_eligibility) == 1 and first_eligibility[0].get("ok") is True
+    assert len(corrected_eligibility) == 1 and corrected_eligibility[0].get("ok") is True
+    assert (first_eligibility[0].get("data") or {}).get("target_label") == "蓝牙耳机"
+    assert (corrected_eligibility[0].get("data") or {}).get("target_label") == "机械键盘"
+
+    eligibility_previews = [
+        call
+        for call in executed.port.calls
+        if call.get("kind") == "preview_operation" and call.get("operation") == "APPLY_REFUND"
+    ]
+    assert [str(call.get("resource_id") or "") for call in eligibility_previews] == ["10001", "10002"]
 
     corrected_trace_names = {
         str(row.get("name") or "")
