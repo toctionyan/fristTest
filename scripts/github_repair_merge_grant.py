@@ -200,7 +200,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         grant = issue_merge_grant(
-            _load(Path(args.exact_head_reciept)) if False else _load(Path(args.exact_head_receipt)),
+            _load(Path(args.exact_head_receipt)),
             _load(Path(args.pr_state)),
             _load(Path(args.base_state)),
             actor=args.actor,
