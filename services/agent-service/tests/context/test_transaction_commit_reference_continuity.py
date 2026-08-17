@@ -89,4 +89,7 @@ def test_successful_cancel_commit_releases_refreshed_business_resource_as_next_t
     assert len(refs) == 1
     assert refs[0]["result_ref"] == target["handle"]
     assert refs[0]["member_handles"] == [target["handle"]]
-    assert refs[0]["resource_type"] == "order"
+    released_target = next(row for row in released if row.get("handle") == target["handle"])
+    assert released_target["resource_type"] == "order"
+    assert released_target["facts"]["status"] == "已取消"
+    assert released_target["presentation_origin"]["origin"] == "customer_final_response"
