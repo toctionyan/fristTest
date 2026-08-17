@@ -1,0 +1,30 @@
+name: Temporary Stage 1 Focused Proof
+
+"on":
+  push:
+    branches:
+      - fix/proof-authority-lifecycle-20260816
+
+permissions:
+  contents: read
+
+jobs:
+  focused-stage1:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Run only Stage 1 reference-continuity regression
+        run: >-
+          services/agent-service/.venv/bin/python -B -m pytest
+          services/agent-service/tests/context/test_transaction_commit_reference_continuity.py
+          -q
