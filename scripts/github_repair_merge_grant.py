@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""Issue an exact PR/head/base merge grant from a completed G6 receipt.
+"""Issue an exact PR/head/live-base merge grant from a completed G6 receipt.
 
 The grant is merge-only authority. It cannot authorize deployment, production
 certification, or production closure. The consuming workflow must re-check the
-same immutable PR/head/base immediately before merge and consume the grant in the
-same run.
+same immutable PR/head and the same live base tip immediately before merge and
+consume the grant in the same run.
 """
 
 import argparse
@@ -56,6 +56,7 @@ def _pr_number_from_url(raw: object) -> int:
 def issue_merge_grant(
     exact_head: Mapping[str, Any],
     pr_state: Mapping[str, Any],
+    base_state: Mapping[str, Any],
     *,
     actor: str,
     repository_owner: str,
@@ -122,9 +123,13 @@ def issue_merge_grant(
         raise MergeGrantError("pull request head drifted after exact-head certification")
     if str(pr_state.get("base_branch") or "") != expected_base_branch:
         raise MergeGrantError("pull request base branch drifted")
-    base_sha = str(pr_state.get("base_sha") or "")
-    if not re.fullmatch(r"[0-9a-f]{40}", base_sha):
-        raise MergeGrantError("current base SHA is invalid")
+
+    live_base_branch = str(base_state.get("branch") or "")
+    if live_base_branch != expected_base_branch:
+        raise MergeGrantError("live base branch does not match certified repair base branch")
+    live_base_sha = str(base_state.get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", live_base_sha):
+        raise MergeGrantError("live base SHA is invalid")
 
     grant: dict[str, Any] = {
         "schema": MERGE_GRANT_SCHEMA,
@@ -134,7 +139,8 @@ def issue_merge_grant(
         "pull_request_number": pr_number,
         "head_sha": exact_head_sha,
         "base_branch": expected_base_branch,
-        "base_sha": base_sha,
+        "base_sha": live_base_sha,
+        "base_sha_authority": "live_branch_tip",
         "exact_head_receipt_sha256": exact_head.get("exact_head_receipt_sha256"),
         "governance_sha256": exact_head.get("governance_sha256"),
         "baseline_acceptance_sha256": exact_head.get("baseline_acceptance_sha256"),
@@ -153,6 +159,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exact-head-receipt", required=True)
     parser.add_argument("--pr-state", required=True)
+    parser.add_argument("--base-state", required=True)
     parser.add_argument("--actor", required=True)
     parser.add_argument("--repository-owner", required=True)
     parser.add_argument("--approval-ref", required=True)
@@ -162,6 +169,7 @@ def main() -> int:
         grant = issue_merge_grant(
             _load(Path(args.exact_head_receipt)),
             _load(Path(args.pr_state)),
+            _load(Path(args.base_state)),
             actor=args.actor,
             repository_owner=args.repository_owner,
             approval_ref=args.approval_ref,
