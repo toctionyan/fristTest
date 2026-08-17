@@ -1,5 +1,5 @@
 {
-  "file_count": 617,
+  "file_count": 618,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/README.md": "8291676f221159f51f8ac41608f6c8df312d3dd8f0401f16306f01ab8c15e761",
@@ -296,7 +296,7 @@
     "services/agent-service/src/agent_core/transaction/authority.py": "f3516c663d1762a35262402668943f7f9a1e498731955af71c756f695c422073",
     "services/agent-service/src/agent_core/transaction/availability.py": "70fb277db87ff47283226a9b147ec6a2bd63c74c9f26f22bc0abb151420d78a2",
     "services/agent-service/src/agent_core/transaction/capability_snapshot.py": "f4e0b94cf143879c8da15350291a75383d2f0538c8449b236a8d12f318fa23b5",
-    "services/agent-service/src/agent_core/transaction/commit_runtime.py": "5a9686386b95b87caaad3ef518d2bb9406b2307b9e20e41f76a16b702afcfbda",
+    "services/agent-service/src/agent_core/transaction/commit_runtime.py": "1c1bac3adf30b32e6f58935f1f7a291e73d388216f16fbbee4405dddf67385c3",
     "services/agent-service/src/agent_core/transaction/coordinator.py": "325c6fbb3447f240eeb0f8a1bd3993a8ea8572be1699472b47a64a3769833f09",
     "services/agent-service/src/agent_core/transaction/deps.py": "dc4fd4cde9c79be5efd4ec334df5a6dc4295bfb20ebebf055459805af18132a4",
     "services/agent-service/src/agent_core/transaction/failure.py": "f8954ee6c88eecad4557c612f5ee238b4f5fe36d5a3ab1b1ff3eb3ee533015a6",
@@ -458,6 +458,7 @@
     "services/agent-service/tests/context/test_stage3_referent_sets.py": "813401db4d2c8b905fe839082f926fadc77f148809ba5bd9efc6aa425d5c3a2f",
     "services/agent-service/tests/context/test_stage3_semantic_campaign.py": "5a032b710bfc99bf5cf594eb1cc0b13c85742f9dfcde3443f358c00195e22911",
     "services/agent-service/tests/context/test_strong_context_case_execution.py": "dd0099a9f8a914e8ca2ff358612fde415558c300a18c581a52d9ff2ccfaf46e5",
+    "services/agent-service/tests/context/test_transaction_commit_reference_continuity.py": "d999a735bcd12aae8243bdd1aca6524b6474c7c6e4c635bbce6cd3c358e9122e",
     "services/agent-service/tests/fixtures/parameterized-release-evidence.json": "03522132119cbe465a0bf4abb60eabfeb957742208c4fbe09fca9a9f9ef960e3",
     "services/agent-service/tests/fixtures/presentation-release-evidence.json": "f469bfe074ca69474cf969beabd70266656a4262602fad1f5e7edc68a6ab526a",
     "services/agent-service/tests/integration/__init__.py": "33ca456c79e97ec71d628af3d904abf8efe109f1b6ffe9d6769508af67e2bf45",
@@ -619,8 +620,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-15T19:22:22Z",
-  "generated_from": "git:466441a14d9a367684e27ca2de597687f4709de3",
+  "generated_at": "2026-08-17T09:16:51Z",
+  "generated_from": "git:e3f918c5483fa58f6195604bff425bc38aeaa781",
   "protected_roots": [
     "services",
     "web",
