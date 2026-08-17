@@ -68,6 +68,45 @@ def _isolated_runtime(monkeypatch, tmp_path):
     monkeypatch.setattr(conversation_case_runner, "FixtureBusinessPort", _variant_port)
     monkeypatch.setattr(conversation_case_runner, "fixture_ledger", _variant_ledger)
 
+    # Keep the authoritative runner assertions unchanged, but enrich a failure
+    # with runtime state so the next repair is based on evidence instead of on
+    # guessing from the scripted candidate.  This wrapper never catches a pass.
+    original_assert_turn_contract = conversation_case_runner._assert_turn_contract
+
+    def _diagnostic_assert_turn_contract(**kwargs):
+        try:
+            return original_assert_turn_contract(**kwargs)
+        except AssertionError as exc:
+            model = kwargs["model"]
+            result = kwargs["result"]
+            messages = [
+                {
+                    "type": message.__class__.__name__,
+                    "content": str(getattr(message, "content", ""))[:1000],
+                    "tool_calls": getattr(message, "tool_calls", None),
+                }
+                for message in list(result.get("messages") or [])[-8:]
+            ]
+            raise AssertionError(
+                {
+                    "original": str(exc),
+                    "user_text": kwargs.get("user_text"),
+                    "emitted_tool_calls": deepcopy(model.emitted_tool_calls),
+                    "emitted_tool_batches": deepcopy(model.emitted_tool_batches),
+                    "invoked_bound_tools": [sorted(names) for names in model.invoked_bound_tool_history],
+                    "remaining_steps": model.remaining_steps,
+                    "status": result.get("status"),
+                    "last_error": result.get("last_error"),
+                    "pending_reason": result.get("pending_reason"),
+                    "resolution": result.get("resolution"),
+                    "goal_alignment": result.get("goal_alignment"),
+                    "goal_records": result.get("goal_records"),
+                    "messages_tail": messages,
+                }
+            ) from exc
+
+    monkeypatch.setattr(conversation_case_runner, "_assert_turn_contract", _diagnostic_assert_turn_contract)
+
     reset_store_provider_cache()
     clear_checkpointer_cache()
     try:
