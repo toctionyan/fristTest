@@ -320,7 +320,7 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
         failed["updated_turn"] = int(state.get("turn_index") or 0)
         ledger = append_entries(ledger, [failed])
         result = {"success": False, "error": str((preview or {}).get("message") or preflight.get("error") or "业务状态已变化，无法提交。")}
-        return _transaction_commit_update(state, ledger, failed, result=result, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitPreflightRejected", write_receipt=True, deps=deps)
+        return _transaction_commit_update(state, ledger, failed, result=result, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitPreflightRejected", write_receipt=False, deps=deps)
 
     refreshed = deepcopy(offer)
     values = dict(refreshed.get("input_values") or {})
@@ -333,7 +333,7 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
         refreshed["business_command_envelope"] = _build_business_command_envelope(state, refreshed, target)
     except ValueError as exc:
         failed = transition_draft(refreshed, "FAILED_FINAL", reason="commit_command_envelope_invalid")
-        return _transaction_commit_update(state, ledger, failed, result={"success":False,"error":str(exc),"code":"INVALID_COMMAND_ENVELOPE"}, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitEnvelopeInvalid", write_receipt=True, deps=deps)
+        return _transaction_commit_update(state, ledger, failed, result={"success":False,"error":str(exc),"code":"INVALID_COMMAND_ENVELOPE"}, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitEnvelopeInvalid", write_receipt=False, deps=deps)
     refreshed["command_id"] = str((refreshed.get("business_command_envelope") or {}).get("command_id") or stable_command_id(state, refreshed))
     refreshed["updated_turn"] = int(state.get("turn_index") or 0)
     ledger = append_entries(ledger, [refreshed])
@@ -415,13 +415,14 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
         return _transaction_commit_update(state, ledger, offer, result=result, draft_state="COMMITTED", attempt_id=attempt_id, idempotency_key=idempotency_key, status="ActionCommitted", write_receipt=True, deps=deps)
 
     failed_state = classify_business_failure(code=result.get("code"), error=str(result.get("error") or ""))
-    transaction_store(state).transition_attempt(
-        str(attempt_id or ""),
-        state=failed_state,
-        business_result=result if failed_state != "SUBMISSION_UNKNOWN" else None,
-        error_code=str(result.get("code") or ""),
-        error=str(result.get("error") or ""),
-    )
+    if failed_state == "SUBMISSION_UNKNOWN":
+        transaction_store(state).transition_attempt(
+            str(attempt_id or ""),
+            state=failed_state,
+            business_result=None,
+            error_code=str(result.get("code") or ""),
+            error=str(result.get("error") or ""),
+        )
     return _transaction_commit_update(
         state, ledger, offer, result=result, draft_state=failed_state,
         attempt_id=attempt_id, idempotency_key=idempotency_key,
@@ -453,6 +454,6 @@ def _commit_observation_update(
         attempt_id=None,
         idempotency_key=None,
         status=status,
-        write_receipt=True,
+        write_receipt=False,
         deps=deps,
     )

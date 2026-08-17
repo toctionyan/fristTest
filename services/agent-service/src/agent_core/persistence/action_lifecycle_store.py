@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from agent_core.persistence.sqlite_base import SQLiteBase
 from agent_core.operations.draft import draft_persistence_update_decision
+from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, validate_receipt_binding
 
 
 def _now() -> str:
@@ -517,14 +518,37 @@ class TransactionLifecycleStore(SQLiteBase):
         return [self._decode_row(row) or {} for row in rows]
 
     def record_receipt(self, *, receipt_id: str, tenant_id: str, user_id: str, thread_id: str, draft_id: str, attempt_id: str | None, receipt_handle: str | None, receipt_state: str, business_result: dict[str, Any], business_resource_id: str | None = None, correlation_id: str | None = None) -> dict[str, Any]:
-        now=_now()
+        now = _now()
         correlation_id = correlation_id or get_correlation_id()
         with self.lock:
-            if attempt_id:
-                existing=self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id,)).fetchone()
-                if existing:
-                    return self._decode_row(dict(existing)) or {}
-            self.conn.execute("""INSERT INTO transaction_receipts(receipt_id,tenant_id,user_id,thread_id,draft_id,attempt_id,receipt_handle,receipt_state,business_result_json,business_resource_id,created_at,correlation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (receipt_id,tenant_id,user_id,thread_id,draft_id,attempt_id,receipt_handle,receipt_state,_json(business_result),business_resource_id,now,correlation_id))
+            attempt = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (str(attempt_id or ""),)).fetchone()
+            attempt_payload = self._decode_row(dict(attempt)) if attempt else None
+            grant_id = str((attempt_payload or {}).get("grant_id") or "")
+            grant = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone() if grant_id else None
+            grant_payload = self._decode_row(dict(grant)) if grant else None
+            valid, reason = validate_receipt_binding(
+                attempt=attempt_payload,
+                grant=grant_payload,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                thread_id=thread_id,
+                draft_id=draft_id,
+                attempt_id=attempt_id,
+                receipt_state=receipt_state,
+                business_result=business_result,
+            )
+            if not valid:
+                raise ValueError(f"transaction receipt attempt binding rejected: {reason}")
+            existing = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if existing:
+                return self._decode_row(dict(existing)) or {}
+            receipt_id_conflict = self.conn.execute("SELECT * FROM transaction_receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
+            if receipt_id_conflict:
+                raise ValueError("transaction receipt id already belongs to another attempt")
+            self.conn.execute(
+                """INSERT INTO transaction_receipts(receipt_id,tenant_id,user_id,thread_id,draft_id,attempt_id,receipt_handle,receipt_state,business_result_json,business_resource_id,created_at,correlation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (receipt_id, tenant_id, user_id, thread_id, draft_id, attempt_id, receipt_handle, str(receipt_state).upper(), _json(business_result), business_resource_id, now, correlation_id),
+            )
             self.conn.commit()
         return self.get_receipt(receipt_id) or {}
 
@@ -878,22 +902,39 @@ class TransactionLifecycleStore(SQLiteBase):
         error: str | None = None,
         reconciled: bool = False,
     ) -> None:
-        self.execute(
-            """UPDATE transaction_attempts SET state=?, business_result_json=COALESCE(?, business_result_json),
-               receipt_handle=COALESCE(?, receipt_handle), error_code=?, error=?, updated_at=?,
-               reconciled_at=CASE WHEN ? THEN ? ELSE reconciled_at END WHERE attempt_id=?""",
-            (
-                state,
-                _json(business_result) if business_result is not None else None,
-                receipt_handle,
-                error_code,
-                error,
-                _now(),
-                1 if reconciled else 0,
-                _now(),
-                attempt_id,
-            ),
-        )
+        with self.lock:
+            existing = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if not existing:
+                raise ValueError("transaction attempt missing")
+            current = self._decode_row(dict(existing)) or {}
+            receipt = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            receipt_payload = self._decode_row(dict(receipt)) if receipt else None
+            allowed, _reason = attempt_persistence_update_decision(
+                current,
+                target_state=state,
+                business_result=business_result,
+                receipt_handle=receipt_handle,
+                receipt=receipt_payload,
+            )
+            if not allowed:
+                return
+            self.conn.execute(
+                """UPDATE transaction_attempts SET state=?, business_result_json=COALESCE(?, business_result_json),
+                   receipt_handle=COALESCE(?, receipt_handle), error_code=?, error=?, updated_at=?,
+                   reconciled_at=CASE WHEN ? THEN ? ELSE reconciled_at END WHERE attempt_id=?""",
+                (
+                    state,
+                    _json(business_result) if business_result is not None else None,
+                    receipt_handle,
+                    error_code,
+                    error,
+                    _now(),
+                    1 if reconciled else 0,
+                    _now(),
+                    attempt_id,
+                ),
+            )
+            self.conn.commit()
 
     def list_reconcilable_attempts(self, *, scope: TransactionScope | None = None, tenant_id: str | None = None, user_id: str | None = None, thread_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         if scope is not None:

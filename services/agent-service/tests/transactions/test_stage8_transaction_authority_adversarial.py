@@ -12,8 +12,9 @@ from agent_core.persistence.action_lifecycle_store import TransactionLifecycleSt
 from agent_core.persistence.database_settings import DatabaseSettings
 from agent_core.persistence.sqlalchemy_provider import build_sqlalchemy_store_provider
 from agent_core.runtime.outcomes import outcome
+from agent_core.storage.repositories.base import TransactionScope
 from agent_core.transaction import transition_draft
-from agent_core.transaction.coordinator import issue_grant_for_authority
+from agent_core.transaction.coordinator import issue_grant_for_authority, reserve_grant_and_start_attempt
 from agent_core.transaction.deps import TransactionExecutionDeps
 
 SCOPE = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "stage8-terminal"}
@@ -40,17 +41,44 @@ def _create(store, offer: dict, *, state: str | None = None) -> dict:
     )
 
 
+def _start_transaction_attempt(store, offer: dict, *, client_request_id: str):
+    state = {
+        "current_tenant_id": SCOPE["tenant_id"],
+        "current_user_id": SCOPE["user_id"],
+        "current_thread_id": SCOPE["thread_id"],
+        "_transaction_repository": store,
+    }
+    authority = issue_grant_for_authority(
+        state=state,
+        offer=offer,
+        authority={
+            "actor_id": SCOPE["user_id"],
+            "actor_role": "customer",
+            "client_request_id": client_request_id,
+            "authority_type": "ui_confirmed",
+        },
+    )
+    reservation, started = reserve_grant_and_start_attempt(state=state, offer=offer, authority=authority)
+    assert reservation["reserved"] is True
+    assert started["created"] is True
+    return state, authority, started["attempt"]
+
+
 def test_sqlite_terminal_draft_rejects_stale_create_and_advance(tmp_path: Path) -> None:
     store = TransactionLifecycleStore(tmp_path / "agent.db")
     offer = _offer()
     _create(store, offer)
-    store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
-    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+    _state, authority, attempt = _start_transaction_attempt(store, offer, client_request_id="terminal-sqlite")
+    attempt_id = str(attempt["attempt_id"])
+    result = {"success": True, "data": {"refund_id": "R-stage8"}}
     store.record_receipt(
         receipt_id="receipt:sqlite-stage8", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
-        draft_id=offer["draft_id"], attempt_id="attempt:sqlite-stage8", receipt_handle="h_receipt:sqlite-stage8", receipt_state="SUCCESS",
-        business_result={"success": True, "data": {"refund_id": "R-stage8"}}, business_resource_id="R-stage8",
+        draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:sqlite-stage8", receipt_state="SUCCESS",
+        business_result=result, business_resource_id="R-stage8",
     )
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+    store.transition_attempt(attempt_id, state="ACKED", business_result=result, receipt_handle="h_receipt:sqlite-stage8")
+    store.consume_grant(str(authority["grant_id"]), attempt_id=attempt_id, receipt_handle="h_receipt:sqlite-stage8")
     _create(store, offer, state="AWAITING_AUTHORIZATION")
     assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
     store.advance_draft(offer["draft_id"], draft_state="SUBMISSION_UNKNOWN", draft_revision=offer["draft_revision"])
@@ -160,16 +188,22 @@ def test_duplicate_after_success_receipt_projects_committed_without_business_wri
         "input": {"reason": "质量问题", "expected_version": 1},
         "actor_scope": {"tenant_id": SCOPE["tenant_id"], "user_id": SCOPE["user_id"]},
     }
-    offer = _offer(state="AUTHORIZED")
-    offer["business_command_envelope"] = envelope
-    offer = transition_draft(offer, "AUTHORIZED")
-    offer["active_grant_id"] = "grant-known"
-    _create(store, offer, state="COMMITTED")
+    pending = _offer(state="AWAITING_AUTHORIZATION")
+    pending["business_command_envelope"] = envelope
+    _create(store, pending, state="AWAITING_AUTHORIZATION")
+    _state, authority, attempt = _start_transaction_attempt(store, pending, client_request_id="duplicate-known")
+    attempt_id = str(attempt["attempt_id"])
+    known_result = {"success": True, "data": {"refund_id": "R-known", "version": 1}}
     store.record_receipt(
         receipt_id="receipt-known", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
-        draft_id=offer["draft_id"], attempt_id="attempt-known", receipt_handle="h_receipt:known", receipt_state="SUCCESS",
-        business_result={"success": True, "data": {"refund_id": "R-known", "version": 1}}, business_resource_id="R-known",
+        draft_id=pending["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:known", receipt_state="SUCCESS",
+        business_result=known_result, business_resource_id="R-known",
     )
+    store.advance_draft(pending["draft_id"], draft_state="COMMITTED", draft_revision=pending["draft_revision"], current_attempt_id=attempt_id)
+    store.transition_attempt(attempt_id, state="ACKED", business_result=known_result, receipt_handle="h_receipt:known")
+    store.consume_grant(str(authority["grant_id"]), attempt_id=attempt_id, receipt_handle="h_receipt:known")
+    offer = transition_draft(pending, "AUTHORIZED")
+    offer["active_grant_id"] = authority["grant_id"]
 
     monkeypatch.setattr(runtime, "snapshot_matches_registry", lambda _offer: True)
     monkeypatch.setattr(runtime, "validate_ui_authority", lambda **_kwargs: (True, "ok"))
@@ -177,7 +211,7 @@ def test_duplicate_after_success_receipt_projects_committed_without_business_wri
     monkeypatch.setattr(runtime, "_build_business_command_envelope", lambda *_args, **_kwargs: dict(envelope))
     monkeypatch.setattr(runtime, "reserve_grant_and_start_attempt", lambda **_kwargs: (
         {"reserved": False, "grant": {"state": "CONSUMED"}},
-        {"created": False, "attempt": {"attempt_id": "attempt-known", "state": "ACKED", "idempotency_key": "idem-known"}},
+        {"created": False, "attempt": {"attempt_id": attempt_id, "state": "ACKED", "idempotency_key": str(attempt.get("idempotency_key") or "")}},
     ))
     monkeypatch.setattr(runtime, "_new_resource_artifacts", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(runtime, "_execute_business_command_envelope", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate must not call Business Service")))
@@ -185,7 +219,7 @@ def test_duplicate_after_success_receipt_projects_committed_without_business_wri
     state = {
         "current_tenant_id": SCOPE["tenant_id"], "current_user_id": SCOPE["user_id"], "current_thread_id": SCOPE["thread_id"],
         "current_role": "customer", "turn_index": 2, "artifact_ledger": [target, offer], "focused_draft_id": offer["draft_id"],
-        "commit_authority": {"grant_id": "grant-known", "command_digest": offer["command_digest"]},
+        "commit_authority": {"grant_id": authority["grant_id"], "command_digest": offer["command_digest"]},
         "action_queue": [], "tool_trace": [], "_transaction_repository": store,
     }
     patch = runtime.commit_action_node(state, deps=TransactionExecutionDeps(business_port=SimpleNamespace(), outcome_factory=outcome))
@@ -321,5 +355,97 @@ def test_sqlalchemy_same_revision_nonterminal_regressions_are_rejected(tmp_path:
         durable = store.get_draft(newest["draft_id"])
         assert durable["draft_state"] == "COMMITTING"
         assert durable["current_attempt_id"] == "attempt-sqla"
+    finally:
+        provider.close()
+
+
+
+def test_receipt_requires_exact_persisted_attempt_and_grant(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "receipt-binding.db")
+    offer = _offer()
+    _create(store, offer)
+    with pytest.raises(ValueError, match="attempt"):
+        store.record_receipt(
+            receipt_id="receipt-orphan", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+            draft_id=offer["draft_id"], attempt_id="attempt-missing", receipt_handle="h_receipt:orphan", receipt_state="SUCCESS",
+            business_result={"success": True, "data": {"refund_id": "R-orphan"}},
+        )
+    assert store.get_receipt("receipt-orphan") is None
+
+    _state, _authority, attempt = _start_transaction_attempt(store, offer, client_request_id="receipt-binding")
+    attempt_id = str(attempt["attempt_id"])
+    with pytest.raises(ValueError, match="attempt"):
+        store.record_receipt(
+            receipt_id="receipt-wrong-scope", tenant_id="tenant-b", user_id="u999", thread_id="other-thread",
+            draft_id="draft:other", attempt_id=attempt_id, receipt_handle="h_receipt:wrong", receipt_state="SUCCESS",
+            business_result={"success": True, "data": {"refund_id": "R-wrong"}},
+        )
+    assert store.get_receipt_by_attempt(attempt_id) is None
+
+
+def test_acked_attempt_cannot_regress_after_success_receipt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "attempt-monotonic.db")
+    offer = _offer()
+    _create(store, offer)
+    _state, _authority, attempt = _start_transaction_attempt(store, offer, client_request_id="attempt-monotonic")
+    attempt_id = str(attempt["attempt_id"])
+    result = {"success": True, "data": {"refund_id": "R-acked"}}
+    store.record_receipt(
+        receipt_id="receipt-acked", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:acked", receipt_state="SUCCESS", business_result=result,
+    )
+    store.transition_attempt(attempt_id, state="ACKED", business_result=result, receipt_handle="h_receipt:acked")
+    store.transition_attempt(attempt_id, state="STARTED", error="late stale worker")
+    durable = store.get_attempt(attempt_id)
+    assert durable is not None
+    assert durable["state"] == "ACKED"
+    assert durable["business_result"] == result
+    assert durable["receipt_handle"] == "h_receipt:acked"
+
+
+def test_success_receipt_crash_window_blocks_new_grant_and_attempt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "receipt-crash-window.db")
+    offer = _offer()
+    _create(store, offer)
+    state, authority, attempt = _start_transaction_attempt(store, offer, client_request_id="receipt-crash-window")
+    attempt_id = str(attempt["attempt_id"])
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTING"
+    store.record_receipt(
+        receipt_id="receipt-crash-window", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:crash-window", receipt_state="SUCCESS",
+        business_result={"success": True, "data": {"refund_id": "R-crash-window"}},
+    )
+    late = dict(authority)
+    late["client_request_id"] = "late-replay"
+    with pytest.raises(ValueError, match="no longer awaiting authority"):
+        issue_grant_for_authority(state=state, offer=offer, authority=late)
+    assert len(store.list_grants_by_thread(**SCOPE)) == 1
+    assert len(store.list_attempts_for_draft(scope=TransactionScope(**SCOPE), draft_id=offer["draft_id"])) == 1
+
+
+def test_sqlalchemy_receipt_attempt_binding_and_monotonicity(tmp_path: Path) -> None:
+    db_file = tmp_path / "receipt-binding-sqla.db"
+    provider = build_sqlalchemy_store_provider(DatabaseSettings(backend="sqlite", database_url=f"sqlite:///{db_file}", sqlite_path=db_file, create_schema=True))
+    try:
+        store = provider.transactions
+        offer = _offer()
+        _create(store, offer)
+        with pytest.raises(ValueError, match="attempt"):
+            store.record_receipt(
+                receipt_id="receipt-orphan-sqla", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+                draft_id=offer["draft_id"], attempt_id="attempt-missing", receipt_handle="h_receipt:orphan", receipt_state="SUCCESS",
+                business_result={"success": True, "data": {"refund_id": "R-orphan"}},
+            )
+        _state, _authority, attempt = _start_transaction_attempt(store, offer, client_request_id="sqla-receipt-binding")
+        attempt_id = str(attempt["attempt_id"])
+        result = {"success": True, "data": {"refund_id": "R-sqla"}}
+        store.record_receipt(
+            receipt_id="receipt-sqla", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+            draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:sqla", receipt_state="SUCCESS", business_result=result,
+        )
+        store.transition_attempt(attempt_id, state="ACKED", business_result=result, receipt_handle="h_receipt:sqla")
+        store.transition_attempt(attempt_id, state="STARTED", error="late stale worker")
+        durable = store.get_attempt(attempt_id)
+        assert durable is not None and durable["state"] == "ACKED"
     finally:
         provider.close()

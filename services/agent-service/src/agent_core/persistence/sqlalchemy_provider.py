@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from agent_core.storage.repositories.base import TransactionScope, ActiveDraftValidationCode, ActiveDraftValidationResult
 from agent_core.operations.draft import draft_persistence_update_decision
+from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, validate_receipt_binding
 
 from agent_core.persistence.thread_store import ThreadOwnershipError, ThreadTenantMismatchError
 from agent_core.persistence.database_settings import DatabaseSettings
@@ -978,19 +979,44 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
 
     def record_receipt(self, **kwargs: Any) -> dict[str, Any]:
         table = self.t["transaction_receipts"]
+        attempts = self.t["transaction_attempts"]
+        grants = self.t["transaction_grants"]
         kwargs.setdefault("correlation_id", get_correlation_id())
         business_result = kwargs.pop("business_result", None)
         values = {
             **kwargs,
+            "receipt_state": str(kwargs.get("receipt_state") or "").upper(),
             "business_result_json": _json(business_result),
             "created_at": _now(),
         }
+        attempt_id = str(values.get("attempt_id") or "")
         with self.p.conn() as conn:
-            existing = _row(conn.execute(self.sa.select(table).where(table.c.attempt_id == values["attempt_id"])).first())
+            attempt = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == attempt_id)).first())
+            attempt_payload = self._decode_row(attempt) if attempt else None
+            grant_id = str((attempt_payload or {}).get("grant_id") or "")
+            grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first()) if grant_id else None
+            grant_payload = self._decode_row(grant) if grant else None
+            valid, reason = validate_receipt_binding(
+                attempt=attempt_payload,
+                grant=grant_payload,
+                tenant_id=str(values.get("tenant_id") or ""),
+                user_id=str(values.get("user_id") or ""),
+                thread_id=str(values.get("thread_id") or ""),
+                draft_id=str(values.get("draft_id") or ""),
+                attempt_id=attempt_id,
+                receipt_state=str(values.get("receipt_state") or ""),
+                business_result=business_result,
+            )
+            if not valid:
+                raise ValueError(f"transaction receipt attempt binding rejected: {reason}")
+            existing = _row(conn.execute(self.sa.select(table).where(table.c.attempt_id == attempt_id)).first())
             if existing:
                 return self._decode_row(existing) or {}
+            receipt_id_conflict = _row(conn.execute(self.sa.select(table).where(table.c.receipt_id == values["receipt_id"])).first())
+            if receipt_id_conflict:
+                raise ValueError("transaction receipt id already belongs to another attempt")
             conn.execute(table.insert().values(**values))
-        return self.get_receipt_by_attempt(values["attempt_id"]) or {}
+        return self.get_receipt_by_attempt(attempt_id) or {}
 
     def get_receipt_by_attempt(self, attempt_id: str | None) -> dict[str, Any] | None:
         if not attempt_id: return None
@@ -1038,6 +1064,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
 
     def transition_attempt(self, attempt_id: str, *, state: str, business_result: dict[str, Any] | None = None, receipt_handle: str | None = None, error_code: str | None = None, error: str | None = None, reconciled: bool = False) -> None:
         table = self.t["transaction_attempts"]
+        receipts = self.t["transaction_receipts"]
         values: dict[str, Any] = {"state": state, "updated_at": _now(), "error_code": error_code, "error": error}
         if business_result is not None:
             values["business_result_json"] = _json(business_result)
@@ -1046,6 +1073,21 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
         if reconciled:
             values["reconciled_at"] = _now()
         with self.p.conn() as conn:
+            existing = _row(conn.execute(self.sa.select(table).where(table.c.attempt_id == attempt_id)).first())
+            if not existing:
+                raise ValueError("transaction attempt missing")
+            current = self._decode_row(existing) or {}
+            receipt = _row(conn.execute(self.sa.select(receipts).where(receipts.c.attempt_id == attempt_id)).first())
+            receipt_payload = self._decode_row(receipt) if receipt else None
+            allowed, _reason = attempt_persistence_update_decision(
+                current,
+                target_state=state,
+                business_result=business_result,
+                receipt_handle=receipt_handle,
+                receipt=receipt_payload,
+            )
+            if not allowed:
+                return
             conn.execute(table.update().where(table.c.attempt_id == attempt_id).values(**values))
 
     def list_reconcilable_attempts(self, *, scope: TransactionScope | None = None, tenant_id: str | None = None, user_id: str | None = None, thread_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:

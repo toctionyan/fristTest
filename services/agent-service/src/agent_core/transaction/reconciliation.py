@@ -73,9 +73,9 @@ def reconcile_attempts(
             completed=transition_draft(source,"COMMITTED"); completed["commit_attempt_id"]=attempt_id
             receipt=receipt_entry(action_id=str(completed.get("action_id") or ""),result=result,scope=scope,turn=int(state.get("turn_index") or 0),label=str(completed.get("label") or "业务操作"),draft_id=draft_id,attempt_id=attempt_id,idempotency_key=str(attempt.get("idempotency_key") or ""))
             additions.extend([completed,receipt]); additions.extend(new_resource_artifacts(state, ledger, completed, result))
-            store.transition_attempt(attempt_id,state="ACKED",business_result=result,receipt_handle=str(receipt.get("handle") or ""),reconciled=True)
-            store.advance_draft(draft_id,draft_state="COMMITTED",current_attempt_id=attempt_id)
             record_transaction_receipt_fn(state=state,offer=completed,attempt_id=attempt_id,receipt_handle=str(receipt.get("handle") or ""),receipt_state="SUCCESS",business_result=result)
+            store.advance_draft(draft_id,draft_state="COMMITTED",current_attempt_id=attempt_id)
+            store.transition_attempt(attempt_id,state="ACKED",business_result=result,receipt_handle=str(receipt.get("handle") or ""),reconciled=True)
             grant_id=str(attempt.get("grant_id") or durable.get("active_grant_id") or "")
             if grant_id: store.consume_grant(grant_id,attempt_id=attempt_id,receipt_handle=str(receipt.get("handle") or ""))
             reconciled.append({"attempt_id":attempt_id,"state":"ACKED","receipt_handle":receipt.get("handle")}); continue
@@ -91,8 +91,8 @@ def reconcile_attempts(
             continue
         failed=transition_draft(source,classified,reason="reconciliation_business_rejection"); failed["commit_attempt_id"]=attempt_id
         receipt=receipt_entry(action_id=str(failed.get("action_id") or ""),result=result,scope=scope,turn=int(state.get("turn_index") or 0),label=str(failed.get("label") or "业务操作"),draft_id=draft_id,attempt_id=attempt_id,idempotency_key=str(attempt.get("idempotency_key") or ""))
-        additions.extend([failed,receipt]); store.transition_attempt(attempt_id,state=classified,business_result=result,receipt_handle=str(receipt.get("handle") or ""),error_code=str(result.get("code") or ""),error=str(result.get("error") or ""),reconciled=True); store.advance_draft(draft_id,draft_state=classified,current_attempt_id=attempt_id)
-        record_transaction_receipt_fn(state=state,offer=failed,attempt_id=attempt_id,receipt_handle=str(receipt.get("handle") or ""),receipt_state="FAILED",business_result=result)
+        additions.extend([failed,receipt]); record_transaction_receipt_fn(state=state,offer=failed,attempt_id=attempt_id,receipt_handle=str(receipt.get("handle") or ""),receipt_state="FAILED",business_result=result)
+        store.advance_draft(draft_id,draft_state=classified,current_attempt_id=attempt_id); store.transition_attempt(attempt_id,state=classified,business_result=result,receipt_handle=str(receipt.get("handle") or ""),error_code=str(result.get("code") or ""),error=str(result.get("error") or ""),reconciled=True)
         grant_id=str(attempt.get("grant_id") or durable.get("active_grant_id") or "")
         if grant_id: store.revoke_grant(grant_id,reason=classified)
     if not additions: return None
