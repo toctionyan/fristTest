@@ -303,6 +303,15 @@ jobs:
                     }
                   }
                 }' > governance-evidence/exact-head-ci.json
+              jq -e --arg pr_number "${PR_NUMBER}" '
+                .pr_is_draft == true
+                and .pr_head_sha == .head_sha
+                and ((.pr_number | tostring) == $pr_number)
+                and .workflows.quality.event == "pull_request"
+                and .workflows["skill-self-validation"].event == "pull_request"
+                and ((.workflows.quality.pr_number | tostring) == $pr_number)
+                and ((.workflows["skill-self-validation"].pr_number | tostring) == $pr_number)
+              ' governance-evidence/exact-head-ci.json >/dev/null
               "${pythonLocation}/bin/python" -B control/scripts/github_repair_exact_head_state.py \
                 --ci-evidence governance-evidence/exact-head-ci.json \
                 --exact-sha "${EXACT_SHA}" \
