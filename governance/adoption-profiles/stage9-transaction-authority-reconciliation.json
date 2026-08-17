@@ -1,0 +1,167 @@
+{
+  "schema": "governed-existing-candidate-adoption-profile@1",
+  "profile_id": "stage9-transaction-authority-reconciliation",
+  "source_pr_number": 1710,
+  "base_branch": "main",
+  "authority_effect": false,
+  "existing_candidate_only": true,
+  "allowed_changed_files": {
+    "services/agent-service/app/services/agent_service.py": "42fee98d032b42659e367ee850bb4ee247fc80e0",
+    "services/agent-service/app/use_cases/interaction_submit.py": "87f031b56fc99fe5c83fcc54867884e2b2a755ec",
+    "services/agent-service/src/agent_core/ledger/ledger.py": "520b81ee2e3d4a308fdd920b372e492b57e07eb5",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py": "c3fac064477bef2f2be8303bde192fbfb88c354c",
+    "services/agent-service/src/agent_core/operations/draft.py": "430e9b0249753c578822eb0e98770eeddcc03e7f",
+    "services/agent-service/src/agent_core/persistence/action_lifecycle_store.py": "3ce6c9dc1da435d04ea6c35d44e3434c7b2bf6c6",
+    "services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py": "89413a46fdbc36bb9f26d787ad183909d1e7653e",
+    "services/agent-service/src/agent_core/storage/transaction_policy.py": "d46c4e95c2377447137c318e951f0fc59f871c4d",
+    "services/agent-service/src/agent_core/transaction/command_envelope.py": "95a3ba03e813edd2f2ad10d805028bd13eddd1c1",
+    "services/agent-service/src/agent_core/transaction/commit_runtime.py": "9408f6d9c0b80b695f336edf750eae4faa6fdc79",
+    "services/agent-service/src/agent_core/transaction/coordinator.py": "4c956b86cbd35f3beb6a164ed929902e25c79061",
+    "services/agent-service/src/agent_core/transaction/gateway_runtime.py": "659e949ac4f29d5e9c459e7d717ff1d69ba03ec5",
+    "services/agent-service/src/agent_core/transaction/interaction_recovery.py": "c8e0e275c8828bffb79279e8fd1097d202ca27e8",
+    "services/agent-service/src/agent_core/transaction/interaction_runtime.py": "f466c97e2f1ab1f0b0bfee7d7c2ce14472318656",
+    "services/agent-service/src/agent_core/transaction/reconciliation.py": "e7c6c21f4f1beac7c1f7cb3b6d58fbdcf4601b7c",
+    "services/agent-service/tests/architecture/test_runtime_foundations.py": "c2d5263dbd23d4691a196344aa3e9b00dfb5cffd",
+    "services/agent-service/tests/architecture/test_sqlalchemy_transaction_repository.py": "0e6010e2d040dae94691a7f60d9d83b20b4c0406",
+    "services/agent-service/tests/context/test_transaction_commit_reference_continuity.py": "7a343c4d2823b8da87a98c439b915d279ab7aced",
+    "services/agent-service/tests/transactions/test_stage2_transaction_projection_recovery.py": "f51bc366e8ca4c27ae91f502cdbe5f3ce09bedab",
+    "services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py": "1ef0a3925c13304851bdef9493666af3f9769f82",
+    "services/agent-service/tests/transactions/test_transaction_protocol.py": "05788a4053b09fef963c7b62b9ebef4b612670cc",
+    "services/agent-service/tests/transactions/test_transaction_storage.py": "69582f51840fffe42f2e1cd63e98a1a9e3d3792b"
+  },
+  "forbidden_changed_prefixes": [
+    ".github/",
+    "governance/",
+    "deployment/",
+    "scripts/",
+    "skill-system/controller/",
+    "skill-system/profiles/",
+    "skill-system/registry/"
+  ],
+  "forbidden_changed_exact": [
+    "skill-system/registry/product-source-baseline.json"
+  ],
+  "required_guard_ids": [
+    "transaction-authority-contract",
+    "transaction-recovery-projection",
+    "transaction-authority-adversarial",
+    "runtime-authority-foundations",
+    "python-test-suites"
+  ],
+  "gate_guard_ids": {
+    "G1_CONTRACT_PROJECTION": [
+      "transaction-authority-contract",
+      "runtime-authority-foundations"
+    ],
+    "G2_SEMANTIC_INVARIANT": [
+      "transaction-recovery-projection"
+    ],
+    "G3_MUTATION": [
+      "transaction-authority-adversarial",
+      "python-test-suites"
+    ]
+  },
+  "verification_commands": [
+    {
+      "id": "transaction-authority-contract",
+      "cwd": "services/agent-service",
+      "argv": [
+        "/usr/bin/env",
+        "PYTHONPATH=src",
+        "PYTHONNOUSERSITE=1",
+        "{agent_python}",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "tests/transactions/test_transaction_protocol.py",
+        "tests/transactions/test_transaction_storage.py",
+        "tests/architecture/test_sqlalchemy_transaction_repository.py"
+      ]
+    },
+    {
+      "id": "transaction-recovery-projection",
+      "cwd": "services/agent-service",
+      "argv": [
+        "/usr/bin/env",
+        "PYTHONPATH=src",
+        "PYTHONNOUSERSITE=1",
+        "{agent_python}",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "tests/transactions/test_stage2_transaction_projection_recovery.py",
+        "tests/context/test_transaction_commit_reference_continuity.py"
+      ]
+    },
+    {
+      "id": "transaction-authority-adversarial",
+      "cwd": "services/agent-service",
+      "argv": [
+        "/usr/bin/env",
+        "PYTHONPATH=src",
+        "PYTHONNOUSERSITE=1",
+        "{agent_python}",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "tests/transactions/test_stage8_transaction_authority_adversarial.py"
+      ]
+    },
+    {
+      "id": "runtime-authority-foundations",
+      "cwd": "services/agent-service",
+      "argv": [
+        "/usr/bin/env",
+        "PYTHONPATH=src",
+        "PYTHONNOUSERSITE=1",
+        "{agent_python}",
+        "-B",
+        "-m",
+        "pytest",
+        "-q",
+        "-ra",
+        "-p",
+        "no:cacheprovider",
+        "tests/architecture/test_runtime_foundations.py"
+      ]
+    },
+    {
+      "id": "python-test-suites",
+      "cwd": ".",
+      "argv": [
+        "/usr/bin/env",
+        "-u",
+        "QUALITY_AGENT_PYTHON",
+        "-u",
+        "QUALITY_BUSINESS_PYTHON",
+        "PYTHONNOUSERSITE=1",
+        "{python}",
+        "-B",
+        "../control/scripts/run_python_test_suites.py",
+        ".",
+        "--mode",
+        "standard",
+        "--junit-dir",
+        "../adoption/profile-runtime/junit",
+        "--coverage-dir",
+        "../adoption/profile-runtime/coverage"
+      ]
+    }
+  ],
+  "violated_invariant": "TX-AUTHORITY-SINGLE-SOURCE-001",
+  "authority_owner": "transaction_repository",
+  "required_permanent_guard": "profile-bound transaction lifecycle contract, recovery projection regression, adversarial authority proof, and canonical python-test-suites",
+  "production_closed": false
+}
