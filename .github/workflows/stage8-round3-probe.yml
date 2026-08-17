@@ -1,0 +1,211 @@
+name: Temporary Stage 8 Receipt Attempt Authority Probe
+
+"on":
+  push:
+    branches: [fix/proof-authority-lifecycle-20260816]
+
+permissions:
+  contents: read
+
+jobs:
+  stage8-round3-probe:
+    if: "${{ github.event.head_commit.message == 'test: probe Stage 8 receipt and attempt authority' }}"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Materialize Stage 8 round-3 adversarial probes
+        run: |
+          cat > services/agent-service/tests/_stage8_round3_probe.py <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+
+          import pytest
+
+          from agent_core.ledger import offer_entry
+          from agent_core.persistence.action_lifecycle_store import TransactionLifecycleStore
+          from agent_core.storage.repositories.base import TransactionScope
+          from agent_core.transaction import transition_draft
+          from agent_core.transaction.coordinator import issue_grant_for_authority, reserve_grant_and_start_attempt
+
+          SCOPE = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "stage8-round3"}
+
+
+          def _offer() -> dict:
+              row = offer_entry(
+                  action_id="create_refund",
+                  operation="APPLY_REFUND",
+                  target_handle="artifact:order:10002",
+                  input_values={"reason": "质量问题", "expected_version": 1},
+                  preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
+                  scope=SCOPE,
+                  turn=3,
+                  label="退款申请",
+                  handle="draft:refund:stage8-round3",
+              )
+              row = transition_draft(row, "AWAITING_AUTHORIZATION")
+              row["authority_protocol"] = "ui-authority@1"
+              row["authority_requirement"] = "ui_action_authority"
+              row["authority_revision"] = 3
+              row["confirmation_id"] = "confirm-stage8-round3"
+              row["confirmation_version"] = 1
+              return row
+
+
+          def _state(store: TransactionLifecycleStore) -> dict:
+              return {
+                  "current_tenant_id": SCOPE["tenant_id"],
+                  "current_user_id": SCOPE["user_id"],
+                  "current_thread_id": SCOPE["thread_id"],
+                  "_transaction_repository": store,
+              }
+
+
+          def _start_attempt(store: TransactionLifecycleStore, offer: dict):
+              state = _state(store)
+              authority = {
+                  "actor_id": SCOPE["user_id"],
+                  "actor_role": "customer",
+                  "client_request_id": "client-stage8-round3",
+                  "authority_type": "ui_confirmed",
+              }
+              authority = issue_grant_for_authority(state=state, offer=offer, authority=authority)
+              reservation, started = reserve_grant_and_start_attempt(state=state, offer=offer, authority=authority)
+              assert reservation["reserved"] is True
+              assert started["created"] is True
+              return state, authority, started["attempt"]
+
+
+          def test_receipt_cannot_exist_without_exact_attempt(tmp_path: Path) -> None:
+              store = TransactionLifecycleStore(tmp_path / "orphan.db")
+              offer = _offer()
+              store.create_draft(
+                  draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_revision=offer["draft_revision"],
+                  draft_state="AWAITING_AUTHORIZATION", action_id=offer["action_id"],
+                  command_digest=offer["command_digest"], command_envelope=None, projection=offer,
+              )
+              with pytest.raises(ValueError, match="attempt"):
+                  store.record_receipt(
+                      receipt_id="receipt-orphan", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                      thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id="attempt-missing",
+                      receipt_handle="h_receipt:orphan", receipt_state="SUCCESS",
+                      business_result={"success": True, "data": {"refund_id": "R-orphan"}},
+                  )
+              assert store.get_receipt("receipt-orphan") is None
+
+
+          def test_receipt_scope_and_draft_must_match_attempt(tmp_path: Path) -> None:
+              store = TransactionLifecycleStore(tmp_path / "mismatch.db")
+              offer = _offer()
+              _state_value, _authority, attempt = _start_attempt(store, offer)
+              attempt_id = str(attempt["attempt_id"])
+              with pytest.raises(ValueError, match="attempt"):
+                  store.record_receipt(
+                      receipt_id="receipt-mismatch", tenant_id="tenant-b", user_id="u999",
+                      thread_id="other-thread", draft_id="draft:other", attempt_id=attempt_id,
+                      receipt_handle="h_receipt:mismatch", receipt_state="SUCCESS",
+                      business_result={"success": True, "data": {"refund_id": "R-mismatch"}},
+                  )
+              assert store.get_receipt_by_attempt(attempt_id) is None
+
+
+          def test_terminal_attempt_cannot_regress_after_acked_receipt(tmp_path: Path) -> None:
+              store = TransactionLifecycleStore(tmp_path / "attempt.db")
+              offer = _offer()
+              _state_value, _authority, attempt = _start_attempt(store, offer)
+              attempt_id = str(attempt["attempt_id"])
+              result = {"success": True, "data": {"refund_id": "R-acked"}}
+              store.record_receipt(
+                  receipt_id="receipt-acked", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id=attempt_id,
+                  receipt_handle="h_receipt:acked", receipt_state="SUCCESS", business_result=result,
+              )
+              store.transition_attempt(attempt_id, state="ACKED", business_result=result, receipt_handle="h_receipt:acked")
+              assert store.get_attempt(attempt_id)["state"] == "ACKED"
+              store.transition_attempt(attempt_id, state="STARTED", error="late stale worker")
+              durable = store.get_attempt(attempt_id)
+              assert durable["state"] == "ACKED"
+              assert durable["business_result"] == result
+              assert durable["receipt_handle"] == "h_receipt:acked"
+
+
+          def test_success_receipt_plus_committing_draft_blocks_new_authority(tmp_path: Path) -> None:
+              store = TransactionLifecycleStore(tmp_path / "crash-window.db")
+              offer = _offer()
+              state, authority, attempt = _start_attempt(store, offer)
+              attempt_id = str(attempt["attempt_id"])
+              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTING"
+              store.record_receipt(
+                  receipt_id="receipt-crash-window", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id=attempt_id,
+                  receipt_handle="h_receipt:crash-window", receipt_state="SUCCESS",
+                  business_result={"success": True, "data": {"refund_id": "R-crash-window"}},
+              )
+              late = dict(authority)
+              late["grant_id"] = "grant-late-stage8-round3"
+              late["client_request_id"] = "late-stage8-round3"
+              with pytest.raises(ValueError, match="no longer awaiting authority"):
+                  issue_grant_for_authority(state=state, offer=offer, authority=late)
+              grants = store.list_grants_by_thread(**SCOPE)
+              assert len(grants) == 1
+              assert grants[0]["grant_id"] == authority["grant_id"]
+              assert len(store.list_attempts_for_draft(scope=TransactionScope(**SCOPE), draft_id=offer["draft_id"])) == 1
+
+
+          def test_duplicate_receipt_for_same_attempt_is_immutable(tmp_path: Path) -> None:
+              store = TransactionLifecycleStore(tmp_path / "receipt-immutable.db")
+              offer = _offer()
+              _state_value, _authority, attempt = _start_attempt(store, offer)
+              attempt_id = str(attempt["attempt_id"])
+              first = store.record_receipt(
+                  receipt_id="receipt-first", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id=attempt_id,
+                  receipt_handle="h_receipt:first", receipt_state="SUCCESS",
+                  business_result={"success": True, "data": {"refund_id": "R-first"}},
+              )
+              second = store.record_receipt(
+                  receipt_id="receipt-conflict", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id=attempt_id,
+                  receipt_handle="h_receipt:conflict", receipt_state="FAILED",
+                  business_result={"success": False, "error": "conflicting late result"},
+              )
+              assert second["receipt_id"] == first["receipt_id"] == "receipt-first"
+              assert second["receipt_state"] == "SUCCESS"
+              assert second["business_result"]["success"] is True
+
+
+          def test_same_draft_id_cannot_cross_scope_boundary(tmp_path: Path) -> None:
+              store = TransactionLifecycleStore(tmp_path / "scope.db")
+              offer = _offer()
+              store.create_draft(
+                  draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_revision=offer["draft_revision"],
+                  draft_state="AWAITING_AUTHORIZATION", action_id=offer["action_id"],
+                  command_digest=offer["command_digest"], command_envelope=None, projection=offer,
+              )
+              store.create_draft(
+                  draft_id=offer["draft_id"], tenant_id="tenant-b", user_id="u999", thread_id="other-thread",
+                  draft_revision=offer["draft_revision"], draft_state="AWAITING_AUTHORIZATION",
+                  action_id=offer["action_id"], command_digest=offer["command_digest"], command_envelope=None, projection=offer,
+              )
+              durable = store.get_draft(offer["draft_id"])
+              assert durable["tenant_id"] == SCOPE["tenant_id"]
+              assert durable["user_id"] == SCOPE["user_id"]
+              assert durable["thread_id"] == SCOPE["thread_id"]
+          PY
+      - name: Run Stage 8 round-3 probes
+        working-directory: services/agent-service
+        env:
+          PYTHONPATH: src
+        run: .venv/bin/python -B -m pytest tests/_stage8_round3_probe.py -q
