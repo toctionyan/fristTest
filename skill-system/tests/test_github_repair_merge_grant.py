@@ -145,7 +145,10 @@ class MergeGrantTests(unittest.TestCase):
         self.assertIn("head_sha=${HEAD_SHA}&event=pull_request", workflow)
         self.assertIn('successful("quality")', workflow)
         self.assertIn('successful("skill-self-validation")', workflow)
-        self.assertNotIn("base_sha:.base.sha", workflow)
+        self.assertIn("historical_pr_base_sha:.base.sha", workflow)
+        # The historical PR base may be recorded as evidence, but issuance must
+        # derive the authoritative grant base from the separately fetched live ref.
+        self.assertIn("jq --arg branch \"${BASE_BRANCH}\" '{branch:$branch, sha:.object.sha}'", workflow)
 
 
 if __name__ == "__main__":
