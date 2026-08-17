@@ -45,8 +45,8 @@ for repository_path in (
 ):
     replace_once(
         repository_path,
-        'and "Draft_missing" in reservation_reason',
-        'and reservation_reason.startswith("reservation_canonical_Draft_")',
+        '("Draft_missing" in reservation_reason)',
+        'reservation_reason.startswith("reservation_canonical_Draft_")',
         label=f"{repository_path} stale canonical Draft Grant revocation",
     )
 
