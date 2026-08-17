@@ -143,8 +143,8 @@ class MergeGrantTests(unittest.TestCase):
         self.assertIn("base_sha_authority == \"live_branch_tip\"", workflow)
         self.assertIn("live base drifted after MergeGrant issuance", workflow)
         self.assertIn("head_sha=${HEAD_SHA}&event=pull_request", workflow)
-        self.assertIn(".name == \"quality\"", workflow)
-        self.assertIn(".name == \"skill-self-validation\"", workflow)
+        self.assertIn('successful("quality")', workflow)
+        self.assertIn('successful("skill-self-validation")', workflow)
         self.assertNotIn("base_sha:.base.sha", workflow)
 
 
