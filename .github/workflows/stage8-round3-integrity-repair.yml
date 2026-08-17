@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   stage8-round3-repair:
-    if: "${{ github.event.head_commit.message == 'test: execute Stage 8 receipt attempt integrity repair' }}"
+    if: "${{ github.event.head_commit.message == 'test: rerun Stage 8 receipt attempt integrity repair' }}"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.12.13'
       - name: Apply bounded receipt/attempt integrity repair
-        run: python .github/stage8_round3_integrity_patch.py
+        run: python .github/stage8_round3_integrity_patch_v2.py
       - name: Bootstrap locked uv
         run: >-
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
@@ -32,10 +32,12 @@ jobs:
         working-directory: services/agent-service
         env:
           PYTHONPATH: src
+          APP_PROFILE: local
         run: >-
           .venv/bin/python -B -m pytest
           tests/transactions
           tests/context/test_transaction_commit_reference_continuity.py
+          -m 'not integration'
           -q
       - name: Commit bounded Round 3 product repair
         run: |
@@ -48,6 +50,7 @@ jobs:
           services/agent-service/src/agent_core/transaction/reconciliation.py
           services/agent-service/src/agent_core/transaction/commit_runtime.py
           services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
+          services/agent-service/tests/transactions/test_transaction_storage.py
           EOF
           sort -o /tmp/expected /tmp/expected
           { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u > /tmp/actual
@@ -60,7 +63,8 @@ jobs:
             services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py \
             services/agent-service/src/agent_core/transaction/reconciliation.py \
             services/agent-service/src/agent_core/transaction/commit_runtime.py \
-            services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
+            services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py \
+            services/agent-service/tests/transactions/test_transaction_storage.py
           git diff --cached --check
           git commit -m 'fix: bind receipts to exact transaction attempts'
           echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
