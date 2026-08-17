@@ -25,4 +25,6 @@ jobs:
         run: cd services/agent-service && uv sync --locked --all-groups
       - name: Run only Stage 1 reference-continuity regression
         working-directory: services/agent-service
+        env:
+          PYTHONPATH: src
         run: .venv/bin/python -B -m pytest tests/context/test_transaction_commit_reference_continuity.py -q
