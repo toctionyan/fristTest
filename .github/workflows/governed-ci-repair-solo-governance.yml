@@ -217,7 +217,7 @@ jobs:
           git -C candidate status --porcelain=v1 --untracked-files=all | tee governance-evidence/post-baseline-status.txt
           test ! -s governance-evidence/post-baseline-status.txt
 
-      - name: Wait for mandatory exact-head pull-request workflows
+      - name: Observe mandatory exact-head pull-request workflows
         id: exact-ci
         env:
           GH_TOKEN: ${{ github.token }}
@@ -247,62 +247,71 @@ jobs:
               | sort_by(.created_at) | reverse | .[0] // empty
             ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" governance-evidence/exact-head-runs.json)
             if [[ -n "${quality}" && -n "${skill}" ]]; then
-              q_status=$(jq -r '.status' <<<"${quality}")
-              s_status=$(jq -r '.status' <<<"${skill}")
-              if [[ "${q_status}" == "completed" && "${s_status}" == "completed" ]]; then
-                q_conclusion=$(jq -r '.conclusion' <<<"${quality}")
-                s_conclusion=$(jq -r '.conclusion' <<<"${skill}")
-                if [[ "${q_conclusion}" != "success" || "${s_conclusion}" != "success" ]]; then
-                  echo "exact-head PR CI failed: quality=${q_conclusion}, skill=${s_conclusion}" >&2
-                  exit 1
-                fi
-                pr_state=$(gh pr view "${PR_URL}" --json number,isDraft,headRefOid,url)
-                jq -n \
-                  --arg sha "${EXACT_SHA}" \
-                  --arg pr "${PR_URL}" \
-                  --arg pr_number "${PR_NUMBER}" \
-                  --argjson pr_state "${pr_state}" \
-                  --argjson quality "${quality}" \
-                  --argjson skill "${skill}" \
-                  '{
-                    schema:"governed-repair-exact-head-ci@1",
-                    head_sha:$sha,
-                    pr_url:$pr,
-                    pr_number:($pr_number|tonumber),
-                    pr_is_draft:$pr_state.isDraft,
-                    pr_head_sha:$pr_state.headRefOid,
-                    workflows:{
-                      quality:{
-                        run_id:($quality.id|tostring),
-                        status:$quality.status,
-                        conclusion:$quality.conclusion,
-                        head_sha:$quality.head_sha,
-                        event:$quality.event,
-                        pr_number:($pr_number|tonumber),
-                        url:$quality.html_url
-                      },
-                      "skill-self-validation":{
-                        run_id:($skill.id|tostring),
-                        status:$skill.status,
-                        conclusion:$skill.conclusion,
-                        head_sha:$skill.head_sha,
-                        event:$skill.event,
-                        pr_number:($pr_number|tonumber),
-                        url:$skill.html_url
-                      }
+              pr_state=$(gh pr view "${PR_URL}" --json number,isDraft,headRefOid,url)
+              jq -n \
+                --arg sha "${EXACT_SHA}" \
+                --arg pr "${PR_URL}" \
+                --arg pr_number "${PR_NUMBER}" \
+                --argjson pr_state "${pr_state}" \
+                --argjson quality "${quality}" \
+                --argjson skill "${skill}" \
+                '{
+                  schema:"governed-repair-exact-head-ci@1",
+                  head_sha:$sha,
+                  pr_url:$pr,
+                  pr_number:($pr_number|tonumber),
+                  pr_is_draft:$pr_state.isDraft,
+                  pr_head_sha:$pr_state.headRefOid,
+                  workflows:{
+                    quality:{
+                      run_id:($quality.id|tostring),
+                      status:$quality.status,
+                      conclusion:($quality.conclusion // ""),
+                      head_sha:$quality.head_sha,
+                      event:$quality.event,
+                      pr_number:($pr_number|tonumber),
+                      url:$quality.html_url
+                    },
+                    "skill-self-validation":{
+                      run_id:($skill.id|tostring),
+                      status:$skill.status,
+                      conclusion:($skill.conclusion // ""),
+                      head_sha:$skill.head_sha,
+                      event:$skill.event,
+                      pr_number:($pr_number|tonumber),
+                      url:$skill.html_url
                     }
-                  }' > governance-evidence/exact-head-ci.json
-                jq -e --arg pr_number "${PR_NUMBER}" '
-                  .pr_is_draft == true
-                  and .pr_head_sha == .head_sha
-                  and ((.pr_number | tostring) == $pr_number)
-                  and .workflows.quality.event == "pull_request"
-                  and .workflows["skill-self-validation"].event == "pull_request"
-                  and ((.workflows.quality.pr_number | tostring) == $pr_number)
-                  and ((.workflows["skill-self-validation"].pr_number | tostring) == $pr_number)
-                ' governance-evidence/exact-head-ci.json >/dev/null
-                exit 0
-              fi
+                  }
+                }' > governance-evidence/exact-head-ci.json
+              jq -e --arg pr_number "${PR_NUMBER}" '
+                .pr_is_draft == true
+                and .pr_head_sha == .head_sha
+                and ((.pr_number | tostring) == $pr_number)
+                and .workflows.quality.event == "pull_request"
+                and .workflows["skill-self-validation"].event == "pull_request"
+                and ((.workflows.quality.pr_number | tostring) == $pr_number)
+                and ((.workflows["skill-self-validation"].pr_number | tostring) == $pr_number)
+              ' governance-evidence/exact-head-ci.json >/dev/null
+              "${pythonLocation}/bin/python" -B control/scripts/github_repair_exact_head_state.py \
+                --ci-evidence governance-evidence/exact-head-ci.json \
+                --exact-sha "${EXACT_SHA}" \
+                --draft-pr-url "${PR_URL}" \
+                --output governance-evidence/exact-head-ci-state.json
+              state=$(jq -r '.status' governance-evidence/exact-head-ci-state.json)
+              echo "state=${state}" >> "$GITHUB_OUTPUT"
+              case "${state}" in
+                EXACT_HEAD_CI_PASSED)
+                  exit 0
+                  ;;
+                EXACT_HEAD_CI_AWAITING_APPROVAL)
+                  echo "Exact-head CI is awaiting workflow approval; governance and baseline acceptance remain valid and G6 is resumable."
+                  exit 0
+                  ;;
+                EXACT_HEAD_CI_FAILED)
+                  jq -r '.failed_workflows[]?' governance-evidence/exact-head-ci-state.json >&2
+                  exit 1
+                  ;;
+              esac
             fi
             sleep 30
           done
@@ -311,6 +320,7 @@ jobs:
 
       - name: Finalize G6 but keep solo-owner PR Draft
         id: finalize
+        if: steps.exact-ci.outputs.state == 'EXACT_HEAD_CI_PASSED'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
@@ -334,6 +344,16 @@ jobs:
             .state == "OPEN" and .isDraft == true and .headRefOid == $sha
           ' <<<"${state}" >/dev/null
           echo "solo_owner_review_ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Record resumable exact-head approval wait
+        if: steps.exact-ci.outputs.state == 'EXACT_HEAD_CI_AWAITING_APPROVAL'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${PR_URL}" --body "G6 baseline acceptance is complete on exact head \`${EXACT_SHA}\`, but mandatory exact-head pull-request CI is awaiting workflow approval. This is a resumable external-approval wait, not a product failure. Do not rerun governance or baseline acceptance. After approval, use the exact-head resume workflow against this G6 run. merge_allowed=false, deploy_allowed=false, production_closed=false."
 
       - name: Upload complete solo G6 evidence
         if: always()
