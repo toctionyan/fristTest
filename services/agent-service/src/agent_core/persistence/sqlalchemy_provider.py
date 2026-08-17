@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from agent_core.storage.repositories.base import TransactionScope, ActiveDraftValidationCode, ActiveDraftValidationResult
-from agent_core.operations.draft import TERMINAL_DRAFT_STATES
+from agent_core.operations.draft import draft_persistence_update_decision
 
 from agent_core.persistence.thread_store import ThreadOwnershipError, ThreadTenantMismatchError
 from agent_core.persistence.database_settings import DatabaseSettings
@@ -778,16 +778,19 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                 ))).first())
                 canonical_payload = self._decode_row(canonical) if canonical else None
                 if canonical_payload:
-                    canonical_state = str(canonical_payload.get("draft_state") or "").upper()
-                    snapshot_mismatch = (
-                        int(canonical_payload.get("draft_revision") or 0) != int(kwargs["draft_revision"])
-                        or str(canonical_payload.get("command_digest") or "") != str(kwargs["command_digest"] or "")
-                    )
-                    if canonical_state in TERMINAL_DRAFT_STATES or snapshot_mismatch:
-                        reason = "draft_terminal" if canonical_state in TERMINAL_DRAFT_STATES else "draft_snapshot_mismatch"
+                    committing_projection = dict(canonical_payload)
+                    committing_projection.update({
+                        "draft_state": "COMMITTING",
+                        "draft_revision": int(kwargs["draft_revision"]),
+                        "command_digest": kwargs["command_digest"],
+                    })
+                    if kwargs.get("draft_projection") is not None:
+                        committing_projection["projection"] = kwargs.get("draft_projection")
+                    allowed, reason = draft_persistence_update_decision(canonical_payload, committing_projection)
+                    if not allowed:
                         conn.execute(
                             grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED"))
-                            .values(state="REVOKED", revoked_at=now, reason=reason)
+                            .values(state="REVOKED", revoked_at=now, reason="draft_update_rejected:" + reason)
                         )
                         grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
                         return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": {}}
@@ -857,10 +860,13 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             existing = _row(conn.execute(self.sa.select(table).where(table.c.draft_id == values["draft_id"])).first())
             if existing:
                 existing_payload = self._decode_row(existing) or {}
-                existing_state = str(existing_payload.get("draft_state") or "").upper()
-                existing_revision = int(existing_payload.get("draft_revision") or 0)
-                incoming_revision = int(values.get("draft_revision") or 0)
-                if existing_state in TERMINAL_DRAFT_STATES or existing_revision > incoming_revision:
+                incoming_payload = {
+                    **kwargs,
+                    "command_envelope": command_envelope,
+                    "projection": projection,
+                }
+                allowed, _reason = draft_persistence_update_decision(existing_payload, incoming_payload)
+                if not allowed:
                     return existing_payload
                 conn.execute(table.update().where(table.c.draft_id == values["draft_id"]).values(**{k:v for k,v in values.items() if k not in {"draft_id", "created_at"}}))
             else:
@@ -953,9 +959,14 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             if not existing:
                 return
             current = self._decode_row(existing) or {}
-            if str(current.get("draft_state") or "").upper() in TERMINAL_DRAFT_STATES:
-                return
-            if draft_revision is not None and int(current.get("draft_revision") or 0) > int(draft_revision):
+            incoming = dict(current)
+            incoming["draft_state"] = draft_state
+            if draft_revision is not None: incoming["draft_revision"] = int(draft_revision)
+            if command_digest is not None: incoming["command_digest"] = command_digest
+            if command_envelope is not None: incoming["command_envelope"] = command_envelope
+            if projection is not None: incoming["projection"] = projection
+            allowed, _reason = draft_persistence_update_decision(current, incoming)
+            if not allowed:
                 return
             conn.execute(table.update().where(table.c.draft_id == draft_id).values(**values))
 

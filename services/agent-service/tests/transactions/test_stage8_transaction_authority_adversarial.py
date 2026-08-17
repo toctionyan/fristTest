@@ -44,6 +44,7 @@ def test_sqlite_terminal_draft_rejects_stale_create_and_advance(tmp_path: Path) 
     store = TransactionLifecycleStore(tmp_path / "agent.db")
     offer = _offer()
     _create(store, offer)
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
     store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
     store.record_receipt(
         receipt_id="receipt:sqlite-stage8", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
@@ -63,6 +64,7 @@ def test_sqlalchemy_terminal_draft_rejects_stale_create_and_advance(tmp_path: Pa
         store = provider.transactions
         offer = _offer()
         _create(store, offer)
+        store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
         store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
         _create(store, offer, state="AWAITING_AUTHORIZATION")
         assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
@@ -90,6 +92,7 @@ def test_atomic_reserve_cannot_create_attempt_against_terminal_draft(tmp_path: P
         draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
         confirmation_id=offer["confirmation_id"], client_request_id="client-stage8", actor_id=SCOPE["user_id"], actor_role="customer",
     )
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
     store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
     result = store.reserve_grant_and_start_attempt(
         grant_id="grant-stage8", attempt_id="attempt-stage8-late", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
@@ -120,6 +123,7 @@ def test_stale_browser_authority_is_rejected_by_durable_terminal_state(tmp_path:
     store = TransactionLifecycleStore(tmp_path / "agent.db")
     offer = _offer()
     _create(store, offer)
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
     store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
     stale_values = {"turn_index": 2, "focused_draft_id": offer["draft_id"], "artifact_ledger": [offer]}
 
@@ -189,3 +193,133 @@ def test_duplicate_after_success_receipt_projects_committed_without_business_wri
     row = find_handle(patch["artifact_ledger"], offer["handle"], scope=SCOPE, allowed_kinds={"offer"}, active_only=False)
     assert row is not None and row["draft_state"] == "COMMITTED"
     assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+
+
+
+def _challenge_offer(*, confirmation_id: str, confirmation_version: int, authority_revision: int) -> dict:
+    row = offer_entry(
+        action_id="create_refund",
+        operation="APPLY_REFUND",
+        target_handle="artifact:order:10002",
+        input_values={"reason": "质量问题", "expected_version": 1},
+        preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
+        scope=SCOPE,
+        turn=authority_revision,
+        label="退款申请",
+        handle="draft:refund:stage8-challenge",
+    )
+    row = transition_draft(row, "AWAITING_AUTHORIZATION")
+    row["authority_protocol"] = "ui-authority@1"
+    row["authority_requirement"] = "ui_action_authority"
+    row["authority_revision"] = authority_revision
+    row["confirmation_id"] = confirmation_id
+    row["confirmation_version"] = confirmation_version
+    row["updated_turn"] = authority_revision
+    return row
+
+
+def test_same_revision_old_authority_challenge_cannot_replace_newer_one(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    newest = _challenge_offer(confirmation_id="confirm-new", confirmation_version=2, authority_revision=10)
+    stale = _challenge_offer(confirmation_id="confirm-old", confirmation_version=1, authority_revision=9)
+    _create(store, newest)
+    _create(store, stale)
+    durable = store.get_draft(newest["draft_id"])
+    assert durable is not None
+    assert durable["projection"]["confirmation_id"] == "confirm-new"
+    assert durable["projection"]["confirmation_version"] == 2
+    assert durable["projection"]["authority_revision"] == 10
+
+
+def test_same_revision_committing_cannot_regress_to_awaiting_or_ready(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    card = _challenge_offer(confirmation_id="confirm-a", confirmation_version=1, authority_revision=5)
+    _create(store, card)
+    store.advance_draft(card["draft_id"], draft_state="COMMITTING", draft_revision=card["draft_revision"], current_attempt_id="attempt-round2")
+    assert store.get_draft(card["draft_id"])["draft_state"] == "COMMITTING"
+    _create(store, card, state="AWAITING_AUTHORIZATION")
+    store.advance_draft(card["draft_id"], draft_state="READY", draft_revision=card["draft_revision"])
+    durable = store.get_draft(card["draft_id"])
+    assert durable is not None
+    assert durable["draft_state"] == "COMMITTING"
+    assert durable["current_attempt_id"] == "attempt-round2"
+
+
+def test_same_revision_effect_digest_change_is_rejected(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    card = _challenge_offer(confirmation_id="confirm-a", confirmation_version=1, authority_revision=5)
+    _create(store, card)
+    store.advance_draft(card["draft_id"], draft_state="READY", draft_revision=card["draft_revision"], command_digest="tampered-digest")
+    durable = store.get_draft(card["draft_id"])
+    assert durable is not None
+    assert durable["command_digest"] == card["command_digest"]
+    assert durable["draft_state"] == "AWAITING_AUTHORIZATION"
+
+
+def test_new_revision_cannot_replace_inflight_attempt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    card = _challenge_offer(confirmation_id="confirm-a", confirmation_version=1, authority_revision=5)
+    _create(store, card)
+    store.advance_draft(card["draft_id"], draft_state="COMMITTING", draft_revision=card["draft_revision"], current_attempt_id="attempt-round2")
+    newer = dict(card)
+    newer["draft_revision"] = int(card["draft_revision"]) + 1
+    newer["command_digest"] = "new-effect-digest"
+    newer["draft_state"] = "AWAITING_AUTHORIZATION"
+    store.create_draft(
+        draft_id=newer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_revision=newer["draft_revision"], draft_state=newer["draft_state"], action_id=newer["action_id"],
+        command_digest=newer["command_digest"], command_envelope=None, projection=newer,
+    )
+    durable = store.get_draft(card["draft_id"])
+    assert durable is not None
+    assert durable["draft_revision"] == card["draft_revision"]
+    assert durable["draft_state"] == "COMMITTING"
+    assert durable["current_attempt_id"] == "attempt-round2"
+
+
+def test_newer_needs_input_form_cannot_be_replaced_by_stale_form(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    base = offer_entry(
+        action_id="create_refund", operation="APPLY_REFUND", target_handle="artifact:order:10002",
+        input_values={}, preview={"decision": "NEEDS_INPUT"}, scope=SCOPE, turn=9,
+        label="退款申请", handle="draft:refund:stage8-form",
+    )
+    newer = transition_draft(base, "NEEDS_INPUT")
+    newer.update({"input_form_id": "form-new", "input_form_version": 3, "interaction_revision": 9, "updated_turn": 9})
+    stale = dict(newer)
+    stale.update({"input_form_id": "form-old", "input_form_version": 2, "interaction_revision": 8, "updated_turn": 8})
+    _create(store, newer)
+    _create(store, stale)
+    durable = store.get_draft(newer["draft_id"])
+    assert durable is not None
+    assert durable["projection"]["input_form_id"] == "form-new"
+    assert durable["projection"]["input_form_version"] == 3
+
+
+def test_requires_review_can_be_explicitly_revoked(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "agent.db")
+    card = _challenge_offer(confirmation_id="confirm-a", confirmation_version=1, authority_revision=5)
+    card = transition_draft(card, "REQUIRES_REVIEW")
+    _create(store, card, state="REQUIRES_REVIEW")
+    store.advance_draft(card["draft_id"], draft_state="REVOKED", draft_revision=card["draft_revision"])
+    assert store.get_draft(card["draft_id"])["draft_state"] == "REVOKED"
+
+
+def test_sqlalchemy_same_revision_nonterminal_regressions_are_rejected(tmp_path: Path) -> None:
+    db_file = tmp_path / "stage8-round2-sqla.db"
+    provider = build_sqlalchemy_store_provider(DatabaseSettings(backend="sqlite", database_url=f"sqlite:///{db_file}", sqlite_path=db_file, create_schema=True))
+    try:
+        store = provider.transactions
+        newest = _challenge_offer(confirmation_id="confirm-new", confirmation_version=2, authority_revision=10)
+        stale = _challenge_offer(confirmation_id="confirm-old", confirmation_version=1, authority_revision=9)
+        _create(store, newest)
+        _create(store, stale)
+        assert store.get_draft(newest["draft_id"])["projection"]["confirmation_id"] == "confirm-new"
+        store.advance_draft(newest["draft_id"], draft_state="COMMITTING", draft_revision=newest["draft_revision"], current_attempt_id="attempt-sqla")
+        _create(store, stale, state="AWAITING_AUTHORIZATION")
+        store.advance_draft(newest["draft_id"], draft_state="READY", draft_revision=newest["draft_revision"])
+        durable = store.get_draft(newest["draft_id"])
+        assert durable["draft_state"] == "COMMITTING"
+        assert durable["current_attempt_id"] == "attempt-sqla"
+    finally:
+        provider.close()

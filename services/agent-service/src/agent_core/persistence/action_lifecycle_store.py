@@ -10,7 +10,7 @@ from agent_core.observability.correlation import get_correlation_id
 from uuid import uuid4
 
 from agent_core.persistence.sqlite_base import SQLiteBase
-from agent_core.operations.draft import TERMINAL_DRAFT_STATES
+from agent_core.operations.draft import draft_persistence_update_decision
 
 
 def _now() -> str:
@@ -448,11 +448,14 @@ class TransactionLifecycleStore(SQLiteBase):
         with self.lock:
             existing = self.conn.execute("SELECT * FROM transaction_drafts WHERE draft_id=?", (draft_id,)).fetchone()
             existing_payload = self._decode_row(dict(existing)) if existing else None
-            if existing_payload:
-                existing_state = str(existing_payload.get("draft_state") or "").upper()
-                existing_revision = int(existing_payload.get("draft_revision") or 0)
-                if existing_state in TERMINAL_DRAFT_STATES or existing_revision > int(draft_revision):
-                    return existing_payload
+            incoming_payload = {
+                "draft_id": draft_id, "tenant_id": tenant_id, "user_id": user_id, "thread_id": thread_id,
+                "draft_revision": int(draft_revision), "draft_state": draft_state, "action_id": action_id,
+                "command_digest": command_digest, "command_envelope": command_envelope, "projection": projection,
+            }
+            allowed, _reason = draft_persistence_update_decision(existing_payload, incoming_payload)
+            if existing_payload and not allowed:
+                return existing_payload
             data = (
                 tenant_id, user_id, thread_id, int(draft_revision), draft_state, action_id, command_digest,
                 _json(command_envelope) if command_envelope is not None else None,
@@ -483,9 +486,14 @@ class TransactionLifecycleStore(SQLiteBase):
             if not existing:
                 return
             current = self._decode_row(dict(existing)) or {}
-            if str(current.get("draft_state") or "").upper() in TERMINAL_DRAFT_STATES:
-                return
-            if draft_revision is not None and int(current.get("draft_revision") or 0) > int(draft_revision):
+            incoming = dict(current)
+            incoming["draft_state"] = draft_state
+            if draft_revision is not None: incoming["draft_revision"] = int(draft_revision)
+            if command_digest is not None: incoming["command_digest"] = command_digest
+            if command_envelope is not None: incoming["command_envelope"] = command_envelope
+            if projection is not None: incoming["projection"] = projection
+            allowed, _reason = draft_persistence_update_decision(current, incoming)
+            if not allowed:
                 return
             cols = ["draft_state=?", "updated_at=?"]
             vals: list[Any] = [draft_state, _now()]
@@ -727,16 +735,19 @@ class TransactionLifecycleStore(SQLiteBase):
                 ).fetchone()
                 canonical_payload = self._decode_row(dict(canonical)) if canonical else None
                 if canonical_payload:
-                    canonical_state = str(canonical_payload.get("draft_state") or "").upper()
-                    snapshot_mismatch = (
-                        int(canonical_payload.get("draft_revision") or 0) != int(draft_revision)
-                        or str(canonical_payload.get("command_digest") or "") != str(command_digest or "")
-                    )
-                    if canonical_state in TERMINAL_DRAFT_STATES or snapshot_mismatch:
-                        reason = "draft_terminal" if canonical_state in TERMINAL_DRAFT_STATES else "draft_snapshot_mismatch"
+                    committing_projection = dict(canonical_payload)
+                    committing_projection.update({
+                        "draft_state": "COMMITTING",
+                        "draft_revision": int(draft_revision),
+                        "command_digest": command_digest,
+                    })
+                    if draft_projection is not None:
+                        committing_projection["projection"] = draft_projection
+                    allowed, reason = draft_persistence_update_decision(canonical_payload, committing_projection)
+                    if not allowed:
                         self.conn.execute(
                             "UPDATE transaction_grants SET state='REVOKED', revoked_at=?, reason=? WHERE grant_id=? AND state='ISSUED'",
-                            (now, reason, grant_id),
+                            (now, "draft_update_rejected:" + reason, grant_id),
                         )
                         grant = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
                         self.conn.commit()
