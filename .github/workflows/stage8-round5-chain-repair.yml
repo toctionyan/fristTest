@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   stage8-chain-repair:
-    if: "${{ github.event.head_commit.message == 'test: execute Stage 8 complete-chain repair' }}"
+    if: "${{ github.event.head_commit.message == 'test: rerun Stage 8 complete-chain repair with canonical fixtures' }}"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.12.13'
       - name: Apply complete-chain repair
-        run: python .github/stage8_round5_chain_patch.py
+        run: python .github/stage8_round5_chain_patch_v2.py
       - name: Bootstrap locked uv
         run: >-
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
@@ -48,6 +48,7 @@ jobs:
           services/agent-service/src/agent_core/persistence/action_lifecycle_store.py
           services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py
           services/agent-service/tests/transactions/test_transaction_storage.py
+          services/agent-service/tests/transactions/test_transaction_protocol.py
           services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
           EOF
           sort -o /tmp/expected /tmp/expected
@@ -60,6 +61,7 @@ jobs:
             services/agent-service/src/agent_core/persistence/action_lifecycle_store.py \
             services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py \
             services/agent-service/tests/transactions/test_transaction_storage.py \
+            services/agent-service/tests/transactions/test_transaction_protocol.py \
             services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
           git diff --cached --check
           git commit -m 'fix: require canonical transaction chain for Grant and Draft closure'
