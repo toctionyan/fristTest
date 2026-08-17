@@ -92,12 +92,11 @@ def test_sqlalchemy_terminal_draft_rejects_stale_create_and_advance(tmp_path: Pa
         store = provider.transactions
         offer = _offer()
         _create(store, offer)
-        store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
-        store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+        store.advance_draft(offer["draft_id"], draft_state="REVOKED", draft_revision=offer["draft_revision"])
         _create(store, offer, state="AWAITING_AUTHORIZATION")
-        assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+        assert store.get_draft(offer["draft_id"])["draft_state"] == "REVOKED"
         store.advance_draft(offer["draft_id"], draft_state="SUBMISSION_UNKNOWN", draft_revision=offer["draft_revision"])
-        assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+        assert store.get_draft(offer["draft_id"])["draft_state"] == "REVOKED"
     finally:
         provider.close()
 
@@ -120,8 +119,7 @@ def test_atomic_reserve_cannot_create_attempt_against_terminal_draft(tmp_path: P
         draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
         confirmation_id=offer["confirmation_id"], client_request_id="client-stage8", actor_id=SCOPE["user_id"], actor_role="customer",
     )
-    store.advance_draft(offer["draft_id"], draft_state="COMMITTING", draft_revision=offer["draft_revision"])
-    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+    store.advance_draft(offer["draft_id"], draft_state="REVOKED", draft_revision=offer["draft_revision"])
     result = store.reserve_grant_and_start_attempt(
         grant_id="grant-stage8", attempt_id="attempt-stage8-late", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
         thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], action_id=offer["action_id"],
@@ -130,7 +128,7 @@ def test_atomic_reserve_cannot_create_attempt_against_terminal_draft(tmp_path: P
     )
     assert result["reserved"] is False and result["created"] is False and result["attempt"] == {}
     assert store.get_attempt("attempt-stage8-late") is None
-    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "REVOKED"
     assert store.get_grant("grant-stage8")["state"] == "REVOKED"
 
 
@@ -584,5 +582,119 @@ def test_sqlalchemy_grant_consumption_enforces_exact_binding(tmp_path: Path) -> 
         assert final is not None
         assert final["attempt_id"] == attempt_id
         assert final["receipt_handle"] == receipt["receipt_handle"]
+    finally:
+        provider.close()
+
+
+
+def test_committed_draft_requires_durable_success_receipt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "draft-success-receipt.db")
+    offer, _state, _authority, attempt = _start_stage8_grant(store, suffix="draft-success")
+    attempt_id = str(attempt["attempt_id"])
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTING"
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTING"
+    result = {"success": True, "data": {"refund_id": "R-draft-success"}}
+    store.record_receipt(
+        receipt_id="receipt-draft-success", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:draft-success", receipt_state="SUCCESS", business_result=result,
+    )
+    store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+
+
+def test_failed_inflight_draft_requires_durable_failed_receipt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "draft-failed-receipt.db")
+    offer, _state, _authority, attempt = _start_stage8_grant(store, suffix="draft-failed")
+    attempt_id = str(attempt["attempt_id"])
+    store.advance_draft(offer["draft_id"], draft_state="FAILED_FINAL", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTING"
+    failure = {"success": False, "error": "business rejected", "code": 409}
+    store.record_receipt(
+        receipt_id="receipt-draft-failed", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:draft-failed", receipt_state="FAILED", business_result=failure,
+    )
+    store.advance_draft(offer["draft_id"], draft_state="FAILED_FINAL", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "FAILED_FINAL"
+
+
+def test_pre_execution_failure_can_close_without_business_receipt(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "draft-preexecution.db")
+    offer = _offer()
+    _create(store, offer, state="AWAITING_AUTHORIZATION")
+    store.advance_draft(offer["draft_id"], draft_state="FAILED_FINAL", draft_revision=offer["draft_revision"])
+    assert store.get_draft(offer["draft_id"])["draft_state"] == "FAILED_FINAL"
+
+
+def test_repository_grant_issue_requires_canonical_awaiting_draft(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-orphan.db")
+    offer = _offer()
+    with pytest.raises(ValueError, match="Draft"):
+        store.issue_grant(
+            grant_id="grant-orphan", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+            draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
+            confirmation_id=offer["confirmation_id"], client_request_id="orphan", actor_id=SCOPE["user_id"], actor_role="customer",
+        )
+    assert store.get_grant("grant-orphan") is None
+
+
+def test_standalone_reserve_grant_cannot_mutate_authority(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "standalone-reserve.db")
+    offer = _offer()
+    _create(store, offer, state="AWAITING_AUTHORIZATION")
+    grant = store.issue_grant(
+        grant_id="grant-standalone", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
+        confirmation_id=offer["confirmation_id"], client_request_id="standalone", actor_id=SCOPE["user_id"], actor_role="customer",
+    )
+    assert grant["state"] == "ISSUED"
+    result = store.reserve_grant("grant-standalone", attempt_id="attempt-not-atomic")
+    assert result["reserved"] is False
+    assert store.get_grant("grant-standalone")["state"] == "ISSUED"
+    assert store.get_attempt("attempt-not-atomic") is None
+
+
+def test_atomic_reservation_rejects_cross_bound_grant_request(tmp_path: Path) -> None:
+    store = TransactionLifecycleStore(tmp_path / "grant-cross-binding.db")
+    offer = _offer()
+    _create(store, offer, state="AWAITING_AUTHORIZATION")
+    grant = store.issue_grant(
+        grant_id="grant-cross", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
+        confirmation_id=offer["confirmation_id"], client_request_id="cross", actor_id=SCOPE["user_id"], actor_role="customer",
+    )
+    result = store.reserve_grant_and_start_attempt(
+        grant_id=grant["grant_id"], attempt_id="attempt-cross", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+        thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], action_id=offer["action_id"],
+        command_digest="different-command", idempotency_key="idem-cross", canonical_payload={"action_id": offer["action_id"]},
+    )
+    assert result["reserved"] is False and result["created"] is False
+    assert store.get_attempt("attempt-cross") is None
+    assert store.get_grant(grant["grant_id"])["state"] == "ISSUED"
+
+
+def test_sqlalchemy_complete_chain_guards_match_sqlite(tmp_path: Path) -> None:
+    db_file = tmp_path / "complete-chain-sqla.db"
+    provider = build_sqlalchemy_store_provider(DatabaseSettings(backend="sqlite", database_url=f"sqlite:///{db_file}", sqlite_path=db_file, create_schema=True))
+    try:
+        store = provider.transactions
+        offer = _offer()
+        with pytest.raises(ValueError, match="Draft"):
+            store.issue_grant(
+                grant_id="grant-sqla-orphan", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+                draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
+                confirmation_id=offer["confirmation_id"], client_request_id="sqla-orphan", actor_id=SCOPE["user_id"], actor_role="customer",
+            )
+        offer, _state, _authority, attempt = _start_stage8_grant(store, suffix="chain-sqla")
+        attempt_id = str(attempt["attempt_id"])
+        store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+        assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTING"
+        result = {"success": True, "data": {"refund_id": "R-chain-sqla"}}
+        store.record_receipt(
+            receipt_id="receipt-chain-sqla", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"], thread_id=SCOPE["thread_id"],
+            draft_id=offer["draft_id"], attempt_id=attempt_id, receipt_handle="h_receipt:chain-sqla", receipt_state="SUCCESS", business_result=result,
+        )
+        store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"], current_attempt_id=attempt_id)
+        assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
     finally:
         provider.close()

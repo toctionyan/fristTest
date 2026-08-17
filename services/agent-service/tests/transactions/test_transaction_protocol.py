@@ -20,6 +20,101 @@ def _offer(*, reason: str = "质量问题", version: int = 1):
     )
 
 
+def _persist_authorization_draft(
+    store,
+    *,
+    draft_id: str,
+    command_digest: str,
+    confirmation_id: str,
+    action_id: str = "create_refund",
+    projection: dict | None = None,
+):
+    durable_projection = dict(projection or {})
+    durable_projection.update({
+        "kind": "offer",
+        "handle": draft_id,
+        "draft_id": draft_id,
+        "draft_revision": 1,
+        "draft_state": "AWAITING_AUTHORIZATION",
+        "action_id": action_id,
+        "command_digest": command_digest,
+        "confirmation_id": confirmation_id,
+        "confirmation_version": int(durable_projection.get("confirmation_version") or 1),
+    })
+    return store.create_draft(
+        draft_id=draft_id,
+        tenant_id="tenant-a",
+        user_id="u001",
+        thread_id="t001",
+        draft_revision=1,
+        draft_state="AWAITING_AUTHORIZATION",
+        action_id=action_id,
+        command_digest=command_digest,
+        command_envelope=durable_projection.get("business_command_envelope"),
+        projection=durable_projection,
+    )
+
+
+def _prepare_reconciliation_attempt(
+    store,
+    *,
+    order,
+    grant_id: str,
+    attempt_id: str,
+    confirmation_id: str,
+    client_request_id: str,
+    idempotency_key: str,
+):
+    offer = offer_entry(
+        action_id="create_refund", operation="APPLY_REFUND", target_handle=order["handle"],
+        input_values={"reason": "质量问题", "expected_version": 1},
+        preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
+        scope={"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "t001"},
+        turn=1, label="退款申请",
+    )
+    offer["business_command_envelope"] = {
+        "contract": "business_adapter.commit@1", "method": "POST", "path": "/refunds",
+        "action_id": "create_refund", "operation": "APPLY_REFUND",
+        "target": {"resource_type": "order", "resource_id": "10002", "order_id": "10002"},
+        "payload": {"reason": "质量问题", "expected_version": 1},
+        "actor_scope": {"tenant_id": "tenant-a", "user_id": "u001"},
+    }
+    offer = transition_draft(offer, "AWAITING_AUTHORIZATION")
+    offer["confirmation_id"] = confirmation_id
+    offer["confirmation_version"] = 1
+    offer["authority_revision"] = 1
+    offer["authority_protocol"] = "ui-authority@1"
+    offer = ensure_transaction_draft(offer)
+    _persist_authorization_draft(
+        store,
+        draft_id=offer["draft_id"],
+        command_digest=offer["command_digest"],
+        confirmation_id=confirmation_id,
+        projection=offer,
+    )
+    store.issue_grant(
+        grant_id=grant_id, tenant_id="tenant-a", user_id="u001", thread_id="t001",
+        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
+        confirmation_id=confirmation_id, client_request_id=client_request_id, actor_id="u001", actor_role="customer",
+    )
+    started = store.reserve_grant_and_start_attempt(
+        grant_id=grant_id, attempt_id=attempt_id, tenant_id="tenant-a", user_id="u001", thread_id="t001",
+        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], action_id="create_refund",
+        command_digest=offer["command_digest"], idempotency_key=idempotency_key, canonical_payload=offer["command_payload"],
+        business_command_envelope=offer["business_command_envelope"], draft_projection=offer,
+    )
+    assert started["reserved"] is True and started["created"] is True
+    store.transition_attempt(attempt_id, state="SUBMISSION_UNKNOWN", error="timeout")
+    store.advance_draft(
+        offer["draft_id"], draft_state="SUBMISSION_UNKNOWN", draft_revision=offer["draft_revision"],
+        current_attempt_id=attempt_id,
+    )
+    projected = transition_draft(offer, "SUBMISSION_UNKNOWN")
+    projected["active_grant_id"] = grant_id
+    projected["commit_attempt_id"] = attempt_id
+    return projected
+
+
 def test_offer_is_canonical_transaction_draft_and_legacy_fields_are_output_only():
     offer = _offer()
     assert offer["draft_id"] == offer["handle"]
@@ -76,30 +171,36 @@ def test_append_entries_discards_legacy_projection_conflicts():
 
 def test_lifecycle_store_reserves_only_one_grant_and_persists_attempt(tmp_path: Path):
     store = TransactionLifecycleStore(tmp_path / "agent.db")
+    _persist_authorization_draft(
+        store, draft_id="h_offer:1", command_digest="digest", confirmation_id="confirm-1"
+    )
     grant = store.issue_grant(
         grant_id="grant-1", tenant_id="tenant-a", user_id="u001", thread_id="t001",
         draft_id="h_offer:1", draft_revision=1, command_digest="digest", confirmation_id="confirm-1",
         client_request_id="client-1", actor_id="u001", actor_role="customer",
     )
     assert grant["state"] == "ISSUED"
-    assert store.reserve_grant("grant-1", attempt_id="attempt-1")["reserved"] is True
-    assert store.reserve_grant("grant-1", attempt_id="attempt-2")["reserved"] is False
-    started = store.start_attempt(
-        attempt_id="attempt-1", tenant_id="tenant-a", user_id="u001", thread_id="t001",
-        draft_id="h_offer:1", draft_revision=1, grant_id="grant-1", action_id="create_refund",
-        command_digest="digest", idempotency_key="idem-1", canonical_payload={"action": "create_refund"},
+    first = store.reserve_grant_and_start_attempt(
+        grant_id="grant-1", attempt_id="attempt-1", tenant_id="tenant-a", user_id="u001", thread_id="t001",
+        draft_id="h_offer:1", draft_revision=1, action_id="create_refund", command_digest="digest",
+        idempotency_key="idem-1", canonical_payload={"action": "create_refund"},
     )
-    assert started["created"] is True
-    assert store.start_attempt(
-        attempt_id="attempt-2", tenant_id="tenant-a", user_id="u001", thread_id="t001",
-        draft_id="h_offer:1", draft_revision=1, grant_id="grant-1", action_id="create_refund",
-        command_digest="digest", idempotency_key="idem-1", canonical_payload={"action": "create_refund"},
-    )["created"] is False
+    assert first["reserved"] is True and first["created"] is True
+    duplicate = store.reserve_grant_and_start_attempt(
+        grant_id="grant-1", attempt_id="attempt-2", tenant_id="tenant-a", user_id="u001", thread_id="t001",
+        draft_id="h_offer:1", draft_revision=1, action_id="create_refund", command_digest="digest",
+        idempotency_key="idem-1", canonical_payload={"action": "create_refund"},
+    )
+    assert duplicate["reserved"] is False and duplicate["created"] is False
+    assert duplicate["attempt"]["attempt_id"] == "attempt-1"
     assert store.list_reconcilable_attempts(tenant_id="tenant-a", user_id="u001", thread_id="t001")[0]["attempt_id"] == "attempt-1"
 
 
 def test_atomic_grant_reservation_creates_recoverable_attempt_and_rejects_expiry(tmp_path: Path):
     store = TransactionLifecycleStore(tmp_path / "agent.db")
+    _persist_authorization_draft(
+        store, draft_id="h_offer:1", command_digest="digest", confirmation_id="confirm-atomic"
+    )
     store.issue_grant(
         grant_id="grant-atomic", tenant_id="tenant-a", user_id="u001", thread_id="t001",
         draft_id="h_offer:1", draft_revision=1, command_digest="digest", confirmation_id="confirm-atomic",
@@ -121,6 +222,9 @@ def test_atomic_grant_reservation_creates_recoverable_attempt_and_rejects_expiry
     assert duplicate["reserved"] is False and duplicate["created"] is False
     assert duplicate["attempt"]["attempt_id"] == "attempt-atomic"
 
+    _persist_authorization_draft(
+        store, draft_id="h_offer:2", command_digest="digest-2", confirmation_id="confirm-expired"
+    )
     store.issue_grant(
         grant_id="grant-expired", tenant_id="tenant-a", user_id="u001", thread_id="t001",
         draft_id="h_offer:2", draft_revision=1, command_digest="digest-2", confirmation_id="confirm-expired",
@@ -165,52 +269,22 @@ def test_transaction_attempt_does_not_write_legacy_lifecycle_mirrors(tmp_path: P
     assert provider.outbox.list_recent() == []
 
 def test_receipt_reconciler_replays_same_idempotency_key_and_backfills_receipt(tmp_path: Path, monkeypatch):
-    from agent_core.ledger import artifact_entry, find_handle, receipt_entry, scope_for_state
-    # Production initializes module providers at the Composition Root. The test
-    # must establish that boundary explicitly rather than relying on an
-    # unrelated coordinator import side effect.
+    from agent_core.ledger import artifact_entry, find_handle
     from agent_core.composition import get_runtime_registry
     from agent_core.lifecycle import nodes
 
     get_runtime_registry()
-
     scope = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "t001"}
     order = artifact_entry(
         resource_type="order", resource_id="10002", label="机械键盘",
         facts={"order_id": "10002", "product_name": "机械键盘", "version": 1},
         scope=scope, turn=1, source="test", freshness_version=1,
     )
-    offer = offer_entry(
-        action_id="create_refund", operation="APPLY_REFUND", target_handle=order["handle"],
-        input_values={"reason": "质量问题", "expected_version": 1},
-        preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
-        scope=scope, turn=1, label="退款申请",
-    )
-    offer = transition_draft(offer, "SUBMISSION_UNKNOWN")
-    offer["business_command_envelope"] = {
-        "contract": "business_adapter.commit@1", "method": "POST", "path": "/refunds",
-        "action_id": "create_refund", "operation": "APPLY_REFUND",
-        "target": {"resource_type": "order", "resource_id": "10002", "order_id": "10002"},
-        "payload": {"reason": "质量问题", "expected_version": 1},
-        "actor_scope": {"tenant_id": "tenant-a", "user_id": "u001"},
-    }
-    offer = ensure_transaction_draft(offer)
-    offer["active_grant_id"] = "grant-reconcile"
-    offer["commit_attempt_id"] = "attempt-reconcile"
     store = TransactionLifecycleStore(tmp_path / "agent.db")
-    store.issue_grant(
-        grant_id="grant-reconcile", tenant_id="tenant-a", user_id="u001", thread_id="t001",
-        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
-        confirmation_id="confirm-reconcile", client_request_id="client-reconcile", actor_id="u001", actor_role="customer",
+    offer = _prepare_reconciliation_attempt(
+        store, order=order, grant_id="grant-reconcile", attempt_id="attempt-reconcile",
+        confirmation_id="confirm-reconcile", client_request_id="client-reconcile", idempotency_key="idem-reconcile",
     )
-    started = store.reserve_grant_and_start_attempt(
-        grant_id="grant-reconcile", attempt_id="attempt-reconcile", tenant_id="tenant-a", user_id="u001", thread_id="t001",
-        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], action_id="create_refund",
-        command_digest=offer["command_digest"], idempotency_key="idem-reconcile", canonical_payload=offer["command_payload"],
-        business_command_envelope=offer["business_command_envelope"], draft_projection=offer,
-    )
-    assert started["reserved"] is True
-    store.transition_attempt("attempt-reconcile", state="SUBMISSION_UNKNOWN", error="timeout")
 
     calls: list[str] = []
     def replay(_state, envelope, *, idempotency_key=None):
@@ -244,36 +318,11 @@ def test_reconciler_keeps_unknown_submission_read_only_without_receipt(tmp_path:
         facts={"order_id": "10002", "product_name": "机械键盘", "version": 1},
         scope=scope, turn=1, source="test", freshness_version=1,
     )
-    offer = offer_entry(
-        action_id="create_refund", operation="APPLY_REFUND", target_handle=order["handle"],
-        input_values={"reason": "质量问题", "expected_version": 1},
-        preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
-        scope=scope, turn=1, label="退款申请",
-    )
-    offer = transition_draft(offer, "SUBMISSION_UNKNOWN")
-    offer["business_command_envelope"] = {
-        "contract": "business_adapter.commit@1", "method": "POST", "path": "/refunds",
-        "action_id": "create_refund", "operation": "APPLY_REFUND",
-        "target": {"resource_type": "order", "resource_id": "10002", "order_id": "10002"},
-        "payload": {"reason": "质量问题", "expected_version": 1},
-        "actor_scope": {"tenant_id": "tenant-a", "user_id": "u001"},
-    }
-    offer = ensure_transaction_draft(offer)
-    offer["active_grant_id"] = "grant-unknown"
-    offer["commit_attempt_id"] = "attempt-unknown"
     store = TransactionLifecycleStore(tmp_path / "agent.db")
-    store.issue_grant(
-        grant_id="grant-unknown", tenant_id="tenant-a", user_id="u001", thread_id="t001",
-        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], command_digest=offer["command_digest"],
-        confirmation_id="confirm-unknown", client_request_id="client-unknown", actor_id="u001", actor_role="customer",
+    offer = _prepare_reconciliation_attempt(
+        store, order=order, grant_id="grant-unknown", attempt_id="attempt-unknown",
+        confirmation_id="confirm-unknown", client_request_id="client-unknown", idempotency_key="idem-unknown",
     )
-    store.reserve_grant_and_start_attempt(
-        grant_id="grant-unknown", attempt_id="attempt-unknown", tenant_id="tenant-a", user_id="u001", thread_id="t001",
-        draft_id=offer["draft_id"], draft_revision=offer["draft_revision"], action_id="create_refund",
-        command_digest=offer["command_digest"], idempotency_key="idem-unknown", canonical_payload=offer["command_payload"],
-        business_command_envelope=offer["business_command_envelope"], draft_projection=offer,
-    )
-    store.transition_attempt("attempt-unknown", state="SUBMISSION_UNKNOWN", error="network timeout")
 
     monkeypatch.setattr(nodes, "transaction_store", lambda: store)
     monkeypatch.setattr(nodes, "_execute_business_command_envelope", lambda *_args, **_kwargs: {"success": False, "code": 504, "error": "network timeout"})
@@ -289,8 +338,6 @@ def test_reconciler_keeps_unknown_submission_read_only_without_receipt(tmp_path:
 
 
 def test_sqlalchemy_transaction_lifecycle_store_supports_atomic_grant_attempt(tmp_path: Path):
-    import pytest
-
     from agent_core.persistence.database_settings import DatabaseSettings
     from agent_core.persistence.sqlalchemy_provider import build_sqlalchemy_store_provider
 
@@ -304,6 +351,9 @@ def test_sqlalchemy_transaction_lifecycle_store_supports_atomic_grant_attempt(tm
         )
     )
     try:
+        _persist_authorization_draft(
+            provider.transactions, draft_id="h_offer:1", command_digest="digest", confirmation_id="confirm-sql"
+        )
         provider.transactions.issue_grant(
             grant_id="grant-sql", tenant_id="tenant-a", user_id="u001", thread_id="t001",
             draft_id="h_offer:1", draft_revision=1, command_digest="digest", confirmation_id="confirm-sql",
@@ -324,4 +374,3 @@ def test_sqlalchemy_transaction_lifecycle_store_supports_atomic_grant_attempt(tm
         assert duplicate["attempt"]["attempt_id"] == "attempt-sql"
     finally:
         provider.close()
-

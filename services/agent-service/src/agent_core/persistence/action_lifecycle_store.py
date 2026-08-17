@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from agent_core.persistence.sqlite_base import SQLiteBase
 from agent_core.operations.draft import draft_persistence_update_decision
-from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, grant_consumption_decision, validate_receipt_binding
+from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, draft_terminal_observation_decision, existing_attempt_matches_request, grant_consumption_decision, grant_issue_decision, grant_reservation_decision, validate_receipt_binding
 
 
 def _now() -> str:
@@ -496,6 +496,17 @@ class TransactionLifecycleStore(SQLiteBase):
             allowed, _reason = draft_persistence_update_decision(current, incoming)
             if not allowed:
                 return
+            attempt_id_for_terminal = str(incoming.get("current_attempt_id") or current.get("current_attempt_id") or "")
+            attempt_row = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (attempt_id_for_terminal,)).fetchone() if attempt_id_for_terminal else None
+            attempt_payload = self._decode_row(dict(attempt_row)) if attempt_row else None
+            receipt_row = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id_for_terminal,)).fetchone() if attempt_id_for_terminal else None
+            receipt_payload = self._decode_row(dict(receipt_row)) if receipt_row else None
+            terminal_ok, _terminal_reason = draft_terminal_observation_decision(
+                {**current, "current_attempt_id": attempt_id_for_terminal},
+                target_state=draft_state, attempt=attempt_payload, receipt=receipt_payload,
+            )
+            if not terminal_ok:
+                return
             cols = ["draft_state=?", "updated_at=?"]
             vals: list[Any] = [draft_state, _now()]
             for name, value in (
@@ -658,6 +669,17 @@ class TransactionLifecycleStore(SQLiteBase):
         now = _now()
         correlation_id = correlation_id or get_correlation_id()
         with self.lock:
+            draft_row = self.conn.execute(
+                "SELECT * FROM transaction_drafts WHERE draft_id=? AND tenant_id=? AND user_id=? AND thread_id=?",
+                (draft_id, tenant_id, user_id, thread_id),
+            ).fetchone()
+            draft = self._decode_row(dict(draft_row)) if draft_row else None
+            allowed, reason = grant_issue_decision(
+                draft, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+                draft_id=draft_id, draft_revision=draft_revision, command_digest=command_digest, confirmation_id=confirmation_id,
+            )
+            if not allowed:
+                raise ValueError(f"canonical Draft rejected Grant issuance: {reason}")
             existing = self.conn.execute(
                 """SELECT * FROM transaction_grants WHERE tenant_id=? AND user_id=? AND thread_id=?
                    AND draft_id=? AND draft_revision=? AND command_digest=? AND confirmation_id=?""",
@@ -691,24 +713,11 @@ class TransactionLifecycleStore(SQLiteBase):
         return [self._decode_row(row) or {} for row in rows]
 
     def reserve_grant(self, grant_id: str, *, attempt_id: str | None = None) -> dict[str, Any]:
-        """Atomically reserve one unexpired grant without creating an attempt."""
-        now = _now()
-        with self.lock:
-            # Promote a stale unconsumed grant to an explicit terminal state.
-            self.conn.execute(
-                "UPDATE transaction_grants SET state='EXPIRED', revoked_at=?, reason='grant_expired' "
-                "WHERE grant_id=? AND state='ISSUED' AND expires_at IS NOT NULL AND expires_at<=?",
-                (now, grant_id, now),
-            )
-            cur = self.conn.execute(
-                "UPDATE transaction_grants SET state='RESERVED', reserved_at=?, attempt_id=COALESCE(?, attempt_id) "
-                "WHERE grant_id=? AND state='ISSUED' AND (expires_at IS NULL OR expires_at>?)",
-                (now, attempt_id, grant_id, now),
-            )
-            self.conn.commit()
-            row = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
-        payload = self._decode_row(dict(row) if row else None) or {}
-        return {"reserved": int(cur.rowcount or 0) == 1, "grant": payload}
+        """Compatibility surface: reservation is inseparable from Attempt creation.
+
+        Transaction authority is mutated only by ``reserve_grant_and_start_attempt``.
+        """
+        return {"reserved": False, "grant": self.get_grant(grant_id) or {}, "reason": "atomic_attempt_required"}
 
     def reserve_grant_and_start_attempt(
         self,
@@ -744,20 +753,41 @@ class TransactionLifecycleStore(SQLiteBase):
                     "SELECT * FROM transaction_attempts WHERE idempotency_key=?", (idempotency_key,)
                 ).fetchone()
                 if existing:
+                    existing_payload = self._decode_row(dict(existing)) or {}
                     grant = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                    if not existing_attempt_matches_request(
+                        existing_payload, grant_id=grant_id, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+                        draft_id=draft_id, draft_revision=draft_revision, action_id=action_id, command_digest=command_digest,
+                    ):
+                        self.conn.commit()
+                        return {"reserved": False, "grant": {}, "created": False, "attempt": {}}
                     self.conn.commit()
                     return {
                         "reserved": False,
                         "grant": self._decode_row(dict(grant) if grant else None) or {},
                         "created": False,
-                        "attempt": self._decode_row(dict(existing)) or {},
+                        "attempt": existing_payload,
                     }
 
+                grant_row = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                grant_payload = self._decode_row(dict(grant_row)) if grant_row else None
                 canonical = self.conn.execute(
                     "SELECT * FROM transaction_drafts WHERE draft_id=? AND tenant_id=? AND user_id=? AND thread_id=?",
                     (draft_id, tenant_id, user_id, thread_id),
                 ).fetchone()
                 canonical_payload = self._decode_row(dict(canonical)) if canonical else None
+                reservation_ok, reservation_reason = grant_reservation_decision(
+                    grant_payload, canonical_payload, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+                    draft_id=draft_id, draft_revision=draft_revision, command_digest=command_digest,
+                )
+                if not reservation_ok:
+                    if grant_payload and str(grant_payload.get("state") or "").upper() == "ISSUED" and reservation_reason.startswith("reservation_canonical_Draft_"):
+                        self.conn.execute(
+                            "UPDATE transaction_grants SET state='REVOKED', revoked_at=?, reason=? WHERE grant_id=? AND state='ISSUED'",
+                            (now, "draft_missing", grant_id),
+                        )
+                    self.conn.commit()
+                    return {"reserved": False, "grant": self._decode_row(dict(grant_row)) if grant_row else {}, "created": False, "attempt": {}}
                 if canonical_payload:
                     committing_projection = dict(canonical_payload)
                     committing_projection.update({

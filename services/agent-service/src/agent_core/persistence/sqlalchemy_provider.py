@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from agent_core.storage.repositories.base import TransactionScope, ActiveDraftValidationCode, ActiveDraftValidationResult
 from agent_core.operations.draft import draft_persistence_update_decision
-from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, grant_consumption_decision, validate_receipt_binding
+from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, draft_terminal_observation_decision, existing_attempt_matches_request, grant_consumption_decision, grant_issue_decision, grant_reservation_decision, validate_receipt_binding
 
 from agent_core.persistence.thread_store import ThreadOwnershipError, ThreadTenantMismatchError
 from agent_core.persistence.database_settings import DatabaseSettings
@@ -719,6 +719,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
 
     def issue_grant(self, **kwargs: Any) -> dict[str, Any]:
         table = self.t["transaction_grants"]
+        drafts = self.t["transaction_drafts"]
         kwargs.setdefault("correlation_id", get_correlation_id())
         condition = self.sa.and_(
             table.c.tenant_id == kwargs["tenant_id"], table.c.user_id == kwargs["user_id"],
@@ -727,6 +728,18 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             table.c.confirmation_id == kwargs["confirmation_id"],
         )
         with self.p.conn() as conn:
+            draft_row = _row(conn.execute(self.sa.select(drafts).where(self.sa.and_(
+                drafts.c.draft_id == kwargs["draft_id"], drafts.c.tenant_id == kwargs["tenant_id"],
+                drafts.c.user_id == kwargs["user_id"], drafts.c.thread_id == kwargs["thread_id"],
+            ))).first())
+            draft = self._decode_row(draft_row) if draft_row else None
+            allowed, reason = grant_issue_decision(
+                draft, tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"], thread_id=kwargs["thread_id"],
+                draft_id=kwargs["draft_id"], draft_revision=int(kwargs["draft_revision"]),
+                command_digest=kwargs["command_digest"], confirmation_id=kwargs["confirmation_id"],
+            )
+            if not allowed:
+                raise ValueError(f"canonical Draft rejected Grant issuance: {reason}")
             row = _row(conn.execute(self.sa.select(table).where(condition)).first())
             if row:
                 return self._decode_row(row) or {}
@@ -748,12 +761,8 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             return [self._decode_row(_row(row)) or {} for row in conn.execute(stmt).fetchall()]
 
     def reserve_grant(self, grant_id: str, *, attempt_id: str | None = None) -> dict[str, Any]:
-        table = self.t["transaction_grants"]
-        now = _now()
-        with self.p.conn() as conn:
-            conn.execute(table.update().where(self.sa.and_(table.c.grant_id == grant_id, table.c.state == "ISSUED", table.c.expires_at.is_not(None), table.c.expires_at <= now)).values(state="EXPIRED", revoked_at=now, reason="grant_expired"))
-            result = conn.execute(table.update().where(self.sa.and_(table.c.grant_id == grant_id, table.c.state == "ISSUED", self.sa.or_(table.c.expires_at.is_(None), table.c.expires_at > now))).values(state="RESERVED", reserved_at=now, attempt_id=attempt_id))
-        return {"reserved": int(result.rowcount or 0) == 1, "grant": self.get_grant(grant_id) or {}}
+        """Compatibility surface; authority reservation is atomic with Attempt creation."""
+        return {"reserved": False, "grant": self.get_grant(grant_id) or {}, "reason": "atomic_attempt_required"}
 
     def reserve_grant_and_start_attempt(self, **kwargs: Any) -> dict[str, Any]:
         grants = self.t["transaction_grants"]
@@ -768,9 +777,18 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             with self.p.conn() as conn:
                 existing = _row(conn.execute(self.sa.select(attempts).where(attempts.c.idempotency_key == key)).first())
                 if existing:
+                    existing_payload = self._decode_row(existing) or {}
                     grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
-                    return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": self._decode_row(existing) or {}}
+                    if not existing_attempt_matches_request(
+                        existing_payload, grant_id=grant_id, tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"],
+                        thread_id=kwargs["thread_id"], draft_id=kwargs["draft_id"], draft_revision=int(kwargs["draft_revision"]),
+                        action_id=kwargs["action_id"], command_digest=kwargs["command_digest"],
+                    ):
+                        return {"reserved": False, "grant": {}, "created": False, "attempt": {}}
+                    return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": existing_payload}
 
+                grant_row = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
+                grant_payload = self._decode_row(grant_row) if grant_row else None
                 canonical = _row(conn.execute(self.sa.select(drafts).where(self.sa.and_(
                     drafts.c.draft_id == kwargs["draft_id"],
                     drafts.c.tenant_id == kwargs["tenant_id"],
@@ -778,6 +796,18 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                     drafts.c.thread_id == kwargs["thread_id"],
                 ))).first())
                 canonical_payload = self._decode_row(canonical) if canonical else None
+                reservation_ok, reservation_reason = grant_reservation_decision(
+                    grant_payload, canonical_payload, tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"],
+                    thread_id=kwargs["thread_id"], draft_id=kwargs["draft_id"], draft_revision=int(kwargs["draft_revision"]),
+                    command_digest=kwargs["command_digest"],
+                )
+                if not reservation_ok:
+                    if grant_payload and str(grant_payload.get("state") or "").upper() == "ISSUED" and reservation_reason.startswith("reservation_canonical_Draft_"):
+                        conn.execute(
+                            grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED"))
+                            .values(state="REVOKED", revoked_at=now, reason="draft_missing")
+                        )
+                    return {"reserved": False, "grant": grant_payload or {}, "created": False, "attempt": {}}
                 if canonical_payload:
                     committing_projection = dict(canonical_payload)
                     committing_projection.update({
@@ -968,6 +998,19 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             if projection is not None: incoming["projection"] = projection
             allowed, _reason = draft_persistence_update_decision(current, incoming)
             if not allowed:
+                return
+            attempt_id_for_terminal = str(incoming.get("current_attempt_id") or current.get("current_attempt_id") or "")
+            attempts = self.t["transaction_attempts"]
+            receipts = self.t["transaction_receipts"]
+            attempt_row = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == attempt_id_for_terminal)).first()) if attempt_id_for_terminal else None
+            attempt_payload = self._decode_row(attempt_row) if attempt_row else None
+            receipt_row = _row(conn.execute(self.sa.select(receipts).where(receipts.c.attempt_id == attempt_id_for_terminal)).first()) if attempt_id_for_terminal else None
+            receipt_payload = self._decode_row(receipt_row) if receipt_row else None
+            terminal_ok, _terminal_reason = draft_terminal_observation_decision(
+                {**current, "current_attempt_id": attempt_id_for_terminal},
+                target_state=draft_state, attempt=attempt_payload, receipt=receipt_payload,
+            )
+            if not terminal_ok:
                 return
             conn.execute(table.update().where(table.c.draft_id == draft_id).values(**values))
 

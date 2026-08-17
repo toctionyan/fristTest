@@ -226,3 +226,116 @@ def grant_consumption_decision(
     if result.get("success") is not True:
         return False, "consume_receipt_result_not_success"
     return True, "grant_consumption_valid"
+
+
+def grant_issue_decision(
+    draft: dict[str, Any] | None,
+    *,
+    tenant_id: str, user_id: str, thread_id: str, draft_id: str,
+    draft_revision: int, command_digest: str, confirmation_id: str,
+) -> tuple[bool, str]:
+    if not isinstance(draft, dict) or not draft:
+        return False, "canonical_Draft_missing"
+    if str(draft.get("draft_id") or "") != str(draft_id):
+        return False, "canonical_Draft_identity_mismatch"
+    for field, expected in (("tenant_id", tenant_id), ("user_id", user_id), ("thread_id", thread_id)):
+        if str(draft.get(field) or "") != str(expected or ""):
+            return False, f"canonical_Draft_scope_mismatch:{field}"
+    if str(draft.get("draft_state") or "").upper() != "AWAITING_AUTHORIZATION":
+        return False, "canonical_Draft_not_awaiting_authority"
+    if int(draft.get("draft_revision") or 0) != int(draft_revision):
+        return False, "canonical_Draft_revision_mismatch"
+    if str(draft.get("command_digest") or "") != str(command_digest or ""):
+        return False, "canonical_Draft_command_mismatch"
+    projection = draft.get("projection") if isinstance(draft.get("projection"), dict) else {}
+    durable_confirmation = str(projection.get("confirmation_id") or "")
+    if durable_confirmation and durable_confirmation != str(confirmation_id or ""):
+        return False, "canonical_Draft_confirmation_mismatch"
+    return True, "grant_issue_valid"
+
+
+def grant_reservation_decision(
+    grant: dict[str, Any] | None, draft: dict[str, Any] | None,
+    *,
+    tenant_id: str, user_id: str, thread_id: str, draft_id: str,
+    draft_revision: int, command_digest: str,
+) -> tuple[bool, str]:
+    if not isinstance(grant, dict) or not grant:
+        return False, "grant_missing"
+    if str(grant.get("state") or "").upper() != "ISSUED":
+        return False, "grant_not_issued"
+    for field, expected in (
+        ("tenant_id", tenant_id), ("user_id", user_id), ("thread_id", thread_id), ("draft_id", draft_id)
+    ):
+        if str(grant.get(field) or "") != str(expected or ""):
+            return False, f"grant_request_mismatch:{field}"
+    if int(grant.get("draft_revision") or 0) != int(draft_revision):
+        return False, "grant_request_revision_mismatch"
+    if str(grant.get("command_digest") or "") != str(command_digest or ""):
+        return False, "grant_request_command_mismatch"
+    issue_ok, reason = grant_issue_decision(
+        draft, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+        draft_id=draft_id, draft_revision=draft_revision, command_digest=command_digest,
+        confirmation_id=str(grant.get("confirmation_id") or ""),
+    )
+    if not issue_ok:
+        return False, "reservation_" + reason
+    return True, "grant_reservation_valid"
+
+
+def existing_attempt_matches_request(
+    attempt: dict[str, Any] | None,
+    *, grant_id: str, tenant_id: str, user_id: str, thread_id: str,
+    draft_id: str, draft_revision: int, action_id: str, command_digest: str,
+) -> bool:
+    if not isinstance(attempt, dict) or not attempt:
+        return False
+    for field, expected in (
+        ("grant_id", grant_id), ("tenant_id", tenant_id), ("user_id", user_id),
+        ("thread_id", thread_id), ("draft_id", draft_id), ("action_id", action_id),
+    ):
+        if str(attempt.get(field) or "") != str(expected or ""):
+            return False
+    return (
+        int(attempt.get("draft_revision") or 0) == int(draft_revision)
+        and str(attempt.get("command_digest") or "") == str(command_digest or "")
+    )
+
+
+def draft_terminal_observation_decision(
+    current: dict[str, Any],
+    *, target_state: str, attempt: dict[str, Any] | None, receipt: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    current_state = str(current.get("draft_state") or "").upper()
+    target = str(target_state or "").upper()
+    effect_terminal = target == "COMMITTED" or (
+        current_state in {"COMMITTING", "SUBMISSION_UNKNOWN", "FAILED_RETRYABLE"}
+        and target in {"FAILED_RETRYABLE", "FAILED_FINAL"}
+    )
+    if not effect_terminal:
+        return True, "no_business_receipt_required"
+    attempt_id = str(current.get("current_attempt_id") or "")
+    if not attempt_id:
+        return False, "terminal_Draft_attempt_missing"
+    if not isinstance(attempt, dict) or str(attempt.get("attempt_id") or "") != attempt_id:
+        return False, "terminal_Draft_attempt_not_found"
+    for field in ("tenant_id", "user_id", "thread_id", "draft_id"):
+        if str(attempt.get(field) or "") != str(current.get(field) or ""):
+            return False, f"terminal_Draft_attempt_scope_mismatch:{field}"
+    if int(attempt.get("draft_revision") or 0) != int(current.get("draft_revision") or 0):
+        return False, "terminal_Draft_attempt_revision_mismatch"
+    if str(attempt.get("command_digest") or "") != str(current.get("command_digest") or ""):
+        return False, "terminal_Draft_attempt_command_mismatch"
+    if not isinstance(receipt, dict) or str(receipt.get("attempt_id") or "") != attempt_id:
+        return False, "terminal_Draft_receipt_missing"
+    if str(receipt.get("draft_id") or "") != str(current.get("draft_id") or ""):
+        return False, "terminal_Draft_receipt_draft_mismatch"
+    receipt_state = str(receipt.get("receipt_state") or "").upper()
+    result = receipt.get("business_result") if isinstance(receipt.get("business_result"), dict) else {}
+    if target == "COMMITTED":
+        if receipt_state != "SUCCESS" or result.get("success") is not True:
+            return False, "committed_Draft_requires_success_receipt"
+    else:
+        if receipt_state != "FAILED" or result.get("success") is True:
+            return False, "failed_Draft_requires_failed_receipt"
+    return True, "terminal_Draft_receipt_valid"

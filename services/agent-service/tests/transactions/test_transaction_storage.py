@@ -62,6 +62,23 @@ def _exercise_store_provider(provider):
         assert int(second_lock["fencing_token"]) > first_token
         provider.locks.release(lock_key, owner="test-2", fencing_token=int(second_lock["fencing_token"]))
 
+        provider.transactions.create_draft(
+            draft_id=draft_id,
+            tenant_id="tenant-a",
+            user_id="u001",
+            thread_id=thread_id,
+            draft_revision=1,
+            draft_state="AWAITING_AUTHORIZATION",
+            action_id="create_invoice",
+            command_digest="digest",
+            command_envelope=None,
+            projection={
+                "kind": "offer", "handle": draft_id, "draft_id": draft_id,
+                "draft_revision": 1, "draft_state": "AWAITING_AUTHORIZATION",
+                "action_id": "create_invoice", "command_digest": "digest",
+                "confirmation_id": confirmation_id, "confirmation_version": 1,
+            },
+        )
         grant = provider.transactions.issue_grant(
             grant_id=grant_id,
             tenant_id="tenant-a",
