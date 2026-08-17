@@ -13,7 +13,8 @@ from agent_core.kernel.decision_trace import append_decision as _append_decision
 from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.transaction import DRAFT_REQUIRES_REVIEW, transition_draft
 from agent_core.transaction.active_draft import active_draft_patch
-from agent_core.transaction.coordinator import persist_draft_from_offer
+from agent_core.transaction.coordinator import persist_draft_from_offer, transaction_store
+from agent_core.transaction.interaction_recovery import restore_awaiting_authority_projection
 from agent_core.transaction.capability_snapshot import snapshot_matches_registry
 from agent_core.transaction.target_contract import allowed_target_resource_types, target_unavailable_message
 
@@ -141,6 +142,30 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
             "phase": "offer_confirmation",
             "status": "TransactionInteractionRequired",
         }
+
+    # A resumed Workflow checkpoint may have lost the ephemeral offer/card
+    # projection while the durable transaction repository still owns an
+    # AWAITING_AUTHORIZATION Draft. Restore only that projection; never
+    # prepare another Draft and never infer Grant authority from chat text.
+    restored = restore_awaiting_authority_projection(state, transactions=transaction_store(state))
+    if restored is not None:
+        restored_state = {**state, **restored}
+        restored_interaction = interaction_response_contract(restored_state)
+        if restored_interaction is not None:
+            restored_interaction = {**restored_interaction, "source": "transaction_repository_projection"}
+            return {
+                **restored,
+                "ledger_snapshot": ledger_cards(
+                    restored_state.get("artifact_ledger") or [],
+                    scope=scope_for_state(restored_state),
+                ),
+                "response_contract": restored_interaction,
+                "commit_authority": None,
+                "current_final_answer": None,
+                "phase": "offer_confirmation",
+                "status": "TransactionInteractionRestored",
+            }
+
     queue = list(state.get("action_queue") or [])
     if not queue:
         return {"response_contract": None, "phase": "agent_loop", "status": "NoActionProposal"}

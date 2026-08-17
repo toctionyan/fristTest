@@ -79,7 +79,19 @@ def _grant_expiry(offer: dict[str, Any]) -> str | None:
 
 
 def _draft_projection(offer: dict[str, Any]) -> dict[str, Any]:
-    keys=("kind","handle","draft_id","draft_revision","draft_state","label","action_id","operation","target_handle","input_values","preview","required_inputs","scope","expires_at","created_at","updated_at","transaction_schema_version","transaction_contract_version","operation_capability_id","operation_capability_version","operation_capability_digest","operation_capability_snapshot","command_id","command_digest","business_command_envelope")
+    keys = (
+        "kind", "handle", "draft_id", "draft_revision", "draft_state", "label",
+        "action_id", "operation", "target_handle", "input_values", "preview",
+        "required_inputs", "input_schema", "input_form_id", "input_form_version",
+        "input_step", "interaction_revision", "input_errors", "suggested_input",
+        "authority_protocol", "authority_requirement", "authority_revision",
+        "confirmation_id", "confirmation_version", "scope", "expires_at",
+        "created_at", "updated_at", "transaction_schema_version",
+        "transaction_contract_version", "operation_capability_id",
+        "operation_capability_version", "operation_capability_digest",
+        "operation_capability_snapshot", "command_id", "command_digest",
+        "business_command_envelope",
+    )
     return {key: offer.get(key) for key in keys if key in offer}
 
 
