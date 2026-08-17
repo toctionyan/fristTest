@@ -235,7 +235,19 @@
             "evidence_span": "它能取消吗？",
             "required": true,
             "depends_on": [],
-            "required_tools": ["report_unsupported_request"]
+            "required_tools": ["report_unsupported_request"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "assess_cancel_eligibility",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "open",
+                  "evidence_span": "能取消吗",
+                  "open_description": "订单当前是否具备取消可行性的只读核验结论"
+                }
+              ]
+            }
           }
         ],
         "model_steps": [
@@ -258,7 +270,14 @@
                         "domain": "order",
                         "operation": "assess_cancel_eligibility",
                         "object_type": "order",
-                        "raw_description": "核验刚才选中订单是否可以取消，但不创建取消草稿"
+                        "raw_description": "核验刚才选中订单是否可以取消，但不创建取消草稿",
+                        "requested_outputs": [
+                          {
+                            "output_id": "open",
+                            "evidence_span": "能取消吗",
+                            "open_description": "订单当前是否具备取消可行性的只读核验结论"
+                          }
+                        ]
                       }
                     }
                   ]
