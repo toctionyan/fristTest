@@ -84,32 +84,33 @@ class ExecutionRuntimeM2Tests(unittest.TestCase):
     def test_slow_observer_cannot_skip_suspected_stall_before_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            heartbeats: list[dict[str, object]] = []
+            for attempt in range(50):
+                with self.subTest(attempt=attempt):
+                    heartbeats: list[dict[str, object]] = []
+                    observer_delay = 0.09 + (attempt % 5) * 0.01
 
-            def slow_first_observer(payload: dict[str, object]) -> None:
-                heartbeats.append(dict(payload))
-                if len(heartbeats) == 1:
-                    # Force the runtime to resume after both the warning and stall
-                    # thresholds. The warning lifecycle must still be observable.
-                    time.sleep(0.12)
+                    def slow_first_observer(payload: dict[str, object]) -> None:
+                        heartbeats.append(dict(payload))
+                        if len(heartbeats) == 1:
+                            time.sleep(observer_delay)
 
-            result = execution_runtime.run_streaming_command(
-                [sys.executable, "-c", "import time; time.sleep(0.5)"],
-                cwd=root,
-                heartbeat_seconds=0.02,
-                stall_warning_seconds=0.03,
-                stall_timeout_seconds=0.08,
-                timeout_seconds=0.4,
-                on_heartbeat=slow_first_observer,
-            )
-            statuses = [str(row.get("liveness_status") or "") for row in heartbeats]
-            self.assertTrue(result["stall_timed_out"])
-            self.assertIn(execution_runtime.LIVENESS_SUSPECTED_STALL, statuses)
-            self.assertIn(execution_runtime.LIVENESS_STALL_TIMEOUT, statuses)
-            self.assertLess(
-                statuses.index(execution_runtime.LIVENESS_SUSPECTED_STALL),
-                statuses.index(execution_runtime.LIVENESS_STALL_TIMEOUT),
-            )
+                    result = execution_runtime.run_streaming_command(
+                        [sys.executable, "-c", "import time; time.sleep(0.4)"],
+                        cwd=root,
+                        heartbeat_seconds=0.02,
+                        stall_warning_seconds=0.03,
+                        stall_timeout_seconds=0.08,
+                        timeout_seconds=0.3,
+                        on_heartbeat=slow_first_observer,
+                    )
+                    statuses = [str(row.get("liveness_status") or "") for row in heartbeats]
+                    self.assertTrue(result["stall_timed_out"])
+                    self.assertIn(execution_runtime.LIVENESS_SUSPECTED_STALL, statuses)
+                    self.assertIn(execution_runtime.LIVENESS_STALL_TIMEOUT, statuses)
+                    self.assertLess(
+                        statuses.index(execution_runtime.LIVENESS_SUSPECTED_STALL),
+                        statuses.index(execution_runtime.LIVENESS_STALL_TIMEOUT),
+                    )
 
     def test_quality_shell_preserves_output_timeout_and_liveness_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
