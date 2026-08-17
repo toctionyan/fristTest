@@ -1,0 +1,80 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:correction_refund_to_logistics",
+  "case_id": "correction_refund_to_logistics",
+  "family": "correction",
+  "lifecycle_status": "oracle_only",
+  "executable_case_ids": [],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "帮我退了这个订单"
+      },
+      {
+        "turn": 2,
+        "text": "算了，我只是想查物流"
+      }
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "visible_order_scope_cardinality": 3,
+      "unique_current_order_focus_declared": false
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_type": "refund_action",
+        "state": "active_but_target_unresolved",
+        "required_effect": "refund.create",
+        "target_requirement": "exactly_one_order_before_draft",
+        "rationale": "M1 explicitly requests a refund action, but ‘这个订单’ does not identify one unique order in the declared visible fixture context. The runtime must not choose an arbitrary order."
+      },
+      {
+        "after_turn": 2,
+        "goal_type": "refund_action",
+        "state": "withdrawn",
+        "forbidden_effect": "refund.create",
+        "rationale": "‘算了’ explicitly withdraws the prior refund action. Any stale refund draft, grant, or write authority must not remain active for the current turn."
+      },
+      {
+        "after_turn": 2,
+        "goal_type": "order_logistics",
+        "state": "active_but_target_unresolved",
+        "required_effect": "order.query_logistics",
+        "target_requirement": "exactly_one_order_or_explicit_collection_reference",
+        "rationale": "‘我只是想查物流’ replaces the requested effect with a read-only logistics query. If the order referent is still not uniquely resolved, clarification is about the target only; it must not replace the logistics goal with a generic dialogue goal."
+      }
+    ],
+    "invariants": [
+      "M2 replaces the refund requested effect with logistics; both effects must not remain active together.",
+      "No refund Draft, Grant, Attempt, Receipt, or business write may be created from M2.",
+      "An unresolved order target must be clarified rather than guessed from the visible collection.",
+      "Target clarification does not erase or rewrite the active logistics goal into a generic clarification goal."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "物流查询目标，或在目标仍不唯一时仅询问具体订单"
+    ],
+    "must_not_cover": [
+      "继续退款",
+      "创建退款草稿",
+      "提交退款",
+      "任意猜一个订单"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": false,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}
