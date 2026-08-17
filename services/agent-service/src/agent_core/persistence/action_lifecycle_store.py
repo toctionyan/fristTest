@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from agent_core.persistence.sqlite_base import SQLiteBase
 from agent_core.operations.draft import draft_persistence_update_decision
-from agent_core.transaction.persistence_policy import attempt_persistence_update_decision, draft_terminal_observation_decision, existing_attempt_matches_request, grant_consumption_decision, grant_issue_decision, grant_reservation_decision, validate_receipt_binding
+from agent_core.storage.transaction_policy import attempt_persistence_update_decision, draft_terminal_observation_decision, existing_attempt_matches_request, grant_consumption_decision, grant_issue_decision, grant_reservation_decision, validate_receipt_binding
 
 
 def _now() -> str:

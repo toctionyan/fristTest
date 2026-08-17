@@ -467,60 +467,8 @@ class AgentService:
         return explicit if explicit else "UNKNOWN"
 
     def _validate_action_authority(self, graph: Any, request: ActionAuthorityRequest) -> str | None:
-        """Validate an exact pending confirmation while the turn lock is held.
-
-        A stale browser button or duplicate network retry must never be allowed
-        to resume whichever interrupt happens to be current for the thread.
-        """
-        config = self._config_for_request(request.thread_id, request.user_id, request.tenant_id)
-        values = self._checkpoint_values(graph, thread_id=request.thread_id, user_id=request.user_id, tenant_id=request.tenant_id)
-        expected_handle = str(get_active_draft_id(values) or "")
-        if not expected_handle:
-            return "no_pending_interaction"
-        if request.offer_handle != expected_handle:
-            return "offer_handle_mismatch"
-        ledger = values.get("artifact_ledger") or []
-        offer = next((item for item in ledger if isinstance(item, dict) and item.get("handle") == expected_handle), None)
-        if not offer or self._draft_state_for_validation(offer) != "AWAITING_AUTHORIZATION":
-            return "offer_not_awaiting_authority"
-        repository = getattr(self, "transactions", None)
-        get_durable = getattr(repository, "get_draft_for_scope", None)
-        if callable(get_durable):
-            durable = get_durable(
-                scope=TransactionScope(
-                    tenant_id=str(request.tenant_id or "default"),
-                    user_id=str(request.user_id),
-                    thread_id=str(request.thread_id),
-                ),
-                draft_id=expected_handle,
-            )
-            if durable is None:
-                return "durable_draft_missing"
-            if self._draft_state_for_validation(durable) != "AWAITING_AUTHORIZATION":
-                return "durable_draft_not_awaiting_authority"
-            if int(durable.get("draft_revision") or 0) != int(offer.get("draft_revision") or 0):
-                return "durable_draft_revision_mismatch"
-            durable_projection = durable.get("projection") if isinstance(durable.get("projection"), dict) else {}
-            if str(durable_projection.get("confirmation_id") or "") != str(offer.get("confirmation_id") or ""):
-                return "durable_confirmation_id_mismatch"
-            if int(durable_projection.get("confirmation_version") or 0) != int(offer.get("confirmation_version") or 0):
-                return "durable_confirmation_version_mismatch"
-        if str(offer.get("action_id") or "") != request.action_id:
-            return "action_id_mismatch"
-        if str(offer.get("target_handle") or "") != request.target_handle:
-            return "target_handle_mismatch"
-        if str(offer.get("confirmation_id") or "") != request.confirmation_id:
-            return "confirmation_id_mismatch"
-        if int(offer.get("confirmation_version") or 0) != int(request.confirmation_version):
-            return "confirmation_version_mismatch"
-        if int(offer.get("authority_revision") or 0) != int(request.conversation_revision):
-            return "conversation_revision_mismatch"
-        if int(values.get("turn_index") or 0) != int(request.conversation_revision):
-            return "current_conversation_revision_mismatch"
-        expected_type = "ui_confirmed" if request.decision == "approved" else "ui_rejected"
-        if request.authority_type != expected_type:
-            return "authority_type_mismatch"
-        return None
+        """Compatibility delegate; structured submission owns validation sequencing."""
+        return self._interaction_submit_use_case().validate_action_authority(graph, request)
 
     def _validate_action_input(self, graph: Any, request: ActionInputRequest) -> str | None:
         """Validate a structured transaction-input form while the turn lock is held."""
