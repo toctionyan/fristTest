@@ -266,6 +266,13 @@
                       "expected_result_cardinality": "single",
                       "required": true,
                       "depends_on": [],
+                      "reference_expression": {
+                        "reference_type": "explicit_visible_member",
+                        "member_handle": "artifact:fixture:order:10003",
+                        "object_type": "order",
+                        "expected_cardinality": "single",
+                        "evidence_span": "它"
+                      },
                       "requested_effect": {
                         "domain": "shipment",
                         "operation": "track",
