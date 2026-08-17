@@ -85,6 +85,56 @@ class ExactHeadStateTests(unittest.TestCase):
         )
         self.assertFalse(result["baseline_mutation_allowed"])
 
+    def test_release56_pr1348_incident_replays_as_resumable_approval_wait(self) -> None:
+        incident_sha = "9acfaf64af2b8f581e3506b94b4dbff1c4a6c13a"
+        incident_pr_url = "https://github.com/toctionyan/fristTest/pull/1348"
+        incident_pr_number = 1348
+        ci = {
+            "schema": "governed-repair-exact-head-ci@1",
+            "head_sha": incident_sha,
+            "pr_url": incident_pr_url,
+            "pr_number": incident_pr_number,
+            "pr_is_draft": True,
+            "pr_head_sha": incident_sha,
+            "workflows": {
+                "quality": {
+                    "run_id": "31979654455",
+                    "status": "completed",
+                    "conclusion": "action_required",
+                    "head_sha": incident_sha,
+                    "event": "pull_request",
+                    "pr_number": incident_pr_number,
+                },
+                "skill-self-validation": {
+                    "run_id": "31979654461",
+                    "status": "completed",
+                    "conclusion": "action_required",
+                    "head_sha": incident_sha,
+                    "event": "pull_request",
+                    "pr_number": incident_pr_number,
+                },
+            },
+        }
+        result = state.classify_exact_head_ci(
+            ci,
+            exact_sha=incident_sha,
+            draft_pr_url=incident_pr_url,
+        )
+        self.assertEqual(result["status"], state.STATE_AWAITING_APPROVAL)
+        self.assertTrue(result["resume_required"])
+        self.assertFalse(result["finalize_allowed"])
+        self.assertFalse(result["baseline_mutation_allowed"])
+        self.assertFalse(result["merge_allowed"])
+        self.assertFalse(result["deploy_allowed"])
+        self.assertFalse(result["production_closed"])
+        self.assertEqual(
+            result["workflow_run_ids"],
+            {
+                "quality": "31979654455",
+                "skill-self-validation": "31979654461",
+            },
+        )
+
     def test_one_action_required_dominates_other_unfinished_run(self) -> None:
         result = state.classify_exact_head_ci(
             self._ci(
