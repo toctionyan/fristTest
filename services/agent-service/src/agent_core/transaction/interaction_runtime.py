@@ -25,7 +25,6 @@ from agent_core.transaction.gateway_runtime import (
     _refresh_offer_preflight,
     _required_offer_input_rows,
 )
-from agent_core.transaction.commit_runtime import _build_business_command_envelope
 
 def _queue_phase_or_final(queue: list[dict[str, Any]], *, fallback_answer: str | None = None) -> dict[str, Any]:
     if queue:
@@ -366,15 +365,14 @@ def action_confirmation_node(state: dict[str, Any], *, deps: TransactionExecutio
         target = find_handle(ledger, str(offer.get("target_handle") or ""), scope=scope_for_state(state), allowed_kinds={"artifact"}, allowed_resource_types=allowed_target_resource_types(str(offer.get("action_id") or "")), active_only=False)
         if not target:
             return {"current_final_answer":"目标资源已失效，未执行任何业务写操作。",**active_draft_patch(None),"pending_confirmation_id":None,"pending_confirmation_version":None,"response_contract":None,"commit_authority":None,"phase":"final","status":"ActionTargetUnavailable"}
-        try:
-            prepared=deepcopy(offer)
-            prepared["business_command_envelope"]=_build_business_command_envelope(state,prepared,target)
-            prepared=transition_draft(prepared,"AWAITING_AUTHORIZATION")
-            prepared["updated_turn"]=current_revision
-            ledger=append_entries(ledger,[prepared])
-            offer=find_handle(ledger,handle,scope=scope_for_state(state),allowed_kinds={"offer"},active_only=False) or prepared
-        except ValueError as exc:
-            return {"current_final_answer":f"无法生成可提交的业务命令：{exc}",**active_draft_patch(None),"pending_confirmation_id":None,"pending_confirmation_version":None,"response_contract":None,"commit_authority":None,"phase":"final","status":"ActionCommandEnvelopeInvalid"}
+        prepared = deepcopy(offer)
+        envelope = prepared.get("business_command_envelope") if isinstance(prepared.get("business_command_envelope"), dict) else {}
+        if not envelope or not str(envelope.get("command_id") or ""):
+            return {"current_final_answer":"待授权业务命令快照缺失，未执行任何业务写操作。",**active_draft_patch(None),"pending_confirmation_id":None,"pending_confirmation_version":None,"response_contract":None,"commit_authority":None,"phase":"final","status":"ActionCommandEnvelopeInvalid"}
+        prepared = transition_draft(prepared, "AWAITING_AUTHORIZATION", previous=offer)
+        prepared["updated_turn"] = current_revision
+        ledger = append_entries(ledger, [prepared])
+        offer = find_handle(ledger, handle, scope=scope_for_state(state), allowed_kinds={"offer"}, active_only=False) or prepared
         authority = issue_grant_for_authority(state=state, offer=offer, authority=authority)
     authority_label = f"{offer.get('label') or '业务动作'} / {authority.get('authority_type')}"
     ledger = append_entries(ledger, [authority_entry(authority=authority, scope=scope_for_state(state), turn=current_revision, label=authority_label)])

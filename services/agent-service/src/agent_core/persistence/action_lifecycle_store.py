@@ -10,6 +10,8 @@ from agent_core.observability.correlation import get_correlation_id
 from uuid import uuid4
 
 from agent_core.persistence.sqlite_base import SQLiteBase
+from agent_core.operations.draft import draft_persistence_update_decision
+from agent_core.storage.transaction_policy import attempt_persistence_update_decision, draft_terminal_observation_decision, existing_attempt_matches_request, grant_consumption_decision, grant_issue_decision, grant_reservation_decision, validate_receipt_binding
 
 
 def _now() -> str:
@@ -446,13 +448,31 @@ class TransactionLifecycleStore(SQLiteBase):
         correlation_id = correlation_id or get_correlation_id()
         with self.lock:
             existing = self.conn.execute("SELECT * FROM transaction_drafts WHERE draft_id=?", (draft_id,)).fetchone()
-            if existing and int(dict(existing).get("draft_revision") or 0) > int(draft_revision):
-                return self._decode_row(dict(existing)) or {}
-            data = (tenant_id, user_id, thread_id, int(draft_revision), draft_state, action_id, command_digest, _json(command_envelope) if command_envelope is not None else None, _json(projection) if projection is not None else None, active_grant_id, current_attempt_id, correlation_id, now)
+            existing_payload = self._decode_row(dict(existing)) if existing else None
+            incoming_payload = {
+                "draft_id": draft_id, "tenant_id": tenant_id, "user_id": user_id, "thread_id": thread_id,
+                "draft_revision": int(draft_revision), "draft_state": draft_state, "action_id": action_id,
+                "command_digest": command_digest, "command_envelope": command_envelope, "projection": projection,
+            }
+            allowed, _reason = draft_persistence_update_decision(existing_payload, incoming_payload)
+            if existing_payload and not allowed:
+                return existing_payload
+            data = (
+                tenant_id, user_id, thread_id, int(draft_revision), draft_state, action_id, command_digest,
+                _json(command_envelope) if command_envelope is not None else None,
+                _json(projection) if projection is not None else None,
+                active_grant_id, current_attempt_id, correlation_id, now,
+            )
             if existing:
-                self.conn.execute("""UPDATE transaction_drafts SET tenant_id=?,user_id=?,thread_id=?,draft_revision=?,draft_state=?,action_id=?,command_digest=?,command_envelope_json=?,projection_json=?,active_grant_id=?,current_attempt_id=?,correlation_id=?,updated_at=? WHERE draft_id=?""", (*data, draft_id))
+                self.conn.execute(
+                    """UPDATE transaction_drafts SET tenant_id=?,user_id=?,thread_id=?,draft_revision=?,draft_state=?,action_id=?,command_digest=?,command_envelope_json=?,projection_json=?,active_grant_id=?,current_attempt_id=?,correlation_id=?,updated_at=? WHERE draft_id=?""",
+                    (*data, draft_id),
+                )
             else:
-                self.conn.execute("""INSERT INTO transaction_drafts(draft_id,tenant_id,user_id,thread_id,draft_revision,draft_state,action_id,command_digest,command_envelope_json,projection_json,active_grant_id,current_attempt_id,correlation_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (draft_id, *data, now))
+                self.conn.execute(
+                    """INSERT INTO transaction_drafts(draft_id,tenant_id,user_id,thread_id,draft_revision,draft_state,action_id,command_digest,command_envelope_json,projection_json,active_grant_id,current_attempt_id,correlation_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (draft_id, *data, now),
+                )
             self.conn.commit()
         return self.get_draft(draft_id) or {}
 
@@ -462,26 +482,84 @@ class TransactionLifecycleStore(SQLiteBase):
         return self._decode_row(self.query_one("SELECT * FROM transaction_drafts WHERE draft_id=?", (draft_id,)))
 
     def advance_draft(self, draft_id: str, *, draft_state: str, draft_revision: int | None = None, command_digest: str | None = None, command_envelope: dict[str, Any] | None = None, projection: dict[str, Any] | None = None, active_grant_id: str | None = None, current_attempt_id: str | None = None) -> None:
-        cols=["draft_state=?", "updated_at=?"]; vals=[draft_state, _now()]
-        for name, value in (("draft_revision", draft_revision), ("command_digest", command_digest), ("command_envelope_json", _json(command_envelope) if command_envelope is not None else None), ("projection_json", _json(projection) if projection is not None else None), ("active_grant_id", active_grant_id), ("current_attempt_id", current_attempt_id)):
-            if value is not None:
-                cols.append(f"{name}=?"); vals.append(value)
-        vals.append(draft_id)
-        self.execute(f"UPDATE transaction_drafts SET {', '.join(cols)} WHERE draft_id=?", tuple(vals))
+        with self.lock:
+            existing = self.conn.execute("SELECT * FROM transaction_drafts WHERE draft_id=?", (draft_id,)).fetchone()
+            if not existing:
+                return
+            current = self._decode_row(dict(existing)) or {}
+            incoming = dict(current)
+            incoming["draft_state"] = draft_state
+            if draft_revision is not None: incoming["draft_revision"] = int(draft_revision)
+            if command_digest is not None: incoming["command_digest"] = command_digest
+            if command_envelope is not None: incoming["command_envelope"] = command_envelope
+            if projection is not None: incoming["projection"] = projection
+            allowed, _reason = draft_persistence_update_decision(current, incoming)
+            if not allowed:
+                return
+            attempt_id_for_terminal = str(incoming.get("current_attempt_id") or current.get("current_attempt_id") or "")
+            attempt_row = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (attempt_id_for_terminal,)).fetchone() if attempt_id_for_terminal else None
+            attempt_payload = self._decode_row(dict(attempt_row)) if attempt_row else None
+            receipt_row = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id_for_terminal,)).fetchone() if attempt_id_for_terminal else None
+            receipt_payload = self._decode_row(dict(receipt_row)) if receipt_row else None
+            terminal_ok, _terminal_reason = draft_terminal_observation_decision(
+                {**current, "current_attempt_id": attempt_id_for_terminal},
+                target_state=draft_state, attempt=attempt_payload, receipt=receipt_payload,
+            )
+            if not terminal_ok:
+                return
+            cols = ["draft_state=?", "updated_at=?"]
+            vals: list[Any] = [draft_state, _now()]
+            for name, value in (
+                ("draft_revision", draft_revision),
+                ("command_digest", command_digest),
+                ("command_envelope_json", _json(command_envelope) if command_envelope is not None else None),
+                ("projection_json", _json(projection) if projection is not None else None),
+                ("active_grant_id", active_grant_id),
+                ("current_attempt_id", current_attempt_id),
+            ):
+                if value is not None:
+                    cols.append(f"{name}=?")
+                    vals.append(value)
+            vals.append(draft_id)
+            self.conn.execute(f"UPDATE transaction_drafts SET {', '.join(cols)} WHERE draft_id=?", tuple(vals))
+            self.conn.commit()
 
     def list_drafts_by_thread(self, *, tenant_id: str, user_id: str, thread_id: str, limit: int = 100) -> list[dict[str, Any]]:
         rows=self.query_all("SELECT * FROM transaction_drafts WHERE tenant_id=? AND user_id=? AND thread_id=? ORDER BY updated_at DESC LIMIT ?", (tenant_id,user_id,thread_id,int(limit)))
         return [self._decode_row(row) or {} for row in rows]
 
     def record_receipt(self, *, receipt_id: str, tenant_id: str, user_id: str, thread_id: str, draft_id: str, attempt_id: str | None, receipt_handle: str | None, receipt_state: str, business_result: dict[str, Any], business_resource_id: str | None = None, correlation_id: str | None = None) -> dict[str, Any]:
-        now=_now()
+        now = _now()
         correlation_id = correlation_id or get_correlation_id()
         with self.lock:
-            if attempt_id:
-                existing=self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id,)).fetchone()
-                if existing:
-                    return self._decode_row(dict(existing)) or {}
-            self.conn.execute("""INSERT INTO transaction_receipts(receipt_id,tenant_id,user_id,thread_id,draft_id,attempt_id,receipt_handle,receipt_state,business_result_json,business_resource_id,created_at,correlation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (receipt_id,tenant_id,user_id,thread_id,draft_id,attempt_id,receipt_handle,receipt_state,_json(business_result),business_resource_id,now,correlation_id))
+            attempt = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (str(attempt_id or ""),)).fetchone()
+            attempt_payload = self._decode_row(dict(attempt)) if attempt else None
+            grant_id = str((attempt_payload or {}).get("grant_id") or "")
+            grant = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone() if grant_id else None
+            grant_payload = self._decode_row(dict(grant)) if grant else None
+            valid, reason = validate_receipt_binding(
+                attempt=attempt_payload,
+                grant=grant_payload,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                thread_id=thread_id,
+                draft_id=draft_id,
+                attempt_id=attempt_id,
+                receipt_state=receipt_state,
+                business_result=business_result,
+            )
+            if not valid:
+                raise ValueError(f"transaction receipt attempt binding rejected: {reason}")
+            existing = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if existing:
+                return self._decode_row(dict(existing)) or {}
+            receipt_id_conflict = self.conn.execute("SELECT * FROM transaction_receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
+            if receipt_id_conflict:
+                raise ValueError("transaction receipt id already belongs to another attempt")
+            self.conn.execute(
+                """INSERT INTO transaction_receipts(receipt_id,tenant_id,user_id,thread_id,draft_id,attempt_id,receipt_handle,receipt_state,business_result_json,business_resource_id,created_at,correlation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (receipt_id, tenant_id, user_id, thread_id, draft_id, attempt_id, receipt_handle, str(receipt_state).upper(), _json(business_result), business_resource_id, now, correlation_id),
+            )
             self.conn.commit()
         return self.get_receipt(receipt_id) or {}
 
@@ -591,6 +669,17 @@ class TransactionLifecycleStore(SQLiteBase):
         now = _now()
         correlation_id = correlation_id or get_correlation_id()
         with self.lock:
+            draft_row = self.conn.execute(
+                "SELECT * FROM transaction_drafts WHERE draft_id=? AND tenant_id=? AND user_id=? AND thread_id=?",
+                (draft_id, tenant_id, user_id, thread_id),
+            ).fetchone()
+            draft = self._decode_row(dict(draft_row)) if draft_row else None
+            allowed, reason = grant_issue_decision(
+                draft, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+                draft_id=draft_id, draft_revision=draft_revision, command_digest=command_digest, confirmation_id=confirmation_id,
+            )
+            if not allowed:
+                raise ValueError(f"canonical Draft rejected Grant issuance: {reason}")
             existing = self.conn.execute(
                 """SELECT * FROM transaction_grants WHERE tenant_id=? AND user_id=? AND thread_id=?
                    AND draft_id=? AND draft_revision=? AND command_digest=? AND confirmation_id=?""",
@@ -624,24 +713,11 @@ class TransactionLifecycleStore(SQLiteBase):
         return [self._decode_row(row) or {} for row in rows]
 
     def reserve_grant(self, grant_id: str, *, attempt_id: str | None = None) -> dict[str, Any]:
-        """Atomically reserve one unexpired grant without creating an attempt."""
-        now = _now()
-        with self.lock:
-            # Promote a stale unconsumed grant to an explicit terminal state.
-            self.conn.execute(
-                "UPDATE transaction_grants SET state='EXPIRED', revoked_at=?, reason='grant_expired' "
-                "WHERE grant_id=? AND state='ISSUED' AND expires_at IS NOT NULL AND expires_at<=?",
-                (now, grant_id, now),
-            )
-            cur = self.conn.execute(
-                "UPDATE transaction_grants SET state='RESERVED', reserved_at=?, attempt_id=COALESCE(?, attempt_id) "
-                "WHERE grant_id=? AND state='ISSUED' AND (expires_at IS NULL OR expires_at>?)",
-                (now, attempt_id, grant_id, now),
-            )
-            self.conn.commit()
-            row = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
-        payload = self._decode_row(dict(row) if row else None) or {}
-        return {"reserved": int(cur.rowcount or 0) == 1, "grant": payload}
+        """Compatibility surface: reservation is inseparable from Attempt creation.
+
+        Transaction authority is mutated only by ``reserve_grant_and_start_attempt``.
+        """
+        return {"reserved": False, "grant": self.get_grant(grant_id) or {}, "reason": "atomic_attempt_required"}
 
     def reserve_grant_and_start_attempt(
         self,
@@ -661,11 +737,12 @@ class TransactionLifecycleStore(SQLiteBase):
         draft_projection: dict[str, Any] | None = None,
         correlation_id: str | None = None,
     ) -> dict[str, Any]:
-        """Reserve a grant and persist its first commit attempt atomically.
+        """Reserve one Grant and its first Attempt in the same transaction.
 
-        A reserved grant without an attempt is unrecoverable after a process
-        crash.  This is therefore intentionally one SQLite transaction rather
-        than a coordinator-level pair of writes.
+        If a canonical Draft exists, its terminal state/revision/digest outranks
+        every stale Workflow copy. A compatibility-only store probe without a
+        Draft is still supported, but production authority flow always persists
+        the Draft before Grant issuance.
         """
         now = _now()
         correlation_id = correlation_id or get_correlation_id()
@@ -676,14 +753,64 @@ class TransactionLifecycleStore(SQLiteBase):
                     "SELECT * FROM transaction_attempts WHERE idempotency_key=?", (idempotency_key,)
                 ).fetchone()
                 if existing:
+                    existing_payload = self._decode_row(dict(existing)) or {}
                     grant = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                    if not existing_attempt_matches_request(
+                        existing_payload, grant_id=grant_id, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+                        draft_id=draft_id, draft_revision=draft_revision, action_id=action_id, command_digest=command_digest,
+                    ):
+                        self.conn.commit()
+                        return {"reserved": False, "grant": {}, "created": False, "attempt": {}}
                     self.conn.commit()
                     return {
                         "reserved": False,
                         "grant": self._decode_row(dict(grant) if grant else None) or {},
                         "created": False,
-                        "attempt": self._decode_row(dict(existing)) or {},
+                        "attempt": existing_payload,
                     }
+
+                grant_row = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                grant_payload = self._decode_row(dict(grant_row)) if grant_row else None
+                canonical = self.conn.execute(
+                    "SELECT * FROM transaction_drafts WHERE draft_id=? AND tenant_id=? AND user_id=? AND thread_id=?",
+                    (draft_id, tenant_id, user_id, thread_id),
+                ).fetchone()
+                canonical_payload = self._decode_row(dict(canonical)) if canonical else None
+                reservation_ok, reservation_reason = grant_reservation_decision(
+                    grant_payload, canonical_payload, tenant_id=tenant_id, user_id=user_id, thread_id=thread_id,
+                    draft_id=draft_id, draft_revision=draft_revision, command_digest=command_digest,
+                )
+                if not reservation_ok:
+                    if grant_payload and str(grant_payload.get("state") or "").upper() == "ISSUED" and reservation_reason.startswith("reservation_canonical_Draft_"):
+                        self.conn.execute(
+                            "UPDATE transaction_grants SET state='REVOKED', revoked_at=?, reason=? WHERE grant_id=? AND state='ISSUED'",
+                            (now, "draft_missing", grant_id),
+                        )
+                    self.conn.commit()
+                    return {"reserved": False, "grant": self._decode_row(dict(grant_row)) if grant_row else {}, "created": False, "attempt": {}}
+                if canonical_payload:
+                    committing_projection = dict(canonical_payload)
+                    committing_projection.update({
+                        "draft_state": "COMMITTING",
+                        "draft_revision": int(draft_revision),
+                        "command_digest": command_digest,
+                    })
+                    if draft_projection is not None:
+                        committing_projection["projection"] = draft_projection
+                    allowed, reason = draft_persistence_update_decision(canonical_payload, committing_projection)
+                    if not allowed:
+                        self.conn.execute(
+                            "UPDATE transaction_grants SET state='REVOKED', revoked_at=?, reason=? WHERE grant_id=? AND state='ISSUED'",
+                            (now, "draft_update_rejected:" + reason, grant_id),
+                        )
+                        grant = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                        self.conn.commit()
+                        return {
+                            "reserved": False,
+                            "grant": self._decode_row(dict(grant) if grant else None) or {},
+                            "created": False,
+                            "attempt": {},
+                        }
 
                 self.conn.execute(
                     "UPDATE transaction_grants SET state='EXPIRED', revoked_at=?, reason='grant_expired' "
@@ -711,10 +838,20 @@ class TransactionLifecycleStore(SQLiteBase):
                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         attempt_id, tenant_id, user_id, thread_id, draft_id, int(draft_revision), grant_id, action_id,
-                        command_digest, idempotency_key, _json(canonical_payload), _json(business_command_envelope) if business_command_envelope is not None else None, "STARTED", now, now, correlation_id,
+                        command_digest, idempotency_key, _json(canonical_payload),
+                        _json(business_command_envelope) if business_command_envelope is not None else None,
+                        "STARTED", now, now, correlation_id,
                     ),
                 )
-                self.conn.execute("""INSERT INTO transaction_drafts(draft_id,tenant_id,user_id,thread_id,draft_revision,draft_state,action_id,command_digest,command_envelope_json,projection_json,active_grant_id,current_attempt_id,created_at,updated_at,correlation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(draft_id) DO UPDATE SET draft_revision=excluded.draft_revision,draft_state=excluded.draft_state,action_id=excluded.action_id,command_digest=excluded.command_digest,command_envelope_json=excluded.command_envelope_json,projection_json=excluded.projection_json,active_grant_id=excluded.active_grant_id,current_attempt_id=excluded.current_attempt_id,updated_at=excluded.updated_at,correlation_id=excluded.correlation_id""", (draft_id,tenant_id,user_id,thread_id,int(draft_revision),"COMMITTING",action_id,command_digest,_json(business_command_envelope) if business_command_envelope is not None else None,_json(draft_projection) if draft_projection is not None else None,grant_id,attempt_id,now,now,correlation_id))
+                self.conn.execute(
+                    """INSERT INTO transaction_drafts(draft_id,tenant_id,user_id,thread_id,draft_revision,draft_state,action_id,command_digest,command_envelope_json,projection_json,active_grant_id,current_attempt_id,created_at,updated_at,correlation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(draft_id) DO UPDATE SET draft_revision=excluded.draft_revision,draft_state=excluded.draft_state,action_id=excluded.action_id,command_digest=excluded.command_digest,command_envelope_json=excluded.command_envelope_json,projection_json=excluded.projection_json,active_grant_id=excluded.active_grant_id,current_attempt_id=excluded.current_attempt_id,updated_at=excluded.updated_at,correlation_id=excluded.correlation_id""",
+                    (
+                        draft_id, tenant_id, user_id, thread_id, int(draft_revision), "COMMITTING", action_id, command_digest,
+                        _json(business_command_envelope) if business_command_envelope is not None else None,
+                        _json(draft_projection) if draft_projection is not None else None,
+                        grant_id, attempt_id, now, now, correlation_id,
+                    ),
+                )
                 attempt = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
                 self.conn.commit()
                 return {
@@ -728,12 +865,33 @@ class TransactionLifecycleStore(SQLiteBase):
                 raise
 
     def consume_grant(self, grant_id: str, *, attempt_id: str | None = None, receipt_handle: str | None = None) -> None:
-        self.execute(
-            """UPDATE transaction_grants SET state='CONSUMED', consumed_at=?,
-               attempt_id=COALESCE(?, attempt_id), receipt_handle=COALESCE(?, receipt_handle)
-               WHERE grant_id=?""",
-            (_now(), attempt_id, receipt_handle, grant_id),
-        )
+        with self.lock:
+            grant_row = self.conn.execute("SELECT * FROM transaction_grants WHERE grant_id=?", (grant_id,)).fetchone()
+            grant = self._decode_row(dict(grant_row)) if grant_row else None
+            attempt_row = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (str(attempt_id or ""),)).fetchone()
+            attempt = self._decode_row(dict(attempt_row)) if attempt_row else None
+            receipt_row = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (str(attempt_id or ""),)).fetchone()
+            receipt = self._decode_row(dict(receipt_row)) if receipt_row else None
+            allowed, reason = grant_consumption_decision(
+                grant,
+                attempt=attempt,
+                receipt=receipt,
+                attempt_id=attempt_id,
+                receipt_handle=receipt_handle,
+            )
+            if not allowed:
+                return
+            if str((grant or {}).get("state") or "").upper() == "CONSUMED":
+                return
+            updated = self.conn.execute(
+                """UPDATE transaction_grants SET state='CONSUMED', consumed_at=?, attempt_id=?, receipt_handle=?
+                   WHERE grant_id=? AND state='RESERVED' AND attempt_id=?""",
+                (_now(), str(attempt_id or ""), str(receipt_handle or ""), grant_id, str(attempt_id or "")),
+            )
+            if int(updated.rowcount or 0) != 1:
+                self.conn.rollback()
+                return
+            self.conn.commit()
 
     def revoke_grant(self, grant_id: str, *, reason: str) -> None:
         self.execute(
@@ -795,22 +953,39 @@ class TransactionLifecycleStore(SQLiteBase):
         error: str | None = None,
         reconciled: bool = False,
     ) -> None:
-        self.execute(
-            """UPDATE transaction_attempts SET state=?, business_result_json=COALESCE(?, business_result_json),
-               receipt_handle=COALESCE(?, receipt_handle), error_code=?, error=?, updated_at=?,
-               reconciled_at=CASE WHEN ? THEN ? ELSE reconciled_at END WHERE attempt_id=?""",
-            (
-                state,
-                _json(business_result) if business_result is not None else None,
-                receipt_handle,
-                error_code,
-                error,
-                _now(),
-                1 if reconciled else 0,
-                _now(),
-                attempt_id,
-            ),
-        )
+        with self.lock:
+            existing = self.conn.execute("SELECT * FROM transaction_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            if not existing:
+                raise ValueError("transaction attempt missing")
+            current = self._decode_row(dict(existing)) or {}
+            receipt = self.conn.execute("SELECT * FROM transaction_receipts WHERE attempt_id=?", (attempt_id,)).fetchone()
+            receipt_payload = self._decode_row(dict(receipt)) if receipt else None
+            allowed, _reason = attempt_persistence_update_decision(
+                current,
+                target_state=state,
+                business_result=business_result,
+                receipt_handle=receipt_handle,
+                receipt=receipt_payload,
+            )
+            if not allowed:
+                return
+            self.conn.execute(
+                """UPDATE transaction_attempts SET state=?, business_result_json=COALESCE(?, business_result_json),
+                   receipt_handle=COALESCE(?, receipt_handle), error_code=?, error=?, updated_at=?,
+                   reconciled_at=CASE WHEN ? THEN ? ELSE reconciled_at END WHERE attempt_id=?""",
+                (
+                    state,
+                    _json(business_result) if business_result is not None else None,
+                    receipt_handle,
+                    error_code,
+                    error,
+                    _now(),
+                    1 if reconciled else 0,
+                    _now(),
+                    attempt_id,
+                ),
+            )
+            self.conn.commit()
 
     def list_reconcilable_attempts(self, *, scope: TransactionScope | None = None, tenant_id: str | None = None, user_id: str | None = None, thread_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         if scope is not None:

@@ -62,6 +62,23 @@ def _exercise_store_provider(provider):
         assert int(second_lock["fencing_token"]) > first_token
         provider.locks.release(lock_key, owner="test-2", fencing_token=int(second_lock["fencing_token"]))
 
+        provider.transactions.create_draft(
+            draft_id=draft_id,
+            tenant_id="tenant-a",
+            user_id="u001",
+            thread_id=thread_id,
+            draft_revision=1,
+            draft_state="AWAITING_AUTHORIZATION",
+            action_id="create_invoice",
+            command_digest="digest",
+            command_envelope=None,
+            projection={
+                "kind": "offer", "handle": draft_id, "draft_id": draft_id,
+                "draft_revision": 1, "draft_state": "AWAITING_AUTHORIZATION",
+                "action_id": "create_invoice", "command_digest": "digest",
+                "confirmation_id": confirmation_id, "confirmation_version": 1,
+            },
+        )
         grant = provider.transactions.issue_grant(
             grant_id=grant_id,
             tenant_id="tenant-a",
@@ -90,8 +107,33 @@ def _exercise_store_provider(provider):
             canonical_payload={"action": "create_invoice"},
         )
         assert started["reserved"] is True
-        provider.transactions.transition_attempt(attempt_id, state="ACKED", business_result={"success": True}, receipt_handle="h_receipt:1")
+        business_result = {"success": True, "data": {"resource_id": f"resource-{suffix}"}}
+        receipt = provider.transactions.record_receipt(
+            receipt_id=f"receipt-{suffix}",
+            tenant_id="tenant-a",
+            user_id="u001",
+            thread_id=thread_id,
+            draft_id=draft_id,
+            attempt_id=attempt_id,
+            receipt_handle=f"h_receipt:{suffix}",
+            receipt_state="SUCCESS",
+            business_result=business_result,
+            business_resource_id=f"resource-{suffix}",
+        )
+        assert receipt["attempt_id"] == attempt_id
+        provider.transactions.transition_attempt(
+            attempt_id,
+            state="ACKED",
+            business_result=business_result,
+            receipt_handle=f"h_receipt:{suffix}",
+        )
         assert provider.transactions.get_attempt(attempt_id)["state"] == "ACKED"
+        provider.transactions.consume_grant(
+            grant_id,
+            attempt_id=attempt_id,
+            receipt_handle=f"h_receipt:{suffix}",
+        )
+        assert provider.transactions.get_grant(grant_id)["state"] == "CONSUMED"
     finally:
         close = getattr(provider, "close", None)
         if callable(close):

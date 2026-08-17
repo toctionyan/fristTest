@@ -5,7 +5,6 @@ from typing import Any
 from uuid import uuid4
 
 from agent_core.transaction.authority import UI_AUTHORITY_PROTOCOL, deterministic_offer_readiness, policy_for_action
-from agent_core.business import ActorContext
 from agent_core.business import BusinessServiceError
 from agent_core.transaction.interaction import business_input_values, interaction_response_contract
 from agent_core.ledger import append_entries, artifact_entry, find_handle, ledger_cards, scope_for_state
@@ -13,21 +12,11 @@ from agent_core.kernel.decision_trace import append_decision as _append_decision
 from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.transaction import DRAFT_REQUIRES_REVIEW, transition_draft
 from agent_core.transaction.active_draft import active_draft_patch
-from agent_core.transaction.coordinator import persist_draft_from_offer
+from agent_core.transaction.coordinator import persist_draft_from_offer, transaction_store
+from agent_core.transaction.command_envelope import actor_context_from_state as _actor_context_from_state, build_business_command_envelope
+from agent_core.transaction.interaction_recovery import restore_awaiting_authority_projection
 from agent_core.transaction.capability_snapshot import snapshot_matches_registry
 from agent_core.transaction.target_contract import allowed_target_resource_types, target_unavailable_message
-
-def _actor_context_from_state(state: dict[str, Any]) -> ActorContext:
-    permissions = tuple(str(item) for item in (state.get("actor_permissions") or []) if str(item))
-    return ActorContext(
-        user_id=str(state.get("current_user_id") or ""),
-        role=str(state.get("current_role") or "customer"),
-        tenant_id=str(state.get("current_tenant_id") or "") or None,
-        subject_user_id=str(state.get("current_subject") or state.get("current_user_id") or "") or None,
-        subject=str(state.get("current_subject") or "") or None,
-        permissions=permissions,
-    )
-
 
 def _refresh_offer_preflight(
     state: dict[str, Any],
@@ -119,13 +108,44 @@ def _mark_offer_awaiting_authority(state: dict[str, Any], offer: dict[str, Any],
     This transition is intentionally deterministic.  No model judgement,
     confidence score, or natural-language interpretation can bypass it.
     """
-    next_offer = transition_draft(offer, "AWAITING_AUTHORIZATION")
+    prior = find_handle(
+        ledger,
+        str(offer.get("handle") or ""),
+        scope=scope_for_state(state),
+        allowed_kinds={"offer"},
+        active_only=False,
+    )
+    next_offer = transition_draft(offer, "AWAITING_AUTHORIZATION", previous=prior)
     next_offer["authority_protocol"] = UI_AUTHORITY_PROTOCOL
     next_offer["authority_requirement"] = "ui_action_authority"
     next_offer["authority_revision"] = int(state.get("turn_index") or 0)
     next_offer["confirmation_id"] = str(uuid4())
     next_offer["confirmation_version"] = int(offer.get("confirmation_version") or 0) + 1
     next_offer["updated_turn"] = int(state.get("turn_index") or 0)
+
+    # Persist a locator for the already-verified target so a lost Workflow
+    # checkpoint can rebuild the card and commit preflight boundary.  Do not
+    # copy mutable business facts here: Business Service remains authoritative
+    # and commit-time preflight must re-read current state.
+    existing_reference = offer.get("target_reference") if isinstance(offer.get("target_reference"), dict) else None
+    if existing_reference is not None:
+        next_offer["target_reference"] = deepcopy(existing_reference)
+    else:
+        target = find_handle(
+            ledger,
+            str(offer.get("target_handle") or ""),
+            scope=scope_for_state(state),
+            allowed_kinds={"artifact"},
+            active_only=False,
+        )
+        if target is not None:
+            next_offer["target_reference"] = {
+                "handle": str(target.get("handle") or ""),
+                "resource_type": str(target.get("resource_type") or ""),
+                "resource_id": str(target.get("resource_id") or ""),
+                "label": str(target.get("label") or ""),
+                "scope": deepcopy(target.get("scope") or scope_for_state(state)),
+            }
     persist_draft_from_offer(state=state, offer=next_offer, draft_state="AWAITING_AUTHORIZATION")
     return append_entries(ledger, [next_offer]), next_offer
 
@@ -141,6 +161,30 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
             "phase": "offer_confirmation",
             "status": "TransactionInteractionRequired",
         }
+
+    # A resumed Workflow checkpoint may have lost the ephemeral offer/card
+    # projection while the durable transaction repository still owns an
+    # AWAITING_AUTHORIZATION Draft. Restore only that projection; never
+    # prepare another Draft and never infer Grant authority from chat text.
+    restored = restore_awaiting_authority_projection(state, transactions=transaction_store(state))
+    if restored is not None:
+        restored_state = {**state, **restored}
+        restored_interaction = interaction_response_contract(restored_state)
+        if restored_interaction is not None:
+            restored_interaction = {**restored_interaction, "source": "transaction_repository_projection"}
+            return {
+                **restored,
+                "ledger_snapshot": ledger_cards(
+                    restored_state.get("artifact_ledger") or [],
+                    scope=scope_for_state(restored_state),
+                ),
+                "response_contract": restored_interaction,
+                "commit_authority": None,
+                "current_final_answer": None,
+                "phase": "offer_confirmation",
+                "status": "TransactionInteractionRestored",
+            }
+
     queue = list(state.get("action_queue") or [])
     if not queue:
         return {"response_contract": None, "phase": "agent_loop", "status": "NoActionProposal"}
@@ -258,7 +302,30 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
     # Crucial transaction rule: a chat-originated draft can never auto-commit.  The
     # next transition is always a distinct UI authority interaction containing
     # the exact action, target, revision and one-time token.
-    ledger, pending = _mark_offer_awaiting_authority(state, offer, ledger)
+    # Freeze the exact Business Service command before exposing the
+    # authority card.  The subsequent AuthorityGrant binds this persisted
+    # Draft revision/digest; approval never creates or rewrites the command.
+    try:
+        refreshed["business_command_envelope"] = build_business_command_envelope(state, refreshed, target)
+    except ValueError as exc:
+        failed = transition_draft(refreshed, "FAILED_FINAL", reason="authority_command_envelope_invalid", previous=offer)
+        failed["updated_turn"] = int(state.get("turn_index") or 0)
+        persist_draft_from_offer(state=state, offer=failed, draft_state="FAILED_FINAL")
+        ledger = append_entries(ledger, [failed])
+        result = {
+            "decision": "rejected",
+            "reason": str(exc),
+            "offer_handle": handle,
+            "action_id": offer.get("action_id"),
+            "risk_level": policy.risk_level,
+        }
+        return _gateway_observation_update(
+            state, queue, ledger, result,
+            phase="action_gateway" if queue else "agent_loop",
+            status="ActionCommandEnvelopeInvalid",
+        )
+    refreshed["command_id"] = str((refreshed.get("business_command_envelope") or {}).get("command_id") or "")
+    ledger, pending = _mark_offer_awaiting_authority(state, refreshed, ledger)
     result = {
         "decision": "awaiting_structured_authority",
         "reason": "动作草稿已完成预检，等待用户对明确对象的结构化 UI 授权。",
