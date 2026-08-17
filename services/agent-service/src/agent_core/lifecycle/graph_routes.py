@@ -155,37 +155,6 @@ def _source_effect_by_handle(trace: list[dict[str, Any]]) -> dict[str, str]:
     return mapping
 
 
-def _visible_ledger_for_interaction(
-    state: dict[str, Any],
-    interaction_contract: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Record only the exact business target rendered by a structured card.
-
-    Transaction authority and discourse visibility are deliberately separate.
-    Rendering a verified transaction card makes its exact business target a
-    customer-visible referent, but never grants, preserves or recreates write
-    authority.  The normal VisibleResultRef release path supplies the durable
-    presentation provenance used by later reference proofs.
-    """
-    interaction = (
-        interaction_contract.get("interaction")
-        if isinstance(interaction_contract.get("interaction"), dict)
-        else {}
-    )
-    if str(interaction.get("kind") or "") != "transaction":
-        return list(state.get("artifact_ledger") or [])
-    control = interaction.get("control") if isinstance(interaction.get("control"), dict) else {}
-    target_handle = str(control.get("target_handle") or "").strip()
-    if not target_handle:
-        return list(state.get("artifact_ledger") or [])
-    return mark_visible_result_refs(
-        state.get("artifact_ledger") or [],
-        state=state,
-        evidence_handles=[target_handle],
-        source_effect_by_handle={},
-    )
-
-
 def finalize_agent_loop_turn_node(state: dict[str, Any]) -> dict[str, Any]:
     interaction_contract = explicit_interaction_response_contract(state)
     if interaction_contract is not None:
@@ -193,32 +162,16 @@ def finalize_agent_loop_turn_node(state: dict[str, Any]) -> dict[str, Any]:
         # authority card must never be downgraded into fallback prose.
         interaction = dict(interaction_contract.get("interaction") or {})
         prior_status = str(state.get("status") or "")
-        visible_ledger = _visible_ledger_for_interaction(state, interaction_contract)
         return {
             "current_final_answer": None,
             "response_contract": interaction_contract,
-            "artifact_ledger": visible_ledger,
-            "ledger_snapshot": ledger_cards(visible_ledger, scope=scope_for_state(state)),
             "phase": "offer_confirmation",
             "status": (
                 prior_status
                 if prior_status == "ExecutionDisposition:structured_interaction"
                 else "TransactionInteractionRequired"
             ),
-            "decision_chain": _append_decision(
-                state,
-                stage="finalize_turn",
-                decision="interaction_contract_preempted_final_text",
-                details={
-                    "offer_handle": interaction.get("interaction_id"),
-                    "visible_target_handle": (
-                        (interaction.get("control") or {}).get("target_handle")
-                        if isinstance(interaction.get("control"), dict)
-                        else None
-                    ),
-                    "transaction_authority_inferred_from_visibility": False,
-                },
-            ),
+            "decision_chain": _append_decision(state, stage="finalize_turn", decision="interaction_contract_preempted_final_text", details={"offer_handle": interaction.get("interaction_id")}),
         }
     answer = str(state.get("current_final_answer") or _loop_budget_fallback(state))
     workflow_verification = verify_workflow_for_final_answer(state)
