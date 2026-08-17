@@ -174,7 +174,7 @@
                     {
                       "operation": "SET_GOAL_LIFECYCLE",
                       "goal_id": "refund_goal",
-                      "expected_revision": 2,
+                      "expected_revision": 3,
                       "from": "BLOCKED",
                       "to": "PAUSED",
                       "evidence_span": "先"
@@ -288,7 +288,7 @@
                     {
                       "operation": "SET_GOAL_LIFECYCLE",
                       "goal_id": "refund_goal",
-                      "expected_revision": 3,
+                      "expected_revision": 4,
                       "from": "PAUSED",
                       "to": "ACTIVE",
                       "evidence_span": "继续"
