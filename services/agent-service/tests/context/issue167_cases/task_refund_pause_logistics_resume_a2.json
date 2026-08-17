@@ -298,32 +298,18 @@
                 "id": "issue167:task-resume:t3:goals"
               }
             ]
-          },
-          {
-            "tool_calls": [
-              {
-                "name": "prepare_refund",
-                "args": {
-                  "target": {"mode": "artifact", "left_handle": "artifact:fixture:order:10003"},
-                  "reference_span": "刚才那个",
-                  "action_span": "继续刚才那个",
-                  "goal_ids": ["refund_goal"]
-                },
-                "id": "issue167:task-resume:t3:refund"
-              }
-            ]
           }
         ],
-        "allowed_tools": ["prepare_refund"],
-        "required_tools": ["prepare_refund"],
+        "allowed_tools": [],
+        "required_tools": [],
         "expected": {
-          "terminal_statuses": ["ExecutionDisposition:structured_interaction"],
+          "terminal_statuses": ["PendingInteractionActionRedirect"],
           "workflow_levels": ["L0_DIRECT"],
           "workflow_statuses": ["AWAITING_AUTHORIZATION"],
           "public_interaction": "transaction_interaction",
           "trace": {
-            "must_include": ["prepare_refund", "action_gateway"],
-            "must_not_include": ["get_order_logistics", "commit_action"]
+            "must_include": [],
+            "must_not_include": ["prepare_refund", "action_gateway", "get_order_logistics", "commit_action"]
           },
           "draft": {
             "count": 1,
