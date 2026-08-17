@@ -11,9 +11,10 @@ class G6ResumeWorkflowContractTests(unittest.TestCase):
     def _text(self, name: str) -> str:
         return (WORKFLOWS / name).read_text(encoding="utf-8")
 
-    def test_both_g6_orchestrators_delegate_approval_wait_classification(self) -> None:
+    def test_all_g6_orchestrators_delegate_approval_wait_classification(self) -> None:
         for name in (
             "governed-ci-repair-governance.yml",
+            "governed-ci-repair-solo-governance.yml",
             "governed-ci-existing-candidate-solo-governance.yml",
         ):
             text = self._text(name)
@@ -28,6 +29,9 @@ class G6ResumeWorkflowContractTests(unittest.TestCase):
         self.assertIn("github_repair_exact_head_state.py", text)
         self.assertIn("github_repair_exact_head.py", text)
         self.assertIn("EXACT_HEAD_CI_AWAITING_APPROVAL", text)
+        self.assertIn('governed-ci-repair-governance"', text)
+        self.assertIn('governed-ci-repair-solo-governance"', text)
+        self.assertIn('governed-ci-existing-candidate-solo-governance"', text)
         self.assertNotIn("github_repair_baseline_acceptance.py", text)
         self.assertNotIn("github_repair_governance.py", text)
         self.assertNotIn("git push", text)
@@ -37,6 +41,9 @@ class G6ResumeWorkflowContractTests(unittest.TestCase):
         text = self._text("governed-ci-repair-merge.yml")
         self.assertIn("github_repair_merge_grant.py", text)
         self.assertIn("AUTHORIZE_EXACT_HEAD_MERGE", text)
+        self.assertIn('governed-ci-repair-governance"', text)
+        self.assertIn('governed-ci-repair-solo-governance"', text)
+        self.assertIn('governed-ci-existing-candidate-solo-governance"', text)
         self.assertIn(".head.sha == $head", text)
         self.assertIn(".base.sha == $base", text)
         self.assertIn(".parents[0].sha == $base", text)
