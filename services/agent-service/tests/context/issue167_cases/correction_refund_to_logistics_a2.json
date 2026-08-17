@@ -54,7 +54,7 @@
                       "description": "为用户指定的订单创建退款申请",
                       "evidence_span": "帮我退了这个订单",
                       "goal_type": "action",
-                      "expected_result_cardinality": "one",
+                      "expected_result_cardinality": "single",
                       "required": true,
                       "depends_on": [],
                       "requested_effect": {
@@ -133,7 +133,7 @@
                       "description": "查询用户所指订单的物流",
                       "evidence_span": "我只是想查物流",
                       "goal_type": "query",
-                      "expected_result_cardinality": "one",
+                      "expected_result_cardinality": "single",
                       "required": true,
                       "depends_on": [],
                       "requested_effect": {
