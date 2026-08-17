@@ -84,12 +84,32 @@ class ExistingCandidateAdoptionRuntimeTests(unittest.TestCase):
             "forbidden_changed_prefixes": [".github/", "governance/", "deployment/"],
             "forbidden_changed_exact": ["skill-system/registry/product-source-baseline.json"],
             "required_guard_ids": ["python-test-suites"],
+            "gate_guard_ids": {
+                "G1_CONTRACT_PROJECTION": ["unit-contract"],
+                "G2_SEMANTIC_INVARIANT": ["unit-semantic"],
+                "G3_MUTATION": ["unit-mutation", "python-test-suites"],
+            },
             "verification_commands": [
+                {
+                    "id": "unit-contract",
+                    "cwd": ".",
+                    "argv": ["{python}", "-B", "-c", "print('unit-contract-pass')"],
+                },
+                {
+                    "id": "unit-semantic",
+                    "cwd": ".",
+                    "argv": ["{python}", "-B", "-c", "print('unit-semantic-pass')"],
+                },
+                {
+                    "id": "unit-mutation",
+                    "cwd": ".",
+                    "argv": ["{python}", "-B", "-c", "print('unit-mutation-pass')"],
+                },
                 {
                     "id": "python-test-suites",
                     "cwd": ".",
                     "argv": ["{python}", "-B", "-c", "print('guard-pass')"],
-                }
+                },
             ],
             "violated_invariant": "UNIT-INVARIANT",
             "authority_owner": "deterministic-unit-authority",
@@ -165,6 +185,10 @@ class ExistingCandidateAdoptionRuntimeTests(unittest.TestCase):
         self.assertFalse(publication["deploy_allowed"])
         self.assertFalse(publication["production_closed"])
         self.assertEqual(publication["gates"]["G6_GOVERNANCE_EXACT_HEAD"]["status"], "PENDING")
+        self.assertEqual(
+            publication["gates"]["G2_SEMANTIC_INVARIANT"]["evidence"],
+            ["guard:unit-semantic", "invariant:UNIT-INVARIANT"],
+        )
         self.assertEqual(_git(self.workspace, "rev-parse", "HEAD^{tree}"), before_tree)
         self.assertEqual(_git(self.workspace, "status", "--porcelain=v1", "--untracked-files=all"), "")
 
