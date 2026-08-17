@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   repair:
-    if: "${{ github.event.head_commit.message == 'chore: execute Stage 8 architecture closure' }}"
+    if: "${{ github.event.head_commit.message == 'chore: execute Stage 8 architecture closure v2' }}"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest skill-system/tests/test_architecture_cycle_debt.py
-          python architecture-skill/scripts/verify_convergence.py >/tmp/architecture-convergence.json
+          python architecture-skill/scripts/verify_convergence.py --workspace-root . >/tmp/architecture-convergence.json
           cat /tmp/architecture-convergence.json
       - name: Bootstrap locked uv
         run: >-
