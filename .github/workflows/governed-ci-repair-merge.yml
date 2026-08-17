@@ -1,0 +1,249 @@
+name: governed-ci-repair-merge
+
+on:
+  workflow_dispatch:
+    inputs:
+      exact_head_run_id:
+        description: Successful G6 or G6-resume run containing exact-head-result.json
+        required: true
+        type: string
+      exact_head_run_attempt:
+        description: Exact source run attempt
+        required: false
+        default: '1'
+        type: string
+      approval_token:
+        description: Type AUTHORIZE_EXACT_HEAD_MERGE to issue and consume the merge-only grant
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-ci-repair-merge-${{ inputs.exact_head_run_id }}-${{ inputs.exact_head_run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  exact-head-merge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Require explicit repository-owner merge authorization
+        env:
+          APPROVAL_TOKEN: ${{ inputs.approval_token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "${APPROVAL_TOKEN}" == "AUTHORIZE_EXACT_HEAD_MERGE" ]] || {
+            echo "explicit exact-head merge authorization token is required" >&2
+            exit 1
+          }
+          [[ "${ACTOR}" == "${OWNER}" ]] || {
+            echo "exact-head merge may only be authorized by the repository owner" >&2
+            exit 1
+          }
+
+      - name: Checkout trusted control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve exact immutable G6 final receipt
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.exact_head_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.exact_head_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming merge-evidence
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
+          jq -e --arg attempt "${SOURCE_RUN_ATTEMPT}" '
+            (.name == "governed-ci-repair-governance"
+             or .name == "governed-ci-existing-candidate-solo-governance"
+             or .name == "governed-ci-repair-exact-head-resume")
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/source-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" > incoming/artifacts.json
+          mapfile -t artifact_ids < <(jq -r '
+            [.artifacts[]
+             | select(.expired == false)
+             | select(.name | startswith("governed-ci-repair-g6-")
+                       or startswith("governed-existing-candidate-solo-governance-")
+                       or startswith("governed-ci-repair-exact-head-resume-"))]
+            | sort_by(.created_at) | reverse | .[].id
+          ' incoming/artifacts.json)
+          [[ "${#artifact_ids[@]}" -gt 0 ]] || {
+            echo "no eligible exact-head artifact found" >&2
+            exit 1
+          }
+          found=0
+          for artifact_id in "${artifact_ids[@]}"; do
+            rm -rf incoming/artifact incoming/artifact.zip
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/artifact.zip
+            mkdir -p incoming/artifact
+            unzip -q incoming/artifact.zip -d incoming/artifact
+            mapfile -t matches < <(find incoming/artifact -type f -name exact-head-result.json -print)
+            if [[ "${#matches[@]}" -eq 1 ]]; then
+              cp "${matches[0]}" merge-evidence/exact-head-result.json
+              found=$((found + 1))
+              break
+            fi
+          done
+          [[ "${found}" -eq 1 ]] || {
+            echo "expected exactly one usable exact-head-result.json" >&2
+            exit 1
+          }
+          jq -e '
+            .schema == "governed-repair-exact-head@1"
+            and .status == "READY_FOR_REVIEW"
+            and .governance_closed == true
+            and .baseline_accepted == true
+            and .exact_head_certified == true
+            and .ready_for_review == true
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+            and .gates.G6_GOVERNANCE_EXACT_HEAD.status == "PASS"
+          ' merge-evidence/exact-head-result.json >/dev/null
+          pr_number=$(jq -r '.pull_request_number' merge-evidence/exact-head-result.json)
+          pr_url=$(jq -r '.draft_pr_url' merge-evidence/exact-head-result.json)
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Issue exact PR-head-base MergeGrant
+        id: grant
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.source.outputs.pr_number }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > merge-evidence/pr-before-grant.json
+          jq '{
+            number:.number,
+            url:.html_url,
+            state:(.state | ascii_upcase),
+            is_draft:.draft,
+            head_sha:.head.sha,
+            base_branch:.base.ref,
+            base_sha:.base.sha
+          }' merge-evidence/pr-before-grant.json > merge-evidence/pr-state.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_merge_grant.py \
+            --exact-head-receipt merge-evidence/exact-head-result.json \
+            --pr-state merge-evidence/pr-state.json \
+            --actor "${ACTOR}" \
+            --repository-owner "${OWNER}" \
+            --approval-ref "github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}:owner-exact-head-merge" \
+            --output merge-evidence/merge-grant.json
+          jq -e '
+            .status == "MERGE_GRANT_ISSUED"
+            and .grant_consumed == false
+            and .merge_allowed == true
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' merge-evidence/merge-grant.json >/dev/null
+          echo "head_sha=$(jq -r '.head_sha' merge-evidence/merge-grant.json)" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$(jq -r '.base_sha' merge-evidence/merge-grant.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Recheck grant binding immediately before merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.source.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.grant.outputs.head_sha }}
+          BASE_SHA: ${{ steps.grant.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > merge-evidence/pr-before-merge.json
+          jq -e --arg head "${HEAD_SHA}" --arg base "${BASE_SHA}" '
+            .state == "open"
+            and .draft == false
+            and .head.sha == $head
+            and .base.sha == $base
+          ' merge-evidence/pr-before-merge.json >/dev/null || {
+            echo "PR head/base drifted after MergeGrant issuance" >&2
+            exit 1
+          }
+
+      - name: Consume MergeGrant by merging exact head only
+        id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.source.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.grant.outputs.head_sha }}
+          BASE_SHA: ${{ steps.grant.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/merge" \
+            -f merge_method=merge \
+            -f sha="${HEAD_SHA}" > merge-evidence/merge-response.json
+          jq -e '.merged == true and (.sha | type == "string")' merge-evidence/merge-response.json >/dev/null
+          merge_sha=$(jq -r '.sha' merge-evidence/merge-response.json)
+          [[ "${merge_sha}" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${merge_sha}" > merge-evidence/merge-commit.json
+          jq -e --arg base "${BASE_SHA}" --arg head "${HEAD_SHA}" '
+            (.parents | length) == 2
+            and .parents[0].sha == $base
+            and .parents[1].sha == $head
+          ' merge-evidence/merge-commit.json >/dev/null || {
+            echo "merged commit parent identity does not match the consumed exact base/head grant" >&2
+            exit 1
+          }
+          jq -n \
+            --arg merge_sha "${merge_sha}" \
+            --arg grant_sha "$(jq -r '.merge_grant_sha256' merge-evidence/merge-grant.json)" \
+            --arg head "${HEAD_SHA}" \
+            --arg base "${BASE_SHA}" \
+            '{
+              schema:"governed-repair-merge-consumption@1",
+              status:"MERGED_GRANT_CONSUMED",
+              merge_commit_sha:$merge_sha,
+              merge_grant_sha256:$grant_sha,
+              head_sha:$head,
+              base_sha:$base,
+              grant_consumed:true,
+              merge_allowed:false,
+              deploy_allowed:false,
+              production_closed:false
+            }' > merge-evidence/merge-consumption.json
+          echo "merge_sha=${merge_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable merge authority evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-repair-merge-${{ inputs.exact_head_run_id }}-${{ inputs.exact_head_run_attempt }}
+          path: merge-evidence
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Record consumed merge-only authority
+        if: steps.merge.outputs.merge_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.source.outputs.pr_url }}
+          MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${PR_URL}" --body "Exact-head MergeGrant was issued and consumed in one owner-authorized workflow run. Merge commit: \`${MERGE_SHA}\`. The grant carried merge authority only; deploy_allowed=false and production_closed=false."
