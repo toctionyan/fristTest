@@ -77,6 +77,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${G6_RUN_ID}" > incoming/g6-run.json
           jq -e --arg attempt "${G6_RUN_ATTEMPT}" '
             (.name == "governed-ci-repair-governance"
+             or .name == "governed-ci-repair-solo-governance"
              or .name == "governed-ci-existing-candidate-solo-governance")
             and .status == "completed"
             and .conclusion == "success"
