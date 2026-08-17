@@ -1,12 +1,13 @@
 """Issue #167 A2: ordinal visible-result binding followed by a pronoun question.
 
 The semantic oracle is authored from the user utterances plus the declared
-fixture order.  This lifecycle test proves that the ordinal read reaches the
+fixture order. This lifecycle test proves that the ordinal read reaches the
 second visible order and that the later feasibility question cannot be
 silently converted into the nearby cancellation write path.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from agent_modules.ecommerce.business_port import (
     get_ecommerce_business_port,
     reset_ecommerce_business_port_cache,
 )
-from tests.support.conversation_case_runner import run_conversation_case
+from tests.support import conversation_case_runner
 
 
 CASE_PATH = Path(__file__).parent / "issue167_cases" / "pronoun_second_item_from_visible_list_a2.json"
@@ -45,6 +46,52 @@ def _isolated_runtime(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_BASE", "http://127.0.0.1:9/v1")
     monkeypatch.setenv("OPENAI_MODEL", "deterministic-test-model")
     monkeypatch.setenv("AGENT_BUSINESS_ADAPTER", "ecommerce_http")
+
+    # Keep the authoritative runner assertion unchanged, but enrich any RED
+    # with the exact protocol surface Runtime bound for that invocation. This
+    # is audit-only evidence: it neither catches a pass nor weakens the case.
+    original_assert_turn_contract = conversation_case_runner._assert_turn_contract
+
+    def _diagnostic_assert_turn_contract(**kwargs):
+        try:
+            return original_assert_turn_contract(**kwargs)
+        except AssertionError as exc:
+            model = kwargs["model"]
+            result = kwargs["result"]
+            messages = [
+                {
+                    "type": message.__class__.__name__,
+                    "content": str(getattr(message, "content", ""))[:1000],
+                    "tool_calls": getattr(message, "tool_calls", None),
+                }
+                for message in list(result.get("messages") or [])[-8:]
+            ]
+            raise AssertionError(
+                {
+                    "original": str(exc),
+                    "user_text": kwargs.get("user_text"),
+                    "emitted_tool_calls": deepcopy(model.emitted_tool_calls),
+                    "emitted_tool_batches": deepcopy(model.emitted_tool_batches),
+                    "invoked_bound_tools": [
+                        sorted(names) for names in model.invoked_bound_tool_history
+                    ],
+                    "remaining_steps": model.remaining_steps,
+                    "status": result.get("status"),
+                    "last_error": result.get("last_error"),
+                    "pending_reason": result.get("pending_reason"),
+                    "resolution": result.get("resolution"),
+                    "goal_alignment": result.get("goal_alignment"),
+                    "goal_records": result.get("goal_records"),
+                    "messages_tail": messages,
+                }
+            ) from exc
+
+    monkeypatch.setattr(
+        conversation_case_runner,
+        "_assert_turn_contract",
+        _diagnostic_assert_turn_contract,
+    )
+
     reset_store_provider_cache()
     clear_checkpointer_cache()
     try:
@@ -72,14 +119,14 @@ def test_issue167_second_visible_order_stays_authoritative_for_pronoun_followup(
     assert ORACLE["case_id"] == CASE["id"] == "pronoun_second_item_from_visible_list"
     assert ORACLE["authority"]["derived_from_runtime_output"] is False
 
-    executed = run_conversation_case(CASE)
+    executed = conversation_case_runner.run_conversation_case(CASE)
     assert [turn.user_text for turn in executed.turns] == [
         "我买了什么？",
         "第二个订单物流到哪了？",
         "它能取消吗？",
     ]
 
-    # The second visible member in the declared fixture is order 10002.  The
+    # The second visible member in the declared fixture is order 10002. The
     # authoritative BusinessPort must therefore receive logistics reads only
     # for that order on the ordinal turn; resolving 10001/10003 would prove the
     # runtime used some scope other than the visible result's ordering.
@@ -93,7 +140,7 @@ def test_issue167_second_visible_order_stays_authoritative_for_pronoun_followup(
     ordinal_trace = _trace_names(executed.turns[1].result)
     assert "get_order_logistics" in ordinal_trace
 
-    # ‘它能取消吗’ is a feasibility question.  The installed cancellation
+    # ‘它能取消吗’ is a feasibility question. The installed cancellation
     # capability is an action-draft path and explicitly excludes this wording,
     # so lack of an exact read-only capability must remain unsupported instead
     # of becoming a draft or write.
