@@ -134,7 +134,7 @@
           "public_interaction": "answer",
           "trace": {"must_include": ["list_orders"], "must_not_include": []},
           "draft": {"count": 0},
-          "port_calls": {"read_resource": {"min": 2}, "execute_command": {"max": 0}},
+          "port_calls": {"query_resources": {"min": 1}, "execute_command": {"max": 0}},
           "result_assertions": [
             {"tool": "list_orders", "path": "result.data.count", "equals": 2}
           ],
