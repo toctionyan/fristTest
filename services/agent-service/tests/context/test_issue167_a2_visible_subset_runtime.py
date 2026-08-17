@@ -7,6 +7,7 @@ the second turn must assess exactly that visible collection without a refund wri
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -19,7 +20,12 @@ from agent_modules.ecommerce.business_port import (
     get_ecommerce_business_port,
     reset_ecommerce_business_port_cache,
 )
-from tests.support.conversation_case_runner import run_conversation_case
+from tests.support import conversation_case_runner
+from tests.support.conversation_case_fixtures import (
+    FixtureBusinessPort,
+    fixture_ledger,
+    fixture_orders,
+)
 
 
 CASE_PATH = Path(__file__).parent / "issue167_cases" / "visible_subset_then_action_clarify_a2.json"
@@ -49,6 +55,29 @@ def _isolated_runtime(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_BASE", "http://127.0.0.1:9/v1")
     monkeypatch.setenv("OPENAI_MODEL", "deterministic-test-model")
     monkeypatch.setenv("AGENT_BUSINESS_ADAPTER", "ecommerce_http")
+
+    # The shared runner intentionally owns only the stable base fixture.  This
+    # high-risk collection case declares the same named variant already used by
+    # the Issue #167 pronoun-collection regression, so wire both the BusinessPort
+    # population and initial Ledger from that declared variant.  Do not mutate
+    # product semantics or weaken the two-member assertions to fit the default.
+    variant = str((CASE.get("execution_contract") or {}).get("fixture", {}).get("variant") or "default")
+    orders = fixture_orders(variant)
+
+    def _variant_port() -> FixtureBusinessPort:
+        return FixtureBusinessPort(orders=deepcopy(orders))
+
+    def _variant_ledger(*, tenant_id: str, user_id: str, thread_id: str):
+        return fixture_ledger(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            orders=orders,
+        )
+
+    monkeypatch.setattr(conversation_case_runner, "FixtureBusinessPort", _variant_port)
+    monkeypatch.setattr(conversation_case_runner, "fixture_ledger", _variant_ledger)
+
     reset_store_provider_cache()
     clear_checkpointer_cache()
     try:
@@ -84,7 +113,7 @@ def test_issue167_visible_signed_subset_remains_eligibility_scope() -> None:
     assert ORACLE["case_id"] == CASE["id"] == "visible_subset_then_action_clarify"
     assert ORACLE["authority"]["derived_from_runtime_output"] is False
 
-    executed = run_conversation_case(CASE)
+    executed = conversation_case_runner.run_conversation_case(CASE)
     assert len(executed.turns) == 2
 
     signed_turn, eligibility_turn = executed.turns
