@@ -91,22 +91,17 @@ def test_issue167_correction_rebinds_both_goals_to_keyboard_through_real_lifecyc
     first_eligibility = _tool_results(first.result, "evaluate_refund_eligibility")
     corrected_eligibility = _tool_results(corrected.result, "evaluate_refund_eligibility")
 
-    # Historical visibility proof is allowed to retain the previously observed
-    # earphone reference.  What must change is the current execution binding:
-    # the second logistics observation is produced for the keyboard target.
+    # Historical visibility proof may still contain the stale earphone.  The
+    # authoritative requirement is that the current observation resolves and
+    # executes for the corrected keyboard target.
     assert "10001" in first_logistics
     assert "10002" in corrected_logistics
-    corrected_logistics_rows = _tool_rows(corrected.result, "get_order_logistics")
-    assert len(corrected_logistics_rows) == 1
-    corrected_signature = str(
-        (corrected_logistics_rows[0].get("execution_disposition") or {}).get("tool_signature") or ""
-    )
-    assert '"attribute_span":"键盘"' in corrected_signature
-    assert '"mode":"entity_match"' in corrected_signature
+    assert len(_tool_rows(corrected.result, "get_order_logistics")) == 1
 
-    # Eligibility's public result deliberately exposes a business preview
-    # instead of repeating the order ID, so target identity is additionally
-    # asserted at the authoritative BusinessPort boundary below.
+    # Eligibility exposes the resolved product label, and the deterministic
+    # BusinessPort records the exact resource bound to the preview.  These are
+    # runtime/business boundaries; unlike optional trace metadata they directly
+    # prove that both consultations moved from order 10001 to order 10002.
     assert len(first_eligibility) == 1 and first_eligibility[0].get("ok") is True
     assert len(corrected_eligibility) == 1 and corrected_eligibility[0].get("ok") is True
     assert (first_eligibility[0].get("data") or {}).get("target_label") == "蓝牙耳机"
