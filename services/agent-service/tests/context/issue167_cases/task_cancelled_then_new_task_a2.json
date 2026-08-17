@@ -1,0 +1,344 @@
+{
+  "id": "task_cancelled_then_new_task",
+  "category": "multi_task_interleaving",
+  "turns": [
+    {"role": "user", "text": "帮我取消鼠标订单"},
+    {"role": "assistant", "expected": "cancel_draft_awaiting_authorization"},
+    {"role": "user", "text": "算了不取消了"},
+    {"role": "assistant", "expected": "dismiss_pending_cancel_task_without_business_write"},
+    {"role": "user", "text": "查一下它物流"},
+    {"role": "assistant", "expected": "new_mouse_logistics_task_without_resuming_cancel"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "revoke_cancel_draft_then_start_new_logistics_task_for_same_domain_target",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "cancel_order_on_dismissal_text",
+    "leave_cancel_draft_authorizable_after_explicit_dismissal",
+    "resume_cancel_task_on_new_logistics_request",
+    "duplicate_cancel_draft",
+    "business_write_without_authorization"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "帮我取消鼠标订单",
+        "goal_oracle": [
+          {
+            "oracle_id": "cancel_goal",
+            "goal_type": "action",
+            "evidence_span": "帮我取消鼠标订单",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["prepare_cancel_order"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "cancel",
+              "object_type": "order",
+              "requested_outputs": [
+                {"output_id": "order.cancellation", "evidence_span": "帮我取消鼠标订单"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "为无线鼠标订单准备取消；只生成待授权 Draft，不提交业务写入",
+                  "goals": [
+                    {
+                      "goal_id": "cancel_goal",
+                      "description": "为无线鼠标订单准备取消",
+                      "evidence_span": "帮我取消鼠标订单",
+                      "goal_type": "action",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "order",
+                        "operation": "cancel",
+                        "object_type": "order",
+                        "raw_description": "为无线鼠标订单准备取消",
+                        "requested_outputs": [
+                          {"output_id": "order.cancellation", "evidence_span": "帮我取消鼠标订单"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:task-cancel-new:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "prepare_cancel_order",
+                "args": {
+                  "target": {"mode": "entity_match", "attribute_span": "鼠标"},
+                  "reference_span": "鼠标订单",
+                  "action_span": "帮我取消鼠标订单",
+                  "goal_ids": ["cancel_goal"]
+                },
+                "id": "issue167:task-cancel-new:t1:cancel"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["prepare_cancel_order"],
+        "required_tools": ["prepare_cancel_order"],
+        "expected": {
+          "terminal_statuses": ["ExecutionDisposition:structured_interaction"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["AWAITING_AUTHORIZATION"],
+          "public_interaction": "transaction_interaction",
+          "trace": {
+            "must_include": ["prepare_cancel_order", "action_gateway"],
+            "must_not_include": ["commit_action", "get_order_logistics", "dismiss_offer"]
+          },
+          "draft": {
+            "count": 1,
+            "states": ["AWAITING_AUTHORIZATION"],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "preview_operation": {"min": 1},
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "算了不取消了",
+        "goal_oracle": [
+          {
+            "oracle_id": "dismiss_goal",
+            "goal_type": "action",
+            "evidence_span": "算了不取消了",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["dismiss_offer"],
+            "requested_effect": {
+              "domain": "transaction",
+              "operation": "cancel_draft",
+              "object_type": "transaction_draft",
+              "requested_outputs": [
+                {"output_id": "transaction.draft.dismissal", "evidence_span": "算了不取消了"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "明确放弃上一轮尚未执行的鼠标取消办理；撤销 Draft，并取消旧 cancel Goal，不取消订单本身",
+                  "goals": [
+                    {
+                      "goal_id": "dismiss_goal",
+                      "description": "撤销上一轮尚未执行的鼠标取消 Draft",
+                      "evidence_span": "算了不取消了",
+                      "goal_type": "action",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "transaction",
+                        "operation": "cancel_draft",
+                        "object_type": "transaction_draft",
+                        "raw_description": "撤销上一轮尚未执行的鼠标取消 Draft",
+                        "requested_outputs": [
+                          {"output_id": "transaction.draft.dismissal", "evidence_span": "算了不取消了"}
+                        ]
+                      }
+                    }
+                  ],
+                  "goal_changes": [
+                    {
+                      "operation": "SET_GOAL_LIFECYCLE",
+                      "goal_id": "cancel_goal",
+                      "expected_revision": 2,
+                      "from": "BLOCKED",
+                      "to": "CANCELLED",
+                      "evidence_span": "不取消了"
+                    }
+                  ]
+                },
+                "id": "issue167:task-cancel-new:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "dismiss_offer",
+                "args": {
+                  "offer_handle": "$previous_turn.data.offer_handle",
+                  "reference_span": "算了不取消了",
+                  "goal_ids": ["dismiss_goal"]
+                },
+                "id": "issue167:task-cancel-new:t2:dismiss"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已停止刚才的鼠标订单取消办理；未提交取消订单。",
+                  "evidence_handles": ["$last_tool.data.dismissed_offer"],
+                  "goal_ids": ["dismiss_goal"]
+                },
+                "id": "issue167:task-cancel-new:t2:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["dismiss_offer", "respond_to_user"],
+        "required_tools": ["dismiss_offer", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["dismiss_offer"],
+            "must_not_include": ["prepare_cancel_order", "action_gateway", "commit_action", "get_order_logistics"]
+          },
+          "port_calls": {
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "查一下它物流",
+        "goal_oracle": [
+          {
+            "oracle_id": "logistics_goal",
+            "goal_type": "query",
+            "evidence_span": "查一下它物流",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["get_order_logistics"],
+            "requested_effect": {
+              "domain": "shipment",
+              "operation": "track",
+              "object_type": "shipment",
+              "requested_outputs": [
+                {"output_id": "shipment.tracking", "evidence_span": "物流"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "开启新的只读物流查询；它仍指向刚才被放弃取消办理的无线鼠标订单，但不继承任何取消事务权限",
+                  "goals": [
+                    {
+                      "goal_id": "logistics_goal",
+                      "description": "查询同一无线鼠标订单的物流进展",
+                      "evidence_span": "查一下它物流",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "shipment",
+                        "operation": "track",
+                        "object_type": "shipment",
+                        "raw_description": "查询同一无线鼠标订单的物流进展",
+                        "requested_outputs": [
+                          {"output_id": "shipment.tracking", "evidence_span": "物流"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:task-cancel-new:t3:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "get_order_logistics",
+                "args": {
+                  "target": {"mode": "artifact", "left_handle": "artifact:fixture:order:10003"},
+                  "expected_shape": "one",
+                  "reference_span": "它",
+                  "goal_ids": ["logistics_goal"]
+                },
+                "id": "issue167:task-cancel-new:t3:logistics"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已查询同一个无线鼠标订单的物流；刚才的取消办理保持撤销。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["logistics_goal"]
+                },
+                "id": "issue167:task-cancel-new:t3:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["get_order_logistics", "respond_to_user"],
+        "required_tools": ["get_order_logistics", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["get_order_logistics"],
+            "must_not_include": ["prepare_cancel_order", "dismiss_offer", "action_gateway", "commit_action"]
+          },
+          "port_calls": {
+            "read_resource": {"min": 1},
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {"behavior": "cancel_order_on_dismissal_text", "kind": "trace_absent", "tool_names": ["prepare_cancel_order", "commit_action"]},
+      {"behavior": "leave_cancel_draft_authorizable_after_explicit_dismissal", "kind": "no_business_write"},
+      {"behavior": "resume_cancel_task_on_new_logistics_request", "kind": "trace_absent", "tool_names": ["prepare_cancel_order", "commit_action"]},
+      {"behavior": "duplicate_cancel_draft", "kind": "no_business_write"},
+      {"behavior": "business_write_without_authorization", "kind": "no_business_write"}
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["prepare_cancel_order", "dismiss_offer", "get_order_logistics"],
+    "preproduction_forbidden_tools": ["commit_action"]
+  }
+}
