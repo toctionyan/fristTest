@@ -29,12 +29,15 @@ The complete known consumer inventory for this lifecycle is:
 1. `scripts/github_repair_baseline_acceptance.py` — sole baseline-acceptance mutation owner; creates the accepted-baseline child commit and leaves G6 pending.
 2. `scripts/github_repair_exact_head_state.py` — sole external exact-head CI state classifier; no mutation authority.
 3. `scripts/github_repair_exact_head.py` — sole G6 exact-head finalizer from accepted-baseline + successful exact-PR CI evidence.
-4. `.github/workflows/governed-ci-repair-governance.yml` — protected multi-review governance orchestration consumer.
-5. `.github/workflows/governed-ci-existing-candidate-solo-governance.yml` — solo-owner existing-candidate orchestration consumer.
-6. `.github/workflows/governed-ci-repair-exact-head-resume.yml` — resume-only consumer; may finalize G6 but cannot repeat governance/baseline acceptance.
-7. `scripts/github_repair_merge_grant.py` — sole machine authority for converting `READY_FOR_REVIEW` evidence into exact PR/head/base merge-only authority.
-8. `.github/workflows/governed-ci-repair-merge.yml` — sole intended grant consumer; rechecks binding, merges exact head, verifies merge parents, and records grant consumption.
-9. GitHub Ruleset / branch protection for `main` — platform enforcement remains separately blocked by Issue #1475 and is not claimed closed by this code repair.
+4. `.github/workflows/governed-ci-repair-governance.yml` — protected multi-review Stage-3 governance orchestration consumer.
+5. `.github/workflows/governed-ci-repair-solo-governance.yml` — solo-owner Stage-3 governance orchestration consumer.
+6. `.github/workflows/governed-ci-existing-candidate-solo-governance.yml` — solo-owner existing-candidate orchestration consumer.
+7. `.github/workflows/governed-ci-repair-exact-head-resume.yml` — resume-only consumer for all three G6 entrypoints; may finalize G6 but cannot repeat governance/baseline acceptance.
+8. `scripts/github_repair_merge_grant.py` — sole machine authority for converting `READY_FOR_REVIEW` evidence into exact PR/head/base merge-only authority.
+9. `.github/workflows/governed-ci-repair-merge.yml` — sole intended grant consumer; accepts final evidence from all three G6 entrypoints or the resume workflow, rechecks binding, merges exact head, verifies merge parents, and records grant consumption.
+10. GitHub Ruleset / branch protection for `main` — platform enforcement remains separately blocked by Issue #1475 and is not claimed closed by this code repair.
+
+The initial inventory missed `.github/workflows/governed-ci-repair-solo-governance.yml`; the first fresh Skill failure exposed that omission through the existing environment-contract gate. The repair therefore expands the same structural state authority to that consumer instead of adding a one-off test exception.
 
 No product/runtime or deployment consumer is permitted to interpret these receipts as production authority.
 
@@ -43,7 +46,7 @@ No product/runtime or deployment consumer is permitted to interpret these receip
 Acceptance requires:
 
 - authority count = 1 for baseline mutation, exact-head state classification, G6 finalization, and MergeGrant issuance;
-- both G6 orchestration consumers delegate `action_required` classification to the same classifier;
+- all three G6 orchestration consumers delegate `action_required` classification to the same classifier;
 - the resume workflow contains no baseline-acceptance invocation or candidate-source write;
 - positive/negative transition matrix covers success, pending, approval wait, terminal failure, stale head, wrong event/PR, non-owner grant, Draft PR, and tampered receipt;
 - replay of the PR #1348 `action_required` incident terminates in `EXACT_HEAD_CI_AWAITING_APPROVAL`, then resumes from the same accepted-baseline receipt;
