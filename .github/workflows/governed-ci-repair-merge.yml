@@ -77,6 +77,7 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
           jq -e --arg attempt "${SOURCE_RUN_ATTEMPT}" '
             (.name == "governed-ci-repair-governance"
+             or .name == "governed-ci-repair-solo-governance"
              or .name == "governed-ci-existing-candidate-solo-governance"
              or .name == "governed-ci-repair-exact-head-resume")
             and .status == "completed"
@@ -88,6 +89,7 @@ jobs:
             [.artifacts[]
              | select(.expired == false)
              | select(.name | startswith("governed-ci-repair-g6-")
+                       or startswith("governed-ci-repair-solo-g6-")
                        or startswith("governed-existing-candidate-solo-governance-")
                        or startswith("governed-ci-repair-exact-head-resume-"))]
             | sort_by(.created_at) | reverse | .[].id
