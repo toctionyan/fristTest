@@ -1,0 +1,93 @@
+name: Temporary Stage 8 Complete Chain Repair v3
+
+"on":
+  push:
+    branches: [fix/proof-authority-lifecycle-20260816]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: "${{ github.event.head_commit.message == 'test: execute Stage 8 complete-chain repair v3' }}"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Apply complete-chain repair
+        run: python .github/stage8_round5_chain_patch_v3.py
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Run Stage 8 authority and recovery regressions
+        working-directory: services/agent-service
+        env:
+          PYTHONPATH: src
+          APP_PROFILE: local
+        run: >-
+          .venv/bin/python -B -m pytest
+          tests/transactions
+          tests/context/test_transaction_commit_reference_continuity.py
+          -m 'not integration'
+          -q
+      - name: Commit bounded product repair
+        run: |
+          set -euo pipefail
+          git diff --check
+          cat > /tmp/expected <<'EOF'
+          services/agent-service/src/agent_core/transaction/persistence_policy.py
+          services/agent-service/src/agent_core/persistence/action_lifecycle_store.py
+          services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py
+          services/agent-service/tests/transactions/test_transaction_storage.py
+          services/agent-service/tests/transactions/test_transaction_protocol.py
+          services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
+          EOF
+          sort -o /tmp/expected /tmp/expected
+          { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u > /tmp/actual
+          diff -u /tmp/expected /tmp/actual
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/transaction/persistence_policy.py \
+            services/agent-service/src/agent_core/persistence/action_lifecycle_store.py \
+            services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py \
+            services/agent-service/tests/transactions/test_transaction_storage.py \
+            services/agent-service/tests/transactions/test_transaction_protocol.py \
+            services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
+          git diff --cached --check
+          git commit -m 'fix: require canonical transaction chain for Grant and Draft closure'
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Refresh protected baseline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('.').resolve(); path=root/'skill-system/registry/product-source-baseline.json'
+          payload=json.loads(path.read_text(encoding='utf-8')); roots=tuple(str(v) for v in payload['protected_roots'])
+          raw=subprocess.check_output(['git','ls-files','-z','--',*roots],cwd=root); tracked=sorted(x.decode() for x in raw.split(b'\0') if x)
+          payload['generated_from']='git:'+os.environ['SOURCE_SHA']; payload['generated_at']=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z')
+          payload['file_count']=len(tracked); payload['files']={p:hashlib.sha256((root/p).read_bytes()).hexdigest() for p in tracked}
+          path.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          print({'generated_from':payload['generated_from'],'file_count':len(tracked)})
+          PY
+          python -m unittest skill-system/tests/test_product_source_baseline_binding.py
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = 'skill-system/registry/product-source-baseline.json'
+      - name: Publish repair and baseline
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'chore: refresh Stage 8 complete-chain baseline'
+          git push origin HEAD:fix/proof-authority-lifecycle-20260816
