@@ -19,7 +19,7 @@ from agent_modules.ecommerce.business_port import (
     get_ecommerce_business_port,
     reset_ecommerce_business_port_cache,
 )
-from tests.support.conversation_case_runner import run_conversation_case
+from tests.support import conversation_case_runner
 
 
 CASE_PATH = Path(__file__).parent / "issue167_cases" / "task_refund_pause_logistics_resume_a2.json"
@@ -98,11 +98,80 @@ def _goal_record(turn_result: dict, goal_id: str) -> dict:
     return rows[0]
 
 
-def test_issue167_refund_task_pauses_for_logistics_and_resumes_same_draft() -> None:
+def _install_first_red_diagnostics(monkeypatch) -> None:
+    """Preserve every shared assertion, but enrich the first failing turn.
+
+    This is audit-only instrumentation for Pack A. It does not skip, weaken or
+    replace any conversation contract assertion and can be removed once the
+    first meaningful owner is localized.
+    """
+    original = conversation_case_runner._assert_turn_contract
+
+    def _diagnostic_assert_turn_contract(**kwargs):
+        try:
+            return original(**kwargs)
+        except AssertionError as exc:
+            model = kwargs.get("model")
+            result = kwargs.get("result") if isinstance(kwargs.get("result"), dict) else {}
+            trace = []
+            for row in list(result.get("tool_trace") or []):
+                if not isinstance(row, dict):
+                    continue
+                tool_result = row.get("result") if isinstance(row.get("result"), dict) else {}
+                trace.append(
+                    {
+                        "name": str(row.get("name") or ""),
+                        "classification": str(row.get("classification") or ""),
+                        "ok": tool_result.get("ok"),
+                        "code": tool_result.get("code"),
+                        "message": tool_result.get("message"),
+                    }
+                )
+            details = {
+                "user_text": kwargs.get("user_text"),
+                "status": result.get("status"),
+                "phase": result.get("phase"),
+                "workflow_state": result.get("workflow_state"),
+                "emitted_tool_calls": [
+                    {
+                        "name": str(call.get("name") or ""),
+                        "args": call.get("args"),
+                    }
+                    for call in list(getattr(model, "emitted_tool_calls", []) or [])
+                    if isinstance(call, dict)
+                ],
+                "emitted_tool_batches": list(getattr(model, "emitted_tool_batches", []) or []),
+                "invoked_bound_tool_history": [
+                    sorted(str(name) for name in names)
+                    for names in list(getattr(model, "invoked_bound_tool_history", []) or [])
+                ],
+                "remaining_steps": getattr(model, "remaining_steps", None),
+                "goal_records": result.get("goal_records"),
+                "current_turn_plan": result.get("current_turn_plan"),
+                "frozen_semantic_contract": result.get("frozen_semantic_contract"),
+                "capability_surface": result.get("capability_surface"),
+                "latest_execution_disposition": result.get("latest_execution_disposition"),
+                "action_gateway_result": result.get("action_gateway_result"),
+                "tool_trace": trace,
+            }
+            raise AssertionError(
+                f"{exc}\nISSUE167_TASK_RESUME_FIRST_RED="
+                + json.dumps(details, ensure_ascii=False, sort_keys=True, default=str)
+            ) from exc
+
+    monkeypatch.setattr(
+        conversation_case_runner,
+        "_assert_turn_contract",
+        _diagnostic_assert_turn_contract,
+    )
+
+
+def test_issue167_refund_task_pauses_for_logistics_and_resumes_same_draft(monkeypatch) -> None:
     assert ORACLE["case_id"] == CASE["id"] == "task_refund_pause_logistics_resume"
     assert ORACLE["authority"]["derived_from_runtime_output"] is False
+    _install_first_red_diagnostics(monkeypatch)
 
-    executed = run_conversation_case(CASE)
+    executed = conversation_case_runner.run_conversation_case(CASE)
     assert len(executed.turns) == 3
     refund_turn, logistics_turn, resume_turn = executed.turns
 
