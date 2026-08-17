@@ -14,6 +14,7 @@ for entry in (SCRIPTS, CONTROL):
         sys.path.insert(0, str(entry))
 
 import github_repair_exact_head as exact_head  # noqa: E402
+import github_repair_exact_head_state as exact_head_state  # noqa: E402
 from task_run import (  # noqa: E402
     ALLOWED_TRANSITIONS,
     InvalidTaskTransitionError,
@@ -68,7 +69,7 @@ def _baseline(exact_sha: str) -> dict[str, object]:
     return payload
 
 
-def _ci(exact_sha: str) -> dict[str, object]:
+def _ci(exact_sha: str, *, conclusion: str = "success") -> dict[str, object]:
     return {
         "schema": "governed-repair-exact-head-ci@1",
         "head_sha": exact_sha,
@@ -80,7 +81,7 @@ def _ci(exact_sha: str) -> dict[str, object]:
             "quality": {
                 "run_id": "100",
                 "status": "completed",
-                "conclusion": "success",
+                "conclusion": conclusion,
                 "head_sha": exact_sha,
                 "event": "pull_request",
                 "pr_number": 99,
@@ -88,7 +89,7 @@ def _ci(exact_sha: str) -> dict[str, object]:
             "skill-self-validation": {
                 "run_id": "101",
                 "status": "completed",
-                "conclusion": "success",
+                "conclusion": conclusion,
                 "head_sha": exact_sha,
                 "event": "pull_request",
                 "pr_number": 99,
@@ -173,6 +174,74 @@ class ExactHeadTaskTransitionTests(unittest.TestCase):
             self.assertFalse(result["merge_allowed"])
             self.assertFalse(result["deploy_allowed"])
             self.assertFalse(result["production_closed"])
+
+    def test_g6_closure_rehearsal_from_approval_wait_is_repeatable(self) -> None:
+        exact_sha = "8" * 40
+        draft_pr_url = "https://github.com/owner/repo/pull/99"
+        for attempt in range(100):
+            with self.subTest(attempt=attempt), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                baseline_path = root / "baseline.json"
+                ci_path = root / "ci.json"
+                task_path = root / "task.json"
+                output_path = root / "final.json"
+                _write(baseline_path, _baseline(exact_sha))
+                _write(task_path, _task(exact_sha))
+                baseline_before = baseline_path.read_bytes()
+
+                approval_wait = exact_head_state.classify_exact_head_ci(
+                    _ci(exact_sha, conclusion="action_required"),
+                    exact_sha=exact_sha,
+                    draft_pr_url=draft_pr_url,
+                )
+                self.assertEqual(
+                    approval_wait["status"],
+                    exact_head_state.STATE_AWAITING_APPROVAL,
+                )
+                self.assertTrue(approval_wait["resume_required"])
+                self.assertFalse(approval_wait["finalize_allowed"])
+                self.assertFalse(approval_wait["baseline_mutation_allowed"])
+                self.assertFalse(approval_wait["merge_allowed"])
+                self.assertFalse(approval_wait["deploy_allowed"])
+                self.assertFalse(approval_wait["production_closed"])
+
+                passed_ci = _ci(exact_sha, conclusion="success")
+                resumed = exact_head_state.classify_exact_head_ci(
+                    passed_ci,
+                    exact_sha=exact_sha,
+                    draft_pr_url=draft_pr_url,
+                )
+                self.assertEqual(resumed["status"], exact_head_state.STATE_PASSED)
+                self.assertFalse(resumed["resume_required"])
+                self.assertTrue(resumed["finalize_allowed"])
+                self.assertFalse(resumed["baseline_mutation_allowed"])
+                _write(ci_path, passed_ci)
+
+                result = exact_head.finalize_exact_head(
+                    baseline_receipt_path=baseline_path,
+                    ci_evidence_path=ci_path,
+                    task_run_path=task_path,
+                    output_path=output_path,
+                )
+
+                persisted = json.loads(task_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    [row["status"] for row in persisted["checkpoints"]],
+                    ["VALIDATING", "COMPLETED"],
+                )
+                self.assertEqual(persisted["status"], "COMPLETED")
+                self.assertEqual(persisted["phase"], "COMPLETED")
+                self.assertEqual(baseline_path.read_bytes(), baseline_before)
+                self.assertEqual(result["status"], "READY_FOR_REVIEW")
+                self.assertEqual(
+                    result["gates"]["G6_GOVERNANCE_EXACT_HEAD"]["status"],
+                    "PASS",
+                )
+                self.assertTrue(result["exact_head_certified"])
+                self.assertTrue(result["ready_for_review"])
+                self.assertFalse(result["merge_allowed"])
+                self.assertFalse(result["deploy_allowed"])
+                self.assertFalse(result["production_closed"])
 
 
 if __name__ == "__main__":
