@@ -5,11 +5,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
+SCRIPTS = ROOT / "scripts"
 
 
 class G6ResumeWorkflowContractTests(unittest.TestCase):
     def _text(self, name: str) -> str:
         return (WORKFLOWS / name).read_text(encoding="utf-8")
+
+    def _script_owners(self, marker: str) -> list[str]:
+        owners: list[str] = []
+        for path in SCRIPTS.glob("*.py"):
+            if marker in path.read_text(encoding="utf-8"):
+                owners.append(path.name)
+        return sorted(owners)
 
     def test_all_g6_orchestrators_delegate_approval_wait_classification(self) -> None:
         for name in (
@@ -54,9 +62,27 @@ class G6ResumeWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("production-certification-release", text)
         self.assertNotIn("release.yml", text)
 
+    def test_single_authority_owner_per_lifecycle_transition(self) -> None:
+        self.assertEqual(
+            self._script_owners("def accept_baseline("),
+            ["github_repair_baseline_acceptance.py"],
+        )
+        self.assertEqual(
+            self._script_owners("def classify_exact_head_ci("),
+            ["github_repair_exact_head_state.py"],
+        )
+        self.assertEqual(
+            self._script_owners("def finalize_exact_head("),
+            ["github_repair_exact_head.py"],
+        )
+        self.assertEqual(
+            self._script_owners("def issue_merge_grant("),
+            ["github_repair_merge_grant.py"],
+        )
+
     def test_single_script_owner_for_merge_grant_issuance(self) -> None:
         owners = []
-        for path in (ROOT / "scripts").glob("*.py"):
+        for path in SCRIPTS.glob("*.py"):
             text = path.read_text(encoding="utf-8")
             if '"MERGE_GRANT_ISSUED"' in text:
                 owners.append(path.name)
