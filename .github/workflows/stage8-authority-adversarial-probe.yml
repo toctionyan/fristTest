@@ -1,0 +1,102 @@
+name: Temporary Stage 8 Authority Adversarial Probe
+
+"on":
+  push:
+    branches:
+      - fix/proof-authority-lifecycle-20260816
+
+permissions:
+  contents: read
+
+jobs:
+  terminal-monotonicity-probe:
+    if: "${{ github.event.head_commit.message == 'test: probe Stage 8 terminal transaction monotonicity' }}"
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+      - name: Materialize Stage 8 adversarial probes
+        run: |
+          cat > services/agent-service/tests/_stage8_terminal_probe.py <<'PY'
+          from __future__ import annotations
+
+          from agent_core.ledger import append_entries, find_handle, offer_entry
+          from agent_core.persistence.action_lifecycle_store import TransactionLifecycleStore
+          from agent_core.transaction import transition_draft
+
+          SCOPE = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "stage8-terminal"}
+
+          def _offer():
+              return offer_entry(
+                  action_id="create_refund",
+                  operation="APPLY_REFUND",
+                  target_handle="artifact:order:10002",
+                  input_values={"reason": "质量问题", "expected_version": 1},
+                  preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
+                  scope=SCOPE,
+                  turn=1,
+                  label="退款申请",
+                  handle="draft:refund:stage8-terminal",
+              )
+
+          def test_durable_terminal_draft_cannot_be_reopened_by_stale_checkpoint(tmp_path):
+              store = TransactionLifecycleStore(tmp_path / "agent.db")
+              offer = _offer()
+              store.create_draft(
+                  draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_revision=offer["draft_revision"],
+                  draft_state="AWAITING_AUTHORIZATION", action_id=offer["action_id"],
+                  command_digest=offer["command_digest"], command_envelope=None, projection=offer,
+              )
+              store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
+              store.record_receipt(
+                  receipt_id="receipt:stage8", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id="attempt:stage8",
+                  receipt_handle="h_receipt:stage8", receipt_state="SUCCESS",
+                  business_result={"success": True, "data": {"refund_id": "R-stage8"}},
+                  business_resource_id="R-stage8",
+              )
+              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+
+              # Simulate a stale Workflow checkpoint replaying its old pending card.
+              store.create_draft(
+                  draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
+                  thread_id=SCOPE["thread_id"], draft_revision=offer["draft_revision"],
+                  draft_state="AWAITING_AUTHORIZATION", action_id=offer["action_id"],
+                  command_digest=offer["command_digest"], command_envelope=None, projection=offer,
+              )
+              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+
+              # A duplicate/late process must not downgrade a durable terminal result either.
+              store.advance_draft(
+                  offer["draft_id"], draft_state="SUBMISSION_UNKNOWN",
+                  draft_revision=offer["draft_revision"], current_attempt_id="attempt:stage8",
+              )
+              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
+
+          def test_terminal_offer_in_ledger_cannot_be_reopened_by_later_stale_projection():
+              committed = transition_draft(_offer(), "COMMITTED")
+              stale = transition_draft(_offer(), "AWAITING_AUTHORIZATION")
+              stale["updated_turn"] = committed.get("updated_turn", 1) + 1
+              ledger = append_entries([committed], [stale])
+              row = find_handle(
+                  ledger, committed["handle"], scope=SCOPE,
+                  allowed_kinds={"offer"}, active_only=False,
+              )
+              assert row is not None
+              assert row["draft_state"] == "COMMITTED"
+          PY
+      - name: Run Stage 8 adversarial probes
+        working-directory: services/agent-service
+        env:
+          PYTHONPATH: src
+        run: .venv/bin/python -B -m pytest tests/_stage8_terminal_probe.py -q
