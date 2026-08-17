@@ -9,6 +9,10 @@ human review: it requires an explicit repository-owner acknowledgement, preserve
 all machine gates and exact-PR/exact-SHA CI, and must leave the PR Draft. The two
 modes are separate workflows so solo operation cannot silently weaken the
 multi-user environment boundary.
+
+Exact-head workflow status classification is owned by one deterministic controller
+so GitHub `action_required` can be represented as a resumable external approval
+wait without weakening exact PR/SHA/workflow identity checks.
 """
 
 import json
@@ -19,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MULTI_WORKFLOW_REL = ".github/workflows/governed-ci-repair-governance.yml"
 SOLO_WORKFLOW_REL = ".github/workflows/governed-ci-repair-solo-governance.yml"
 EXACT_HEAD_REL = "scripts/github_repair_exact_head.py"
+EXACT_HEAD_STATE_REL = "scripts/github_repair_exact_head_state.py"
 
 MULTI_REQUIRED_MARKERS = (
     "environment:\n      name: governed-repair-governance",
@@ -34,8 +39,9 @@ MULTI_REQUIRED_MARKERS = (
     '.event == "pull_request"',
     ".pull_requests[]?",
     "pr_number:($pr_number|tonumber)",
-    '.workflows.quality.event == "pull_request"',
-    '.workflows["skill-self-validation"].event == "pull_request"',
+    "github_repair_exact_head_state.py",
+    "EXACT_HEAD_CI_AWAITING_APPROVAL",
+    "EXACT_HEAD_CI_PASSED",
     "exact-head pull-request CI",
 )
 
@@ -50,6 +56,7 @@ SOLO_REQUIRED_MARKERS = (
     "github_repair_governance.py",
     "github_repair_baseline_acceptance.py",
     "verify_product_source_baseline.py",
+    "github_repair_exact_head_state.py",
     "github_repair_exact_head.py",
     'governance_mode:"solo_owner"',
     "independent_human_review:false",
@@ -62,6 +69,8 @@ SOLO_REQUIRED_MARKERS = (
     "pr_number:($pr_number|tonumber)",
     '.workflows.quality.event == "pull_request"',
     '.workflows["skill-self-validation"].event == "pull_request"',
+    "EXACT_HEAD_CI_AWAITING_APPROVAL",
+    "EXACT_HEAD_CI_PASSED",
     "no independent human review claim",
 )
 
@@ -73,6 +82,20 @@ EXACT_HEAD_REQUIRED_MARKERS = (
     'if str(ci.get("pr_url") or "") != draft_pr_url',
     'if str(ci.get("pr_head_sha") or "") != exact_sha',
     "pull-request:{expected_pr_number}",
+)
+
+EXACT_HEAD_STATE_REQUIRED_MARKERS = (
+    'STATE_AWAITING_APPROVAL = "EXACT_HEAD_CI_AWAITING_APPROVAL"',
+    'STATE_FAILED = "EXACT_HEAD_CI_FAILED"',
+    'STATE_PASSED = "EXACT_HEAD_CI_PASSED"',
+    'if row.get("event") != "pull_request"',
+    'if int(row.get("pr_number") or 0) != expected_pr_number',
+    'if str(ci.get("pr_head_sha") or "") != exact_sha',
+    'elif conclusion == "action_required"',
+    '"baseline_mutation_allowed": False',
+    '"merge_allowed": False',
+    '"deploy_allowed": False',
+    '"production_closed": False',
 )
 
 GLOBAL_FORBIDDEN_MARKERS = (
@@ -110,6 +133,12 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     multi = _read(root, MULTI_WORKFLOW_REL, "multi_user_governance_workflow_missing", errors)
     solo = _read(root, SOLO_WORKFLOW_REL, "solo_owner_governance_workflow_missing", errors)
     exact_head = _read(root, EXACT_HEAD_REL, "exact_head_controller_missing", errors)
+    exact_head_state = _read(
+        root,
+        EXACT_HEAD_STATE_REL,
+        "exact_head_state_controller_missing",
+        errors,
+    )
 
     _require_markers(
         source=multi,
@@ -129,9 +158,15 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
         prefix="exact_pr_ci_contract_missing",
         errors=errors,
     )
+    _require_markers(
+        source=exact_head_state,
+        markers=EXACT_HEAD_STATE_REQUIRED_MARKERS,
+        prefix="exact_pr_ci_state_contract_missing",
+        errors=errors,
+    )
 
     for marker in GLOBAL_FORBIDDEN_MARKERS:
-        if marker in multi or marker in solo or marker in exact_head:
+        if marker in multi or marker in solo or marker in exact_head or marker in exact_head_state:
             errors.append(f"governance_forbidden_authority:{marker}")
     for marker in SOLO_FORBIDDEN_MARKERS:
         if marker in solo:
@@ -156,10 +191,11 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"{mode}_exact_pr_ci_pr_number_filter_incomplete")
         governance_index = workflow.find("github_repair_governance.py")
         baseline_index = workflow.find("github_repair_baseline_acceptance.py")
+        state_index = workflow.find("github_repair_exact_head_state.py")
         exact_index = workflow.find("github_repair_exact_head.py")
-        if min(governance_index, baseline_index, exact_index) < 0:
+        if min(governance_index, baseline_index, state_index, exact_index) < 0:
             errors.append(f"{mode}_g6_transition_order_unverifiable")
-        elif not governance_index < baseline_index < exact_index:
+        elif not governance_index < baseline_index < state_index < exact_index:
             errors.append(f"{mode}_g6_transition_order_drift")
 
     owner_check = solo.find('if [[ "${GITHUB_ACTOR}" != "${GITHUB_REPOSITORY_OWNER}" ]]; then')
@@ -169,7 +205,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
 
     errors = list(dict.fromkeys(errors))
     return {
-        "schema": "governed-repair-environment-contract@3",
+        "schema": "governed-repair-environment-contract@4",
         "status": "PASS" if not errors else "FAIL",
         "multi_user": {
             "environment": "governed-repair-governance",
@@ -185,6 +221,8 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
             "pr_remains_draft": True,
         },
         "requires_exact_pr_pull_request_ci": True,
+        "exact_head_state_authority": "scripts/github_repair_exact_head_state.py",
+        "action_required_is_resumable": True,
         "push_or_manual_ci_can_satisfy_g6": False,
         "dispatch_token_authority": False,
         "merge_allowed": False,

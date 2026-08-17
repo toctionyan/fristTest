@@ -1,0 +1,252 @@
+name: governed-ci-repair-exact-head-resume
+
+on:
+  workflow_dispatch:
+    inputs:
+      g6_run_id:
+        description: Exact prior G6 workflow run that stopped in approval-wait state
+        required: true
+        type: string
+      g6_run_attempt:
+        description: Exact prior G6 run attempt
+        required: false
+        default: '1'
+        type: string
+      resume_token:
+        description: Type RESUME_EXACT_HEAD_CERTIFICATION after approving the exact-head workflows
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-ci-repair-exact-head-resume-${{ inputs.g6_run_id }}-${{ inputs.g6_run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  resume-exact-head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Require repository-owner resume acknowledgement
+        env:
+          RESUME_TOKEN: ${{ inputs.resume_token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [[ "${RESUME_TOKEN}" == "RESUME_EXACT_HEAD_CERTIFICATION" ]] || {
+            echo "explicit exact-head resume token is required" >&2
+            exit 1
+          }
+          [[ "${ACTOR}" == "${OWNER}" ]] || {
+            echo "exact-head resume may only be invoked by the repository owner" >&2
+            exit 1
+          }
+
+      - name: Checkout trusted control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve immutable approval-wait G6 evidence
+        id: prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+          G6_RUN_ID: ${{ inputs.g6_run_id }}
+          G6_RUN_ATTEMPT: ${{ inputs.g6_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "${G6_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${G6_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming resume-evidence
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${G6_RUN_ID}" > incoming/g6-run.json
+          jq -e --arg attempt "${G6_RUN_ATTEMPT}" '
+            (.name == "governed-ci-repair-governance"
+             or .name == "governed-ci-repair-solo-governance"
+             or .name == "governed-ci-existing-candidate-solo-governance")
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/g6-run.json >/dev/null
+          workflow_name=$(jq -r '.name' incoming/g6-run.json)
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${G6_RUN_ID}/artifacts?per_page=100" > incoming/artifacts.json
+          artifact_id=$(jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/g6.zip
+          unzip -q incoming/g6.zip -d incoming/g6
+          for required in baseline-acceptance.json task-run.json exact-head-ci-state.json; do
+            mapfile -t matches < <(find incoming/g6 -type f -name "${required}" -print)
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "expected exactly one ${required}, found ${#matches[@]}" >&2
+              exit 1
+            fi
+            cp "${matches[0]}" "resume-evidence/${required}"
+          done
+          state_file=resume-evidence/exact-head-ci-state.json
+          jq -e '
+            .schema == "governed-repair-exact-head-ci-state@1"
+            and .status == "EXACT_HEAD_CI_AWAITING_APPROVAL"
+            and .resume_required == true
+            and .finalize_allowed == false
+            and .baseline_mutation_allowed == false
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' "${state_file}" >/dev/null
+          baseline=resume-evidence/baseline-acceptance.json
+          jq -e '
+            .schema == "governed-baseline-acceptance@1"
+            and .status == "BASELINE_ACCEPTED"
+            and .governance_closed == true
+            and .baseline_accepted == true
+            and .exact_head_certified == false
+            and .ready_for_review == false
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' "${baseline}" >/dev/null
+          exact_sha=$(jq -r '.baseline_commit_sha' "${baseline}")
+          pr_url=$(jq -r '.draft_pr_url' "${baseline}")
+          pr_number=$(sed -E 's#^.*/pull/([0-9]+)$#\1#' <<<"${pr_url}")
+          [[ "${exact_sha}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          jq -e --arg sha "${exact_sha}" --arg pr "${pr_url}" --arg pr_number "${pr_number}" '
+            .head_sha == $sha
+            and .pr_url == $pr
+            and ((.pr_number | tostring) == $pr_number)
+          ' "${state_file}" >/dev/null
+          pr_state=$(gh pr view "${pr_url}" --json number,isDraft,state,headRefOid,baseRefName,url)
+          jq -e --arg sha "${exact_sha}" --arg pr_number "${pr_number}" '
+            .state == "OPEN"
+            and .isDraft == true
+            and .headRefOid == $sha
+            and ((.number | tostring) == $pr_number)
+          ' <<<"${pr_state}" >/dev/null
+          echo "workflow_name=${workflow_name}" >> "$GITHUB_OUTPUT"
+          echo "exact_sha=${exact_sha}" >> "$GITHUB_OUTPUT"
+          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+
+      - name: Re-observe exact-head workflows after approval
+        id: exact-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXACT_SHA: ${{ steps.prior.outputs.exact_sha }}
+          PR_URL: ${{ steps.prior.outputs.pr_url }}
+          PR_NUMBER: ${{ steps.prior.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_SHA}&per_page=100" > resume-evidence/exact-head-runs.json
+          quality=$(jq -c '
+            [.workflow_runs[]
+              | select(.name == "quality")
+              | select(.head_sha == $sha)
+              | select(.event == "pull_request")
+              | select(any(.pull_requests[]?; ((.number | tostring) == $pr_number)))]
+            | sort_by(.created_at) | reverse | .[0] // empty
+          ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" resume-evidence/exact-head-runs.json)
+          skill=$(jq -c '
+            [.workflow_runs[]
+              | select(.name == "skill-self-validation")
+              | select(.head_sha == $sha)
+              | select(.event == "pull_request")
+              | select(any(.pull_requests[]?; ((.number | tostring) == $pr_number)))]
+            | sort_by(.created_at) | reverse | .[0] // empty
+          ' --arg sha "${EXACT_SHA}" --arg pr_number "${PR_NUMBER}" resume-evidence/exact-head-runs.json)
+          [[ -n "${quality}" && -n "${skill}" ]] || {
+            echo "mandatory exact-head workflow evidence is still missing" >&2
+            exit 1
+          }
+          pr_state=$(gh pr view "${PR_URL}" --json number,isDraft,headRefOid,url)
+          jq -n \
+            --arg sha "${EXACT_SHA}" \
+            --arg pr "${PR_URL}" \
+            --arg pr_number "${PR_NUMBER}" \
+            --argjson pr_state "${pr_state}" \
+            --argjson quality "${quality}" \
+            --argjson skill "${skill}" \
+            '{
+              schema:"governed-repair-exact-head-ci@1",
+              head_sha:$sha,
+              pr_url:$pr,
+              pr_number:($pr_number|tonumber),
+              pr_is_draft:$pr_state.isDraft,
+              pr_head_sha:$pr_state.headRefOid,
+              workflows:{
+                quality:{run_id:($quality.id|tostring),status:$quality.status,conclusion:($quality.conclusion // ""),head_sha:$quality.head_sha,event:$quality.event,pr_number:($pr_number|tonumber),url:$quality.html_url},
+                "skill-self-validation":{run_id:($skill.id|tostring),status:$skill.status,conclusion:($skill.conclusion // ""),head_sha:$skill.head_sha,event:$skill.event,pr_number:($pr_number|tonumber),url:$skill.html_url}
+              }
+            }' > resume-evidence/exact-head-ci.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_exact_head_state.py \
+            --ci-evidence resume-evidence/exact-head-ci.json \
+            --exact-sha "${EXACT_SHA}" \
+            --draft-pr-url "${PR_URL}" \
+            --output resume-evidence/exact-head-ci-state-after-resume.json
+          jq -e '.status == "EXACT_HEAD_CI_PASSED" and .finalize_allowed == true and .baseline_mutation_allowed == false' \
+            resume-evidence/exact-head-ci-state-after-resume.json >/dev/null
+
+      - name: Finalize G6 without repeating baseline acceptance
+        id: finalize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.prior.outputs.pr_url }}
+          ORIGIN_WORKFLOW: ${{ steps.prior.outputs.workflow_name }}
+          EXACT_SHA: ${{ steps.prior.outputs.exact_sha }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_exact_head.py \
+            --baseline-receipt resume-evidence/baseline-acceptance.json \
+            --ci-evidence resume-evidence/exact-head-ci.json \
+            --task-run resume-evidence/task-run.json \
+            --output resume-evidence/exact-head-result.json
+          jq -e '
+            .status == "READY_FOR_REVIEW"
+            and .exact_head_certified == true
+            and .ready_for_review == true
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' resume-evidence/exact-head-result.json >/dev/null
+          if [[ "${ORIGIN_WORKFLOW}" == "governed-ci-repair-governance" ]]; then
+            gh pr ready "${PR_URL}"
+            pr_state=$(gh pr view "${PR_URL}" --json state,isDraft,headRefOid)
+            jq -e --arg sha "${EXACT_SHA}" '.state == "OPEN" and .isDraft == false and .headRefOid == $sha' <<<"${pr_state}" >/dev/null
+          else
+            pr_state=$(gh pr view "${PR_URL}" --json state,isDraft,headRefOid)
+            jq -e --arg sha "${EXACT_SHA}" '.state == "OPEN" and .isDraft == true and .headRefOid == $sha' <<<"${pr_state}" >/dev/null
+          fi
+          echo "finalized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload resumed G6 evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-ci-repair-exact-head-resume-${{ inputs.g6_run_id }}-${{ inputs.g6_run_attempt }}
+          path: resume-evidence
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Record resumed exact-head closure
+        if: steps.finalize.outputs.finalized == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ steps.prior.outputs.pr_url }}
+          EXACT_SHA: ${{ steps.prior.outputs.exact_sha }}
+        run: |
+          set -euo pipefail
+          gh pr comment "${PR_URL}" --body "G6 exact-head certification resumed from the existing accepted-baseline receipt and completed on unchanged head \`${EXACT_SHA}\`. Governance and baseline acceptance were not repeated. merge_allowed=false, deploy_allowed=false, production_closed=false."
