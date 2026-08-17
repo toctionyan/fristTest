@@ -44,7 +44,13 @@
             "requested_effect": {
               "domain": "order",
               "operation": "list",
-              "object_type": "order"
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "order.collection",
+                  "evidence_span": "我都买了什么？"
+                }
+              ]
             }
           }
         ],
@@ -68,7 +74,13 @@
                         "domain": "order",
                         "operation": "list",
                         "object_type": "order",
-                        "raw_description": "列出当前用户的订单集合"
+                        "raw_description": "列出当前用户的订单集合",
+                        "requested_outputs": [
+                          {
+                            "output_id": "order.collection",
+                            "evidence_span": "我都买了什么？"
+                          }
+                        ]
                       }
                     }
                   ]
@@ -134,7 +146,13 @@
             "requested_effect": {
               "domain": "order",
               "operation": "list",
-              "object_type": "order"
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "order.collection",
+                  "evidence_span": "哪些签收了？"
+                }
+              ]
             }
           }
         ],
@@ -158,7 +176,13 @@
                         "domain": "order",
                         "operation": "list",
                         "object_type": "order",
-                        "raw_description": "筛选刚才可见订单中的已签收订单"
+                        "raw_description": "筛选刚才可见订单中的已签收订单",
+                        "requested_outputs": [
+                          {
+                            "output_id": "order.collection",
+                            "evidence_span": "哪些签收了？"
+                          }
+                        ]
                       }
                     }
                   ]
@@ -230,7 +254,13 @@
             "requested_effect": {
               "domain": "refund",
               "operation": "assess_eligibility",
-              "object_type": "order"
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "refund.eligibility",
+                  "evidence_span": "它们都能退吗？"
+                }
+              ]
             }
           }
         ],
@@ -254,7 +284,13 @@
                         "domain": "refund",
                         "operation": "assess_eligibility",
                         "object_type": "order",
-                        "raw_description": "对刚才已签收订单集合逐笔核验退款资格"
+                        "raw_description": "对刚才已签收订单集合逐笔核验退款资格",
+                        "requested_outputs": [
+                          {
+                            "output_id": "refund.eligibility",
+                            "evidence_span": "它们都能退吗？"
+                          }
+                        ]
                       }
                     }
                   ]
