@@ -1,0 +1,118 @@
+name: Temporary Recovery Closure Proof
+
+"on":
+  push:
+    branches:
+      - fix/proof-authority-lifecycle-20260816
+
+permissions:
+  contents: write
+
+jobs:
+  recovery-closure:
+    if: "${{ github.event.head_commit.message == 'test: run recovery closure proof' }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Apply bounded recovery closure patch
+        run: python .github/recovery_closure_patch.py
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked Agent environment
+        run: cd services/agent-service && uv sync --locked --all-groups
+
+      - name: Run focused recovery counterexamples
+        working-directory: services/agent-service
+        env:
+          PYTHONPATH: src
+        run: >-
+          .venv/bin/python -B -m pytest
+          tests/context/test_transaction_commit_reference_continuity.py
+          tests/transactions/test_stage2_transaction_projection_recovery.py
+          -q
+
+      - name: Prove bounded product delta and commit source
+        run: |
+          set -euo pipefail
+          git diff --check
+          cat > /tmp/expected-product-paths.txt <<'EOF'
+          services/agent-service/src/agent_core/transaction/coordinator.py
+          services/agent-service/src/agent_core/transaction/gateway_runtime.py
+          services/agent-service/src/agent_core/transaction/interaction_recovery.py
+          services/agent-service/tests/context/test_transaction_commit_reference_continuity.py
+          services/agent-service/tests/transactions/test_stage2_transaction_projection_recovery.py
+          EOF
+          git diff --name-only | sort > /tmp/actual-product-paths.txt
+          sort -o /tmp/expected-product-paths.txt /tmp/expected-product-paths.txt
+          diff -u /tmp/expected-product-paths.txt /tmp/actual-product-paths.txt
+
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/src/agent_core/transaction/coordinator.py \
+            services/agent-service/src/agent_core/transaction/gateway_runtime.py \
+            services/agent-service/src/agent_core/transaction/interaction_recovery.py \
+            services/agent-service/tests/context/test_transaction_commit_reference_continuity.py \
+            services/agent-service/tests/transactions/test_stage2_transaction_projection_recovery.py
+          git diff --cached --check
+          git commit -m 'fix: preserve transaction target reference across workflow recovery'
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Refresh exact protected source baseline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in payload['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {
+              relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
+              for relative in tracked
+          }
+          payload['generated_from'] = 'git:' + os.environ['SOURCE_SHA']
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({
+              'status': 'PASS',
+              'generated_from': payload['generated_from'],
+              'file_count': payload['file_count'],
+          }, indent=2))
+          PY
+          python -m unittest skill-system/tests/test_product_source_baseline_binding.py
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = 'skill-system/registry/product-source-baseline.json'
+
+      - name: Commit exact protected baseline and publish
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'chore: refresh recovery closure protected source baseline'
+          git push origin HEAD:fix/proof-authority-lifecycle-20260816
