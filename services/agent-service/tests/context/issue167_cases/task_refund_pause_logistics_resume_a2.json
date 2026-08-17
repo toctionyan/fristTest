@@ -298,9 +298,23 @@
                 "id": "issue167:task-resume:t3:goals"
               }
             ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "prepare_refund",
+                "args": {
+                  "target": {"mode": "artifact", "left_handle": "artifact:fixture:order:10003"},
+                  "reference_span": "刚才那个",
+                  "action_span": "继续刚才那个",
+                  "goal_ids": ["refund_goal"]
+                },
+                "id": "issue167:task-resume:t3:refund"
+              }
+            ]
           }
         ],
-        "allowed_tools": [],
+        "allowed_tools": ["prepare_refund"],
         "required_tools": [],
         "expected": {
           "terminal_statuses": ["PendingInteractionActionRedirect"],
