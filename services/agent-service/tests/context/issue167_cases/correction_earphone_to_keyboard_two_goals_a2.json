@@ -143,6 +143,25 @@
           {
             "tool_calls": [
               {
+                "name": "list_orders",
+                "args": {
+                  "target": {
+                    "mode": "entity_match",
+                    "attribute_span": "耳机"
+                  },
+                  "expected_shape": "collection",
+                  "reference_span": "耳机",
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:t1:ground-earphone"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
                 "name": "get_order_logistics",
                 "args": {
                   "target": {
@@ -195,11 +214,13 @@
           }
         ],
         "allowed_tools": [
+          "list_orders",
           "get_order_logistics",
           "evaluate_refund_eligibility",
           "respond_to_user"
         ],
         "required_tools": [
+          "list_orders",
           "get_order_logistics",
           "evaluate_refund_eligibility",
           "respond_to_user"
@@ -217,6 +238,7 @@
           "public_interaction": "answer",
           "trace": {
             "must_include": [
+              "list_orders",
               "get_order_logistics",
               "evaluate_refund_eligibility"
             ],
@@ -338,6 +360,25 @@
           {
             "tool_calls": [
               {
+                "name": "list_orders",
+                "args": {
+                  "target": {
+                    "mode": "entity_match",
+                    "attribute_span": "键盘"
+                  },
+                  "expected_shape": "collection",
+                  "reference_span": "键盘",
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:t2:ground-keyboard"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
                 "name": "get_order_logistics",
                 "args": {
                   "target": {
@@ -390,11 +431,13 @@
           }
         ],
         "allowed_tools": [
+          "list_orders",
           "get_order_logistics",
           "evaluate_refund_eligibility",
           "respond_to_user"
         ],
         "required_tools": [
+          "list_orders",
           "get_order_logistics",
           "evaluate_refund_eligibility",
           "respond_to_user"
@@ -412,6 +455,7 @@
           "public_interaction": "answer",
           "trace": {
             "must_include": [
+              "list_orders",
               "get_order_logistics",
               "evaluate_refund_eligibility"
             ],
@@ -437,6 +481,7 @@
     ],
     "preproduction_risk_prototype": true,
     "preproduction_allowed_tools": [
+      "list_orders",
       "get_order_logistics",
       "evaluate_refund_eligibility"
     ],
