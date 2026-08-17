@@ -197,8 +197,15 @@ def finalize_exact_head(
 
     task_payload = _load(task_run_path)
     task = TaskRunStore(task_run_path.resolve(), task_payload)
-    if task.payload.get("phase") != "STAGE6_EXACT_HEAD_CERTIFICATION_REQUIRED":
+    task_phase = str(task.payload.get("phase") or "")
+    task_status = str(task.payload.get("status") or "")
+    if task_phase not in {
+        "STAGE6_EXACT_HEAD_CERTIFICATION_REQUIRED",
+        "STAGE6_EXACT_HEAD_VALIDATING",
+    }:
         raise ExactHeadError("TaskRun is not awaiting exact-head certification")
+    if task_status not in {"WAITING_EXTERNAL_RESULT", "VALIDATING"}:
+        raise ExactHeadError("TaskRun is not in a resumable exact-head state")
     task.mark_condition(
         "exact_head_certified",
         evidence_refs=[
@@ -215,6 +222,25 @@ def finalize_exact_head(
         "ready_for_review",
         evidence_refs=[str(ci_evidence_path), f"G6:PASS:{exact_sha}"],
     )
+    if task_status != "VALIDATING" or task_phase != "STAGE6_EXACT_HEAD_VALIDATING":
+        task.checkpoint(
+            status="VALIDATING",
+            phase="STAGE6_EXACT_HEAD_VALIDATING",
+            workspace_fingerprint=exact_sha,
+            evidence_refs=[
+                str(baseline_receipt_path),
+                str(ci_evidence_path),
+                f"exact-head:{exact_sha}",
+                f"pull-request:{expected_pr_number}",
+            ],
+            metadata={
+                "event": "exact-head-evidence-validated",
+                "baseline_mutation_allowed": False,
+                "merge_allowed": False,
+                "deploy_allowed": False,
+                "production_closed": False,
+            },
+        )
     task.complete(
         workspace_fingerprint=exact_sha,
         evidence_refs=[
