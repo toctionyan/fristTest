@@ -60,11 +60,18 @@ def _isolated_runtime(monkeypatch, tmp_path):
         clear_checkpointer_cache()
 
 
+def _tool_rows(turn_result: dict, tool_name: str) -> list[dict]:
+    return [
+        row
+        for row in list(turn_result.get("tool_trace") or [])
+        if isinstance(row, dict) and str(row.get("name") or "") == tool_name
+    ]
+
+
 def _tool_results(turn_result: dict, tool_name: str) -> list[dict]:
     return [
         row.get("result") if isinstance(row.get("result"), dict) else {}
-        for row in list(turn_result.get("tool_trace") or [])
-        if isinstance(row, dict) and str(row.get("name") or "") == tool_name
+        for row in _tool_rows(turn_result, tool_name)
     ]
 
 
@@ -84,14 +91,22 @@ def test_issue167_correction_rebinds_both_goals_to_keyboard_through_real_lifecyc
     first_eligibility = _tool_results(first.result, "evaluate_refund_eligibility")
     corrected_eligibility = _tool_results(corrected.result, "evaluate_refund_eligibility")
 
-    # Logistics returns the bound order identity directly.  Eligibility's public
-    # result deliberately exposes a business preview instead of repeating the
-    # order ID, so its target identity is asserted at the authoritative
-    # BusinessPort boundary below rather than by searching presentation text.
+    # Historical visibility proof is allowed to retain the previously observed
+    # earphone reference.  What must change is the current execution binding:
+    # the second logistics observation is produced for the keyboard target.
     assert "10001" in first_logistics
     assert "10002" in corrected_logistics
-    assert "10001" not in corrected_logistics
+    corrected_logistics_rows = _tool_rows(corrected.result, "get_order_logistics")
+    assert len(corrected_logistics_rows) == 1
+    corrected_signature = str(
+        (corrected_logistics_rows[0].get("execution_disposition") or {}).get("tool_signature") or ""
+    )
+    assert '"attribute_span":"键盘"' in corrected_signature
+    assert '"mode":"entity_match"' in corrected_signature
 
+    # Eligibility's public result deliberately exposes a business preview
+    # instead of repeating the order ID, so target identity is additionally
+    # asserted at the authoritative BusinessPort boundary below.
     assert len(first_eligibility) == 1 and first_eligibility[0].get("ok") is True
     assert len(corrected_eligibility) == 1 and corrected_eligibility[0].get("ok") is True
     assert (first_eligibility[0].get("data") or {}).get("target_label") == "蓝牙耳机"
