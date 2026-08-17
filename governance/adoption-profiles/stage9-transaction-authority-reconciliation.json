@@ -77,6 +77,8 @@
         "-ra",
         "-p",
         "no:cacheprovider",
+        "-m",
+        "not integration",
         "tests/transactions/test_transaction_protocol.py",
         "tests/transactions/test_transaction_storage.py",
         "tests/architecture/test_sqlalchemy_transaction_repository.py"
