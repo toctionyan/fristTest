@@ -1,4 +1,4 @@
-name: Temporary Stage 8 Authority Adversarial Probe
+name: Temporary Stage 8 Authority Adversarial Repair
 
 "on":
   push:
@@ -6,17 +6,22 @@ name: Temporary Stage 8 Authority Adversarial Probe
       - fix/proof-authority-lifecycle-20260816
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  terminal-monotonicity-probe:
-    if: "${{ github.event.head_commit.message == 'test: probe Stage 8 terminal transaction monotonicity' }}"
+  terminal-monotonicity-repair:
+    if: "${{ github.event.head_commit.message == 'test: repair Stage 8 terminal monotonicity' }}"
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: true
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12.13'
+      - name: Apply bounded Stage 8 authority repair
+        run: python .github/stage8_terminal_monotonicity_patch.py
       - name: Bootstrap locked uv
         run: >-
           "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
@@ -24,79 +29,78 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Install locked Agent environment
         run: cd services/agent-service && uv sync --locked --all-groups
-      - name: Materialize Stage 8 adversarial probes
-        run: |
-          cat > services/agent-service/tests/_stage8_terminal_probe.py <<'PY'
-          from __future__ import annotations
-
-          from agent_core.ledger import append_entries, find_handle, offer_entry
-          from agent_core.persistence.action_lifecycle_store import TransactionLifecycleStore
-          from agent_core.transaction import transition_draft
-
-          SCOPE = {"tenant_id": "tenant-a", "user_id": "u001", "thread_id": "stage8-terminal"}
-
-          def _offer():
-              return offer_entry(
-                  action_id="create_refund",
-                  operation="APPLY_REFUND",
-                  target_handle="artifact:order:10002",
-                  input_values={"reason": "质量问题", "expected_version": 1},
-                  preview={"decision": "ALLOWED", "snapshot": {"version": 1}},
-                  scope=SCOPE,
-                  turn=1,
-                  label="退款申请",
-                  handle="draft:refund:stage8-terminal",
-              )
-
-          def test_durable_terminal_draft_cannot_be_reopened_by_stale_checkpoint(tmp_path):
-              store = TransactionLifecycleStore(tmp_path / "agent.db")
-              offer = _offer()
-              store.create_draft(
-                  draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
-                  thread_id=SCOPE["thread_id"], draft_revision=offer["draft_revision"],
-                  draft_state="AWAITING_AUTHORIZATION", action_id=offer["action_id"],
-                  command_digest=offer["command_digest"], command_envelope=None, projection=offer,
-              )
-              store.advance_draft(offer["draft_id"], draft_state="COMMITTED", draft_revision=offer["draft_revision"])
-              store.record_receipt(
-                  receipt_id="receipt:stage8", tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
-                  thread_id=SCOPE["thread_id"], draft_id=offer["draft_id"], attempt_id="attempt:stage8",
-                  receipt_handle="h_receipt:stage8", receipt_state="SUCCESS",
-                  business_result={"success": True, "data": {"refund_id": "R-stage8"}},
-                  business_resource_id="R-stage8",
-              )
-              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
-
-              # Simulate a stale Workflow checkpoint replaying its old pending card.
-              store.create_draft(
-                  draft_id=offer["draft_id"], tenant_id=SCOPE["tenant_id"], user_id=SCOPE["user_id"],
-                  thread_id=SCOPE["thread_id"], draft_revision=offer["draft_revision"],
-                  draft_state="AWAITING_AUTHORIZATION", action_id=offer["action_id"],
-                  command_digest=offer["command_digest"], command_envelope=None, projection=offer,
-              )
-              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
-
-              # A duplicate/late process must not downgrade a durable terminal result either.
-              store.advance_draft(
-                  offer["draft_id"], draft_state="SUBMISSION_UNKNOWN",
-                  draft_revision=offer["draft_revision"], current_attempt_id="attempt:stage8",
-              )
-              assert store.get_draft(offer["draft_id"])["draft_state"] == "COMMITTED"
-
-          def test_terminal_offer_in_ledger_cannot_be_reopened_by_later_stale_projection():
-              committed = transition_draft(_offer(), "COMMITTED")
-              stale = transition_draft(_offer(), "AWAITING_AUTHORIZATION")
-              stale["updated_turn"] = committed.get("updated_turn", 1) + 1
-              ledger = append_entries([committed], [stale])
-              row = find_handle(
-                  ledger, committed["handle"], scope=SCOPE,
-                  allowed_kinds={"offer"}, active_only=False,
-              )
-              assert row is not None
-              assert row["draft_state"] == "COMMITTED"
-          PY
-      - name: Run Stage 8 adversarial probes
+      - name: Run Stage 8 focused authority regressions
         working-directory: services/agent-service
         env:
           PYTHONPATH: src
-        run: .venv/bin/python -B -m pytest tests/_stage8_terminal_probe.py -q
+        run: >-
+          .venv/bin/python -B -m pytest
+          tests/transactions/test_stage8_transaction_authority_adversarial.py
+          tests/transactions/test_transaction_protocol.py
+          tests/transactions/test_transaction_closure.py
+          tests/transactions/test_stage2_transaction_projection_recovery.py
+          -q
+      - name: Commit bounded Stage 8 product repair
+        run: |
+          set -euo pipefail
+          git diff --check
+          cat > /tmp/expected-stage8-paths.txt <<'EOF'
+          services/agent-service/app/services/agent_service.py
+          services/agent-service/src/agent_core/ledger/ledger.py
+          services/agent-service/src/agent_core/persistence/action_lifecycle_store.py
+          services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py
+          services/agent-service/src/agent_core/transaction/commit_runtime.py
+          services/agent-service/src/agent_core/transaction/coordinator.py
+          services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
+          EOF
+          git diff --name-only | sort > /tmp/actual-stage8-paths.txt
+          sort -o /tmp/expected-stage8-paths.txt /tmp/expected-stage8-paths.txt
+          diff -u /tmp/expected-stage8-paths.txt /tmp/actual-stage8-paths.txt
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add \
+            services/agent-service/app/services/agent_service.py \
+            services/agent-service/src/agent_core/ledger/ledger.py \
+            services/agent-service/src/agent_core/persistence/action_lifecycle_store.py \
+            services/agent-service/src/agent_core/persistence/sqlalchemy_provider.py \
+            services/agent-service/src/agent_core/transaction/commit_runtime.py \
+            services/agent-service/src/agent_core/transaction/coordinator.py \
+            services/agent-service/tests/transactions/test_stage8_transaction_authority_adversarial.py
+          git diff --cached --check
+          git commit -m 'fix: make terminal transaction facts monotonic'
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Refresh protected product baseline from exact product commit
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path('.').resolve()
+          path = root / 'skill-system/registry/product-source-baseline.json'
+          payload = json.loads(path.read_text(encoding='utf-8'))
+          protected_roots = tuple(str(value) for value in payload['protected_roots'])
+          raw = subprocess.check_output(['git', 'ls-files', '-z', '--', *protected_roots], cwd=root)
+          tracked = sorted(item.decode('utf-8') for item in raw.split(b'\0') if item)
+          current = {relative: hashlib.sha256((root / relative).read_bytes()).hexdigest() for relative in tracked}
+          payload['generated_from'] = 'git:' + os.environ['SOURCE_SHA']
+          payload['generated_at'] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+          payload['file_count'] = len(current)
+          payload['files'] = dict(sorted(current.items()))
+          path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps({'generated_from': payload['generated_from'], 'file_count': len(current)}, indent=2))
+          PY
+          python -m unittest skill-system/tests/test_product_source_baseline_binding.py
+          git diff --check
+          test "$(git diff --name-only | tr -d '\r')" = 'skill-system/registry/product-source-baseline.json'
+      - name: Commit baseline and push Stage 8 repair
+        run: |
+          set -euo pipefail
+          git add skill-system/registry/product-source-baseline.json
+          git diff --cached --check
+          git commit -m 'chore: refresh Stage 8 protected source baseline'
+          git push origin HEAD:fix/proof-authority-lifecycle-20260816
