@@ -22,4 +22,12 @@ Merge authorization is a separate single-use authority. A comment is evidence on
 - replay, stale head/base, non-owner, or malformed grant fails;
 - merge grant never authorizes deployment, Protected Release, production certification, or `production_closed=true`.
 
+## Consumer inventory gate
+
+Before implementation, enumerate every consumer of baseline-acceptance receipts, exact-head CI evidence, `READY_FOR_REVIEW`, and merge authority. The repair must consolidate lifecycle decisions under a single owner rather than add a second local workaround in the Solo G6 workflow.
+
+## Root-cause closure proof
+
+Acceptance requires: authority count = 1 for each lifecycle decision, positive/negative transition matrix, replay of the PR #1348 `action_required` incident, stale/replayed MergeGrant rejection, and full Skill/Quality exact-head CI.
+
 `production_closed=false`.
