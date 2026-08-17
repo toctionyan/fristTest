@@ -95,6 +95,18 @@
     "requires_collection_fixture_with_at_least_two_members": true,
     "collection_fixture_requirement_complete": true,
     "requires_first_meaningful_red_before_runtime_edit": true,
-    "runtime_edit_authorized": false
+    "first_meaningful_red": {
+      "evidence_kind": "runtime_failure_evidence_not_semantic_oracle",
+      "ci_run_id": 31991099132,
+      "failing_test": "services/agent-service/tests/context/test_issue167_a2_pronoun_collection_runtime.py",
+      "reason_code": "CAPABILITY_CARDINALITY_MISMATCH",
+      "capability_id": "ecommerce.refund.eligibility.evaluate",
+      "expected_cardinality": "exact_one",
+      "actual_cardinality": 2,
+      "target_resolution_complete": true,
+      "visibility_complete": true,
+      "owner": "capability_cardinality_and_refund_eligibility_executor"
+    },
+    "runtime_edit_authorized": true
   }
 }
