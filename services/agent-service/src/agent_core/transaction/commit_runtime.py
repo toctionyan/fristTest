@@ -157,7 +157,8 @@ def _transaction_commit_update(
         )
         receipt_handle = str(receipt.get("handle") or "")
         additions.append(receipt)
-    additions.extend(_new_resource_artifacts(state, ledger, offer, result))
+    resource_artifacts = _new_resource_artifacts(state, ledger, offer, result)
+    additions.extend(resource_artifacts)
     ledger = append_entries(ledger, additions)
     if write_receipt:
         record_transaction_receipt(state=state, offer=next_offer, attempt_id=attempt_id, receipt_handle=receipt_handle, receipt_state="SUCCESS" if result.get("success") else "FAILED", business_result=result)
@@ -205,12 +206,30 @@ def _transaction_commit_update(
         "提交结果正在确认中，请勿重复操作；刷新后系统会继续对账。" if draft_state == "SUBMISSION_UNKNOWN" else
         f"未能完成{str(offer.get('label') or '该操作')}：{str(result.get('error') or '业务服务拒绝或状态已变化')}。"
     )
+    # Keep transaction-control/audit carriers separate from ordinary discourse
+    # reference evidence.  Draft/Receipt remain part of RuntimeOutcome proof,
+    # while only Business Service-derived resource projections may become a
+    # next-turn referent at the final customer-visible release boundary.
+    resource_evidence_handles = list(dict.fromkeys(
+        str(row.get("handle") or "")
+        for row in resource_artifacts
+        if str(row.get("handle") or "")
+    ))
+    runtime_evidence_handles = list(dict.fromkeys(
+        value
+        for value in [
+            str(next_offer.get("handle") or ""),
+            receipt_handle or "",
+            *resource_evidence_handles,
+        ]
+        if value
+    ))
     runtime_outcome = deps.outcome_factory(
         "commit" if result.get("success") else "submission_unknown" if draft_state == "SUBMISSION_UNKNOWN" else "failure",
         effects="committed" if result.get("success") else "unknown" if draft_state == "SUBMISSION_UNKNOWN" else "none",
         safe_to_continue=bool(result.get("success")),
         correlation_id=str(state.get("correlation_id") or "") or None,
-        evidence_handles=[str(next_offer.get("handle") or ""), receipt_handle or ""],
+        evidence_handles=runtime_evidence_handles,
         customer_safe_summary=answer,
         next_interaction="show_status" if result.get("success") or draft_state == "SUBMISSION_UNKNOWN" else "none",
         payload={"draft_state": draft_state, "attempt_id": attempt_id, "receipt_handle": receipt_handle, "result": result},
@@ -233,6 +252,7 @@ def _transaction_commit_update(
         "offer_execution_result": result,
         "action_gateway_result": commit_result,
         "runtime_outcome": runtime_outcome,
+        "answer_evidence_handles": resource_evidence_handles,
         "tool_trace": trace,
         "current_final_answer": answer,
         "commit_authority": None,
