@@ -148,8 +148,11 @@ class ExecutionProgressProjectionTests(unittest.TestCase):
         self.assertIn("产品判定：FAIL", rendered)
         self.assertIn("执行/传输判定：FAIL", rendered)
 
-    def test_skipped_jobs_remain_skipped_not_pass(self) -> None:
+    def test_skipped_only_evidence_is_not_promoted_to_pass(self) -> None:
         progress = execution_progress.build_execution_progress(
+            quality_results=[
+                {"id": "integration", "name": "Integration", "status": "SKIPPED"},
+            ],
             github_jobs=[
                 {
                     "id": 401,
@@ -157,11 +160,27 @@ class ExecutionProgressProjectionTests(unittest.TestCase):
                     "status": "completed",
                     "conclusion": "skipped",
                 }
-            ]
+            ],
         )
 
         self.assertEqual(progress["stages"][0]["status"], "SKIPPED")
-        self.assertIn("⏭️ quality-integration", execution_progress.render_progress_text(progress))
+        self.assertEqual(progress["product_verdict"], "NOT_RUN")
+        self.assertEqual(progress["transport_verdict"], "NOT_RUN")
+        self.assertEqual(progress["overall"], "SKIPPED")
+        rendered = execution_progress.render_progress_text(progress)
+        self.assertIn("⏭️ Integration", rendered)
+        self.assertIn("⏭️ quality-integration", rendered)
+        self.assertIn("产品判定：NOT_RUN", rendered)
+
+    def test_pass_plus_skipped_remains_valid_success(self) -> None:
+        progress = execution_progress.build_execution_progress(
+            quality_results=[
+                {"id": "quick", "name": "Quick", "status": "PASS"},
+                {"id": "integration", "name": "Integration", "status": "SKIPPED"},
+            ]
+        )
+        self.assertEqual(progress["product_verdict"], "PASS")
+        self.assertEqual(progress["overall"], "COMPLETED")
 
     def test_projection_is_read_only_and_does_not_claim_completion_from_task_state(self) -> None:
         task = {
