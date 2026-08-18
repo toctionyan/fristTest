@@ -189,7 +189,16 @@ def bind_handoff(
     for key in ("workflow_run_id", "head_sha", "failure_signature"):
         if str(result.get(key)) != str(failure.get(key)):
             raise HandoffError(f"Stage-1/Stage-2 binding mismatch: {key}")
+
+    source_authority = _source_failure_authority(failure)
     _validate_repair_authority(result)
+    stage1_scope = set(source_authority["candidate_paths"])
+    stage2_scope = [_normalize_path(item) for item in result.get("write_scope") or []]
+    expanded_scope = [path for path in stage2_scope if path not in stage1_scope]
+    if expanded_scope:
+        raise HandoffError(
+            f"Stage-2 write scope exceeds Stage-1 candidate authority: {expanded_scope}"
+        )
 
     if not patch_path.is_file() or patch_path.is_symlink():
         raise HandoffError("repair patch must be a regular file")
@@ -227,7 +236,6 @@ def bind_handoff(
         if repair_round < 1 or repair_round > int(validated_continuation["max_repair_rounds"]):
             raise HandoffError("Stage-2 candidate exceeds the autonomy repair budget")
 
-    source_authority = _source_failure_authority(failure)
     bound = dict(result)
     bound.update(
         {
