@@ -71,7 +71,7 @@ jobs:
             ${{ github.workspace }}/.quality/targets/quality-target-static.md
             ${{ github.workspace }}/.quality/targets/quality-target-static.claims.json
 
-  quality-quick:
+  quality-quick-execution:
     needs: quality-static
     runs-on: ubuntu-24.04
     steps:
@@ -90,7 +90,7 @@ jobs:
           -r deployment/ci/uv-requirements-linux-x86_64.txt
       - name: Validate locked runtime toolchain
         env:
-          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-${{ github.job }}.json
+          QUALITY_TOOLCHAIN_RESULT: ${{ runner.temp }}/quality-toolchain-quality-quick.json
         run: >-
           "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
           --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
@@ -120,9 +120,70 @@ jobs:
             ${{ github.workspace }}/.quality/targets/quality-target-quick.claims.json
             ${{ runner.temp }}/quality-toolchain-quality-quick.json
 
+  quality-quick-required-status:
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs:
+      - quality-static
+      - quality-quick-execution
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Publish stable quality-quick status for the exact PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TEST_MERGE_SHA: ${{ github.sha }}
+          STATIC_RESULT: ${{ needs.quality-static.result }}
+          QUICK_RESULT: ${{ needs.quality-quick-execution.result }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "${PR_HEAD_REPOSITORY}" == "${GITHUB_REPOSITORY}" ]] || {
+            echo "::error::stable required status is fail-closed for fork pull requests"
+            exit 1
+          }
+          [[ "${PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PR_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${TEST_MERGE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+
+          gh api "repos/${GITHUB_REPOSITORY}/git/commits/${TEST_MERGE_SHA}" > merge-identity.json
+          jq -e --arg base "${PR_BASE_SHA}" --arg head "${PR_HEAD_SHA}" '
+            (.parents | length) == 2
+            and .parents[0].sha == $base
+            and .parents[1].sha == $head
+          ' merge-identity.json >/dev/null
+
+          state=failure
+          description="quality-quick or merge provenance failed"
+          if [[ "${STATIC_RESULT}" == "success" && "${QUICK_RESULT}" == "success" ]]; then
+            state=success
+            description="quality-quick passed on verified PR merge snapshot"
+          fi
+
+          jq -n \
+            --arg state "${state}" \
+            --arg context "quality-quick" \
+            --arg description "${description}" \
+            --arg target_url "${RUN_URL}" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}' \
+            > required-status-request.json
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}" \
+            --input required-status-request.json \
+            > required-status-response.json
+          jq -e --arg state "${state}" --arg sha "${PR_HEAD_SHA}" '
+            .state == $state and .sha == $sha and .context == "quality-quick"
+          ' required-status-response.json >/dev/null
+          [[ "${state}" == "success" ]]
+
   quality-integration:
     if: github.event_name != 'pull_request'
-    needs: quality-quick
+    needs: quality-quick-execution
     runs-on: ubuntu-24.04
     services:
       pgvector:
@@ -230,11 +291,11 @@ jobs:
       ${{ always() && github.event_name == 'pull_request' &&
       (needs.skill-control-plane.result == 'failure' ||
       needs.quality-static.result == 'failure' ||
-      needs.quality-quick.result == 'failure') }}
+      needs.quality-quick-execution.result == 'failure') }}
     needs:
       - skill-control-plane
       - quality-static
-      - quality-quick
+      - quality-quick-execution
     runs-on: ubuntu-24.04
     permissions:
       contents: read
