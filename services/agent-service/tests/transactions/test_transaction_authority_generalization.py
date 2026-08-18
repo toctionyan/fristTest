@@ -54,6 +54,28 @@ def _attempt(provider, *, grant_id: str, attempt_id: str, idempotency_key: str, 
     )
 
 
+def _persist_authorized_draft(provider, *, bindings: dict[str, object], confirmation_id: str):
+    """Enter the authority gate through the canonical Draft lifecycle.
+
+    Grant issuance is intentionally downstream of a durable Draft in
+    AWAITING_AUTHORIZATION.  The generalization counterexample must therefore
+    establish that prerequisite instead of bypassing the product contract.
+    """
+
+    return provider.transactions.create_draft(
+        draft_id=str(bindings["draft_id"]),
+        tenant_id=str(bindings["tenant_id"]),
+        user_id=str(bindings["user_id"]),
+        thread_id=str(bindings["thread_id"]),
+        draft_revision=int(bindings["draft_revision"]),
+        draft_state="AWAITING_AUTHORIZATION",
+        action_id="cancel_order",
+        command_digest=str(bindings["command_digest"]),
+        command_envelope=None,
+        projection={"confirmation_id": confirmation_id},
+    )
+
+
 @pytest.mark.parametrize("backend", ["sqlite", "sqlalchemy"])
 @pytest.mark.parametrize(
     ("binding", "replacement"),
@@ -82,6 +104,7 @@ def test_unexpired_grant_is_bound_to_exact_draft_scope_and_digest(
     provider = _build_provider(tmp_path, backend)
     suffix = uuid.uuid4().hex
     grant_id = f"grant:{suffix}"
+    confirmation_id = f"confirm:{suffix}"
     bindings: dict[str, object] = {
         **BRANCH_SCOPE,
         "draft_id": f"draft:{suffix}",
@@ -90,6 +113,16 @@ def test_unexpired_grant_is_bound_to_exact_draft_scope_and_digest(
     }
 
     try:
+        draft = _persist_authorized_draft(
+            provider,
+            bindings=bindings,
+            confirmation_id=confirmation_id,
+        )
+        assert draft["draft_state"] == "AWAITING_AUTHORIZATION"
+        assert draft["draft_id"] == bindings["draft_id"]
+        assert int(draft["draft_revision"]) == int(bindings["draft_revision"])
+        assert draft["command_digest"] == bindings["command_digest"]
+
         grant = provider.transactions.issue_grant(
             grant_id=grant_id,
             tenant_id=str(bindings["tenant_id"]),
@@ -98,7 +131,7 @@ def test_unexpired_grant_is_bound_to_exact_draft_scope_and_digest(
             draft_id=str(bindings["draft_id"]),
             draft_revision=int(bindings["draft_revision"]),
             command_digest=str(bindings["command_digest"]),
-            confirmation_id=f"confirm:{suffix}",
+            confirmation_id=confirmation_id,
             client_request_id=f"client:{suffix}",
             actor_id="u001",
             actor_role="customer",
