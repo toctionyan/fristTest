@@ -1,6 +1,10 @@
 name: governed-ci-post-merge-validation
 
 on:
+  workflow_run:
+    workflows:
+      - governed-ci-repair-merge
+    types: [completed]
   workflow_dispatch:
     inputs:
       merge_sha:
@@ -21,18 +25,24 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: governed-ci-post-merge-validation-${{ github.repository }}-${{ inputs.merge_sha || github.event.issue.number }}
+  group: governed-ci-post-merge-validation-${{ github.repository }}-${{ inputs.merge_sha || github.event.workflow_run.id || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    if: github.event_name == 'workflow_dispatch' || github.event.issue.pull_request != null
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'issue_comment'
+          && github.event.issue.pull_request != null
+          && startsWith(github.event.comment.body, '/governed-post-merge-validate '))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Resolve owner-authorized validation target
         id: request
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           ACTOR: ${{ github.actor }}
           OWNER: ${{ github.repository_owner }}
@@ -40,27 +50,105 @@ jobs:
           DISPATCH_PR_NUMBER: ${{ inputs.source_pr_number }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_PR_NUMBER: ${{ github.event.issue.number }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_STATUS: ${{ github.event.workflow_run.status }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login }}
         run: |
           set -euo pipefail
-          [[ "${ACTOR}" == "${OWNER}" ]] || {
-            echo "post-merge validation may only be started by the repository owner" >&2
-            exit 1
-          }
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+          mkdir -p post-merge-bootstrap
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            [[ "${SOURCE_WORKFLOW_NAME}" == "governed-ci-repair-merge" ]]
+            [[ "${SOURCE_STATUS}" == "completed" && "${SOURCE_CONCLUSION}" == "success" ]]
+            [[ "${SOURCE_ACTOR}" == "${OWNER}" ]] || {
+              echo "source canonical merge was not owner-authorized" >&2
+              exit 1
+            }
+            [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" \
+              > post-merge-bootstrap/source-artifacts.json
+            mapfile -t artifact_ids < <(jq -r '
+              [.artifacts[]
+               | select(.expired == false)
+               | select(.name | startswith("governed-ci-repair-merge-"))]
+              | sort_by(.created_at) | reverse | .[].id
+            ' post-merge-bootstrap/source-artifacts.json)
+            [[ "${#artifact_ids[@]}" -gt 0 ]] || {
+              echo "canonical merge run has no immutable merge evidence artifact" >&2
+              exit 1
+            }
+            found=0
+            for artifact_id in "${artifact_ids[@]}"; do
+              rm -rf post-merge-bootstrap/artifact post-merge-bootstrap/artifact.zip
+              gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+                > post-merge-bootstrap/artifact.zip
+              mkdir -p post-merge-bootstrap/artifact
+              unzip -q post-merge-bootstrap/artifact.zip -d post-merge-bootstrap/artifact
+              mapfile -t consumptions < <(find post-merge-bootstrap/artifact -type f -name merge-consumption.json -print)
+              mapfile -t grants < <(find post-merge-bootstrap/artifact -type f -name merge-grant.json -print)
+              if [[ "${#consumptions[@]}" -eq 1 && "${#grants[@]}" -eq 1 ]]; then
+                cp "${consumptions[0]}" post-merge-bootstrap/merge-consumption.json
+                cp "${grants[0]}" post-merge-bootstrap/merge-grant.json
+                found=1
+                break
+              fi
+            done
+            [[ "${found}" -eq 1 ]] || {
+              echo "canonical merge evidence is missing a unique grant/consumption pair" >&2
+              exit 1
+            }
+            jq -e '
+              .schema == "governed-repair-merge-consumption@1"
+              and .status == "MERGED_GRANT_CONSUMED"
+              and .grant_consumed == true
+              and .merge_allowed == false
+              and .deploy_allowed == false
+              and .production_closed == false
+            ' post-merge-bootstrap/merge-consumption.json >/dev/null
+            jq -e '
+              .schema == "governed-repair-merge-grant@1"
+              and .status == "MERGE_GRANT_ISSUED"
+              and .grant_consumed == false
+              and .merge_allowed == true
+              and .deploy_allowed == false
+              and .production_closed == false
+            ' post-merge-bootstrap/merge-grant.json >/dev/null
+            jq -e --slurpfile grant post-merge-bootstrap/merge-grant.json '
+              .merge_grant_sha256 == $grant[0].merge_grant_sha256
+              and .head_sha == $grant[0].head_sha
+              and .base_sha == $grant[0].base_sha
+            ' post-merge-bootstrap/merge-consumption.json >/dev/null
+            merge_sha=$(jq -r '.merge_commit_sha' post-merge-bootstrap/merge-consumption.json)
+            pr_number=$(jq -r '.pull_request_number' post-merge-bootstrap/merge-grant.json)
+            authorizing_actor="${SOURCE_ACTOR}"
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            [[ "${ACTOR}" == "${OWNER}" ]] || {
+              echo "post-merge validation may only be started by the repository owner" >&2
+              exit 1
+            }
             merge_sha="${DISPATCH_MERGE_SHA}"
             pr_number="${DISPATCH_PR_NUMBER}"
+            authorizing_actor="${ACTOR}"
           else
+            [[ "${ACTOR}" == "${OWNER}" ]] || {
+              echo "post-merge validation comment may only be issued by the repository owner" >&2
+              exit 1
+            }
             [[ "${COMMENT_BODY}" =~ ^/governed-post-merge-validate[[:space:]]+([0-9a-f]{40})$ ]] || {
               echo "issue comment is not an exact post-merge validation command" >&2
               exit 1
             }
             merge_sha="${BASH_REMATCH[1]}"
             pr_number="${COMMENT_PR_NUMBER}"
+            authorizing_actor="${ACTOR}"
           fi
           [[ "${merge_sha}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${authorizing_actor}" == "${OWNER}" ]]
           echo "merge_sha=${merge_sha}" >> "$GITHUB_OUTPUT"
           echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "authorizing_actor=${authorizing_actor}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout trusted post-merge control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -79,13 +167,16 @@ jobs:
         id: target
         env:
           GH_TOKEN: ${{ github.token }}
-          ACTOR: ${{ github.actor }}
+          ACTOR: ${{ steps.request.outputs.authorizing_actor }}
           OWNER: ${{ github.repository_owner }}
           PR_NUMBER: ${{ steps.request.outputs.pr_number }}
           MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
         run: |
           set -euo pipefail
           mkdir -p post-merge-evidence
+          if [[ -d post-merge-bootstrap ]]; then
+            cp -R post-merge-bootstrap post-merge-evidence/source-merge-run
+          fi
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > post-merge-evidence/pr.json
           gh api "repos/${GITHUB_REPOSITORY}/commits/${MERGE_SHA}" > post-merge-evidence/merge-commit.json
           "${pythonLocation}/bin/python" -B control/scripts/github_post_merge_validation.py verify-target \
@@ -131,7 +222,6 @@ jobs:
         id: quality-dispatch
         env:
           GH_TOKEN: ${{ github.token }}
-          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
           TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
         run: |
           set -euo pipefail
