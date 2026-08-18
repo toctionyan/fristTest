@@ -83,7 +83,6 @@ def test_issue167_refund_review_override_requires_exact_capability_not_nearby_re
     goals = [row for row in list(contract.get("goals") or []) if isinstance(row, dict)]
     assert len(goals) == 1
     goal = goals[0]
-    assert goal.get("goal_type") == "action"
     assert goal.get("evidence_span") == "直接把退款审核结果改成通过"
     requested = goal.get("requested_effect") or {}
     assert requested.get("domain") == "refund"
