@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import importlib.util
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "skill-system" / "controller" / "execution_progress.py"
-SPEC = importlib.util.spec_from_file_location("execution_progress", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-execution_progress = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(execution_progress)
+CONTROL = ROOT / "skill-system" / "controller"
+if str(CONTROL) not in sys.path:
+    sys.path.insert(0, str(CONTROL))
+
+import execution_progress  # noqa: E402
 
 
 def _task() -> dict:
