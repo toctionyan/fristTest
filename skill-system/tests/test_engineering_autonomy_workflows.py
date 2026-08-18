@@ -57,12 +57,12 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertIn('[[ "${count}" == "1" ]]', self.wakeup)
 
     def test_wakeup_has_durable_idempotency_and_failure_receipts(self) -> None:
-        self.assertIn("engineering-autonomy-dispatch/${DECISION_ID:0:16}", self.wakeup)
+        self.assertIn("engineering-autonomy-dispatch/${DECISION_ID}", self.wakeup)
         self.assertIn("already_dispatched=true", self.wakeup)
         self.assertIn("--status DISPATCHED", self.wakeup)
         self.assertIn("--status FAILED", self.wakeup)
         self.assertIn("NETWORK_ACTION_FAILED", self.wakeup)
-        self.assertIn("Preserve network failure as workflow failure", self.wakeup)
+        self.assertIn("Preserve unsafe or failed network state as workflow failure", self.wakeup)
         self.assertIn("if-no-files-found: warn", self.wakeup)
 
     def test_wakeup_reservation_is_at_most_once_across_crash_window(self) -> None:
@@ -82,6 +82,7 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn("DISPATCH_OUTCOME_UNCERTAIN", self.wakeup)
         self.assertIn("PREVIOUS_NETWORK_FAILURE", self.wakeup)
+        self.assertIn('if [[ "${RESERVATION_STATE}" != "NEW" ]]', self.wakeup)
 
     def test_stage2_keeps_manual_and_autonomy_entry_paths_mutually_exclusive(self) -> None:
         for field in (
