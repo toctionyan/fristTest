@@ -65,6 +65,24 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertIn("Preserve network failure as workflow failure", self.wakeup)
         self.assertIn("if-no-files-found: warn", self.wakeup)
 
+    def test_wakeup_reservation_is_at_most_once_across_crash_window(self) -> None:
+        # A network request may be accepted immediately before the wakeup process dies.
+        # The exact decision marker must therefore be a durable reservation, not merely
+        # a success cache: any pre-existing PENDING marker is uncertain and must stop
+        # fail-closed rather than issuing the same network request again.
+        self.assertIn('CONTEXT="engineering-autonomy-dispatch/${DECISION_ID}"', self.wakeup)
+        self.assertNotIn("engineering-autonomy-dispatch/${DECISION_ID:0:16}", self.wakeup)
+        self.assertIn("reservation_state=UNCERTAIN", self.wakeup)
+        self.assertIn("reservation_state=DISPATCHED", self.wakeup)
+        self.assertIn("reservation_state=FAILED", self.wakeup)
+        self.assertIn("reservation_state=NEW", self.wakeup)
+        self.assertIn(
+            "if: steps.idempotency.outputs.reservation_state == 'NEW'",
+            self.wakeup,
+        )
+        self.assertIn("DISPATCH_OUTCOME_UNCERTAIN", self.wakeup)
+        self.assertIn("PREVIOUS_NETWORK_FAILURE", self.wakeup)
+
     def test_stage2_keeps_manual_and_autonomy_entry_paths_mutually_exclusive(self) -> None:
         for field in (
             "autonomy_handoff_run_id:",
