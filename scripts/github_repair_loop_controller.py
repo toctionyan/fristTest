@@ -24,6 +24,10 @@ CONTROL = ROOT / "skill-system" / "controller"
 if str(CONTROL) not in sys.path:
     sys.path.insert(0, str(CONTROL))
 
+from engineering_autonomy_continuation import (  # type: ignore  # noqa: E402
+    AutonomyContinuationError,
+    validate_autonomy_continuation,
+)
 from task_run import TaskRunStore  # type: ignore  # noqa: E402
 
 LOOP_SCHEMA = "github-governed-repair-loop@1"
@@ -383,6 +387,54 @@ def _validate_bindings(
     return binding
 
 
+def _resolve_autonomy_continuation(
+    *,
+    stage2: dict[str, Any],
+    previous: dict[str, Any],
+    binding: dict[str, Any],
+) -> dict[str, Any] | None:
+    raw = stage2.get("autonomy_continuation")
+    prior_raw = previous.get("autonomy_continuation") if previous else None
+    if raw is None:
+        if prior_raw is not None:
+            raise RepairLoopError("autonomy continuation disappeared between repair rounds")
+        return None
+    if not isinstance(raw, dict):
+        raise RepairLoopError("Stage-2 autonomy continuation must be an object")
+    try:
+        current = validate_autonomy_continuation(
+            raw,
+            source_run_id=binding.get("workflow_run_id"),
+            source_run_attempt=binding.get("workflow_run_attempt"),
+            source_head_sha=binding.get("head_sha"),
+            failure_signature=binding.get("failure_signature"),
+        )
+    except AutonomyContinuationError as exc:
+        raise RepairLoopError(str(exc)) from exc
+    if previous:
+        if not isinstance(prior_raw, dict):
+            raise RepairLoopError("autonomy continuation appeared after the outer loop already started")
+        try:
+            prior = validate_autonomy_continuation(
+                prior_raw,
+                source_run_id=binding.get("workflow_run_id"),
+                source_run_attempt=binding.get("workflow_run_attempt"),
+                source_head_sha=binding.get("head_sha"),
+                failure_signature=binding.get("failure_signature"),
+            )
+        except AutonomyContinuationError as exc:
+            raise RepairLoopError(str(exc)) from exc
+        if prior != current:
+            raise RepairLoopError("autonomy continuation changed between repair rounds")
+        if _int(previous.get("max_repair_rounds"), 0) != int(current["max_repair_rounds"]):
+            raise RepairLoopError("outer-loop repair budget drifted from autonomy continuation")
+        if _int(previous.get("max_validation_retries_per_candidate"), 0) != int(
+            current["max_validation_retries"]
+        ):
+            raise RepairLoopError("outer-loop validation retry budget drifted from autonomy continuation")
+    return current
+
+
 def _existing_loop_metadata(task: TaskRunStore) -> dict[str, Any]:
     metadata = task.payload.get("metadata") if isinstance(task.payload.get("metadata"), dict) else {}
     loop = metadata.get("repair_loop") if isinstance(metadata.get("repair_loop"), dict) else {}
@@ -396,6 +448,7 @@ def _safe_feedback_failure(
     repair_round: int,
     verification_attempt: int,
     failure_fingerprint: str,
+    autonomy_continuation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     feedback = dict(original)
     feedback.pop("authority_schema", None)
@@ -427,6 +480,10 @@ def _safe_feedback_failure(
         "failure_fingerprint": failure_fingerprint,
         "scope_expanded": False,
     }
+    if autonomy_continuation is not None:
+        feedback["loop_feedback"]["autonomy_continuation_sha256"] = str(
+            autonomy_continuation.get("continuation_sha256") or ""
+        )
     return feedback
 
 
@@ -471,6 +528,12 @@ def route_failure(
         if str(previous.get("source_run_id")) != str(binding.get("workflow_run_id")):
             raise RepairLoopError("previous outer-loop state belongs to another source run")
 
+    autonomy_continuation = _resolve_autonomy_continuation(
+        stage2=stage2,
+        previous=previous,
+        binding=binding,
+    )
+
     event_key = f"{stage3_run_id}/{stage3_run_attempt}"
     if previous.get("last_verification_event") == event_key:
         duplicate = dict(previous)
@@ -487,14 +550,21 @@ def route_failure(
         _int(loop_meta.get("repair_round"), 0),
         _int(stage2.get("repair_round"), 0),
     )
-    max_rounds = max(
-        1,
-        min(
-            MAX_REPAIR_ROUNDS,
-            _int(previous.get("max_repair_rounds"), MAX_REPAIR_ROUNDS)
-            or MAX_REPAIR_ROUNDS,
-        ),
-    )
+    if autonomy_continuation is not None:
+        max_rounds = int(autonomy_continuation["max_repair_rounds"])
+        max_validation_retries = int(autonomy_continuation["max_validation_retries"])
+        if repair_round > max_rounds:
+            raise RepairLoopError("Stage-2 repair round exceeds the owner-authorized autonomy budget")
+    else:
+        max_rounds = max(
+            1,
+            min(
+                MAX_REPAIR_ROUNDS,
+                _int(previous.get("max_repair_rounds"), MAX_REPAIR_ROUNDS)
+                or MAX_REPAIR_ROUNDS,
+            ),
+        )
+        max_validation_retries = MAX_VALIDATION_RETRIES_PER_CANDIDATE
     prior_verifications = max(
         _int(previous.get("verification_attempt"), 0),
         _int(loop_meta.get("verification_attempt"), 0),
@@ -571,7 +641,7 @@ def route_failure(
         action = "HARNESS_REPAIR_REQUIRED"
         stop_reason = classification_reason
     elif retryable_validation_failure:
-        if same_candidate_retry_count > MAX_VALIDATION_RETRIES_PER_CANDIDATE:
+        if same_candidate_retry_count > max_validation_retries:
             action = "VALIDATION_RETRY_EXHAUSTED"
             stop_reason = "same-candidate transient/environment validation retry budget exhausted"
         else:
@@ -602,13 +672,15 @@ def route_failure(
         "failed_components": _failed_components(targeted, quick_summary),
         "stagnant_rounds": stagnant_rounds,
         "same_candidate_retry_count": same_candidate_retry_count,
-        "max_validation_retries_per_candidate": MAX_VALIDATION_RETRIES_PER_CANDIDATE,
+        "max_validation_retries_per_candidate": max_validation_retries,
         "action": action,
         "stop_reason": stop_reason,
         "repair_budget_consumed": repair_round,
         "repair_budget_remaining": max(0, max_rounds - repair_round),
         "production_closed": False,
     }
+    if autonomy_continuation is not None:
+        state["autonomy_continuation"] = autonomy_continuation
 
     task.set_metadata(repair_loop=state)
     evidence_refs = [str(stage3_plan_path), str(targeted_result_path), f"loop-state:{failure_fp}"]
@@ -659,6 +731,7 @@ def route_failure(
             repair_round=repair_round,
             verification_attempt=verification_attempt,
             failure_fingerprint=failure_fp,
+            autonomy_continuation=autonomy_continuation,
         )
         _write(output_dir / "failure-case.json", feedback)
         shutil.copyfile(seed_patch_path, output_dir / "seed.patch")
