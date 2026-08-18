@@ -1,0 +1,149 @@
+name: engineering-autonomy-authorize
+
+on:
+  workflow_dispatch:
+    inputs:
+      handoff_bundle:
+        description: Compact engineering-autonomy-handoff-bundle@1 JSON produced by the governed local host
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: engineering-autonomy-authorize-${{ github.repository }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    if: ${{ github.actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout trusted autonomy control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Bind exact trusted workflow SHA
+        id: control
+        run: |
+          set -euo pipefail
+          CONTROL_SHA=$(git -C control rev-parse HEAD)
+          [[ "${CONTROL_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          echo "control_sha=${CONTROL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "trusted_workflow_ref=.github/workflows/engineering-autonomy-authorize.yml@${CONTROL_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Freeze owner-supplied compact handoff bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          mkdir -p incoming handoff
+          "${pythonLocation}/bin/python" - "$GITHUB_EVENT_PATH" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          event = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          raw = str(((event.get("inputs") or {}).get("handoff_bundle")) or "")
+          if not raw.strip():
+              raise SystemExit("handoff_bundle is required")
+          bundle = json.loads(raw)
+          if not isinstance(bundle, dict) or bundle.get("schema") != "engineering-autonomy-handoff-bundle@1":
+              raise SystemExit("invalid engineering autonomy handoff bundle schema")
+          source_pr = int(bundle.get("source_pr_number") or 0)
+          if source_pr < 1:
+              raise SystemExit("handoff bundle requires source_pr_number")
+          Path("incoming/handoff-bundle.json").write_text(
+              json.dumps(bundle, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"source_pr_number={source_pr}\n")
+          PY
+
+      - name: Read exact current Draft PR identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ steps.bundle.outputs.source_pr_number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${SOURCE_PR_NUMBER}" > incoming/source-pr.json
+          jq -e --arg repo "${GITHUB_REPOSITORY}" '
+            .state == "open"
+            and .draft == true
+            and .head.repo.full_name == $repo
+            and (.head.sha | test("^[0-9a-f]{40}$"))
+          ' incoming/source-pr.json >/dev/null
+
+      - name: Compile exact owner authorization and bounded network request
+        id: compile
+        env:
+          TRUSTED_WORKFLOW_REF: ${{ steps.control.outputs.trusted_workflow_ref }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_engineering_autonomy_authorize.py \
+            --bundle incoming/handoff-bundle.json \
+            --pr incoming/source-pr.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --actor "${GITHUB_ACTOR}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --trusted-workflow-ref "${TRUSTED_WORKFLOW_REF}" \
+            --authorization-id "owner-autonomy:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}" \
+            --handoff-run-id "${GITHUB_RUN_ID}" \
+            --handoff-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --output-dir handoff \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload immutable autonomy handoff evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engineering-autonomy-handoff-${{ steps.compile.outputs.source_run_id }}
+          path: |
+            incoming/handoff-bundle.json
+            incoming/source-pr.json
+            handoff/handoff-result.json
+            handoff/owner-authorization.json
+            handoff/dispatch-plan.json
+            handoff/network-request.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish authorization summary
+        if: always()
+        env:
+          NETWORK_KIND: ${{ steps.compile.outputs.network_kind }}
+          SOURCE_PR_NUMBER: ${{ steps.compile.outputs.source_pr_number }}
+          SOURCE_RUN_ID: ${{ steps.compile.outputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ steps.compile.outputs.source_run_attempt }}
+          SOURCE_HEAD_SHA: ${{ steps.compile.outputs.source_head_sha }}
+          PLAN_SHA: ${{ steps.compile.outputs.plan_sha256 }}
+        run: |
+          {
+            echo "## Engineering autonomy authorization"
+            echo
+            echo "- Actor: \`${GITHUB_ACTOR}\`"
+            echo "- Source PR: \`#${SOURCE_PR_NUMBER:-unknown}\`"
+            echo "- Source run: \`${SOURCE_RUN_ID:-unknown}/${SOURCE_RUN_ATTEMPT:-unknown}\`"
+            echo "- Source head: \`${SOURCE_HEAD_SHA:-unknown}\`"
+            echo "- Network kind: \`${NETWORK_KIND:-not-compiled}\`"
+            echo "- Plan SHA-256: \`${PLAN_SHA:-not-compiled}\`"
+            echo "- Network execution in this workflow: \`false\`"
+            echo "- merge_allowed: \`false\`"
+            echo "- deploy_allowed: \`false\`"
+            echo "- production_closed: \`false\`"
+          } >> "$GITHUB_STEP_SUMMARY"
