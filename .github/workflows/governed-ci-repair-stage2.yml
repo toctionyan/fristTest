@@ -13,7 +13,42 @@ on:
         default: '1'
         type: string
       remote_repair_approval:
-        description: Initial remote fallback only; must be exactly explicitly-approved
+        description: Legacy manual fallback only; must be exactly explicitly-approved
+        required: false
+        default: ''
+        type: string
+      autonomy_handoff_run_id:
+        description: Exact successful engineering-autonomy-authorize run for the same source attempt
+        required: false
+        default: ''
+        type: string
+      autonomy_handoff_run_attempt:
+        description: Exact autonomy handoff run attempt
+        required: false
+        default: '1'
+        type: string
+      autonomy_authorization_id:
+        description: Exact owner authorization id carried by the autonomy handoff
+        required: false
+        default: ''
+        type: string
+      autonomy_authorization_sha256:
+        description: Exact owner authorization digest carried by the autonomy handoff
+        required: false
+        default: ''
+        type: string
+      autonomy_grant_id:
+        description: Exact M2 autonomy grant id carried by the autonomy handoff
+        required: false
+        default: ''
+        type: string
+      autonomy_grant_sha256:
+        description: Exact M2 autonomy grant digest carried by the autonomy handoff
+        required: false
+        default: ''
+        type: string
+      autonomy_plan_sha256:
+        description: Exact validated M3 Stage-2 dispatch plan digest
         required: false
         default: ''
         type: string
@@ -62,6 +97,10 @@ jobs:
       input_kind: ${{ steps.source.outputs.input_kind }}
       input_artifact_id: ${{ steps.loop_artifact.outputs.input_artifact_id }}
       repair_round: ${{ steps.source.outputs.repair_round }}
+      autonomy_handoff_run_id: ${{ steps.source.outputs.autonomy_handoff_run_id }}
+      autonomy_handoff_run_attempt: ${{ steps.source.outputs.autonomy_handoff_run_attempt }}
+      autonomy_handoff_head_sha: ${{ steps.autonomy_artifact.outputs.autonomy_handoff_head_sha }}
+      autonomy_artifact_id: ${{ steps.autonomy_artifact.outputs.autonomy_artifact_id }}
     steps:
       - name: Checkout trusted Stage-2 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -81,6 +120,13 @@ jobs:
           DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
           REMOTE_REPAIR_APPROVAL: ${{ inputs.remote_repair_approval }}
+          AUTONOMY_HANDOFF_RUN_ID: ${{ inputs.autonomy_handoff_run_id }}
+          AUTONOMY_HANDOFF_RUN_ATTEMPT: ${{ inputs.autonomy_handoff_run_attempt }}
+          AUTONOMY_AUTHORIZATION_ID: ${{ inputs.autonomy_authorization_id }}
+          AUTONOMY_AUTHORIZATION_SHA256: ${{ inputs.autonomy_authorization_sha256 }}
+          AUTONOMY_GRANT_ID: ${{ inputs.autonomy_grant_id }}
+          AUTONOMY_GRANT_SHA256: ${{ inputs.autonomy_grant_sha256 }}
+          AUTONOMY_PLAN_SHA256: ${{ inputs.autonomy_plan_sha256 }}
           LOOP_FEEDBACK_RUN_ID: ${{ inputs.loop_feedback_run_id }}
           LOOP_FEEDBACK_RUN_ATTEMPT: ${{ inputs.loop_feedback_run_attempt }}
           REPAIR_ROUND: ${{ inputs.repair_round }}
@@ -88,7 +134,15 @@ jobs:
           set -euo pipefail
           [[ "${DISPATCH_SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${DISPATCH_SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          autonomy_present=false
+          if [[ -n "${AUTONOMY_HANDOFF_RUN_ID}" || -n "${AUTONOMY_AUTHORIZATION_ID}" || -n "${AUTONOMY_AUTHORIZATION_SHA256}" || -n "${AUTONOMY_GRANT_ID}" || -n "${AUTONOMY_GRANT_SHA256}" || -n "${AUTONOMY_PLAN_SHA256}" ]]; then
+            autonomy_present=true
+          fi
           if [[ -n "${LOOP_FEEDBACK_RUN_ID}" ]]; then
+            if [[ "${autonomy_present}" == "true" || -n "${REMOTE_REPAIR_APPROVAL}" ]]; then
+              echo "Outer-loop feedback cannot be mixed with initial manual or autonomy authorization." >&2
+              exit 1
+            fi
             [[ "${LOOP_FEEDBACK_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
             [[ "${LOOP_FEEDBACK_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
             [[ "${REPAIR_ROUND}" =~ ^[2-8]$ ]]
@@ -96,24 +150,50 @@ jobs:
             echo "input_artifact_pattern=governed-repair-loop-feedback-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_kind=loop_feedback" >> "$GITHUB_OUTPUT"
             echo "repair_round=${REPAIR_ROUND}" >> "$GITHUB_OUTPUT"
+            echo "autonomy_handoff_run_id=" >> "$GITHUB_OUTPUT"
+            echo "autonomy_handoff_run_attempt=" >> "$GITHUB_OUTPUT"
+          elif [[ "${autonomy_present}" == "true" ]]; then
+            if [[ -n "${REMOTE_REPAIR_APPROVAL}" ]]; then
+              echo "Autonomy Stage-2 handoff must not synthesize or combine legacy manual approval." >&2
+              exit 1
+            fi
+            [[ "${AUTONOMY_HANDOFF_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${AUTONOMY_HANDOFF_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+            [[ -n "${AUTONOMY_AUTHORIZATION_ID}" ]]
+            [[ "${AUTONOMY_AUTHORIZATION_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            [[ -n "${AUTONOMY_GRANT_ID}" ]]
+            [[ "${AUTONOMY_GRANT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            [[ "${AUTONOMY_PLAN_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            if [[ "${REPAIR_ROUND}" != "1" ]]; then
+              echo "Initial autonomy Stage-2 handoff must start at repair_round=1." >&2
+              exit 1
+            fi
+            echo "input_run_id=${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "input_kind=autonomy_stage1" >> "$GITHUB_OUTPUT"
+            echo "repair_round=1" >> "$GITHUB_OUTPUT"
+            echo "autonomy_handoff_run_id=${AUTONOMY_HANDOFF_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "autonomy_handoff_run_attempt=${AUTONOMY_HANDOFF_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
           else
             if [[ "${REMOTE_REPAIR_APPROVAL}" != "explicitly-approved" ]]; then
-              echo "Initial remote repair fallback requires remote_repair_approval=explicitly-approved." >&2
+              echo "Initial manual remote repair fallback requires remote_repair_approval=explicitly-approved." >&2
               echo "Normal CI code failures must return to the local Patch Owner instead." >&2
               exit 1
             fi
             if [[ "${REPAIR_ROUND}" != "1" ]]; then
-              echo "Initial remote fallback must start at repair_round=1." >&2
+              echo "Initial manual remote fallback must start at repair_round=1." >&2
               exit 1
             fi
             echo "input_run_id=${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_artifact_pattern=governed-ci-quality-stage1-${DISPATCH_SOURCE_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "input_kind=stage1" >> "$GITHUB_OUTPUT"
             echo "repair_round=1" >> "$GITHUB_OUTPUT"
+            echo "autonomy_handoff_run_id=" >> "$GITHUB_OUTPUT"
+            echo "autonomy_handoff_run_attempt=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download approved Stage-1 governed evidence when present
-        if: steps.source.outputs.input_kind == 'stage1'
+        if: steps.source.outputs.input_kind == 'stage1' || steps.source.outputs.input_kind == 'autonomy_stage1'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: ${{ steps.source.outputs.input_artifact_pattern }}
@@ -122,6 +202,45 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.source.outputs.input_run_id }}
+
+      - name: Download exact trusted autonomy handoff
+        if: steps.source.outputs.input_kind == 'autonomy_stage1'
+        id: autonomy_artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_RUN_ID: ${{ steps.source.outputs.autonomy_handoff_run_id }}
+          HANDOFF_RUN_ATTEMPT: ${{ steps.source.outputs.autonomy_handoff_run_attempt }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_ACTOR: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/autonomy
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${HANDOFF_RUN_ID}" > incoming/autonomy-run.json
+          jq -e --arg attempt "${HANDOFF_RUN_ATTEMPT}" --arg actor "${EXPECTED_ACTOR}" '
+            .name == "engineering-autonomy-authorize"
+            and .event == "workflow_dispatch"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+            and (.actor.login == $actor)
+            and (.head_sha | test("^[0-9a-f]{40}$"))
+          ' incoming/autonomy-run.json >/dev/null
+          handoff_head_sha=$(jq -r '.head_sha' incoming/autonomy-run.json)
+          run_started_at=$(jq -r '.run_started_at // empty' incoming/autonomy-run.json)
+          [[ -n "${run_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${HANDOFF_RUN_ID}/artifacts?per_page=100" > incoming/autonomy-artifacts.json
+          artifact_id=$(jq -r --arg started "${run_started_at}" --arg name "engineering-autonomy-handoff-${SOURCE_RUN_ID}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.name == $name)
+            | select(.created_at >= $started)]
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty' incoming/autonomy-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/autonomy-handoff.zip
+          unzip -q incoming/autonomy-handoff.zip -d incoming/autonomy
+          echo "autonomy_artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
+          echo "autonomy_handoff_head_sha=${handoff_head_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Download exact outer-loop feedback attempt
         if: steps.source.outputs.input_kind == 'loop_feedback'
@@ -161,18 +280,26 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Verify explicit Stage-1 fallback or bounded outer-loop handoff
+      - name: Verify manual, autonomy, or bounded outer-loop handoff
         id: inspect
         env:
           DISPATCH_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           DISPATCH_SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
           REMOTE_REPAIR_APPROVAL: ${{ inputs.remote_repair_approval }}
+          AUTONOMY_HANDOFF_RUN_ID: ${{ steps.source.outputs.autonomy_handoff_run_id }}
+          AUTONOMY_HANDOFF_RUN_ATTEMPT: ${{ steps.source.outputs.autonomy_handoff_run_attempt }}
+          AUTONOMY_HANDOFF_HEAD_SHA: ${{ steps.autonomy_artifact.outputs.autonomy_handoff_head_sha }}
+          AUTONOMY_AUTHORIZATION_ID: ${{ inputs.autonomy_authorization_id }}
+          AUTONOMY_AUTHORIZATION_SHA256: ${{ inputs.autonomy_authorization_sha256 }}
+          AUTONOMY_GRANT_ID: ${{ inputs.autonomy_grant_id }}
+          AUTONOMY_GRANT_SHA256: ${{ inputs.autonomy_grant_sha256 }}
+          AUTONOMY_PLAN_SHA256: ${{ inputs.autonomy_plan_sha256 }}
           INPUT_KIND: ${{ steps.source.outputs.input_kind }}
           REPAIR_ROUND: ${{ steps.source.outputs.repair_round }}
         run: |
           set -euo pipefail
-          failure_case=$(find incoming -type f -name failure-case.json -print -quit 2>/dev/null || true)
-          task_run=$(find incoming -type f -name task-run.json -print -quit 2>/dev/null || true)
+          failure_case=$(find incoming -type f -name failure-case.json -not -path 'incoming/autonomy/*' -print -quit 2>/dev/null || true)
+          task_run=$(find incoming -type f -name task-run.json -not -path 'incoming/autonomy/*' -print -quit 2>/dev/null || true)
           seed_patch=$(find incoming -type f -name seed.patch -print -quit 2>/dev/null || true)
           loop_state=$(find incoming -type f -name loop-state.json -print -quit 2>/dev/null || true)
           if [[ -z "${failure_case}" || -z "${task_run}" ]]; then
@@ -182,6 +309,38 @@ jobs:
             echo "source_run_attempt=" >> "$GITHUB_OUTPUT"
             echo "failure_signature=" >> "$GITHUB_OUTPUT"
             echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "${INPUT_KIND}" == "autonomy_stage1" ]]; then
+            handoff_result=$(find incoming/autonomy -type f -name handoff-result.json -print -quit 2>/dev/null || true)
+            [[ -n "${handoff_result}" ]]
+            "${pythonLocation}/bin/python" -B control/scripts/github_repair_autonomy_stage2.py \
+              --failure-case "${failure_case}" \
+              --stage1-task-run "${task_run}" \
+              --handoff-result "${handoff_result}" \
+              --repository "${GITHUB_REPOSITORY}" \
+              --source-run-id "${DISPATCH_SOURCE_RUN_ID}" \
+              --source-run-attempt "${DISPATCH_SOURCE_RUN_ATTEMPT}" \
+              --handoff-run-id "${AUTONOMY_HANDOFF_RUN_ID}" \
+              --handoff-run-attempt "${AUTONOMY_HANDOFF_RUN_ATTEMPT}" \
+              --handoff-head-sha "${AUTONOMY_HANDOFF_HEAD_SHA}" \
+              --github-output "$GITHUB_OUTPUT"
+            jq -e --arg auth_id "${AUTONOMY_AUTHORIZATION_ID}" \
+              --arg auth_sha "${AUTONOMY_AUTHORIZATION_SHA256}" \
+              --arg grant_id "${AUTONOMY_GRANT_ID}" \
+              --arg grant_sha "${AUTONOMY_GRANT_SHA256}" \
+              --arg plan_sha "${AUTONOMY_PLAN_SHA256}" '
+                .authorization.authorization_id == $auth_id
+                and .authorization.authorization_sha256 == $auth_sha
+                and .grant.grant_id == $grant_id
+                and .grant.grant_sha256 == $grant_sha
+                and .plan.plan_sha256 == $plan_sha
+                and .network_request.inputs.autonomy_authorization_id == $auth_id
+                and .network_request.inputs.autonomy_authorization_sha256 == $auth_sha
+                and .network_request.inputs.autonomy_grant_id == $grant_id
+                and .network_request.inputs.autonomy_grant_sha256 == $grant_sha
+                and .network_request.inputs.autonomy_plan_sha256 == $plan_sha
+              ' "${handoff_result}" >/dev/null
             exit 0
           fi
           "${pythonLocation}/bin/python" - "$failure_case" "$task_run" "$GITHUB_OUTPUT" "${DISPATCH_SOURCE_RUN_ID}" "${DISPATCH_SOURCE_RUN_ATTEMPT}" "${INPUT_KIND}" "${REPAIR_ROUND}" "${seed_patch}" "${loop_state}" "${REMOTE_REPAIR_APPROVAL}" <<'PY'
@@ -280,7 +439,7 @@ jobs:
           persist-credentials: false
 
       - name: Download Stage-1 governed repair input
-        if: needs.inspect.outputs.input_kind == 'stage1'
+        if: needs.inspect.outputs.input_kind == 'stage1' || needs.inspect.outputs.input_kind == 'autonomy_stage1'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: ${{ needs.inspect.outputs.input_artifact_pattern }}
@@ -437,7 +596,7 @@ jobs:
             handoff_bound=$(jq -r '.stage3_handoff_bound // false' stage2-evidence/public-summary.json)
           fi
           body=$(cat <<EOF
-          Explicit remote fallback Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
+          Governed Stage 2 completed for source run \`${SOURCE_RUN_ID}\`.
 
           - Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}
           - Stage-2 Run ID / attempt: \`${STAGE2_RUN_ID}/${STAGE2_RUN_ATTEMPT}\`
@@ -454,7 +613,9 @@ jobs:
           - Draft PR created: no
           - production_closed: false
 
-          This workflow is a manually entered fallback, not the default CI repair lane.
+          Manual fallback and exact M3 autonomy handoff are separate fail-closed entry paths.
+          An autonomy handoff never synthesizes \`remote_repair_approval\`; it must carry the exact
+          owner authorization, M2 grant and M3 dispatch-plan digests from the trusted handoff run.
           A \`REPAIR_CANDIDATE_READY\` result is only a candidate for Stage 3 independent validation.
           Fixer cycles are internal to this fallback round and do not consume additional global repair rounds.
           EOF
