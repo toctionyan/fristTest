@@ -65,17 +65,8 @@ def agent_loop_node(
     runtime_state.pop(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY, None)
     if callable(dependency_authority_control_resolver):
         runtime_state[TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] = dependency_authority_control_resolver
-    patch = _dialogue_agent_loop_node(
-        runtime_state,
-        context_bundle_builder=context_bundle_builder,
-        capability_registry=capability_registry,
-        model_resolver=model_resolver,
-    )
-    return project_pending_transaction_interaction(
-        state=runtime_state,
-        patch=patch,
-        capability_registry=capability_registry,
-    )
+    patch = _dialogue_agent_loop_node(runtime_state, context_bundle_builder=context_bundle_builder, capability_registry=capability_registry, model_resolver=model_resolver)
+    return project_pending_transaction_interaction(state=runtime_state, patch=patch, capability_registry=capability_registry)
 
 
 def _append_formal_disposition(
