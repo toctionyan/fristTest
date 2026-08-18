@@ -21,6 +21,7 @@ CONTROL = ROOT / "skill-system" / "controller"
 if str(CONTROL) not in sys.path:
     sys.path.insert(0, str(CONTROL))
 
+from engineering_autonomy_continuation import build_autonomy_continuation  # type: ignore  # noqa: E402
 from engineering_autonomy_dispatch import AutonomyDispatchError  # type: ignore  # noqa: E402
 from engineering_autonomy_handoff import (  # type: ignore  # noqa: E402
     HANDOFF_RESULT_SCHEMA,
@@ -213,6 +214,20 @@ def verify_stage2_autonomy_handoff(
         )
     ):
         raise AutonomyDispatchError("autonomy handoff result crossed an authority boundary")
+
+    budgets = grant.get("budgets") if isinstance(grant.get("budgets"), Mapping) else {}
+    continuation = build_autonomy_continuation(
+        grant_id=grant.get("grant_id"),
+        grant_sha256=grant.get("grant_sha256"),
+        authorization_id=authorization.get("authorization_id"),
+        authorization_sha256=authorization.get("authorization_sha256"),
+        source_run_id=source_id,
+        source_run_attempt=source_attempt,
+        source_head_sha=failure_head,
+        failure_signature=failure_signature,
+        max_repair_rounds=budgets.get("max_repair_rounds"),
+        max_validation_retries=budgets.get("max_validation_retries"),
+    )
     return {
         "repair_allowed": True,
         "head_sha": failure_head,
@@ -221,8 +236,13 @@ def verify_stage2_autonomy_handoff(
         "failure_signature": failure_signature,
         "source_pr_number": int(bundle["source_pr_number"]),
         "plan_sha256": _text(validated_plan.get("plan_sha256")),
+        "authorization_id": _text(authorization.get("authorization_id")),
         "authorization_sha256": _text(authorization.get("authorization_sha256")),
+        "grant_id": _text(grant.get("grant_id")),
         "grant_sha256": _text(grant.get("grant_sha256")),
+        "autonomy_continuation_sha256": continuation["continuation_sha256"],
+        "max_repair_rounds": continuation["max_repair_rounds"],
+        "max_validation_retries": continuation["max_validation_retries"],
         "handoff_run_id": int(handoff_run_id),
         "handoff_run_attempt": int(handoff_run_attempt),
         "control_sha": observed_stage2_control_sha,
