@@ -14,6 +14,7 @@ from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.config import get_model
 from agent_core.lifecycle.context_runtime import build_context_bundle_node, prepare_agent_loop_turn_node
 from agent_core.lifecycle.dialogue_runtime import agent_loop_node as _dialogue_agent_loop_node
+from agent_core.lifecycle.transaction_workflow_projection import project_pending_transaction_interaction
 from agent_core.lifecycle.pretool_execution_policy import TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY
 from agent_core.lifecycle.graph_routes import (
     finalize_agent_loop_turn_node,
@@ -64,11 +65,16 @@ def agent_loop_node(
     runtime_state.pop(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY, None)
     if callable(dependency_authority_control_resolver):
         runtime_state[TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] = dependency_authority_control_resolver
-    return _dialogue_agent_loop_node(
+    patch = _dialogue_agent_loop_node(
         runtime_state,
         context_bundle_builder=context_bundle_builder,
         capability_registry=capability_registry,
         model_resolver=model_resolver,
+    )
+    return project_pending_transaction_interaction(
+        state=runtime_state,
+        patch=patch,
+        capability_registry=capability_registry,
     )
 
 
