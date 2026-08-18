@@ -13,6 +13,7 @@ def test_required_quality_status_is_bound_to_stable_pr_head_after_merge_snapshot
     assert "  quality-quick:\n" not in text
     assert "statuses: write" in text
     assert 'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}' in text
+    assert 'PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}' in text
     assert 'PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}' in text
     assert 'TEST_MERGE_SHA: ${{ github.sha }}' in text
     assert 'repos/${GITHUB_REPOSITORY}/git/commits/${TEST_MERGE_SHA}' in text
@@ -22,6 +23,7 @@ def test_required_quality_status_is_bound_to_stable_pr_head_after_merge_snapshot
     assert '--arg context "quality-quick"' in text
     assert 'STATIC_RESULT: ${{ needs.quality-static.result }}' in text
     assert 'QUICK_RESULT: ${{ needs.quality-quick-execution.result }}' in text
+    assert 'stable required status is fail-closed for fork pull requests' in text
     assert '[[ "${state}" == "success" ]]' in text
 
 
