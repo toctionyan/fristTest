@@ -202,8 +202,19 @@ jobs:
           MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
         run: |
           set -euo pipefail
-          gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body \
-            "Post-merge validation started for exact merge \`${MERGE_SHA}\` in workflow run \`${GITHUB_RUN_ID}\`. This stage is validation-only: authority_effect=false, merge_allowed=false, deploy_allowed=false, production_closed=false."
+          body="Post-merge validation started for exact merge \`${MERGE_SHA}\` in workflow run \`${GITHUB_RUN_ID}\`. This stage is validation-only: authority_effect=false, merge_allowed=false, deploy_allowed=false, production_closed=false."
+          jq -n --arg body "${body}" '{body:$body}' > post-merge-evidence/start-comment-request.json
+          if gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --input post-merge-evidence/start-comment-request.json \
+            > post-merge-evidence/start-comment-response.json; then
+            jq -e '.id > 0' post-merge-evidence/start-comment-response.json >/dev/null
+          else
+            rc=$?
+            echo "::warning::non-authoritative start comment could not be written; validation continues"
+            jq -n --argjson exit_code "${rc}" \
+              '{status:"COMMENT_WRITE_FAILED_NON_AUTHORITATIVE",exit_code:$exit_code}' \
+              > post-merge-evidence/start-comment-response.json
+          fi
 
       - name: Create temporary exact-merge validation ref
         env:
@@ -347,15 +358,6 @@ jobs:
             and .production_closed == false
           ' post-merge-evidence/post-merge-validation.json >/dev/null
 
-      - name: Upload immutable post-merge evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: governed-post-merge-validation-${{ steps.request.outputs.merge_sha }}
-          path: post-merge-evidence
-          retention-days: 90
-          if-no-files-found: error
-
       - name: Record completed post-merge validation
         if: success()
         env:
@@ -366,8 +368,28 @@ jobs:
           CONVERGENCE_RUN_ID: ${{ steps.convergence.outputs.run_id }}
         run: |
           set -euo pipefail
-          gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body \
-            "Post-merge validation completed for exact merge \`${MERGE_SHA}\`: Quality run \`${QUALITY_RUN_ID}\` and project-convergence run \`${CONVERGENCE_RUN_ID}\` both succeeded on that exact merge snapshot. POST_MERGE_VALIDATED; authority_effect=false, merge_allowed=false, deploy_allowed=false, production_closed=false."
+          body="Post-merge validation completed for exact merge \`${MERGE_SHA}\`: Quality run \`${QUALITY_RUN_ID}\` and project-convergence run \`${CONVERGENCE_RUN_ID}\` both succeeded on that exact merge snapshot. POST_MERGE_VALIDATED; authority_effect=false, merge_allowed=false, deploy_allowed=false, production_closed=false."
+          jq -n --arg body "${body}" '{body:$body}' > post-merge-evidence/completed-comment-request.json
+          if gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --input post-merge-evidence/completed-comment-request.json \
+            > post-merge-evidence/completed-comment-response.json; then
+            jq -e '.id > 0' post-merge-evidence/completed-comment-response.json >/dev/null
+          else
+            rc=$?
+            echo "::warning::non-authoritative completion comment could not be written; validated receipt remains authoritative"
+            jq -n --argjson exit_code "${rc}" \
+              '{status:"COMMENT_WRITE_FAILED_NON_AUTHORITATIVE",exit_code:$exit_code}' \
+              > post-merge-evidence/completed-comment-response.json
+          fi
+
+      - name: Upload immutable post-merge evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-post-merge-validation-${{ steps.request.outputs.merge_sha }}
+          path: post-merge-evidence
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Remove temporary exact-merge validation ref
         if: always()
