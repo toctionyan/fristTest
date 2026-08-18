@@ -401,22 +401,16 @@ def _validate_bindings(
     return binding
 
 
-def _resolve_autonomy_continuation(
+def _validate_continuation_for_binding(
+    raw: object,
     *,
-    stage2: dict[str, Any],
-    previous: dict[str, Any],
     binding: dict[str, Any],
-) -> dict[str, Any] | None:
-    raw = stage2.get("autonomy_continuation")
-    prior_raw = previous.get("autonomy_continuation") if previous else None
-    if raw is None:
-        if prior_raw is not None:
-            raise RepairLoopError("autonomy continuation disappeared between repair rounds")
-        return None
+    source: str,
+) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        raise RepairLoopError("Stage-2 autonomy continuation must be an object")
+        raise RepairLoopError(f"{source} autonomy continuation must be an object")
     try:
-        current = validate_autonomy_continuation(
+        return validate_autonomy_continuation(
             raw,
             source_run_id=binding.get("workflow_run_id"),
             source_run_attempt=binding.get("workflow_run_attempt"),
@@ -425,27 +419,80 @@ def _resolve_autonomy_continuation(
         )
     except AutonomyContinuationError as exc:
         raise RepairLoopError(str(exc)) from exc
-    if previous:
-        if not isinstance(prior_raw, dict):
+
+
+def _assert_continuation_budget_binding(
+    state: dict[str, Any],
+    continuation: dict[str, Any],
+    *,
+    source: str,
+) -> None:
+    if _int(state.get("max_repair_rounds"), 0) != int(continuation["max_repair_rounds"]):
+        raise RepairLoopError(f"{source} repair budget drifted from autonomy continuation")
+    if _int(state.get("max_validation_retries_per_candidate"), 0) != int(
+        continuation["max_validation_retries"]
+    ):
+        raise RepairLoopError(f"{source} validation retry budget drifted from autonomy continuation")
+
+
+def _resolve_autonomy_continuation(
+    *,
+    stage2: dict[str, Any],
+    previous: dict[str, Any],
+    binding: dict[str, Any],
+    task_loop: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    task_loop = task_loop or {}
+    raw = stage2.get("autonomy_continuation")
+    artifact_prior_raw = previous.get("autonomy_continuation") if previous else None
+    task_prior_raw = task_loop.get("autonomy_continuation") if task_loop else None
+    prior_started = bool(previous) or bool(task_loop)
+
+    artifact_prior: dict[str, Any] | None = None
+    task_prior: dict[str, Any] | None = None
+    if artifact_prior_raw is not None:
+        artifact_prior = _validate_continuation_for_binding(
+            artifact_prior_raw,
+            binding=binding,
+            source="previous outer-loop artifact",
+        )
+        _assert_continuation_budget_binding(
+            previous,
+            artifact_prior,
+            source="previous outer-loop artifact",
+        )
+    if task_prior_raw is not None:
+        task_prior = _validate_continuation_for_binding(
+            task_prior_raw,
+            binding=binding,
+            source="durable TaskRun metadata",
+        )
+        _assert_continuation_budget_binding(
+            task_loop,
+            task_prior,
+            source="durable TaskRun metadata",
+        )
+    if artifact_prior is not None and task_prior is not None and artifact_prior != task_prior:
+        raise RepairLoopError(
+            "previous outer-loop artifact conflicts with durable TaskRun metadata"
+        )
+
+    prior = task_prior if task_prior is not None else artifact_prior
+    if raw is None:
+        if prior is not None:
+            raise RepairLoopError("autonomy continuation disappeared between repair rounds")
+        return None
+
+    current = _validate_continuation_for_binding(
+        raw,
+        binding=binding,
+        source="Stage-2",
+    )
+    if prior_started:
+        if prior is None:
             raise RepairLoopError("autonomy continuation appeared after the outer loop already started")
-        try:
-            prior = validate_autonomy_continuation(
-                prior_raw,
-                source_run_id=binding.get("workflow_run_id"),
-                source_run_attempt=binding.get("workflow_run_attempt"),
-                source_head_sha=binding.get("head_sha"),
-                failure_signature=binding.get("failure_signature"),
-            )
-        except AutonomyContinuationError as exc:
-            raise RepairLoopError(str(exc)) from exc
         if prior != current:
             raise RepairLoopError("autonomy continuation changed between repair rounds")
-        if _int(previous.get("max_repair_rounds"), 0) != int(current["max_repair_rounds"]):
-            raise RepairLoopError("outer-loop repair budget drifted from autonomy continuation")
-        if _int(previous.get("max_validation_retries_per_candidate"), 0) != int(
-            current["max_validation_retries"]
-        ):
-            raise RepairLoopError("outer-loop validation retry budget drifted from autonomy continuation")
     return current
 
 
@@ -545,9 +592,11 @@ def route_failure(
         if str(previous.get("source_run_id")) != str(binding.get("workflow_run_id")):
             raise RepairLoopError("previous outer-loop state belongs to another source run")
 
+    loop_meta = _existing_loop_metadata(task)
     autonomy_continuation = _resolve_autonomy_continuation(
         stage2=stage2,
         previous=previous,
+        task_loop=loop_meta,
         binding=binding,
     )
 
@@ -560,7 +609,6 @@ def route_failure(
         shutil.copyfile(task_run_path, output_dir / "task-run.json")
         return duplicate
 
-    loop_meta = _existing_loop_metadata(task)
     repair_round = max(
         1,
         _int(previous.get("repair_round"), 0),
