@@ -139,7 +139,9 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertIn("environment: production-certification", self.stage2)
         self.assertIn("Run bounded restricted remote fallback repair controller", self.stage2)
         self.assertIn("--max-cycles 8", self.stage2)
-        self.assertIn("--max-repair-rounds 8", self.stage2)
+        self.assertIn('MAX_REPAIR_ROUNDS: ${{ needs.inspect.outputs.max_repair_rounds }}', self.stage2)
+        self.assertIn('--max-repair-rounds "${MAX_REPAIR_ROUNDS}"', self.stage2)
+        self.assertNotIn("--max-repair-rounds 8", self.stage2)
         self.assertNotIn("environment: unprotected", self.stage2)
         self.assertNotIn("production_closed: true", self.stage2)
 
