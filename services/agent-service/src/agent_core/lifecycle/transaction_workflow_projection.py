@@ -30,45 +30,73 @@ _INTERACTION_TO_STEP_STATUS = {
 }
 
 
-def _required_action_completion_calls(
+def _preempted_action_completion(
     *,
     state: dict[str, Any],
     capability_registry: CapabilityRegistry,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """Validate, but never execute, the candidate preempted by the live Draft.
+
+    One active transaction interaction represents one serialized write lane, so
+    this projection intentionally supports exactly one required current Goal.
+    Capability discovery may expose several exact implementation paths (for
+    example direct refund preparation and promotion from a prior eligibility
+    assessment). Runtime must not choose among them. Instead it accepts only the
+    exact candidate the dialogue model already emitted *after* proving that
+    candidate is an exact registered completion tool for the frozen Goal.
+    """
     goals = [
         dict(row)
         for row in semantic_goals(state)
         if isinstance(row, dict) and bool(row.get("required", True))
     ]
-    if not goals:
+    if len(goals) != 1:
         return None
+    goal_id = str(goals[0].get("goal_id") or "")
+    if not goal_id:
+        return None
+
     surface = discover_exact_effect_surface(capability_registry, goals)
-    by_goal = {
-        str(row.get("goal_id") or ""): row
+    surface_row = next((
+        row
         for row in list(surface.get("goals") or [])
-        if isinstance(row, dict) and str(row.get("goal_id") or "")
+        if isinstance(row, dict) and str(row.get("goal_id") or "") == goal_id
+    ), None)
+    if not isinstance(surface_row, dict) or str(surface_row.get("status") or "") != "exact_supported":
+        return None
+    completion_tools = {
+        str(value)
+        for value in list(surface_row.get("completion_tools") or [])
+        if str(value)
     }
-    calls: list[dict[str, Any]] = []
-    for index, goal in enumerate(goals, start=1):
-        goal_id = str(goal.get("goal_id") or "")
-        row = by_goal.get(goal_id) or {}
-        completion_tools = list(dict.fromkeys(
+    if not completion_tools:
+        return None
+
+    preempted_calls = [
+        dict(call)
+        for batch in list(state.get("runtime_preempted_steps") or [])
+        if isinstance(batch, dict)
+        for call in list(batch.get("tool_calls") or [])
+        if isinstance(call, dict)
+    ]
+    candidates: list[dict[str, Any]] = []
+    for call in preempted_calls:
+        tool_name = str(call.get("name") or "")
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        bound_goal_ids = [
             str(value)
-            for value in list(row.get("completion_tools") or [])
+            for value in list(args.get("goal_ids") or [])
             if str(value)
-        ))
-        if str(row.get("status") or "") != "exact_supported" or len(completion_tools) != 1:
-            return None
-        tool_name = completion_tools[0]
+        ]
+        if bound_goal_ids != [goal_id] or tool_name not in completion_tools:
+            continue
         contract = capability_registry.contract_for_tool(tool_name)
         if contract is None or str(contract.execution_kind or "") != "action_draft":
-            return None
-        calls.append({
-            "id": f"transaction-interaction-projection:{index}",
-            "name": tool_name,
-            "args": {"goal_ids": [goal_id]},
-        })
-    return surface, calls
+            continue
+        candidates.append(deepcopy(call))
+    if len(candidates) != 1:
+        return None
+    return surface, candidates
 
 
 def _mark_projection_steps(
@@ -101,10 +129,10 @@ def project_pending_transaction_interaction(
     """Project one already-live structured transaction pause into PlanRun.
 
     Dialogue has already frozen the current semantics before returning the
-    pending-interaction redirect.  The current semantic contract therefore
-    lives in ``patch`` on that same node return.  Always read the merged node
-    state here; using the pre-node state would inspect the previous turn and
-    silently lose the current Goal completion path.
+    pending-interaction redirect. The current semantic contract and the
+    preempted candidate therefore live in ``patch`` on that same node return.
+    This function reads the merged node state, proves the preempted candidate is
+    one exact completion path, then records only a PlanRun pause.
     """
     if str(patch.get("status") or "") != "PendingInteractionActionRedirect":
         return patch
@@ -124,7 +152,7 @@ def project_pending_transaction_interaction(
     if not interaction_id or not step_status:
         return patch
 
-    discovered = _required_action_completion_calls(
+    discovered = _preempted_action_completion(
         state=current,
         capability_registry=capability_registry,
     )
