@@ -271,6 +271,65 @@ class EngineeringAutonomyLoopBudgetTests(unittest.TestCase):
             self.assertEqual(second["max_validation_retries_per_candidate"], 1)
             self.assertEqual(second["action"], "VALIDATION_RETRY_EXHAUSTED")
 
+    def test_two_round_product_loop_uses_durable_task_state_without_previous_artifact(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = _write_inputs(
+                root,
+                repair_round=1,
+                max_repair_rounds=2,
+                max_validation_retries=1,
+            )
+            first_out = root / "round-1"
+            first = loop.route_failure(
+                task_run_path=inputs["task"],
+                stage2_result_path=inputs["stage2"],
+                stage3_plan_path=inputs["plan"],
+                targeted_result_path=inputs["targeted"],
+                quick_summary_path=None,
+                validation_result_path=None,
+                original_failure_path=inputs["failure"],
+                seed_patch_path=inputs["patch"],
+                output_dir=first_out,
+                stage3_run_id="9201",
+                stage3_run_attempt=1,
+            )
+            self.assertEqual(first["action"], "DISPATCH_REPAIR")
+            self.assertEqual(first["next_repair_round"], 2)
+            feedback = json.loads((first_out / "failure-case.json").read_text(encoding="utf-8"))
+            self.assertEqual(feedback["candidate_paths"], [SOURCE_PATH])
+            self.assertEqual(
+                feedback["loop_feedback"]["autonomy_continuation_sha256"],
+                first["autonomy_continuation"]["continuation_sha256"],
+            )
+
+            stage2_round2 = json.loads(inputs["stage2"].read_text(encoding="utf-8"))
+            stage2_round2["repair_round"] = 2
+            round2_stage2 = root / "stage2-round-2.json"
+            round2_stage2.write_text(json.dumps(stage2_round2), encoding="utf-8")
+
+            second = loop.route_failure(
+                task_run_path=first_out / "task-run.json",
+                stage2_result_path=round2_stage2,
+                stage3_plan_path=inputs["plan"],
+                targeted_result_path=inputs["targeted"],
+                quick_summary_path=None,
+                validation_result_path=None,
+                original_failure_path=first_out / "failure-case.json",
+                seed_patch_path=inputs["patch"],
+                output_dir=root / "round-2",
+                stage3_run_id="9202",
+                stage3_run_attempt=1,
+            )
+            self.assertEqual(second["repair_round"], 2)
+            self.assertEqual(second["max_repair_rounds"], 2)
+            self.assertEqual(second["action"], "STOP_MAX_REPAIR_ROUNDS")
+            self.assertEqual(second["repair_budget_remaining"], 0)
+            self.assertEqual(
+                second["autonomy_continuation"]["continuation_sha256"],
+                first["autonomy_continuation"]["continuation_sha256"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
