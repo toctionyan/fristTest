@@ -78,7 +78,7 @@ class EngineeringMilestonePlanTests(unittest.TestCase):
         self.assertFalse(plan["merge_allowed"])
         self.assertFalse(plan["deploy_allowed"])
 
-    def test_real_observation_proves_all_twelve_product_cases_but_not_transport(self) -> None:
+    def test_real_recertification_proves_all_twelve_cases_and_transport(self) -> None:
         _, observed, binding = _bound()
         result = certify_plan(
             binding,
@@ -91,9 +91,22 @@ class EngineeringMilestonePlanTests(unittest.TestCase):
         self.assertEqual(result["milestone_count"], 12)
         self.assertEqual(result["passed_milestone_count"], 12)
         self.assertTrue(result["product_certified"])
-        self.assertFalse(result["final_certified"])
-        self.assertEqual(result["decision"], "WAIT_TRANSPORT")
+        self.assertTrue(result["final_certified"])
+        self.assertEqual(result["decision"], "CERTIFIED")
         self.assertFalse(result["product_repair_authorized"])
+        carrier = observed["recertification"]
+        self.assertEqual(carrier["carrier_pr"], 1875)
+        self.assertEqual(carrier["transport_fix_pr"], 1779)
+        self.assertEqual(
+            carrier["merge_snapshot_parent_head"],
+            observed["candidate_head_sha"],
+        )
+        self.assertEqual(
+            carrier["merge_snapshot_parent_base"],
+            carrier["transport_fix_head_sha"],
+        )
+        self.assertFalse(carrier["product_head_changed"])
+        self.assertFalse(carrier["product_runtime_changed"])
 
     def test_transport_failure_never_reclassifies_green_product_as_product_red(self) -> None:
         _, observed, binding = _bound()
@@ -177,7 +190,10 @@ class EngineeringMilestonePlanTests(unittest.TestCase):
             quality_run_id=observed["quality_run_id"] + 1,
             quality_run_attempt=1,
         )
-        with self.assertRaisesRegex(EngineeringMilestoneError, "case evidence binding mismatch|binding digest mismatch"):
+        with self.assertRaisesRegex(
+            EngineeringMilestoneError,
+            "case evidence binding mismatch|binding digest mismatch",
+        ):
             certify_plan(
                 other,
                 [evidence],
