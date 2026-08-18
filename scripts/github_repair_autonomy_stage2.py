@@ -85,6 +85,7 @@ def verify_stage2_autonomy_handoff(
     handoff_run_id: int,
     handoff_run_attempt: int,
     handoff_head_sha: str,
+    stage2_control_sha: str,
 ) -> dict[str, Any]:
     if failure.get("schema") != STAGE1_SCHEMA or failure.get("status") != "INGESTED":
         raise AutonomyDispatchError("invalid Stage-1 failure-case contract")
@@ -113,6 +114,17 @@ def verify_stage2_autonomy_handoff(
     failure_signature = _text(failure.get("failure_signature"))
     if not failure_signature:
         raise AutonomyDispatchError("Stage-1 failure signature is missing")
+
+    authorized_control_sha = _text(handoff_head_sha).lower()
+    observed_stage2_control_sha = _text(stage2_control_sha).lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", authorized_control_sha):
+        raise AutonomyDispatchError("owner-authorized control SHA is malformed")
+    if not re.fullmatch(r"[0-9a-f]{40}", observed_stage2_control_sha):
+        raise AutonomyDispatchError("Stage-2 trusted control SHA is malformed")
+    if observed_stage2_control_sha != authorized_control_sha:
+        raise AutonomyDispatchError(
+            "Stage-2 trusted control SHA differs from the owner-authorized control SHA"
+        )
 
     binding = stage1_task.get("binding") if isinstance(stage1_task.get("binding"), Mapping) else {}
     expected_stage1 = {
@@ -154,7 +166,7 @@ def verify_stage2_autonomy_handoff(
     if _text(result.get("source_head_sha")) != failure_head:
         raise AutonomyDispatchError("handoff result source head differs from Stage-1 evidence")
 
-    trusted_ref = f"{TRUSTED_AUTHORIZE_WORKFLOW}@{_text(handoff_head_sha).lower()}"
+    trusted_ref = f"{TRUSTED_AUTHORIZE_WORKFLOW}@{authorized_control_sha}"
     validated_plan = validate_dispatch_plan(
         plan,
         task=task,
@@ -213,6 +225,7 @@ def verify_stage2_autonomy_handoff(
         "grant_sha256": _text(grant.get("grant_sha256")),
         "handoff_run_id": int(handoff_run_id),
         "handoff_run_attempt": int(handoff_run_attempt),
+        "control_sha": observed_stage2_control_sha,
         "input_kind": "autonomy_stage1",
         "repair_round": 1,
         "production_closed": False,
@@ -230,6 +243,7 @@ def main() -> int:
     parser.add_argument("--handoff-run-id", required=True, type=int)
     parser.add_argument("--handoff-run-attempt", required=True, type=int)
     parser.add_argument("--handoff-head-sha", required=True)
+    parser.add_argument("--stage2-control-sha", required=True)
     parser.add_argument("--github-output")
     args = parser.parse_args()
 
@@ -243,6 +257,7 @@ def main() -> int:
         handoff_run_id=args.handoff_run_id,
         handoff_run_attempt=args.handoff_run_attempt,
         handoff_head_sha=args.handoff_head_sha,
+        stage2_control_sha=args.stage2_control_sha,
     )
     if args.github_output:
         with Path(args.github_output).open("a", encoding="utf-8") as handle:
