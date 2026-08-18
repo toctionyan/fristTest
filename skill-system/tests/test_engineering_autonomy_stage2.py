@@ -203,10 +203,12 @@ class EngineeringAutonomyStage2Tests(unittest.TestCase):
                 handoff_run_id=HANDOFF_RUN_ID,
                 handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
                 handoff_head_sha=AUTHORIZE_HEAD_SHA,
+                stage2_control_sha=AUTHORIZE_HEAD_SHA,
             )
             self.assertTrue(verified["repair_allowed"])
             self.assertEqual(verified["input_kind"], "autonomy_stage1")
             self.assertEqual(verified["head_sha"], HEAD_SHA)
+            self.assertEqual(verified["control_sha"], AUTHORIZE_HEAD_SHA)
             self.assertEqual(verified["repair_round"], 1)
             self.assertFalse(verified["production_closed"])
 
@@ -227,6 +229,7 @@ class EngineeringAutonomyStage2Tests(unittest.TestCase):
                     handoff_run_id=HANDOFF_RUN_ID,
                     handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
                     handoff_head_sha=AUTHORIZE_HEAD_SHA,
+                    stage2_control_sha=AUTHORIZE_HEAD_SHA,
                 )
 
     def test_wrong_authorize_workflow_sha_fails_closed(self) -> None:
@@ -244,6 +247,28 @@ class EngineeringAutonomyStage2Tests(unittest.TestCase):
                     handoff_run_id=HANDOFF_RUN_ID,
                     handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
                     handoff_head_sha="f" * 40,
+                    stage2_control_sha="f" * 40,
+                )
+
+    def test_stage2_control_sha_must_equal_authorized_control_sha(self) -> None:
+        with TemporaryDirectory() as directory:
+            result = self._handoff_result(Path(directory))
+            failure, stage1_task = self._stage1()
+            with self.assertRaisesRegex(
+                AutonomyDispatchError,
+                "Stage-2 trusted control SHA differs from the owner-authorized control SHA",
+            ):
+                STAGE2.verify_stage2_autonomy_handoff(
+                    failure=failure,
+                    stage1_task=stage1_task,
+                    handoff_result=result,
+                    repository=REPOSITORY,
+                    source_run_id=SOURCE_RUN_ID,
+                    source_run_attempt=SOURCE_RUN_ATTEMPT,
+                    handoff_run_id=HANDOFF_RUN_ID,
+                    handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
+                    handoff_head_sha=AUTHORIZE_HEAD_SHA,
+                    stage2_control_sha="d" * 40,
                 )
 
     def test_tampered_plan_or_handoff_run_binding_fails_closed(self) -> None:
@@ -263,6 +288,7 @@ class EngineeringAutonomyStage2Tests(unittest.TestCase):
                     handoff_run_id=HANDOFF_RUN_ID,
                     handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
                     handoff_head_sha=AUTHORIZE_HEAD_SHA,
+                    stage2_control_sha=AUTHORIZE_HEAD_SHA,
                 )
 
             with self.assertRaises(AutonomyDispatchError):
@@ -276,6 +302,7 @@ class EngineeringAutonomyStage2Tests(unittest.TestCase):
                     handoff_run_id=HANDOFF_RUN_ID + 1,
                     handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
                     handoff_head_sha=AUTHORIZE_HEAD_SHA,
+                    stage2_control_sha=AUTHORIZE_HEAD_SHA,
                 )
 
     def test_non_repairable_stage1_never_enters_autonomy_stage2(self) -> None:
@@ -294,6 +321,7 @@ class EngineeringAutonomyStage2Tests(unittest.TestCase):
                     handoff_run_id=HANDOFF_RUN_ID,
                     handoff_run_attempt=HANDOFF_RUN_ATTEMPT,
                     handoff_head_sha=AUTHORIZE_HEAD_SHA,
+                    stage2_control_sha=AUTHORIZE_HEAD_SHA,
                 )
 
 
