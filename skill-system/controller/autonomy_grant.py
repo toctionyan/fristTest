@@ -340,6 +340,17 @@ def _deny(action: str, reason: str, *, grant_id: str | None = None, human: bool 
     )
 
 
+def _context_counter(facts: Mapping[str, Any], name: str) -> int:
+    value = facts.get(name, 0)
+    try:
+        result = int(value or 0)
+    except (TypeError, ValueError) as exc:
+        raise AutonomyGrantError(f"{name} must be a non-negative integer") from exc
+    if result < 0:
+        raise AutonomyGrantError(f"{name} must be a non-negative integer")
+    return result
+
+
 def authorize_autonomous_action(
     store: TaskRunStore,
     grant: Mapping[str, Any],
@@ -393,8 +404,11 @@ def authorize_autonomous_action(
 
     facts = dict(context or {})
     budgets = validated["budgets"]
-    repair_round = int(facts.get("repair_round") or 0)
-    validation_retry = int(facts.get("validation_retry") or 0)
+    try:
+        repair_round = _context_counter(facts, "repair_round")
+        validation_retry = _context_counter(facts, "validation_retry")
+    except AutonomyGrantError as exc:
+        return _deny(requested, str(exc), grant_id=grant_id, human=True)
     if repair_round > int(budgets["max_repair_rounds"]):
         return _deny(requested, "autonomous repair budget exhausted", grant_id=grant_id, human=True)
     if validation_retry > int(budgets["max_validation_retries"]):
@@ -421,13 +435,21 @@ def authorize_autonomous_action(
                 grant_id=grant_id,
                 human=True,
             )
-    if requested == "repair_meaningful_product_red" and facts.get("failure_class") != "PRODUCT_SOURCE_FAILURE":
-        return _deny(
-            requested,
-            "product repair requires a classified meaningful product RED",
-            grant_id=grant_id,
-            human=False,
-        )
+    if requested == "repair_meaningful_product_red":
+        if repair_round < 1:
+            return _deny(
+                requested,
+                "product repair requires an exact positive repair_round",
+                grant_id=grant_id,
+                human=True,
+            )
+        if facts.get("failure_class") != "PRODUCT_SOURCE_FAILURE":
+            return _deny(
+                requested,
+                "product repair requires a classified meaningful product RED",
+                grant_id=grant_id,
+                human=False,
+            )
     if requested == "retry_transient_ci":
         if facts.get("failure_class") not in _RETRYABLE_FAILURE_CLASSES or facts.get("same_candidate") is not True:
             return _deny(
