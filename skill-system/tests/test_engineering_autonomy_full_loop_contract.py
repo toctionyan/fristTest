@@ -68,6 +68,29 @@ def _candidate_paths_digest(paths: list[str]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _binding() -> dict:
+    return {
+        "workflow_run_id": SOURCE_RUN_ID,
+        "workflow_run_attempt": SOURCE_RUN_ATTEMPT,
+        "head_sha": SOURCE_HEAD,
+        "failure_signature": FAILURE_SIGNATURE,
+    }
+
+
+def _loop_state(continuation: dict) -> dict:
+    return {
+        "schema": loop.LOOP_SCHEMA,
+        "source_run_id": SOURCE_RUN_ID,
+        "source_run_attempt": SOURCE_RUN_ATTEMPT,
+        "source_head_sha": SOURCE_HEAD,
+        "failure_signature": FAILURE_SIGNATURE,
+        "repair_round": 1,
+        "max_repair_rounds": continuation["max_repair_rounds"],
+        "max_validation_retries_per_candidate": continuation["max_validation_retries"],
+        "autonomy_continuation": continuation,
+    }
+
+
 class EngineeringAutonomyFullLoopContractTests(unittest.TestCase):
     def test_next_round_feedback_binds_exact_narrowed_candidate_scope(self) -> None:
         continuation = _continuation()
@@ -107,18 +130,9 @@ class EngineeringAutonomyFullLoopContractTests(unittest.TestCase):
             orchestrator.normalize_failure_case(feedback)
 
     def test_grant_identity_and_budget_cannot_change_between_rounds(self) -> None:
-        binding = {
-            "workflow_run_id": SOURCE_RUN_ID,
-            "workflow_run_attempt": SOURCE_RUN_ATTEMPT,
-            "head_sha": SOURCE_HEAD,
-            "failure_signature": FAILURE_SIGNATURE,
-        }
+        binding = _binding()
         original = _continuation(grant_id="grant-a", max_repair_rounds=2)
-        previous = {
-            "autonomy_continuation": original,
-            "max_repair_rounds": 2,
-            "max_validation_retries_per_candidate": 1,
-        }
+        previous = _loop_state(original)
         same = loop._resolve_autonomy_continuation(
             stage2={"autonomy_continuation": original},
             previous=previous,
@@ -141,22 +155,44 @@ class EngineeringAutonomyFullLoopContractTests(unittest.TestCase):
             )
 
     def test_continuation_cannot_disappear_after_autonomous_loop_started(self) -> None:
-        binding = {
-            "workflow_run_id": SOURCE_RUN_ID,
-            "workflow_run_attempt": SOURCE_RUN_ATTEMPT,
-            "head_sha": SOURCE_HEAD,
-            "failure_signature": FAILURE_SIGNATURE,
-        }
-        previous = {
-            "autonomy_continuation": _continuation(),
-            "max_repair_rounds": 2,
-            "max_validation_retries_per_candidate": 1,
-        }
+        binding = _binding()
+        previous = _loop_state(_continuation())
         with self.assertRaisesRegex(loop.RepairLoopError, "disappeared between repair rounds"):
             loop._resolve_autonomy_continuation(
                 stage2={},
                 previous=previous,
                 binding=binding,
+            )
+
+    def test_taskrun_metadata_prevents_continuation_disappearance_when_artifact_is_missing(self) -> None:
+        continuation = _continuation()
+        with self.assertRaisesRegex(loop.RepairLoopError, "disappeared between repair rounds"):
+            loop._resolve_autonomy_continuation(
+                stage2={},
+                previous={},
+                task_loop=_loop_state(continuation),
+                binding=_binding(),
+            )
+
+    def test_taskrun_metadata_prevents_grant_swap_when_artifact_is_missing(self) -> None:
+        original = _continuation(grant_id="grant-a")
+        with self.assertRaisesRegex(loop.RepairLoopError, "changed between repair rounds"):
+            loop._resolve_autonomy_continuation(
+                stage2={"autonomy_continuation": _continuation(grant_id="grant-b")},
+                previous={},
+                task_loop=_loop_state(original),
+                binding=_binding(),
+            )
+
+    def test_previous_artifact_cannot_conflict_with_durable_taskrun_metadata(self) -> None:
+        original = _continuation(grant_id="grant-a")
+        conflicting = _continuation(grant_id="grant-b")
+        with self.assertRaisesRegex(loop.RepairLoopError, "TaskRun metadata"):
+            loop._resolve_autonomy_continuation(
+                stage2={"autonomy_continuation": original},
+                previous=_loop_state(conflicting),
+                task_loop=_loop_state(original),
+                binding=_binding(),
             )
 
 
