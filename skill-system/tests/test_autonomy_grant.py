@@ -129,7 +129,8 @@ class AutonomyGrantTests(unittest.TestCase):
                     base_sha="a" * 40,
                 )
             tampered = dict(grant)
-            tampered["max_repair_rounds"] = 1
+            tampered["budgets"] = dict(grant["budgets"])
+            tampered["budgets"]["max_repair_rounds"] = 1
             with self.assertRaises(AutonomyGrantError):
                 validate_autonomy_grant(
                     tampered,
@@ -223,6 +224,27 @@ class AutonomyGrantTests(unittest.TestCase):
             self.assertTrue(allowed.allowed)
             self.assertFalse(allowed.human_required)
 
+    def test_product_repair_requires_positive_well_formed_round(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            grant = self._grant(store)
+            self._bind(store, grant)
+            for invalid in (0, -1, "not-a-number"):
+                decision = authorize_autonomous_action(
+                    store,
+                    grant,
+                    repository="toctionyan/fristTest",
+                    action="repair_meaningful_product_red",
+                    context={
+                        "failure_class": "PRODUCT_SOURCE_FAILURE",
+                        "underlying_write_authority": True,
+                        "exact_write_scope": True,
+                        "repair_round": invalid,
+                    },
+                )
+                self.assertFalse(decision.allowed)
+                self.assertTrue(decision.human_required)
+
     def test_test_changes_require_separate_existing_test_write_authority(self) -> None:
         with TemporaryDirectory() as directory:
             store = self._store(Path(directory))
@@ -271,6 +293,26 @@ class AutonomyGrantTests(unittest.TestCase):
                 },
             )
             self.assertTrue(allowed.allowed)
+
+    def test_negative_or_malformed_validation_retry_fails_closed(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            grant = self._grant(store)
+            self._bind(store, grant)
+            for invalid in (-1, "broken"):
+                decision = authorize_autonomous_action(
+                    store,
+                    grant,
+                    repository="toctionyan/fristTest",
+                    action="retry_transient_ci",
+                    context={
+                        "failure_class": "TRANSIENT_INFRA_FAILURE",
+                        "same_candidate": True,
+                        "validation_retry": invalid,
+                    },
+                )
+                self.assertFalse(decision.allowed)
+                self.assertTrue(decision.human_required)
 
     def test_milestone_advance_requires_terminal_pass_evidence(self) -> None:
         with TemporaryDirectory() as directory:
