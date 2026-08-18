@@ -192,31 +192,36 @@ def _overall(stages: Iterable[StageProjection]) -> str:
         return "RUNNING"
     if any(status == "PENDING" for status in statuses):
         return "PENDING"
-    if statuses and all(status in {"PASS", "SKIPPED"} for status in statuses):
+    if statuses and all(status == "SKIPPED" for status in statuses):
+        return "SKIPPED"
+    if any(status == "PASS" for status in statuses) and all(
+        status in {"PASS", "SKIPPED"} for status in statuses
+    ):
         return "COMPLETED"
     return "UNKNOWN"
 
 
-def _product_verdict(stages: Iterable[StageProjection]) -> str:
-    product_rows = [stage for stage in stages if stage.source == "quality-gate"]
-    if not product_rows:
+def _verdict(stages: Iterable[StageProjection], *, sources: set[str]) -> str:
+    rows = [stage for stage in stages if stage.source in sources]
+    if not rows:
         return "UNKNOWN"
-    if any(stage.status in {"FAIL", "BLOCKED"} for stage in product_rows):
+    if any(stage.status in {"FAIL", "BLOCKED"} for stage in rows):
         return "FAIL"
-    if any(stage.status in {"RUNNING", "PENDING"} for stage in product_rows):
+    if any(stage.status in {"RUNNING", "PENDING"} for stage in rows):
         return "RUNNING"
-    return "PASS"
+    if any(stage.status == "PASS" for stage in rows):
+        return "PASS"
+    if all(stage.status == "SKIPPED" for stage in rows):
+        return "NOT_RUN"
+    return "UNKNOWN"
+
+
+def _product_verdict(stages: Iterable[StageProjection]) -> str:
+    return _verdict(stages, sources={"quality-gate"})
 
 
 def _transport_verdict(stages: Iterable[StageProjection]) -> str:
-    transport_rows = [stage for stage in stages if stage.source in {"github-job", "github-step"}]
-    if not transport_rows:
-        return "UNKNOWN"
-    if any(stage.status in {"FAIL", "BLOCKED"} for stage in transport_rows):
-        return "FAIL"
-    if any(stage.status in {"RUNNING", "PENDING"} for stage in transport_rows):
-        return "RUNNING"
-    return "PASS"
+    return _verdict(stages, sources={"github-job", "github-step"})
 
 
 def build_execution_progress(
