@@ -48,8 +48,10 @@ class EngineeringAutonomyStage2BudgetWorkflowTests(unittest.TestCase):
         self.assertIn("legacy outer-loop feedback unexpectedly carries autonomy continuation identity", self.workflow)
 
     def test_manual_fallback_remains_bounded_and_protected(self) -> None:
-        self.assertIn('handle.write("max_repair_rounds=8\\n")', self.workflow)
-        self.assertIn('handle.write("max_validation_retries=3\\n")', self.workflow)
+        self.assertIn("max_repair_rounds = 8", self.workflow)
+        self.assertIn("max_validation_retries = 3", self.workflow)
+        self.assertIn('handle.write(f"max_repair_rounds={max_repair_rounds}\\n")', self.workflow)
+        self.assertIn('handle.write(f"max_validation_retries={max_validation_retries}\\n")', self.workflow)
         self.assertIn("environment: production-certification", self.workflow)
         self.assertNotIn("production_closed: true", self.workflow)
         self.assertNotIn("gh pr merge", self.workflow)
