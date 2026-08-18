@@ -140,6 +140,11 @@
         "kind": "unsupported_result"
       },
       {
+        "behavior": "drop_explicit_not_logistics_constraint",
+        "kind": "trace_absent",
+        "tool_names": ["get_order_logistics"]
+      },
+      {
         "behavior": "create_business_write",
         "kind": "no_business_write"
       }
