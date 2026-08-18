@@ -1,0 +1,151 @@
+{
+  "id": "similar_courier_phone_not_logistics",
+  "category": "similar_capability_rejection",
+  "turns": [
+    {"role": "user", "text": "快递员手机号给我，不是物流状态"},
+    {"role": "assistant", "expected": "exact_courier_contact_or_explicit_unsupported_never_logistics_substitution"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "prove_exact_courier_contact_absent_without_nearby_logistics_substitution",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "substitute_get_order_logistics_for_courier_phone",
+    "invent_courier_phone_number",
+    "drop_explicit_not_logistics_constraint",
+    "create_business_write"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "快递员手机号给我，不是物流状态",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "快递员手机号给我，不是物流状态",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["report_unsupported_request"]
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "用户要快递员手机号，并明确排除物流状态；保持原效果等待精确能力证明",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "获取快递员手机号；不能用物流状态替代",
+                      "evidence_span": "快递员手机号给我，不是物流状态",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "courier",
+                        "operation": "contact_phone",
+                        "object_type": "courier",
+                        "requested_outputs": [
+                          {
+                            "output_id": "open",
+                            "evidence_span": "快递员手机号",
+                            "open_description": "快递员手机号"
+                          }
+                        ],
+                        "raw_description": "获取快递员手机号；用户明确说不是物流状态"
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:similar-courier-phone:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "report_unsupported_request",
+                "args": {
+                  "request_span": "快递员手机号给我，不是物流状态",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:similar-courier-phone:t1:unsupported"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "目前没有可核验快递员手机号的精确能力；我不会把物流状态当成手机号，也不会编造号码。可以改为查询物流，或联系人工客服协助。",
+                  "evidence_handles": [],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:similar-courier-phone:t1:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["report_unsupported_request", "respond_to_user"],
+        "required_tools": ["report_unsupported_request", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GeneralFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["report_unsupported_request"],
+            "must_not_include": [
+              "list_orders",
+              "get_order_logistics",
+              "prepare_cancel_order",
+              "prepare_refund",
+              "prepare_invoice",
+              "commit_action"
+            ]
+          },
+          "draft": {"count": 0},
+          "port_calls": {
+            "preview_operation": {"max": 0},
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {
+        "behavior": "substitute_get_order_logistics_for_courier_phone",
+        "kind": "trace_absent",
+        "tool_names": ["get_order_logistics"]
+      },
+      {
+        "behavior": "invent_courier_phone_number",
+        "kind": "unsupported_result"
+      },
+      {
+        "behavior": "create_business_write",
+        "kind": "no_business_write"
+      }
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["report_unsupported_request", "respond_to_user", "get_order_logistics"],
+    "preproduction_forbidden_tools": ["prepare_cancel_order", "prepare_refund", "prepare_invoice", "commit_action"]
+  }
+}
