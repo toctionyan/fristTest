@@ -127,6 +127,20 @@ def _unique(values: Iterable[str]) -> list[str]:
     return result
 
 
+def _candidate_paths_digest(paths: Iterable[str]) -> str:
+    normalized = [_normalize_path(value) for value in paths]
+    if any(not path for path in normalized) or normalized != _unique(normalized):
+        raise RepairLoopError("outer-loop repair paths are invalid")
+    if not normalized:
+        raise RepairLoopError("outer-loop repair paths are empty")
+    canonical = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _task(path: Path) -> TaskRunStore:
     return TaskRunStore(path.resolve(), _load(path))
 
@@ -450,11 +464,13 @@ def _safe_feedback_failure(
     failure_fingerprint: str,
     autonomy_continuation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    routed_paths = list(repair_paths)
+    candidate_paths_sha256 = _candidate_paths_digest(routed_paths)
     feedback = dict(original)
     feedback.pop("authority_schema", None)
     feedback["classification"] = "code_or_contract"
     feedback["repair_allowed"] = True
-    feedback["candidate_paths"] = list(repair_paths)
+    feedback["candidate_paths"] = routed_paths
     feedback["failed_gates"] = [
         {
             "gate_id": "governed-stage3-targeted",
@@ -478,6 +494,7 @@ def _safe_feedback_failure(
         "verification_attempt": verification_attempt,
         "failure_class": "PRODUCT_SOURCE_FAILURE",
         "failure_fingerprint": failure_fingerprint,
+        "candidate_paths_sha256": candidate_paths_sha256,
         "scope_expanded": False,
     }
     if autonomy_continuation is not None:
