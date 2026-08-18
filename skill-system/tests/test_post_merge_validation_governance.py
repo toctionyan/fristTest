@@ -178,3 +178,19 @@ def test_workflow_closes_github_token_merge_cascade_gap_without_release_authorit
     assert "production_closed=false" in text
     assert RELEASE_WORKFLOW not in text
     assert "production-certification-release" not in text
+
+
+def test_pr_comment_transport_is_rest_and_never_authoritative():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "gh pr comment" not in text
+    assert text.count('repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments') == 2
+    assert text.count("COMMENT_WRITE_FAILED_NON_AUTHORITATIVE") == 2
+    assert "non-authoritative start comment could not be written; validation continues" in text
+    assert "validated receipt remains authoritative" in text
+    assert text.index("Finalize immutable post-merge validation receipt") < text.index(
+        "Record completed post-merge validation"
+    )
+    assert text.index("Record completed post-merge validation") < text.index(
+        "Upload immutable post-merge evidence"
+    )
