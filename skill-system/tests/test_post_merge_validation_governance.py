@@ -57,7 +57,7 @@ def _valid_convergence_run():
         "id": 202,
         "run_attempt": 1,
         "name": "project-convergence",
-        "event": "workflow_run",
+        "event": "workflow_dispatch",
         "head_sha": "b" * 40,
         "status": "completed",
         "conclusion": "success",
@@ -144,7 +144,7 @@ def test_quality_must_run_on_exact_merge_sha():
         module.finalize(target, quality, _valid_convergence_run())
 
 
-def test_project_convergence_must_be_chained_and_successful_on_exact_merge():
+def test_project_convergence_must_be_explicitly_dispatched_and_successful_on_exact_merge():
     module = _load_module()
     target = module.verify_target(
         _valid_pr(),
@@ -155,8 +155,8 @@ def test_project_convergence_must_be_chained_and_successful_on_exact_merge():
         repository_owner="toctionyan",
     )
     convergence = _valid_convergence_run()
-    convergence["event"] = "workflow_dispatch"
-    with pytest.raises(module.PostMergeValidationError, match="not chained"):
+    convergence["event"] = "workflow_run"
+    with pytest.raises(module.PostMergeValidationError, match="explicitly dispatched"):
         module.finalize(target, _valid_quality_run(), convergence)
 
 
@@ -169,7 +169,12 @@ def test_workflow_closes_github_token_merge_cascade_gap_without_release_authorit
     assert "MERGED_GRANT_CONSUMED" in text
     assert "quality.yml/dispatches" in text
     assert "workflow_dispatch&branch=${TEMP_BRANCH}" in text
-    assert "project-convergence.yml/runs?event=workflow_run&branch=${TEMP_BRANCH}" in text
+    assert "project-convergence.yml/dispatches" in text
+    assert "project-convergence.yml/runs?event=workflow_dispatch&branch=${TEMP_BRANCH}" in text
+    assert "project-convergence.yml/runs?event=workflow_run&branch=${TEMP_BRANCH}" not in text
+    assert 'quality_run_id:$quality_run_id' in text
+    assert 'quality_run_attempt:$quality_run_attempt' in text
+    assert 'project-convergence-${QUALITY_RUN_ID}-${QUALITY_RUN_ATTEMPT}' in text
     assert "merge-base --is-ancestor" in text
     assert "POST_MERGE_VALIDATED" in text
     assert "authority_effect=false" in text
@@ -208,3 +213,13 @@ def test_post_merge_waits_use_deadline_budgets_instead_of_short_attempt_counts()
     assert "convergence_deadline=$(( $(date +%s) + CONVERGENCE_WAIT_TIMEOUT_SECONDS ))" in text
     assert "exact post-merge Quality timed out before completion" in text
     assert "exact project-convergence timed out before completion" in text
+
+
+def test_convergence_dispatch_happens_only_after_exact_quality_success():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    quality_wait = text.index("Resolve and await exact post-merge Quality")
+    convergence_dispatch = text.index("Dispatch project convergence for exact Quality")
+    convergence_wait = text.index("Resolve and await explicitly dispatched project convergence")
+    finalize = text.index("Finalize immutable post-merge validation receipt")
+    assert quality_wait < convergence_dispatch < convergence_wait < finalize

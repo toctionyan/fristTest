@@ -304,30 +304,56 @@ jobs:
           echo "run_attempt=$(jq -r '.run_attempt' post-merge-evidence/quality-run.json)" >> "$GITHUB_OUTPUT"
           echo "completed_at=$(jq -r '.updated_at' post-merge-evidence/quality-run.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve and await chained project convergence
+      - name: Dispatch project convergence for exact Quality
+        id: convergence-dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+          QUALITY_RUN_ID: ${{ steps.quality.outputs.run_id }}
+          QUALITY_RUN_ATTEMPT: ${{ steps.quality.outputs.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "${QUALITY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALITY_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          dispatched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n \
+            --arg ref "${TEMP_BRANCH}" \
+            --arg quality_run_id "${QUALITY_RUN_ID}" \
+            --arg quality_run_attempt "${QUALITY_RUN_ATTEMPT}" \
+            '{ref:$ref,inputs:{quality_run_id:$quality_run_id,quality_run_attempt:$quality_run_attempt}}' \
+            > post-merge-evidence/convergence-dispatch-request.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/project-convergence.yml/dispatches" \
+            --input post-merge-evidence/convergence-dispatch-request.json
+          echo "dispatched_at=${dispatched_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve and await explicitly dispatched project convergence
         id: convergence
         env:
           GH_TOKEN: ${{ github.token }}
           MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
           TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
-          QUALITY_COMPLETED_AT: ${{ steps.quality.outputs.completed_at }}
+          DISPATCHED_AT: ${{ steps.convergence-dispatch.outputs.dispatched_at }}
+          QUALITY_RUN_ID: ${{ steps.quality.outputs.run_id }}
+          QUALITY_RUN_ATTEMPT: ${{ steps.quality.outputs.run_attempt }}
           CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS: '180'
           CONVERGENCE_WAIT_TIMEOUT_SECONDS: '900'
           POLL_INTERVAL_SECONDS: '5'
         run: |
           set -euo pipefail
+          [[ "${QUALITY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALITY_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
           [[ "${CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]
           [[ "${CONVERGENCE_WAIT_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]
           [[ "${POLL_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]]
           convergence_run_id=""
           discovery_deadline=$(( $(date +%s) + CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS ))
           while (( $(date +%s) < discovery_deadline )); do
-            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/project-convergence.yml/runs?event=workflow_run&branch=${TEMP_BRANCH}&per_page=20" \
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/project-convergence.yml/runs?event=workflow_dispatch&branch=${TEMP_BRANCH}&per_page=20" \
               > post-merge-evidence/convergence-runs.json
-            convergence_run_id=$(jq -r --arg sha "${MERGE_SHA}" --arg started "${QUALITY_COMPLETED_AT}" '
+            convergence_run_id=$(jq -r --arg sha "${MERGE_SHA}" --arg started "${DISPATCHED_AT}" '
               [.workflow_runs[]
                | select(.head_sha == $sha)
-               | select(.event == "workflow_run")
+               | select(.event == "workflow_dispatch")
                | select(.created_at >= $started)]
               | sort_by(.created_at) | reverse | .[0].id // empty
             ' post-merge-evidence/convergence-runs.json)
@@ -335,7 +361,7 @@ jobs:
             sleep 3
           done
           [[ "${convergence_run_id}" =~ ^[1-9][0-9]*$ ]] || {
-            echo "project-convergence did not chain from the dispatched Quality run within ${CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS}s" >&2
+            echo "could not resolve explicitly dispatched project-convergence within ${CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS}s" >&2
             exit 1
           }
           convergence_deadline=$(( $(date +%s) + CONVERGENCE_WAIT_TIMEOUT_SECONDS ))
@@ -353,7 +379,7 @@ jobs:
           done
           jq -e --arg sha "${MERGE_SHA}" '
             .name == "project-convergence"
-            and .event == "workflow_run"
+            and .event == "workflow_dispatch"
             and .head_sha == $sha
             and .status == "completed"
             and .conclusion == "success"
@@ -366,6 +392,18 @@ jobs:
             > post-merge-evidence/convergence-jobs.json
           jq -e '[.jobs[] | select(.name == "assess" and .conclusion == "success")] | length == 1' \
             post-merge-evidence/convergence-jobs.json >/dev/null
+          convergence_started_at=$(jq -r '.run_started_at // empty' post-merge-evidence/convergence-run.json)
+          [[ -n "${convergence_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${convergence_run_id}/artifacts?per_page=100" \
+            > post-merge-evidence/convergence-artifacts.json
+          artifact_name="project-convergence-${QUALITY_RUN_ID}-${QUALITY_RUN_ATTEMPT}"
+          jq -e --arg name "${artifact_name}" --arg started "${convergence_started_at}" '
+            [.artifacts[]
+             | select(.expired == false)
+             | select(.name == $name)
+             | select(.created_at >= $started)]
+            | length == 1
+          ' post-merge-evidence/convergence-artifacts.json >/dev/null
           echo "run_id=${convergence_run_id}" >> "$GITHUB_OUTPUT"
           echo "run_attempt=$(jq -r '.run_attempt' post-merge-evidence/convergence-run.json)" >> "$GITHUB_OUTPUT"
 
