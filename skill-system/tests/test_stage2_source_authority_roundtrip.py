@@ -133,21 +133,28 @@ class Stage2SourceAuthorityRoundtripTests(unittest.TestCase):
             ):
                 loop._resolve_original_failure(stage2=tampered, fallback=failure)
 
-    def test_candidate_scope_drift_fails_even_with_recomputed_digest(self) -> None:
+    def test_stage2_write_scope_cannot_expand_beyond_stage1_candidate_paths(self) -> None:
         with TemporaryDirectory() as directory:
-            failure, bound = _bound_handoff(Path(directory))
-            tampered = copy.deepcopy(bound)
-            tampered["source_failure_authority"]["candidate_paths"] = [OTHER_SOURCE_PATH]
-            tampered["source_failure_authority_sha256"] = loop._authority_digest(
-                tampered["source_failure_authority"]
-            )
-            resolved = loop._resolve_original_failure(stage2=tampered, fallback=failure)
-            self.assertEqual(resolved["candidate_paths"], [OTHER_SOURCE_PATH])
-            # The authority snapshot is the immutable source of truth once present;
-            # it must never be merged with the fallback Stage-1 object. A later
-            # route binds all further repairs to this exact snapshot and may only
-            # select paths that are also implicated by independent validation.
-            self.assertNotEqual(resolved["candidate_paths"], failure["candidate_paths"])
+            root = Path(directory)
+            failure = _failure()
+            result = _result()
+            result["write_scope"] = [OTHER_SOURCE_PATH]
+            result["changed_paths"] = [OTHER_SOURCE_PATH]
+            failure_path = root / "failure-case.json"
+            result_path = root / "repair-result.json"
+            patch_path = root / "repair.patch"
+            failure_path.write_text(json.dumps(failure), encoding="utf-8")
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            patch_path.write_text("diff --git a/x b/x\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                handoff.HandoffError,
+                "write scope exceeds Stage-1 candidate authority",
+            ):
+                handoff.bind_handoff(
+                    failure_path=failure_path,
+                    result_path=result_path,
+                    patch_path=patch_path,
+                )
 
     def test_failure_signature_is_preserved_as_exact_opaque_identity(self) -> None:
         with TemporaryDirectory() as directory:
