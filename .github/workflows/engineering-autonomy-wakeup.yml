@@ -132,26 +132,50 @@ jobs:
           set -euo pipefail
           [[ "${SOURCE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${DECISION_ID}" =~ ^[0-9a-f]{64}$ ]]
-          CONTEXT="engineering-autonomy-dispatch/${DECISION_ID:0:16}"
-          existing=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_HEAD_SHA}/status" \
-            | jq -r --arg context "${CONTEXT}" '[.statuses[] | select(.context == $context and .state == "success")][0].target_url // empty')
-          if [[ -n "${existing}" ]]; then
-            echo "already_dispatched=true" >> "$GITHUB_OUTPUT"
-            echo "existing_ref=${existing}" >> "$GITHUB_OUTPUT"
-          else
-            echo "already_dispatched=false" >> "$GITHUB_OUTPUT"
-            echo "existing_ref=" >> "$GITHUB_OUTPUT"
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${SOURCE_HEAD_SHA}" \
-              -f state=pending \
-              -f context="${CONTEXT}" \
-              -f description="bounded autonomy network request pending" \
-              -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
-          fi
+          CONTEXT="engineering-autonomy-dispatch/${DECISION_ID}"
+          status_json=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_HEAD_SHA}/status")
+          existing_state=$(printf '%s' "${status_json}" \
+            | jq -r --arg context "${CONTEXT}" '[.statuses[] | select(.context == $context)][0].state // empty')
+          existing_ref=$(printf '%s' "${status_json}" \
+            | jq -r --arg context "${CONTEXT}" '[.statuses[] | select(.context == $context)][0].target_url // empty')
+          case "${existing_state}" in
+            success)
+              reservation_state=DISPATCHED
+              already_dispatched=true
+              ;;
+            pending)
+              # A prior wakeup may have died after GitHub accepted the network call.
+              # Never replay an exact decision through that crash window.
+              reservation_state=UNCERTAIN
+              already_dispatched=false
+              ;;
+            failure|error)
+              reservation_state=FAILED
+              already_dispatched=false
+              ;;
+            "")
+              reservation_state=NEW
+              already_dispatched=false
+              existing_ref=""
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${SOURCE_HEAD_SHA}" \
+                -f state=pending \
+                -f context="${CONTEXT}" \
+                -f description="bounded autonomy network request reserved" \
+                -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+              ;;
+            *)
+              echo "Unsupported existing dispatch marker state: ${existing_state}" >&2
+              exit 1
+              ;;
+          esac
+          echo "reservation_state=${reservation_state}" >> "$GITHUB_OUTPUT"
+          echo "already_dispatched=${already_dispatched}" >> "$GITHUB_OUTPUT"
+          echo "existing_ref=${existing_ref}" >> "$GITHUB_OUTPUT"
           echo "context=${CONTEXT}" >> "$GITHUB_OUTPUT"
 
       - name: Execute exactly one bounded network request
         id: network
-        if: steps.idempotency.outputs.already_dispatched != 'true'
+        if: steps.idempotency.outputs.reservation_state == 'NEW'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -211,7 +235,9 @@ jobs:
           echo "network_ref=${NETWORK_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Persist successful or idempotent dispatch receipt
-        if: steps.idempotency.outputs.already_dispatched == 'true' || steps.network.outcome == 'success'
+        if: >-
+          steps.idempotency.outputs.reservation_state == 'DISPATCHED'
+          || (steps.idempotency.outputs.reservation_state == 'NEW' && steps.network.outcome == 'success')
         env:
           HANDOFF_RESULT: ${{ steps.source.outputs.handoff_result }}
           EXISTING_REF: ${{ steps.idempotency.outputs.existing_ref }}
@@ -226,8 +252,8 @@ jobs:
             --network-ref "${REF}" \
             --output receipt/dispatch-receipt.json
 
-      - name: Persist failed dispatch receipt
-        if: steps.idempotency.outputs.already_dispatched != 'true' && steps.network.outcome == 'failure'
+      - name: Persist uncertain dispatch receipt
+        if: steps.idempotency.outputs.reservation_state == 'UNCERTAIN'
         env:
           HANDOFF_RESULT: ${{ steps.source.outputs.handoff_result }}
         run: |
@@ -236,7 +262,27 @@ jobs:
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_engineering_autonomy_wakeup.py receipt \
             --handoff-result "${HANDOFF_RESULT}" \
             --status FAILED \
-            --error-code NETWORK_ACTION_FAILED \
+            --error-code DISPATCH_OUTCOME_UNCERTAIN \
+            --output receipt/dispatch-receipt.json
+
+      - name: Persist failed dispatch receipt
+        if: >-
+          steps.idempotency.outputs.reservation_state == 'FAILED'
+          || (steps.idempotency.outputs.reservation_state == 'NEW' && steps.network.outcome == 'failure')
+        env:
+          HANDOFF_RESULT: ${{ steps.source.outputs.handoff_result }}
+          RESERVATION_STATE: ${{ steps.idempotency.outputs.reservation_state }}
+        run: |
+          set -euo pipefail
+          mkdir -p receipt
+          ERROR_CODE=NETWORK_ACTION_FAILED
+          if [[ "${RESERVATION_STATE}" == "FAILED" ]]; then
+            ERROR_CODE=PREVIOUS_NETWORK_FAILURE
+          fi
+          "${pythonLocation}/bin/python" -B control/scripts/github_repair_engineering_autonomy_wakeup.py receipt \
+            --handoff-result "${HANDOFF_RESULT}" \
+            --status FAILED \
+            --error-code "${ERROR_CODE}" \
             --output receipt/dispatch-receipt.json
 
       - name: Publish durable dispatch status marker
@@ -245,14 +291,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_HEAD_SHA: ${{ steps.verify.outputs.source_head_sha }}
           CONTEXT: ${{ steps.idempotency.outputs.context }}
-          ALREADY_DISPATCHED: ${{ steps.idempotency.outputs.already_dispatched }}
+          RESERVATION_STATE: ${{ steps.idempotency.outputs.reservation_state }}
           NETWORK_OUTCOME: ${{ steps.network.outcome }}
         run: |
           set -euo pipefail
           if [[ -z "${SOURCE_HEAD_SHA}" || -z "${CONTEXT}" ]]; then
             exit 0
           fi
-          if [[ "${ALREADY_DISPATCHED}" == "true" || "${NETWORK_OUTCOME}" == "success" ]]; then
+          # Preserve a pre-existing marker verbatim. In particular, PENDING means
+          # the prior network outcome is uncertain and must never be overwritten
+          # into a state that could permit replay of the same exact decision.
+          if [[ "${RESERVATION_STATE}" != "NEW" ]]; then
+            exit 0
+          fi
+          if [[ "${NETWORK_OUTCOME}" == "success" ]]; then
             STATE=success
             DESCRIPTION="bounded autonomy network request accepted"
           else
@@ -281,6 +333,7 @@ jobs:
           SOURCE_RUN_ID: ${{ steps.verify.outputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ steps.verify.outputs.source_run_attempt }}
           SOURCE_HEAD_SHA: ${{ steps.verify.outputs.source_head_sha }}
+          RESERVATION_STATE: ${{ steps.idempotency.outputs.reservation_state }}
           ALREADY_DISPATCHED: ${{ steps.idempotency.outputs.already_dispatched }}
           NETWORK_OUTCOME: ${{ steps.network.outcome }}
         run: |
@@ -290,6 +343,7 @@ jobs:
             echo "- Source run: \`${SOURCE_RUN_ID:-unknown}/${SOURCE_RUN_ATTEMPT:-unknown}\`"
             echo "- Source head: \`${SOURCE_HEAD_SHA:-unknown}\`"
             echo "- Network kind: \`${NETWORK_KIND:-unknown}\`"
+            echo "- Reservation state: \`${RESERVATION_STATE:-unknown}\`"
             echo "- Already dispatched: \`${ALREADY_DISPATCHED:-unknown}\`"
             echo "- Network step outcome: \`${NETWORK_OUTCOME:-skipped}\`"
             echo "- merge_allowed: \`false\`"
@@ -297,6 +351,9 @@ jobs:
             echo "- production_closed: \`false\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Preserve network failure as workflow failure
-        if: steps.idempotency.outputs.already_dispatched != 'true' && steps.network.outcome == 'failure'
+      - name: Preserve unsafe or failed network state as workflow failure
+        if: >-
+          steps.idempotency.outputs.reservation_state == 'UNCERTAIN'
+          || steps.idempotency.outputs.reservation_state == 'FAILED'
+          || (steps.idempotency.outputs.reservation_state == 'NEW' && steps.network.outcome == 'failure')
         run: exit 1
