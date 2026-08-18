@@ -128,8 +128,8 @@ def finalize(
 
     if convergence_run.get("name") != "project-convergence":
         raise PostMergeValidationError("project-convergence workflow name mismatch")
-    if convergence_run.get("event") != "workflow_run":
-        raise PostMergeValidationError("project-convergence was not chained from Quality")
+    if convergence_run.get("event") != "workflow_dispatch":
+        raise PostMergeValidationError("project-convergence must be explicitly dispatched from exact Quality")
     if convergence_run.get("status") != "completed" or convergence_run.get("conclusion") != "success":
         raise PostMergeValidationError("project-convergence did not complete successfully")
     if _sha(convergence_run.get("head_sha"), "project-convergence head SHA") != merge_sha:
