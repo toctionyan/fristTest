@@ -107,6 +107,17 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertIn("github_repair_autonomy_stage2.py", self.stage2)
         self.assertIn('.name == "engineering-autonomy-authorize"', self.stage2)
 
+    def test_stage2_autonomy_path_is_bound_to_exact_authorized_control_sha(self) -> None:
+        # Authorization and Stage-2 execution must use one exact trusted control-plane
+        # revision. If main advances between them, the autonomous write path stops
+        # instead of silently executing a newer Stage-2 controller under an older grant.
+        self.assertIn("STAGE2_CONTROL_SHA: ${{ steps.control.outputs.control_sha }}", self.stage2)
+        self.assertIn("--stage2-control-sha \"${STAGE2_CONTROL_SHA}\"", self.stage2)
+        self.assertIn(
+            "Stage-2 trusted control SHA differs from the owner-authorized control SHA",
+            self.stage2,
+        )
+
     def test_stage2_protected_environment_and_repair_owner_are_not_duplicated(self) -> None:
         self.assertEqual(self.stage2.count("\n  repair:\n"), 1)
         self.assertIn("environment: production-certification", self.stage2)
