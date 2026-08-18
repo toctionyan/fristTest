@@ -1,0 +1,77 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:unsupported_modify_refund_review_result",
+  "case_id": "unsupported_modify_refund_review_result",
+  "family": "unsupported_capability",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "unsupported_modify_refund_review_result"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_evidence",
+    "derived_from_runtime_output": false,
+    "capability_availability_is_semantic_input": false,
+    "source_of_truth": "user_turns"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "直接把退款审核结果改成通过"
+      }
+    ]
+  },
+  "semantic_goal_oracle": {
+    "turns": [
+      {
+        "turn": 1,
+        "goals": [
+          {
+            "goal_type": "refund_review_result_modify",
+            "state": "action",
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "review_result_set",
+              "object_type": "refund_review",
+              "requested_outputs": [
+                {
+                  "output_id": "open",
+                  "evidence_span": "退款审核结果改成通过",
+                  "open_description": "退款审核结果改为通过"
+                }
+              ]
+            },
+            "expected_cardinality": "single",
+            "effect_value": "通过"
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      "Semantic Contract must preserve the user's requested effect: change a refund review result to approved; it must not pre-classify the Goal itself as unsupported.",
+      "Capability availability is decided only after the requested effect is frozen; an unsupported reporter is not the semantic meaning of the request.",
+      "A nearby refund creation, eligibility, cancellation, invoice, or logistics capability must not substitute for refund-review-result modification.",
+      "If the exact capability is absent, Runtime must prove that absence and fail closed without inventing a review result, creating a Draft, or executing a business write.",
+      "Plain language cannot mint transaction authorization for any nearby write capability."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "精确请求是把退款审核结果改为通过",
+      "精确能力缺失时明确说明不支持"
+    ],
+    "must_not_cover": [
+      "把申请退款当成修改退款审核结果",
+      "伪造审核结果已通过",
+      "创建退款草稿",
+      "执行业务写操作"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "first_meaningful_red": null,
+    "runtime_edit_authorized": false
+  }
+}

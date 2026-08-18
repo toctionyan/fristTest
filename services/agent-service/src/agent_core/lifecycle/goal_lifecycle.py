@@ -68,6 +68,15 @@ def _assert_validated_change(record: dict[str, Any], change: dict[str, Any]) -> 
         raise ValueError(f"goal_change_evidence_required:{goal_id}")
 
 
+def _fresh_goal_record(goal_id: str, *, turn: int) -> dict[str, Any]:
+    return {
+        "goal_id": goal_id,
+        "created_turn": int(turn),
+        "lifecycle": "ACTIVE",
+        "revision": 1,
+    }
+
+
 def apply_semantic_contract_to_goal_records(
     records: Iterable[dict[str, Any]],
     contract: dict[str, Any],
@@ -135,13 +144,29 @@ def apply_semantic_contract_to_goal_records(
             continue
         continuation_of = str(goal.get("continuation_of") or "")
         existing = by_id.get(goal_id)
+
+        # Goal IDs are scoped by the frozen semantic contract, while GoalRecord
+        # keeps one current row per public goal_id. A later turn may legitimately
+        # reuse a generic model-local id (for example ``g1``). If that id points
+        # at a terminal row from a different semantic contract, carrying the old
+        # terminal lifecycle forward would falsely mark the new goal completed.
+        # Replace that row with a fresh generation; terminal records whose ids are
+        # not reused remain durable for audit/revision evidence.
+        if (
+            existing is not None
+            and str(existing.get("lifecycle") or "").upper() in TERMINAL_LIFECYCLES
+            and str(existing.get("source_semantic_contract_id") or "") != contract_id
+        ):
+            replacement = _fresh_goal_record(goal_id, turn=turn)
+            for index, row in enumerate(output):
+                if row is existing:
+                    output[index] = replacement
+                    break
+            existing = replacement
+            by_id[goal_id] = existing
+
         if existing is None:
-            existing = {
-                "goal_id": goal_id,
-                "created_turn": int(turn),
-                "lifecycle": "ACTIVE",
-                "revision": 1,
-            }
+            existing = _fresh_goal_record(goal_id, turn=turn)
             output.append(existing)
             by_id[goal_id] = existing
         existing.setdefault("revision", record_revision(existing))
@@ -197,4 +222,3 @@ def update_goal_records_from_execution_plan(
         else:
             _transition(record, "ACTIVE", turn=turn, operation="EXECUTION_PLAN_PENDING")
     return output
-
