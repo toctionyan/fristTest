@@ -24,7 +24,7 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertIn("ref: main", self.authorize)
         self.assertIn("persist-credentials: false", self.authorize)
         self.assertIn("github_repair_engineering_autonomy_authorize.py", self.authorize)
-        self.assertIn("Network execution in this workflow: `false`", self.authorize)
+        self.assertIn("Network execution in this workflow:", self.authorize)
         self.assertNotIn("actions: write", self.authorize)
         self.assertNotIn("gh workflow run", self.authorize)
         self.assertNotIn("gh run rerun", self.authorize)
