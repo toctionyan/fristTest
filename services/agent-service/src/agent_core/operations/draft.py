@@ -51,6 +51,171 @@ TERMINAL_DRAFT_STATES = {
     DRAFT_REQUIRES_REVIEW,
 }
 
+# Persistence sealing is intentionally narrower than presentation/focus
+# terminality. REQUIRES_REVIEW is read-only for execution but remains
+# explicitly cancellable, so the repository must permit REQUIRES_REVIEW ->
+# REVOKED while never permitting a successful/failed/revoked/expired Draft to
+# be resurrected.
+SEALED_DRAFT_STATES = {
+    DRAFT_COMMITTED,
+    DRAFT_FAILED_FINAL,
+    DRAFT_EXPIRED,
+    DRAFT_REVOKED,
+}
+
+_IN_FLIGHT_DRAFT_STATES = {DRAFT_COMMITTING, DRAFT_SUBMISSION_UNKNOWN}
+
+_ALLOWED_SAME_REVISION_TRANSITIONS: dict[str, set[str]] = {
+    DRAFT_NEEDS_INPUT: {
+        DRAFT_NEEDS_INPUT, DRAFT_READY, DRAFT_AWAITING_AUTHORIZATION,
+        DRAFT_FAILED_FINAL, DRAFT_EXPIRED, DRAFT_REVOKED, DRAFT_REQUIRES_REVIEW,
+    },
+    DRAFT_READY: {
+        DRAFT_READY, DRAFT_NEEDS_INPUT, DRAFT_AWAITING_AUTHORIZATION,
+        DRAFT_FAILED_FINAL, DRAFT_EXPIRED, DRAFT_REVOKED, DRAFT_REQUIRES_REVIEW,
+    },
+    DRAFT_AWAITING_AUTHORIZATION: {
+        DRAFT_AWAITING_AUTHORIZATION, DRAFT_AUTHORIZED, DRAFT_COMMITTING,
+        DRAFT_FAILED_FINAL, DRAFT_EXPIRED, DRAFT_REVOKED, DRAFT_REQUIRES_REVIEW,
+    },
+    DRAFT_AUTHORIZED: {
+        DRAFT_AUTHORIZED, DRAFT_AWAITING_AUTHORIZATION, DRAFT_COMMITTING,
+        DRAFT_FAILED_FINAL, DRAFT_EXPIRED, DRAFT_REVOKED, DRAFT_REQUIRES_REVIEW,
+    },
+    DRAFT_COMMITTING: {
+        DRAFT_COMMITTING, DRAFT_SUBMISSION_UNKNOWN, DRAFT_COMMITTED,
+        DRAFT_FAILED_RETRYABLE, DRAFT_FAILED_FINAL,
+    },
+    DRAFT_SUBMISSION_UNKNOWN: {
+        DRAFT_SUBMISSION_UNKNOWN, DRAFT_COMMITTED, DRAFT_FAILED_RETRYABLE, DRAFT_FAILED_FINAL,
+    },
+    DRAFT_FAILED_RETRYABLE: {
+        DRAFT_FAILED_RETRYABLE, DRAFT_SUBMISSION_UNKNOWN, DRAFT_COMMITTED, DRAFT_FAILED_FINAL,
+    },
+    DRAFT_REQUIRES_REVIEW: {DRAFT_REQUIRES_REVIEW, DRAFT_REVOKED, DRAFT_EXPIRED},
+    DRAFT_COMMITTED: {DRAFT_COMMITTED},
+    DRAFT_FAILED_FINAL: {DRAFT_FAILED_FINAL},
+    DRAFT_EXPIRED: {DRAFT_EXPIRED},
+    DRAFT_REVOKED: {DRAFT_REVOKED},
+}
+
+
+def _int_field(row: dict[str, Any], name: str) -> int:
+    try:
+        return int(row.get(name) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _projection(row: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(row, dict):
+        return {}
+    value = row.get("projection")
+    if isinstance(value, dict):
+        return value
+    return row
+
+
+def _interaction_projection_is_fresh(
+    *, current_state: str, current: dict[str, Any], incoming: dict[str, Any]
+) -> tuple[bool, str]:
+    current_projection = _projection(current)
+    incoming_projection = _projection(incoming)
+    # An update without projection metadata cannot prove that a newer card/form
+    # is being replaced, so state-only repository transitions remain valid.
+    if not incoming_projection:
+        return True, "state_only_update"
+
+    current_turn = _int_field(current_projection, "updated_turn")
+    incoming_turn = _int_field(incoming_projection, "updated_turn")
+    if current_turn and incoming_turn and incoming_turn < current_turn:
+        return False, "projection_turn_regression"
+
+    if current_state == DRAFT_AWAITING_AUTHORIZATION:
+        current_version = _int_field(current_projection, "confirmation_version")
+        incoming_version = _int_field(incoming_projection, "confirmation_version")
+        current_revision = _int_field(current_projection, "authority_revision")
+        incoming_revision = _int_field(incoming_projection, "authority_revision")
+        if current_version and incoming_version < current_version:
+            return False, "confirmation_version_regression"
+        if current_revision and incoming_revision < current_revision:
+            return False, "authority_revision_regression"
+        current_id = str(current_projection.get("confirmation_id") or "")
+        incoming_id = str(incoming_projection.get("confirmation_id") or "")
+        if current_version and incoming_version == current_version and current_id and incoming_id and current_id != incoming_id:
+            return False, "confirmation_identity_conflict"
+
+    if current_state == DRAFT_NEEDS_INPUT:
+        current_version = _int_field(current_projection, "input_form_version")
+        incoming_version = _int_field(incoming_projection, "input_form_version")
+        current_revision = _int_field(current_projection, "interaction_revision")
+        incoming_revision = _int_field(incoming_projection, "interaction_revision")
+        if current_version and incoming_version < current_version:
+            return False, "input_form_version_regression"
+        if current_revision and incoming_revision < current_revision:
+            return False, "interaction_revision_regression"
+        current_id = str(current_projection.get("input_form_id") or "")
+        incoming_id = str(incoming_projection.get("input_form_id") or "")
+        if current_version and incoming_version == current_version and current_id and incoming_id and current_id != incoming_id:
+            return False, "input_form_identity_conflict"
+
+    return True, "projection_fresh"
+
+
+def draft_persistence_update_decision(
+    current: dict[str, Any] | None, incoming: dict[str, Any]
+) -> tuple[bool, str]:
+    """Validate one proposed mutation of the canonical persisted Draft.
+
+    This function does not own state and performs no persistence. It is a pure
+    transition contract consumed by every repository backend so SQLite and
+    SQLAlchemy cannot develop competing lifecycle semantics.
+    """
+    if not isinstance(current, dict) or not current:
+        return True, "new_draft"
+
+    for field in ("draft_id", "tenant_id", "user_id", "thread_id", "action_id"):
+        old = str(current.get(field) or "")
+        new = str(incoming.get(field) or "")
+        if old and new and old != new:
+            return False, f"identity_mismatch:{field}"
+
+    current_state = draft_state_for_offer(current)
+    incoming_state = draft_state_for_offer(incoming)
+    current_revision = max(1, int(current.get("draft_revision") or 1))
+    incoming_revision = max(1, int(incoming.get("draft_revision") or current_revision))
+
+    if current_state in SEALED_DRAFT_STATES:
+        return False, "sealed_draft"
+    if incoming_revision < current_revision:
+        return False, "draft_revision_regression"
+
+    current_digest = str(current.get("command_digest") or "")
+    incoming_digest = str(incoming.get("command_digest") or current_digest)
+    if incoming_revision == current_revision and current_digest and incoming_digest and incoming_digest != current_digest:
+        return False, "command_digest_changed_without_revision"
+
+    if incoming_revision > current_revision:
+        if current_state in _IN_FLIGHT_DRAFT_STATES:
+            return False, "revision_change_while_in_flight"
+        if current_state == DRAFT_REQUIRES_REVIEW:
+            return False, "review_draft_requires_new_identity"
+        if incoming_state not in {
+            DRAFT_NEEDS_INPUT, DRAFT_READY, DRAFT_AWAITING_AUTHORIZATION,
+            DRAFT_FAILED_FINAL, DRAFT_EXPIRED, DRAFT_REVOKED, DRAFT_REQUIRES_REVIEW,
+        }:
+            return False, "new_revision_must_reenter_pre_execution_boundary"
+        return True, "new_revision"
+
+    allowed = _ALLOWED_SAME_REVISION_TRANSITIONS.get(current_state, {current_state})
+    if incoming_state not in allowed:
+        return False, f"illegal_state_transition:{current_state}->{incoming_state}"
+    if incoming_state == current_state:
+        return _interaction_projection_is_fresh(
+            current_state=current_state, current=current, incoming=incoming
+        )
+    return True, "legal_state_transition"
+
 # Display fields are derived from canonical ``draft_state`` only.
 _DISPLAY_PROJECTION: dict[str, tuple[str, str]] = {
     DRAFT_NEEDS_INPUT: ("needs_input", "needs_input"),

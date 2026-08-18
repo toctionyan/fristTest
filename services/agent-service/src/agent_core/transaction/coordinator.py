@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent_core.transaction.model import canonical_command_payload, command_digest_for_offer
+from agent_core.storage.repositories.base import TransactionScope
 from agent_core.transaction.failure import classify_business_failure
 
 
@@ -79,7 +80,19 @@ def _grant_expiry(offer: dict[str, Any]) -> str | None:
 
 
 def _draft_projection(offer: dict[str, Any]) -> dict[str, Any]:
-    keys=("kind","handle","draft_id","draft_revision","draft_state","label","action_id","operation","target_handle","input_values","preview","required_inputs","scope","expires_at","created_at","updated_at","transaction_schema_version","transaction_contract_version","operation_capability_id","operation_capability_version","operation_capability_digest","operation_capability_snapshot","command_id","command_digest","business_command_envelope")
+    keys = (
+        "kind", "handle", "draft_id", "draft_revision", "draft_state", "label",
+        "action_id", "operation", "target_handle", "target_reference", "input_values", "preview",
+        "required_inputs", "input_schema", "input_form_id", "input_form_version",
+        "input_step", "interaction_revision", "input_errors", "suggested_input",
+        "authority_protocol", "authority_requirement", "authority_revision",
+        "confirmation_id", "confirmation_version", "scope", "expires_at",
+        "created_at", "updated_at", "transaction_schema_version",
+        "transaction_contract_version", "operation_capability_id",
+        "operation_capability_version", "operation_capability_digest",
+        "operation_capability_snapshot", "command_id", "command_digest",
+        "business_command_envelope",
+    )
     return {key: offer.get(key) for key in keys if key in offer}
 
 
@@ -121,7 +134,21 @@ def issue_grant_for_authority(*, state: dict[str, Any], offer: dict[str, Any], a
     grant_id = str(authority.get("grant_id") or f"grant:{uuid4().hex}")
     digest = str(offer.get("command_digest") or command_digest_for_offer(offer))
     store = transaction_store(state)
-    persist_draft_from_offer(state=state, offer=offer, draft_state=str(offer.get("draft_state") or "AWAITING_AUTHORIZATION"))
+    draft_id = str(offer.get("draft_id") or offer.get("handle") or "")
+    scoped_getter = getattr(store, "get_draft_for_scope", None)
+    if callable(scoped_getter):
+        current = scoped_getter(
+            scope=TransactionScope(tenant_id=scope["tenant_id"], user_id=scope["user_id"], thread_id=scope["thread_id"]),
+            draft_id=draft_id,
+        )
+        if current is not None:
+            if str(current.get("draft_state") or "").upper() != "AWAITING_AUTHORIZATION":
+                raise ValueError("canonical Draft is no longer awaiting authority")
+            if int(current.get("draft_revision") or 0) != int(offer.get("draft_revision") or 1):
+                raise ValueError("canonical Draft revision no longer matches authority card")
+    persisted = persist_draft_from_offer(state=state, offer=offer, draft_state="AWAITING_AUTHORIZATION")
+    if str(persisted.get("draft_state") or "").upper() != "AWAITING_AUTHORIZATION":
+        raise ValueError("canonical Draft rejected stale authority projection")
     record = store.issue_grant(
         grant_id=grant_id,
         tenant_id=scope["tenant_id"],

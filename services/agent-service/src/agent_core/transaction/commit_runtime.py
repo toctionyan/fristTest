@@ -13,6 +13,7 @@ from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.transaction import DRAFT_REQUIRES_REVIEW, command_digest_for_offer, transition_draft
 from agent_core.transaction.active_draft import active_draft_patch, get_active_draft_id
 from agent_core.transaction.failure import classify_business_failure
+from agent_core.transaction.command_envelope import build_business_command_envelope
 from agent_core.transaction.coordinator import (
     record_transaction_receipt,
     reserve_grant_and_start_attempt,
@@ -49,20 +50,8 @@ def _idempotency_key(state: dict[str, Any], offer: dict[str, Any]) -> str:
 
 
 def _build_business_command_envelope(state: dict[str, Any], offer: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
-    """Build the immutable adapter command that an authority actually approves."""
-    action = str(offer.get("action_id") or "")
-    plugin = current_runtime_registry().operations.get(action)
-    if action not in COMMITTABLE_TRANSACTION_ACTION_IDS or plugin is None:
-        raise ValueError(f"未实现的业务动作：{action}")
-    target_id = str(target.get("resource_id") or "")
-    commit_target = {"resource_type": str(target.get("resource_type") or ""), "resource_id": target_id}
-    envelope = plugin.build_business_command_envelope(
-        actor=_actor_context_from_state(state), target=commit_target,
-        input_values=dict(offer.get("input_values") or {}),
-        preview=offer.get("preview") if isinstance(offer.get("preview"), dict) else None,
-    )
-    envelope["command_id"] = str(offer.get("command_id") or stable_command_id(state, offer))
-    return envelope
+    """Compatibility wrapper around the single deterministic command builder."""
+    return build_business_command_envelope(state, offer, target)
 
 
 def _execute_business_command_envelope(
@@ -157,7 +146,8 @@ def _transaction_commit_update(
         )
         receipt_handle = str(receipt.get("handle") or "")
         additions.append(receipt)
-    additions.extend(_new_resource_artifacts(state, ledger, offer, result))
+    resource_artifacts = _new_resource_artifacts(state, ledger, offer, result)
+    additions.extend(resource_artifacts)
     ledger = append_entries(ledger, additions)
     if write_receipt:
         record_transaction_receipt(state=state, offer=next_offer, attempt_id=attempt_id, receipt_handle=receipt_handle, receipt_state="SUCCESS" if result.get("success") else "FAILED", business_result=result)
@@ -205,12 +195,30 @@ def _transaction_commit_update(
         "提交结果正在确认中，请勿重复操作；刷新后系统会继续对账。" if draft_state == "SUBMISSION_UNKNOWN" else
         f"未能完成{str(offer.get('label') or '该操作')}：{str(result.get('error') or '业务服务拒绝或状态已变化')}。"
     )
+    # Keep transaction-control/audit carriers separate from ordinary discourse
+    # reference evidence.  Draft/Receipt remain part of RuntimeOutcome proof,
+    # while only Business Service-derived resource projections may become a
+    # next-turn referent at the final customer-visible release boundary.
+    resource_evidence_handles = list(dict.fromkeys(
+        str(row.get("handle") or "")
+        for row in resource_artifacts
+        if str(row.get("handle") or "")
+    ))
+    runtime_evidence_handles = list(dict.fromkeys(
+        value
+        for value in [
+            str(next_offer.get("handle") or ""),
+            receipt_handle or "",
+            *resource_evidence_handles,
+        ]
+        if value
+    ))
     runtime_outcome = deps.outcome_factory(
         "commit" if result.get("success") else "submission_unknown" if draft_state == "SUBMISSION_UNKNOWN" else "failure",
         effects="committed" if result.get("success") else "unknown" if draft_state == "SUBMISSION_UNKNOWN" else "none",
         safe_to_continue=bool(result.get("success")),
         correlation_id=str(state.get("correlation_id") or "") or None,
-        evidence_handles=[str(next_offer.get("handle") or ""), receipt_handle or ""],
+        evidence_handles=runtime_evidence_handles,
         customer_safe_summary=answer,
         next_interaction="show_status" if result.get("success") or draft_state == "SUBMISSION_UNKNOWN" else "none",
         payload={"draft_state": draft_state, "attempt_id": attempt_id, "receipt_handle": receipt_handle, "result": result},
@@ -233,6 +241,7 @@ def _transaction_commit_update(
         "offer_execution_result": result,
         "action_gateway_result": commit_result,
         "runtime_outcome": runtime_outcome,
+        "answer_evidence_handles": resource_evidence_handles,
         "tool_trace": trace,
         "current_final_answer": answer,
         "commit_authority": None,
@@ -300,7 +309,7 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
         failed["updated_turn"] = int(state.get("turn_index") or 0)
         ledger = append_entries(ledger, [failed])
         result = {"success": False, "error": str((preview or {}).get("message") or preflight.get("error") or "业务状态已变化，无法提交。")}
-        return _transaction_commit_update(state, ledger, failed, result=result, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitPreflightRejected", write_receipt=True, deps=deps)
+        return _transaction_commit_update(state, ledger, failed, result=result, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitPreflightRejected", write_receipt=False, deps=deps)
 
     refreshed = deepcopy(offer)
     values = dict(refreshed.get("input_values") or {})
@@ -313,7 +322,7 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
         refreshed["business_command_envelope"] = _build_business_command_envelope(state, refreshed, target)
     except ValueError as exc:
         failed = transition_draft(refreshed, "FAILED_FINAL", reason="commit_command_envelope_invalid")
-        return _transaction_commit_update(state, ledger, failed, result={"success":False,"error":str(exc),"code":"INVALID_COMMAND_ENVELOPE"}, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitEnvelopeInvalid", write_receipt=True, deps=deps)
+        return _transaction_commit_update(state, ledger, failed, result={"success":False,"error":str(exc),"code":"INVALID_COMMAND_ENVELOPE"}, draft_state="FAILED_FINAL", attempt_id=None, idempotency_key=None, status="ActionCommitEnvelopeInvalid", write_receipt=False, deps=deps)
     refreshed["command_id"] = str((refreshed.get("business_command_envelope") or {}).get("command_id") or stable_command_id(state, refreshed))
     refreshed["updated_turn"] = int(state.get("turn_index") or 0)
     ledger = append_entries(ledger, [refreshed])
@@ -345,8 +354,28 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
     attempt_id = str(attempt.get("attempt_id") or "") or None
     idempotency_key = str(attempt.get("idempotency_key") or stable_idempotency_key(state, refreshed))
     if not reservation.get("reserved"):
-        # A duplicate click, a second tab, or a previous process may already own
-        # this grant.  Fail closed and show a read-only reconciliation state.
+        repository = transaction_store(state)
+        existing_receipt = repository.get_receipt_by_attempt(attempt_id) if attempt_id else None
+        if isinstance(existing_receipt, dict):
+            known_result = existing_receipt.get("business_result") if isinstance(existing_receipt.get("business_result"), dict) else {}
+            receipt_state = str(existing_receipt.get("receipt_state") or "").upper()
+            if receipt_state == "SUCCESS" and bool(known_result.get("success")):
+                return _transaction_commit_update(
+                    state, ledger, refreshed, result=dict(known_result), draft_state="COMMITTED",
+                    attempt_id=attempt_id, idempotency_key=idempotency_key,
+                    status="ActionAlreadyCommitted", write_receipt=False, deps=deps,
+                )
+            if receipt_state == "FAILED":
+                known_attempt_state = str(attempt.get("state") or "").upper()
+                known_failure_state = known_attempt_state if known_attempt_state in {"FAILED_RETRYABLE", "FAILED_FINAL"} else "FAILED_FINAL"
+                return _transaction_commit_update(
+                    state, ledger, refreshed,
+                    result=dict(known_result or {"success": False, "error": "业务提交已失败。"}),
+                    draft_state=known_failure_state, attempt_id=attempt_id, idempotency_key=idempotency_key,
+                    status="ActionAlreadyFailed", write_receipt=False, deps=deps,
+                )
+        # No Receipt means the exact existing Attempt is genuinely uncertain.
+        # Never execute a second business command; reconciliation owns recovery.
         unknown = transition_draft(refreshed, "SUBMISSION_UNKNOWN", reason="grant_already_reserved_or_consumed")
         unknown["commit_attempt_id"] = attempt_id
         ledger = append_entries(ledger, [unknown])
@@ -375,13 +404,14 @@ def commit_action_node(state: dict[str, Any], *, deps: TransactionExecutionDeps)
         return _transaction_commit_update(state, ledger, offer, result=result, draft_state="COMMITTED", attempt_id=attempt_id, idempotency_key=idempotency_key, status="ActionCommitted", write_receipt=True, deps=deps)
 
     failed_state = classify_business_failure(code=result.get("code"), error=str(result.get("error") or ""))
-    transaction_store(state).transition_attempt(
-        str(attempt_id or ""),
-        state=failed_state,
-        business_result=result if failed_state != "SUBMISSION_UNKNOWN" else None,
-        error_code=str(result.get("code") or ""),
-        error=str(result.get("error") or ""),
-    )
+    if failed_state == "SUBMISSION_UNKNOWN":
+        transaction_store(state).transition_attempt(
+            str(attempt_id or ""),
+            state=failed_state,
+            business_result=None,
+            error_code=str(result.get("code") or ""),
+            error=str(result.get("error") or ""),
+        )
     return _transaction_commit_update(
         state, ledger, offer, result=result, draft_state=failed_state,
         attempt_id=attempt_id, idempotency_key=idempotency_key,
@@ -413,6 +443,6 @@ def _commit_observation_update(
         attempt_id=None,
         idempotency_key=None,
         status=status,
-        write_receipt=True,
+        write_receipt=False,
         deps=deps,
     )

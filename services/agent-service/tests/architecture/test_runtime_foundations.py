@@ -28,7 +28,7 @@ def _draft(store: TransactionLifecycleStore, *, draft_id: str = "offer:1", tenan
         action_id="create_refund",
         command_digest="digest-1",
         command_envelope={"method": "POST", "path": "/refunds", "body": {"order_id": "10001"}},
-        projection={"label": "订单 10001 退款"},
+        projection={"label": "订单 10001 退款", "confirmation_id": "confirm-1", "confirmation_version": 1},
     )
 
 
@@ -71,36 +71,63 @@ def test_scope_first_repository_and_receipt_cardinality(tmp_path: Path):
     stale = store.validate_active_draft(scope=scope, draft_id="offer:1", expected_revision=3)
     assert stale.code is ActiveDraftValidationCode.REVISION_MISMATCH
 
-    for attempt_id in ("attempt:1", "attempt:2"):
-        store.start_attempt(
-            attempt_id=attempt_id,
-            tenant_id="t1",
-            user_id="u1",
-            thread_id="thread-1",
-            draft_id="offer:1",
-            draft_revision=2,
-            grant_id="grant:1",
-            action_id="create_refund",
-            command_digest="digest-1",
-            idempotency_key=f"idem:{attempt_id}",
-            canonical_payload={"order_id": "10001"},
-        )
-        store.record_receipt(
-            receipt_id=f"receipt:{attempt_id}",
-            tenant_id="t1",
-            user_id="u1",
-            thread_id="thread-1",
-            draft_id="offer:1",
-            attempt_id=attempt_id,
-            receipt_handle=f"handle:{attempt_id}",
-            receipt_state="SUCCESS",
-            business_result={"success": True, "attempt": attempt_id},
-        )
+    grant = store.issue_grant(
+        grant_id="grant:1",
+        tenant_id="t1",
+        user_id="u1",
+        thread_id="thread-1",
+        draft_id="offer:1",
+        draft_revision=2,
+        command_digest="digest-1",
+        confirmation_id="confirm-1",
+        client_request_id="client:1",
+        actor_id="u1",
+        actor_role="customer",
+    )
+    assert grant["state"] == "ISSUED"
+    started = store.reserve_grant_and_start_attempt(
+        grant_id="grant:1",
+        attempt_id="attempt:1",
+        tenant_id="t1",
+        user_id="u1",
+        thread_id="thread-1",
+        draft_id="offer:1",
+        draft_revision=2,
+        action_id="create_refund",
+        command_digest="digest-1",
+        idempotency_key="idem:attempt:1",
+        canonical_payload={"order_id": "10001"},
+    )
+    assert started["reserved"] is True and started["created"] is True
+    receipt = store.record_receipt(
+        receipt_id="receipt:attempt:1",
+        tenant_id="t1",
+        user_id="u1",
+        thread_id="thread-1",
+        draft_id="offer:1",
+        attempt_id="attempt:1",
+        receipt_handle="handle:attempt:1",
+        receipt_state="SUCCESS",
+        business_result={"success": True, "attempt": "attempt:1"},
+    )
+    duplicate = store.record_receipt(
+        receipt_id="receipt:duplicate",
+        tenant_id="t1",
+        user_id="u1",
+        thread_id="thread-1",
+        draft_id="offer:1",
+        attempt_id="attempt:1",
+        receipt_handle="handle:attempt:1",
+        receipt_state="SUCCESS",
+        business_result={"success": True, "attempt": "attempt:1"},
+    )
 
     attempts = store.list_attempts_for_draft(scope=scope, draft_id="offer:1")
-    assert {item["attempt_id"] for item in attempts} == {"attempt:1", "attempt:2"}
+    assert [item["attempt_id"] for item in attempts] == ["attempt:1"]
+    assert receipt["receipt_id"] == "receipt:attempt:1"
+    assert duplicate["receipt_id"] == "receipt:attempt:1"
     assert store.get_receipt_for_attempt(scope=scope, attempt_id="attempt:1")["receipt_id"] == "receipt:attempt:1"
-    assert store.get_latest_receipt_for_draft(scope=scope, draft_id="offer:1")["receipt_id"] == "receipt:attempt:2"
+    assert store.get_latest_receipt_for_draft(scope=scope, draft_id="offer:1")["receipt_id"] == "receipt:attempt:1"
 
 
 def test_active_draft_runtime_writes_only_canonical_pointer():

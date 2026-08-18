@@ -12,6 +12,7 @@ from agent_core.model_calls import model_call_scope
 from agent_core.security.roles import normalize_role
 from agent_core.storage.repositories.base import TransactionScope
 from agent_core.transaction.availability import check_transaction_repository_available
+from agent_core.transaction.active_draft import get_active_draft_id
 from agent_core.runtime.outcomes import outcome
 
 
@@ -33,6 +34,66 @@ class InteractionSubmitUseCase:
             correlation_id=str(getattr(request, "client_request_id", "") or "") or None,
             outcome_factory=outcome,
         )
+
+    def validate_action_authority(self, graph: Any, request: ActionAuthorityRequest) -> str | None:
+        """Read checkpoint + durable Draft and reject stale structured authority envelopes."""
+        service = self._service
+        values = service._checkpoint_values(
+            graph,
+            thread_id=request.thread_id,
+            user_id=request.user_id,
+            tenant_id=request.tenant_id,
+        )
+        expected_handle = str(get_active_draft_id(values) or "")
+        if not expected_handle:
+            return "no_pending_interaction"
+        if request.offer_handle != expected_handle:
+            return "offer_handle_mismatch"
+        ledger = values.get("artifact_ledger") or []
+        offer = next(
+            (item for item in ledger if isinstance(item, dict) and item.get("handle") == expected_handle),
+            None,
+        )
+        if not offer or service._draft_state_for_validation(offer) != "AWAITING_AUTHORIZATION":
+            return "offer_not_awaiting_authority"
+        repository = getattr(service, "transactions", None)
+        get_durable = getattr(repository, "get_draft_for_scope", None)
+        if callable(get_durable):
+            durable = get_durable(
+                scope=TransactionScope(
+                    tenant_id=str(request.tenant_id or "default"),
+                    user_id=str(request.user_id),
+                    thread_id=str(request.thread_id),
+                ),
+                draft_id=expected_handle,
+            )
+            if durable is None:
+                return "durable_draft_missing"
+            if service._draft_state_for_validation(durable) != "AWAITING_AUTHORIZATION":
+                return "durable_draft_not_awaiting_authority"
+            if int(durable.get("draft_revision") or 0) != int(offer.get("draft_revision") or 0):
+                return "durable_draft_revision_mismatch"
+            durable_projection = durable.get("projection") if isinstance(durable.get("projection"), dict) else {}
+            if str(durable_projection.get("confirmation_id") or "") != str(offer.get("confirmation_id") or ""):
+                return "durable_confirmation_id_mismatch"
+            if int(durable_projection.get("confirmation_version") or 0) != int(offer.get("confirmation_version") or 0):
+                return "durable_confirmation_version_mismatch"
+        if str(offer.get("action_id") or "") != request.action_id:
+            return "action_id_mismatch"
+        if str(offer.get("target_handle") or "") != request.target_handle:
+            return "target_handle_mismatch"
+        if str(offer.get("confirmation_id") or "") != request.confirmation_id:
+            return "confirmation_id_mismatch"
+        if int(offer.get("confirmation_version") or 0) != int(request.confirmation_version):
+            return "confirmation_version_mismatch"
+        if int(offer.get("authority_revision") or 0) != int(request.conversation_revision):
+            return "conversation_revision_mismatch"
+        if int(values.get("turn_index") or 0) != int(request.conversation_revision):
+            return "current_conversation_revision_mismatch"
+        expected_type = "ui_confirmed" if request.decision == "approved" else "ui_rejected"
+        if request.authority_type != expected_type:
+            return "authority_type_mismatch"
+        return None
 
     def authorize(self, request: ActionAuthorityRequest, *, include_debug: bool = False) -> ChatResponse:
         """Canonical UI authority entry: never accepts a free-text approval."""
@@ -69,7 +130,7 @@ class InteractionSubmitUseCase:
                         user_id=request.user_id,
                         tenant_id=request.tenant_id,
                     )
-                stale_reason = service._validate_action_authority(graph, request)
+                stale_reason = self.validate_action_authority(graph, request)
                 if stale_reason:
                     response = service._confirmation_expired_response(
                         request.thread_id,
