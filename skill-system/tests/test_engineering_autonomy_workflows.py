@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+AUTHORIZE = ROOT / ".github" / "workflows" / "engineering-autonomy-authorize.yml"
+WAKEUP = ROOT / ".github" / "workflows" / "engineering-autonomy-wakeup.yml"
+STAGE2 = ROOT / ".github" / "workflows" / "governed-ci-repair-stage2.yml"
+
+
+class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.authorize = AUTHORIZE.read_text(encoding="utf-8")
+        cls.wakeup = WAKEUP.read_text(encoding="utf-8")
+        cls.stage2 = STAGE2.read_text(encoding="utf-8")
+
+    def test_authorization_is_owner_workflow_dispatch_and_network_free(self) -> None:
+        self.assertIn("name: engineering-autonomy-authorize", self.authorize)
+        self.assertIn("workflow_dispatch:", self.authorize)
+        self.assertIn("github.actor == github.repository_owner", self.authorize)
+        self.assertIn("ref: main", self.authorize)
+        self.assertIn("persist-credentials: false", self.authorize)
+        self.assertIn("github_repair_engineering_autonomy_authorize.py", self.authorize)
+        self.assertIn("Network execution in this workflow: `false`", self.authorize)
+        self.assertNotIn("actions: write", self.authorize)
+        self.assertNotIn("gh workflow run", self.authorize)
+        self.assertNotIn("gh run rerun", self.authorize)
+        self.assertNotIn("remote_repair_approval", self.authorize)
+
+    def test_wakeup_consumes_only_completed_trusted_authorization(self) -> None:
+        self.assertIn("name: engineering-autonomy-wakeup", self.wakeup)
+        self.assertIn("workflows:\n      - engineering-autonomy-authorize", self.wakeup)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", self.wakeup)
+        self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", self.wakeup)
+        self.assertIn(
+            "github.event.workflow_run.actor.login == github.repository_owner",
+            self.wakeup,
+        )
+        self.assertIn("ref: ${{ github.event.workflow_run.head_sha }}", self.wakeup)
+        self.assertIn("actions: write", self.wakeup)
+        self.assertIn("statuses: write", self.wakeup)
+        self.assertIn("github_repair_engineering_autonomy_wakeup.py verify", self.wakeup)
+        self.assertIn("gh workflow run governed-ci-repair-stage2.yml", self.wakeup)
+        self.assertIn('gh run rerun "${SOURCE_RUN_ID}"', self.wakeup)
+        self.assertNotIn("remote_repair_approval", self.wakeup)
+        self.assertNotIn("gh pr merge", self.wakeup)
+        self.assertNotIn("gh api -X PUT", self.wakeup)
+
+    def test_wakeup_has_durable_idempotency_and_failure_receipts(self) -> None:
+        self.assertIn("engineering-autonomy-dispatch/${DECISION_ID:0:16}", self.wakeup)
+        self.assertIn("already_dispatched=true", self.wakeup)
+        self.assertIn("--status DISPATCHED", self.wakeup)
+        self.assertIn("--status FAILED", self.wakeup)
+        self.assertIn("NETWORK_ACTION_FAILED", self.wakeup)
+        self.assertIn("Preserve network failure as workflow failure", self.wakeup)
+        self.assertIn("if-no-files-found: warn", self.wakeup)
+
+    def test_stage2_keeps_manual_and_autonomy_entry_paths_mutually_exclusive(self) -> None:
+        for field in (
+            "autonomy_handoff_run_id:",
+            "autonomy_handoff_run_attempt:",
+            "autonomy_authorization_id:",
+            "autonomy_authorization_sha256:",
+            "autonomy_grant_id:",
+            "autonomy_grant_sha256:",
+            "autonomy_plan_sha256:",
+        ):
+            self.assertIn(field, self.stage2)
+        self.assertIn(
+            "Autonomy Stage-2 handoff must not synthesize or combine legacy manual approval.",
+            self.stage2,
+        )
+        self.assertIn(
+            'if [[ "${REMOTE_REPAIR_APPROVAL}" != "explicitly-approved" ]]',
+            self.stage2,
+        )
+        self.assertIn('echo "input_kind=autonomy_stage1"', self.stage2)
+        self.assertIn("github_repair_autonomy_stage2.py", self.stage2)
+        self.assertIn("name: engineering-autonomy-authorize", self.stage2)
+
+    def test_stage2_protected_environment_and_repair_owner_are_not_duplicated(self) -> None:
+        self.assertEqual(self.stage2.count("\n  repair:\n"), 1)
+        self.assertIn("environment: production-certification", self.stage2)
+        self.assertIn("Run bounded restricted remote fallback repair controller", self.stage2)
+        self.assertIn("--max-cycles 8", self.stage2)
+        self.assertIn("--max-repair-rounds 8", self.stage2)
+        self.assertNotIn("environment: unprotected", self.stage2)
+        self.assertNotIn("production_closed: true", self.stage2)
+
+
+if __name__ == "__main__":
+    unittest.main()
