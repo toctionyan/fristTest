@@ -145,7 +145,7 @@
       }
     ],
     "preproduction_risk_prototype": true,
-    "preproduction_allowed_tools": ["report_unsupported_request", "respond_to_user", "get_order_logistics"],
-    "preproduction_forbidden_tools": ["prepare_cancel_order", "prepare_refund", "prepare_invoice", "commit_action"]
+    "preproduction_allowed_tools": ["report_unsupported_request", "respond_to_user"],
+    "preproduction_forbidden_tools": ["get_order_logistics", "prepare_cancel_order", "prepare_refund", "prepare_invoice", "commit_action"]
   }
 }
