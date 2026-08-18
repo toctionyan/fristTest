@@ -29,6 +29,14 @@ _TERMINAL_CONCLUSIONS = {
     "stale",
 }
 _VERDICTS = {"PASS", "FAIL", "UNKNOWN"}
+_STAGE1_RETRYABLE_FAILURES = {
+    "environment": "ENVIRONMENT_FAILURE",
+    "timeout": "ENVIRONMENT_FAILURE",
+    "cancelled": "TRANSIENT_INFRA_FAILURE",
+    "canceled": "TRANSIENT_INFRA_FAILURE",
+    "startup_failure": "TRANSIENT_INFRA_FAILURE",
+    "stale": "TRANSIENT_INFRA_FAILURE",
+}
 
 
 class EngineeringReconcileError(RuntimeError):
@@ -539,5 +547,220 @@ def reconcile_ci_terminal(
         human_required=True,
         failure_class=failure.kind.upper(),
         reason=failure.reason,
+    )
+    return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
+
+
+def _validate_stage1_failure(
+    store: TaskRunStore,
+    failure_case: Mapping[str, Any],
+    *,
+    repository: str,
+    current_head_sha: str,
+) -> tuple[int, int, str, str, str]:
+    if _text(store.payload.get("task_kind")) != "github-governed-repair":
+        raise EngineeringReconcileError("Stage-1 reconciliation requires the existing github-governed-repair TaskRun")
+    payload = dict(failure_case)
+    if payload.get("schema") != "github-failure-ingest@1" or payload.get("status") != "INGESTED":
+        raise EngineeringReconcileError("invalid Stage-1 failure-case contract")
+    repo = _text(repository)
+    if _text(payload.get("repository")) != repo:
+        raise EngineeringReconcileError("Stage-1 failure repository does not match requested repository")
+    if payload.get("production_closed") is not False:
+        raise EngineeringReconcileError("Stage-1 failure evidence crossed production boundary")
+    if payload.get("same_repository") is not True:
+        raise EngineeringReconcileError("cross-repository Stage-1 failure cannot enter autonomous reconciliation")
+
+    binding = store.payload.get("binding")
+    if not isinstance(binding, Mapping):
+        raise EngineeringReconcileError("Stage-1 TaskRun immutable binding is missing")
+    expected = {
+        "repository": payload.get("repository"),
+        "workflow_name": payload.get("workflow_name"),
+        "workflow_run_id": payload.get("workflow_run_id"),
+        "workflow_run_attempt": payload.get("workflow_run_attempt"),
+        "head_sha": payload.get("head_sha"),
+        "failure_signature": payload.get("failure_signature"),
+        "branch": payload.get("repair_branch"),
+        "base_sha": payload.get("head_sha"),
+    }
+    for field, value in expected.items():
+        if _text(binding.get(field)) != _text(value):
+            raise EngineeringReconcileError(f"Stage-1 TaskRun binding mismatch: {field}")
+
+    try:
+        run_id = int(payload.get("workflow_run_id"))
+        run_attempt = int(payload.get("workflow_run_attempt"))
+    except (TypeError, ValueError) as exc:
+        raise EngineeringReconcileError("Stage-1 run identity must be numeric") from exc
+    if run_id < 1 or run_attempt < 1:
+        raise EngineeringReconcileError("Stage-1 run identity must be positive")
+    head_sha = _sha(payload.get("head_sha"), name="Stage-1 head_sha")
+    if _sha(current_head_sha, name="current_head_sha") != head_sha:
+        raise EngineeringReconcileError("current branch head drifted from Stage-1 failure candidate")
+    failure_signature = _text(payload.get("failure_signature"))
+    if not re.fullmatch(r"[0-9a-f]{64}", failure_signature):
+        raise EngineeringReconcileError("Stage-1 failure signature is missing or malformed")
+    classification = _text(payload.get("classification")).lower()
+    if not classification:
+        raise EngineeringReconcileError("Stage-1 failure classification is missing")
+    return run_id, run_attempt, head_sha, failure_signature, classification
+
+
+def reconcile_stage1_failure(
+    store: TaskRunStore,
+    grant: Mapping[str, Any],
+    *,
+    repository: str,
+    failure_case: Mapping[str, Any],
+    current_head_sha: str,
+) -> dict[str, Any]:
+    """Normalize trusted Stage-1 evidence into the existing M3 decision contract.
+
+    This is a source adapter inside the same EngineeringTaskController. It does not
+    create a second TaskRun, change Stage-1 lifecycle ownership, execute GitHub
+    network calls, or mint write/test/merge/deploy/production authority.
+    """
+
+    run_id, run_attempt, head_sha, failure_signature, classification = _validate_stage1_failure(
+        store,
+        failure_case,
+        repository=repository,
+        current_head_sha=current_head_sha,
+    )
+    key = _delivery_key(run_id=run_id, run_attempt=run_attempt, head_sha=head_sha)
+    fingerprint = _digest(
+        {
+            "source": "stage1",
+            "run_id": run_id,
+            "run_attempt": run_attempt,
+            "head_sha": head_sha,
+            "failure_signature": failure_signature,
+            "classification": classification,
+            "repair_allowed": failure_case.get("repair_allowed") is True,
+        }
+    )
+    existing = _existing_outcome(store, key=key, fingerprint=fingerprint)
+    if existing is not None:
+        return existing
+
+    autonomy_allowed, autonomy_human, autonomy_reason = _active_autonomy_probe(
+        store,
+        grant,
+        repository=repository,
+    )
+    if not autonomy_allowed:
+        outcome = _base_outcome(
+            store,
+            key=key,
+            decision="STOP_AUTONOMY",
+            action=None,
+            allowed=False,
+            human_required=autonomy_human,
+            failure_class=None,
+            reason=autonomy_reason,
+        )
+        return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
+
+    if classification == "code_or_contract":
+        candidate_paths = failure_case.get("candidate_paths")
+        exact_stage1_write_authority = bool(
+            failure_case.get("repair_allowed") is True
+            and isinstance(candidate_paths, list)
+            and candidate_paths
+            and failure_case.get("same_repository") is True
+        )
+        authorization = authorize_autonomous_action(
+            store,
+            grant,
+            repository=repository,
+            action="repair_meaningful_product_red",
+            context={
+                "failure_class": "PRODUCT_SOURCE_FAILURE",
+                "underlying_write_authority": exact_stage1_write_authority,
+                "exact_write_scope": exact_stage1_write_authority,
+                "repair_round": 1,
+            },
+        )
+        if authorization.allowed:
+            outcome = _base_outcome(
+                store,
+                key=key,
+                decision="REPAIR_PRODUCT",
+                action="repair_meaningful_product_red",
+                allowed=True,
+                human_required=False,
+                failure_class="PRODUCT_SOURCE_FAILURE",
+                reason=authorization.reason,
+                product_write_allowed=True,
+            )
+        else:
+            outcome = _base_outcome(
+                store,
+                key=key,
+                decision="STOP_REPAIR_AUTHORITY",
+                action=None,
+                allowed=False,
+                human_required=authorization.human_required,
+                failure_class="PRODUCT_SOURCE_FAILURE",
+                reason=authorization.reason,
+            )
+        return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
+
+    retry_failure_class = _STAGE1_RETRYABLE_FAILURES.get(classification)
+    if retry_failure_class:
+        authorization = authorize_autonomous_action(
+            store,
+            grant,
+            repository=repository,
+            action="retry_transient_ci",
+            context={
+                "failure_class": retry_failure_class,
+                "same_candidate": True,
+                "validation_retry": _retry_count(store) + 1,
+            },
+        )
+        if authorization.allowed:
+            outcome = _base_outcome(
+                store,
+                key=key,
+                decision="RETRY_CI",
+                action="retry_transient_ci",
+                allowed=True,
+                human_required=False,
+                failure_class=retry_failure_class,
+                reason=authorization.reason,
+            )
+        else:
+            outcome = _base_outcome(
+                store,
+                key=key,
+                decision="STOP_RETRY_BUDGET",
+                action=None,
+                allowed=False,
+                human_required=authorization.human_required,
+                failure_class=retry_failure_class,
+                reason=authorization.reason,
+            )
+        return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
+
+    if classification == "protected_baseline_drift":
+        failure_class = "PROTECTED_BASELINE_DRIFT"
+        reason = "protected baseline drift requires governed baseline acceptance; autonomous product repair is not authorized"
+    elif classification == "unknown_failure_without_gate_evidence":
+        failure_class = "INSUFFICIENT_EVIDENCE"
+        reason = "Stage-1 failure lacks machine gate evidence; fail closed"
+    else:
+        failure_class = classification.upper()
+        reason = "Stage-1 failure class has no bounded autonomous continuation contract"
+    outcome = _base_outcome(
+        store,
+        key=key,
+        decision="STOP_NON_PRODUCT_AUTHORITY",
+        action=None,
+        allowed=False,
+        human_required=True,
+        failure_class=failure_class,
+        reason=reason,
     )
     return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
