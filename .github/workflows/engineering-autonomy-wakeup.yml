@@ -106,7 +106,7 @@ jobs:
           [[ "${DECISION_ID}" =~ ^[0-9a-f]{64}$ ]]
           CONTEXT="engineering-autonomy-dispatch/${DECISION_ID:0:16}"
           existing=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_HEAD_SHA}/status" \
-            --jq --arg context "${CONTEXT}" '[.statuses[] | select(.context == $context and .state == "success")][0].target_url // empty')
+            | jq -r --arg context "${CONTEXT}" '[.statuses[] | select(.context == $context and .state == "success")][0].target_url // empty')
           if [[ -n "${existing}" ]]; then
             echo "already_dispatched=true" >> "$GITHUB_OUTPUT"
             echo "existing_ref=${existing}" >> "$GITHUB_OUTPUT"
