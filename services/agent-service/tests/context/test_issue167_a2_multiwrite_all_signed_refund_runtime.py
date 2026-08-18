@@ -177,7 +177,24 @@ def test_issue167_multiwrite_refund_filters_signed_subset_before_write_boundary(
     assert runtime_target.get("operator") == "filter"
     assert runtime_target.get("status") == "已签收"
     assert str(runtime_target.get("left_handle") or "")
-    assert (prepare_row.get("result") or {}).get("code") == "UNSUPPORTED_TARGET_CARDINALITY"
+    prepare_result = prepare_row.get("result") or {}
+    assert prepare_result.get("code") == "UNSUPPORTED_TARGET_CARDINALITY"
+
+    # A cardinality rejection alone is not enough evidence: it could also be
+    # produced by a widened three-order collection.  The rejection payload is
+    # required to carry the resolver-owned TargetSet, so prove that the actual
+    # runtime members are exactly the two signed orders in stable resolver
+    # order.  This closes the false-green gap without changing product code.
+    target_set = (prepare_result.get("data") or {}).get("target_set") or {}
+    expected_handles = [
+        "artifact:fixture:order:10001",
+        "artifact:fixture:order:10002",
+    ]
+    assert target_set.get("resource_type") == "order"
+    assert target_set.get("scope_verified") is True
+    assert target_set.get("handles") == expected_handles
+    assert target_set.get("canonical_order") == expected_handles
+    assert len(list(target_set.get("handles") or [])) == 2
 
     # This A2 exercises the safe clarification branch of the canonical
     # clarify-or-split boundary.  It may prove a multi-member target, but it
