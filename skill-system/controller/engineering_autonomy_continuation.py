@@ -9,6 +9,7 @@ from typing import Any, Mapping
 AUTONOMY_CONTINUATION_SCHEMA = "engineering-autonomy-continuation@1"
 MAX_REPAIR_ROUNDS = 8
 MAX_VALIDATION_RETRIES = 3
+MAX_FAILURE_SIGNATURE_BYTES = 512
 
 
 class AutonomyContinuationError(RuntimeError):
@@ -43,6 +44,26 @@ def _positive_budget(value: object, *, name: str, maximum: int) -> int:
     return result
 
 
+def _failure_signature(value: object) -> str:
+    """Preserve the existing failure-signature contract as an opaque exact key.
+
+    Some governed producers use a SHA-256 signature while older/current control
+    plane fixtures use a semantic signature. The continuation envelope must not
+    silently redefine that upstream identity contract; it binds the exact value
+    and its own canonical digest instead.
+    """
+
+    result = _text(value)
+    if (
+        not result
+        or "\n" in result
+        or "\r" in result
+        or len(result.encode("utf-8")) > MAX_FAILURE_SIGNATURE_BYTES
+    ):
+        raise AutonomyContinuationError("continuation failure_signature is malformed")
+    return result
+
+
 def build_autonomy_continuation(
     *,
     grant_id: object,
@@ -65,7 +86,7 @@ def build_autonomy_continuation(
         "source_run_id": _text(source_run_id),
         "source_run_attempt": _text(source_run_attempt),
         "source_head_sha": _text(source_head_sha).lower(),
-        "failure_signature": _text(failure_signature),
+        "failure_signature": _failure_signature(failure_signature),
         "max_repair_rounds": _positive_budget(
             max_repair_rounds,
             name="max_repair_rounds",
@@ -93,8 +114,6 @@ def build_autonomy_continuation(
         raise AutonomyContinuationError("continuation source_run_attempt is invalid")
     if not re.fullmatch(r"[0-9a-f]{40}", str(payload["source_head_sha"])):
         raise AutonomyContinuationError("continuation source_head_sha is malformed")
-    if not re.fullmatch(r"[0-9a-f]{64}", str(payload["failure_signature"])):
-        raise AutonomyContinuationError("continuation failure_signature is malformed")
     payload["continuation_sha256"] = _digest(payload)
     return payload
 
@@ -144,7 +163,7 @@ def validate_autonomy_continuation(
         "source_run_id": _text(source_run_id),
         "source_run_attempt": _text(source_run_attempt),
         "source_head_sha": _text(source_head_sha).lower(),
-        "failure_signature": _text(failure_signature),
+        "failure_signature": _failure_signature(failure_signature),
     }
     for field, expected_value in expected.items():
         if _text(rebuilt.get(field)) != expected_value:
