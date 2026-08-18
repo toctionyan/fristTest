@@ -101,6 +101,13 @@ jobs:
       autonomy_handoff_run_attempt: ${{ steps.source.outputs.autonomy_handoff_run_attempt }}
       autonomy_handoff_head_sha: ${{ steps.autonomy_artifact.outputs.autonomy_handoff_head_sha }}
       autonomy_artifact_id: ${{ steps.autonomy_artifact.outputs.autonomy_artifact_id }}
+      autonomy_continuation_sha256: ${{ steps.inspect.outputs.autonomy_continuation_sha256 }}
+      autonomy_grant_id: ${{ steps.inspect.outputs.grant_id }}
+      autonomy_grant_sha256: ${{ steps.inspect.outputs.grant_sha256 }}
+      autonomy_authorization_id: ${{ steps.inspect.outputs.authorization_id }}
+      autonomy_authorization_sha256: ${{ steps.inspect.outputs.authorization_sha256 }}
+      max_repair_rounds: ${{ steps.inspect.outputs.max_repair_rounds }}
+      max_validation_retries: ${{ steps.inspect.outputs.max_validation_retries }}
     steps:
       - name: Checkout trusted Stage-2 control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -304,11 +311,20 @@ jobs:
           seed_patch=$(find incoming -type f -name seed.patch -print -quit 2>/dev/null || true)
           loop_state=$(find incoming -type f -name loop-state.json -print -quit 2>/dev/null || true)
           if [[ -z "${failure_case}" || -z "${task_run}" ]]; then
-            echo "repair_allowed=false" >> "$GITHUB_OUTPUT"
-            echo "head_sha=" >> "$GITHUB_OUTPUT"
-            echo "source_run_id=" >> "$GITHUB_OUTPUT"
-            echo "source_run_attempt=" >> "$GITHUB_OUTPUT"
-            echo "failure_signature=" >> "$GITHUB_OUTPUT"
+            {
+              echo "repair_allowed=false"
+              echo "head_sha="
+              echo "source_run_id="
+              echo "source_run_attempt="
+              echo "failure_signature="
+              echo "grant_id="
+              echo "grant_sha256="
+              echo "authorization_id="
+              echo "authorization_sha256="
+              echo "autonomy_continuation_sha256="
+              echo "max_repair_rounds=8"
+              echo "max_validation_retries=3"
+            } >> "$GITHUB_OUTPUT"
             echo "No governed failure artifact was produced by Stage 1; Stage 2 skipped." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -356,6 +372,12 @@ jobs:
           import sys
           from pathlib import Path
 
+          sys.path.insert(0, str(Path("control/skill-system/controller").resolve()))
+          from engineering_autonomy_continuation import (
+              AutonomyContinuationError,
+              validate_autonomy_continuation,
+          )
+
           failure_path, task_path, output_path = map(Path, sys.argv[1:4])
           dispatch_run_id, dispatch_run_attempt, input_kind, repair_round = sys.argv[4:8]
           seed_patch_raw, loop_state_raw, remote_approval = sys.argv[8:11]
@@ -378,6 +400,10 @@ jobs:
               raise SystemExit("approved source Run ID does not match governed evidence")
           if str(failure.get("workflow_run_attempt")) != dispatch_run_attempt:
               raise SystemExit("approved source run attempt does not match governed evidence")
+
+          continuation = None
+          max_repair_rounds = 8
+          max_validation_retries = 3
           if input_kind == "stage1":
               if remote_approval != "explicitly-approved":
                   raise SystemExit("initial remote fallback lacks explicit approval")
@@ -402,8 +428,36 @@ jobs:
                   raise SystemExit("outer-loop next repair round mismatch")
               if int(loop.get("next_repair_round") or 0) != int(repair_round):
                   raise SystemExit("outer-loop dispatch round mismatch")
+
+              raw_continuation = loop.get("autonomy_continuation")
+              if raw_continuation is not None:
+                  if not isinstance(raw_continuation, dict):
+                      raise SystemExit("outer-loop autonomy continuation is malformed")
+                  try:
+                      continuation = validate_autonomy_continuation(
+                          raw_continuation,
+                          source_run_id=failure.get("workflow_run_id"),
+                          source_run_attempt=failure.get("workflow_run_attempt"),
+                          source_head_sha=failure.get("head_sha"),
+                          failure_signature=failure.get("failure_signature"),
+                      )
+                  except AutonomyContinuationError as exc:
+                      raise SystemExit(str(exc)) from exc
+                  max_repair_rounds = int(continuation["max_repair_rounds"])
+                  max_validation_retries = int(continuation["max_validation_retries"])
+                  if int(repair_round) > max_repair_rounds:
+                      raise SystemExit("outer-loop repair round exceeds autonomy continuation budget")
+                  if int(loop.get("max_repair_rounds") or 0) != max_repair_rounds:
+                      raise SystemExit("outer-loop repair budget drifted from autonomy continuation")
+                  if int(loop.get("max_validation_retries_per_candidate") or 0) != max_validation_retries:
+                      raise SystemExit("outer-loop validation retry budget drifted from autonomy continuation")
+                  if str(feedback.get("autonomy_continuation_sha256") or "") != str(continuation["continuation_sha256"]):
+                      raise SystemExit("outer-loop autonomy continuation digest mismatch")
+              elif feedback.get("autonomy_continuation_sha256"):
+                  raise SystemExit("legacy outer-loop feedback unexpectedly carries autonomy continuation identity")
           else:
               raise SystemExit("unsupported Stage-2 input kind")
+
           repair_allowed = bool(
               failure.get("repair_allowed") is True
               and failure.get("same_repository") is True
@@ -417,6 +471,20 @@ jobs:
               handle.write(f"source_run_id={failure.get('workflow_run_id', '')}\n")
               handle.write(f"source_run_attempt={failure.get('workflow_run_attempt', '')}\n")
               handle.write(f"failure_signature={failure.get('failure_signature', '')}\n")
+              if continuation is None:
+                  handle.write("grant_id=\n")
+                  handle.write("grant_sha256=\n")
+                  handle.write("authorization_id=\n")
+                  handle.write("authorization_sha256=\n")
+                  handle.write("autonomy_continuation_sha256=\n")
+              else:
+                  handle.write(f"grant_id={continuation['grant_id']}\n")
+                  handle.write(f"grant_sha256={continuation['grant_sha256']}\n")
+                  handle.write(f"authorization_id={continuation['authorization_id']}\n")
+                  handle.write(f"authorization_sha256={continuation['authorization_sha256']}\n")
+                  handle.write(f"autonomy_continuation_sha256={continuation['continuation_sha256']}\n")
+              handle.write(f"max_repair_rounds={max_repair_rounds}\n")
+              handle.write(f"max_validation_retries={max_validation_retries}\n")
           PY
 
   repair:
@@ -488,8 +556,19 @@ jobs:
           GOVERNED_REPAIR_MODEL_API_BASE: ${{ vars.OPENAI_API_BASE || vars.PRODUCTION_MODEL_API_BASE || vars.MODEL_API_BASE || 'https://api.deepseek.com' }}
           GOVERNED_REPAIR_MODEL_API_KEY: ${{ secrets.PRODUCTION_MODEL_API_KEY }}
           REPAIR_ROUND: ${{ needs.inspect.outputs.repair_round }}
+          MAX_REPAIR_ROUNDS: ${{ needs.inspect.outputs.max_repair_rounds }}
+          MAX_VALIDATION_RETRIES: ${{ needs.inspect.outputs.max_validation_retries }}
+          AUTONOMY_CONTINUATION_SHA256: ${{ needs.inspect.outputs.autonomy_continuation_sha256 }}
+          AUTONOMY_GRANT_ID: ${{ needs.inspect.outputs.autonomy_grant_id }}
+          AUTONOMY_GRANT_SHA256: ${{ needs.inspect.outputs.autonomy_grant_sha256 }}
+          AUTONOMY_AUTHORIZATION_ID: ${{ needs.inspect.outputs.autonomy_authorization_id }}
+          AUTONOMY_AUTHORIZATION_SHA256: ${{ needs.inspect.outputs.autonomy_authorization_sha256 }}
         run: |
           set -euo pipefail
+          [[ "${MAX_REPAIR_ROUNDS}" =~ ^[1-8]$ ]]
+          [[ "${MAX_VALIDATION_RETRIES}" =~ ^[1-3]$ ]]
+          [[ "${REPAIR_ROUND}" =~ ^[1-8]$ ]]
+          (( REPAIR_ROUND <= MAX_REPAIR_ROUNDS ))
           failure_case=$(find incoming -type f -name failure-case.json -print -quit)
           task_run=$(find incoming -type f -name task-run.json -print -quit)
           seed_patch=$(find incoming -type f -name seed.patch -print -quit 2>/dev/null || true)
@@ -504,16 +583,36 @@ jobs:
             --evidence-root stage2-evidence
             --max-cycles 8
             --repair-round "${REPAIR_ROUND}"
-            --max-repair-rounds 8
+            --max-repair-rounds "${MAX_REPAIR_ROUNDS}"
           )
           if [[ -n "${seed_patch}" ]]; then
             args+=(--seed-patch "${seed_patch}")
           fi
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_orchestrator_control_plane.py "${args[@]}"
-          "${pythonLocation}/bin/python" -B control/scripts/github_stage2_handoff.py \
-            --failure-case "${failure_case}" \
-            --result stage2-evidence/repair-result.json \
+          handoff_args=(
+            --failure-case "${failure_case}"
+            --result stage2-evidence/repair-result.json
             --patch stage2-evidence/repair.patch
+          )
+          if [[ -n "${AUTONOMY_CONTINUATION_SHA256}" ]]; then
+            [[ -n "${AUTONOMY_GRANT_ID}" && -n "${AUTONOMY_AUTHORIZATION_ID}" ]]
+            [[ "${AUTONOMY_GRANT_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            [[ "${AUTONOMY_AUTHORIZATION_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            [[ "${AUTONOMY_CONTINUATION_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+            handoff_args+=(
+              --autonomy-grant-id "${AUTONOMY_GRANT_ID}"
+              --autonomy-grant-sha256 "${AUTONOMY_GRANT_SHA256}"
+              --autonomy-authorization-id "${AUTONOMY_AUTHORIZATION_ID}"
+              --autonomy-authorization-sha256 "${AUTONOMY_AUTHORIZATION_SHA256}"
+              --autonomy-continuation-sha256 "${AUTONOMY_CONTINUATION_SHA256}"
+              --max-repair-rounds "${MAX_REPAIR_ROUNDS}"
+              --max-validation-retries "${MAX_VALIDATION_RETRIES}"
+            )
+          elif [[ -n "${AUTONOMY_GRANT_ID}" || -n "${AUTONOMY_AUTHORIZATION_ID}" || -n "${AUTONOMY_GRANT_SHA256}" || -n "${AUTONOMY_AUTHORIZATION_SHA256}" ]]; then
+            echo "partial autonomy continuation projection is forbidden" >&2
+            exit 1
+          fi
+          "${pythonLocation}/bin/python" -B control/scripts/github_stage2_handoff.py "${handoff_args[@]}"
 
       - name: Build redacted Stage-2 public summary
         if: always()
@@ -521,6 +620,7 @@ jobs:
           STAGE2_RUN_ID: ${{ github.run_id }}
           STAGE2_RUN_ATTEMPT: ${{ github.run_attempt }}
           REPAIR_ROUND: ${{ needs.inspect.outputs.repair_round }}
+          MAX_REPAIR_ROUNDS: ${{ needs.inspect.outputs.max_repair_rounds }}
           INPUT_KIND: ${{ needs.inspect.outputs.input_kind }}
         run: |
           set -euo pipefail
@@ -537,6 +637,7 @@ jobs:
           stage2_run_id = os.environ["STAGE2_RUN_ID"]
           stage2_run_attempt = os.environ["STAGE2_RUN_ATTEMPT"]
           repair_round = int(os.environ["REPAIR_ROUND"])
+          max_repair_rounds = int(os.environ["MAX_REPAIR_ROUNDS"] or "8")
           input_kind = os.environ["INPUT_KIND"]
 
           result_path = Path("stage2-evidence/repair-result.json")
@@ -556,6 +657,7 @@ jobs:
               "stage2_run_id": stage2_run_id,
               "stage2_run_attempt": stage2_run_attempt,
               "repair_round": repair_round,
+              "max_repair_rounds": max_repair_rounds,
               "input_kind": input_kind,
               "status": str(payload.get("status") or "BLOCKED")[:80],
               "code": code,
@@ -586,6 +688,7 @@ jobs:
           STAGE2_RUN_ID: ${{ github.run_id }}
           STAGE2_RUN_ATTEMPT: ${{ github.run_attempt }}
           REPAIR_ROUND: ${{ needs.inspect.outputs.repair_round }}
+          MAX_REPAIR_ROUNDS: ${{ needs.inspect.outputs.max_repair_rounds }}
           INPUT_KIND: ${{ needs.inspect.outputs.input_kind }}
         run: |
           set -euo pipefail
@@ -608,7 +711,7 @@ jobs:
 
           - Stage-2 workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${STAGE2_RUN_ID}
           - Stage-2 Run ID / attempt: \`${STAGE2_RUN_ID}/${STAGE2_RUN_ATTEMPT}\`
-          - Governed remote fallback round: \`${REPAIR_ROUND}/8\`
+          - Governed remote fallback round: \`${REPAIR_ROUND}/${MAX_REPAIR_ROUNDS}\`
           - Input kind: \`${INPUT_KIND}\`
           - Status: \`${status}\`
           - Code: \`${code}\`
@@ -623,7 +726,7 @@ jobs:
 
           Manual fallback and exact M3 autonomy handoff are separate fail-closed entry paths.
           An autonomy handoff never synthesizes \`remote_repair_approval\`; it must carry the exact
-          owner authorization, M2 grant and M3 dispatch-plan digests from the trusted handoff run.
+          owner authorization, M2 grant, M3 dispatch-plan digest and immutable continuation budget.
           A \`REPAIR_CANDIDATE_READY\` result is only a candidate for Stage 3 independent validation.
           Fixer cycles are internal to this fallback round and do not consume additional global repair rounds.
           EOF
