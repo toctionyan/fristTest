@@ -49,6 +49,13 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertNotIn("gh pr merge", self.wakeup)
         self.assertNotIn("gh api -X PUT", self.wakeup)
 
+    def test_wakeup_binds_exact_authorize_attempt_artifact(self) -> None:
+        self.assertIn("Resolve and download exact authorize-attempt handoff artifact", self.wakeup)
+        self.assertIn(".run_attempt | tostring", self.wakeup)
+        self.assertIn(".created_at >= $started", self.wakeup)
+        self.assertIn('select(.name | startswith("engineering-autonomy-handoff-"))', self.wakeup)
+        self.assertIn('[[ "${count}" == "1" ]]', self.wakeup)
+
     def test_wakeup_has_durable_idempotency_and_failure_receipts(self) -> None:
         self.assertIn("engineering-autonomy-dispatch/${DECISION_ID:0:16}", self.wakeup)
         self.assertIn("already_dispatched=true", self.wakeup)
@@ -79,7 +86,7 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         )
         self.assertIn('echo "input_kind=autonomy_stage1"', self.stage2)
         self.assertIn("github_repair_autonomy_stage2.py", self.stage2)
-        self.assertIn("name: engineering-autonomy-authorize", self.stage2)
+        self.assertIn('.name == "engineering-autonomy-authorize"', self.stage2)
 
     def test_stage2_protected_environment_and_repair_owner_are_not_duplicated(self) -> None:
         self.assertEqual(self.stage2.count("\n  repair:\n"), 1)
