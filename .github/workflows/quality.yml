@@ -176,9 +176,26 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}" \
             --input required-status-request.json \
             > required-status-response.json
-          jq -e --arg state "${state}" --arg sha "${PR_HEAD_SHA}" '
-            .state == $state and .sha == $sha and .context == "quality-quick"
+          jq -e --arg state "${state}" --arg target_url "${RUN_URL}" '
+            .state == $state
+            and .context == "quality-quick"
+            and .target_url == $target_url
           ' required-status-response.json >/dev/null
+
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/status" \
+            > required-status-combined.json
+          jq -e \
+            --arg sha "${PR_HEAD_SHA}" \
+            --arg state "${state}" \
+            --arg target_url "${RUN_URL}" '
+            .sha == $sha
+            and any(
+              .statuses[];
+              .context == "quality-quick"
+              and .state == $state
+              and .target_url == $target_url
+            )
+          ' required-status-combined.json >/dev/null
           [[ "${state}" == "success" ]]
 
   quality-integration:

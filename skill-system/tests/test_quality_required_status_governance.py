@@ -20,10 +20,17 @@ def test_required_quality_status_is_bound_to_stable_pr_head_after_merge_snapshot
     assert '.parents[0].sha == $base' in text
     assert '.parents[1].sha == $head' in text
     assert 'repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}' in text
+    assert 'repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/status' in text
+    assert 'required-status-response.json' in text
+    assert 'required-status-combined.json' in text
     assert '--arg context "quality-quick"' in text
     assert 'STATIC_RESULT: ${{ needs.quality-static.result }}' in text
     assert 'QUICK_RESULT: ${{ needs.quality-quick-execution.result }}' in text
     assert 'stable required status is fail-closed for fork pull requests' in text
+    assert '.state == $state and .sha == $sha and .context == "quality-quick"' not in text
+    assert '.target_url == $target_url' in text
+    assert '.sha == $sha' in text
+    assert 'any(' in text
     assert '[[ "${state}" == "success" ]]' in text
 
 
