@@ -590,6 +590,25 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
                 "production_closed": False,
             },
         )
+    elif report["classification"] in {
+        "environment",
+        "timeout",
+        "cancelled",
+        "runner_or_platform",
+        "stale",
+    }:
+        task.checkpoint(
+            status="WAITING_EXTERNAL_RESULT",
+            phase="CI_RELIABILITY_RETRY_PENDING",
+            workspace_fingerprint=None,
+            evidence_refs=[str(path.with_name("failure-case.json"))],
+            metadata={
+                "governed_repair_state": "EVIDENCE_FROZEN",
+                "next_action": "retry exact same CI candidate within bounded autonomy retry budget",
+                "source_write_allowed": False,
+                "production_closed": False,
+            },
+        )
     else:
         task.block(
             code="AUTOMATIC_REPAIR_NOT_AUTHORIZED",
