@@ -48,15 +48,43 @@ jobs:
           test -f control/.github/workflows/engineering-autonomy-authorize.yml
           test -f control/scripts/github_repair_engineering_autonomy_wakeup.py
 
-      - name: Download exact completed authorization handoff artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          pattern: engineering-autonomy-handoff-*
-          path: incoming
-          merge-multiple: true
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
+      - name: Resolve and download exact authorize-attempt handoff artifact
+        id: handoff_artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTHORIZE_RUN_ID: ${{ github.event.workflow_run.id }}
+          AUTHORIZE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          AUTHORIZE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_ACTOR: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${AUTHORIZE_RUN_ID}" > incoming/authorize-run.json
+          jq -e --arg attempt "${AUTHORIZE_RUN_ATTEMPT}" --arg head "${AUTHORIZE_HEAD_SHA}" --arg actor "${EXPECTED_ACTOR}" '
+            .name == "engineering-autonomy-authorize"
+            and .event == "workflow_dispatch"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+            and .head_sha == $head
+            and .actor.login == $actor
+          ' incoming/authorize-run.json >/dev/null
+          run_started_at=$(jq -r '.run_started_at // empty' incoming/authorize-run.json)
+          [[ -n "${run_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${AUTHORIZE_RUN_ID}/artifacts?per_page=100" > incoming/authorize-artifacts.json
+          count=$(jq -r --arg started "${run_started_at}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.created_at >= $started)
+            | select(.name | startswith("engineering-autonomy-handoff-"))] | length' incoming/authorize-artifacts.json)
+          [[ "${count}" == "1" ]]
+          artifact_id=$(jq -r --arg started "${run_started_at}" '[.artifacts[]
+            | select(.expired == false)
+            | select(.created_at >= $started)
+            | select(.name | startswith("engineering-autonomy-handoff-"))][0].id' incoming/authorize-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/handoff.zip
+          unzip -q incoming/handoff.zip -d incoming
+          echo "artifact_id=${artifact_id}" >> "$GITHUB_OUTPUT"
 
       - name: Set up locked Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
