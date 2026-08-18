@@ -4,10 +4,8 @@ from __future__ import annotations
 
 Transaction Repository/Draft state remains the sole transaction authority. This
 module never creates a Draft, Grant, Attempt, Receipt or ExecutionPermit and
-never dispatches a business capability. It only gives the current immutable
-PlanDefinition a completion-shaped, non-dispatchable step and records the
-already-existing human-input pause in PlanRun so Workflow does not claim the
-Goal is still freely runnable.
+never dispatches a business capability. It only projects an already-existing
+human-input pause into the current PlanDefinition/PlanRun.
 """
 
 from copy import deepcopy
@@ -82,16 +80,15 @@ def _mark_projection_steps(
     for raw in list(plan.get("steps") or []):
         if not isinstance(raw, dict):
             continue
-        verification = dict(raw.get("verification") or {})
-        verification.update({
+        raw["verification"] = {
+            **dict(raw.get("verification") or {}),
             "projection_only_existing_interaction": True,
             "dispatch_allowed": False,
             "projection_authority": _PROJECTION_AUTHORITY,
             "transaction_interaction_id": interaction_id,
             "creates_execution_permit": False,
             "creates_transaction_authority": False,
-        })
-        raw["verification"] = verification
+        }
     return plan
 
 
@@ -103,18 +100,18 @@ def project_pending_transaction_interaction(
 ) -> dict[str, Any]:
     """Project one already-live structured transaction pause into PlanRun.
 
-    The dialogue node has already chosen *not* to invoke the model because a
-    durable transaction interaction serializes the pure-write lane. The only
-    legal operation here is a read-through orchestration projection: identify
-    the exact registered completion capability for each frozen Goal, materialize
-    it as a non-dispatchable PlanDefinition step, and set the corresponding
-    PlanRun step to the same waiting state reported by the interaction.
+    Dialogue has already frozen the current semantics before returning the
+    pending-interaction redirect.  The current semantic contract therefore
+    lives in ``patch`` on that same node return.  Always read the merged node
+    state here; using the pre-node state would inspect the previous turn and
+    silently lose the current Goal completion path.
     """
     if str(patch.get("status") or "") != "PendingInteractionActionRedirect":
         return patch
+    current = {**state, **patch}
     response_contract = (
-        patch.get("response_contract")
-        if isinstance(patch.get("response_contract"), dict)
+        current.get("response_contract")
+        if isinstance(current.get("response_contract"), dict)
         else {}
     )
     interaction = (
@@ -128,27 +125,31 @@ def project_pending_transaction_interaction(
         return patch
 
     discovered = _required_action_completion_calls(
-        state=state,
+        state=current,
         capability_registry=capability_registry,
     )
     if discovered is None:
         return patch
     surface, calls = discovered
-    prior_turn_plan = state.get("current_turn_plan") if isinstance(state.get("current_turn_plan"), dict) else {}
-    plan_id = str(prior_turn_plan.get("plan_id") or f"turn-plan:transaction-interaction:{state.get('turn_index') or 0}")
+    prior_turn_plan = (
+        current.get("current_turn_plan")
+        if isinstance(current.get("current_turn_plan"), dict)
+        else {}
+    )
+    plan_id = str(
+        prior_turn_plan.get("plan_id")
+        or f"turn-plan:transaction-interaction:{current.get('turn_index') or 0}"
+    )
     effects, decorated_calls = build_effects(
         plan_id=plan_id,
         calls=calls,
         capability_registry=capability_registry,
         existing_effects=[],
     )
-    planning_state = {
-        **state,
-        "capability_surface": deepcopy(surface),
-    }
+    planning_state = {**current, "capability_surface": deepcopy(surface)}
     synthetic_turn_plan = {
         "plan_id": plan_id,
-        "turn": int(state.get("turn_index") or 0),
+        "turn": int(current.get("turn_index") or 0),
         "tool_calls": decorated_calls,
         "effects": effects,
         "semantic_authority": "none_projection_only",
@@ -157,15 +158,15 @@ def project_pending_transaction_interaction(
     workflow_plan = build_workflow_plan(
         state=planning_state,
         turn_plan=synthetic_turn_plan,
-        user_text=str(state.get("current_user_input") or ""),
+        user_text=str(current.get("current_user_input") or ""),
     )
     workflow_plan = _mark_projection_steps(
         workflow_plan,
         interaction_id=interaction_id,
     )
     semantic_contract = (
-        state.get("frozen_semantic_contract")
-        if isinstance(state.get("frozen_semantic_contract"), dict)
+        current.get("frozen_semantic_contract")
+        if isinstance(current.get("frozen_semantic_contract"), dict)
         else None
     )
     validation = validate_grounded_execution_plan(
@@ -187,7 +188,11 @@ def project_pending_transaction_interaction(
     for step in list(definition.get("steps") or []):
         if not isinstance(step, dict):
             continue
-        verification = step.get("verification") if isinstance(step.get("verification"), dict) else {}
+        verification = (
+            step.get("verification")
+            if isinstance(step.get("verification"), dict)
+            else {}
+        )
         if not bool(verification.get("projection_only_existing_interaction")):
             continue
         effect_id = str(step.get("effect_id") or "")
@@ -219,10 +224,9 @@ def project_pending_transaction_interaction(
 
     if not projected_effect_ids:
         return patch
-    # A projection is evidence of a wait, never an execution attempt or an
-    # outcome. The projected effects therefore keep attempt_count == 0 and add
-    # neither PlanRun attempts nor outcomes.
-    run["updated_turn"] = int(state.get("turn_index") or 0)
+    # This projection is not execution evidence: no PlanRun attempt/outcome is
+    # created and attempt_count therefore remains zero.
+    run["updated_turn"] = int(current.get("turn_index") or 0)
     run["status"] = derive_plan_runtime_status(definition=definition, plan_run=run)
     projection = project_plan_runtime(definition=definition, plan_run=run)
     if str(projection.get("status") or "") != step_status:
