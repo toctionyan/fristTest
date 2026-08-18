@@ -338,9 +338,9 @@
       }
     ],
     "forbidden_assertions": [
-      {"behavior": "cancel_order_on_dismissal_text", "kind": "trace_absent", "tool_names": ["prepare_cancel_order", "commit_action"]},
+      {"behavior": "cancel_order_on_dismissal_text", "kind": "turn_trace_absent", "turn_index": 2, "tool_names": ["prepare_cancel_order", "commit_action"]},
       {"behavior": "leave_cancel_draft_authorizable_after_explicit_dismissal", "kind": "no_business_write"},
-      {"behavior": "resume_cancel_task_on_new_logistics_request", "kind": "trace_absent", "tool_names": ["prepare_cancel_order", "commit_action"]},
+      {"behavior": "resume_cancel_task_on_new_logistics_request", "kind": "turn_trace_absent", "turn_index": 3, "tool_names": ["prepare_cancel_order", "commit_action"]},
       {"behavior": "duplicate_cancel_draft", "kind": "no_business_write"},
       {"behavior": "business_write_without_authorization", "kind": "no_business_write"}
     ],
