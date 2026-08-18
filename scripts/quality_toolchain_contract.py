@@ -72,6 +72,25 @@ def _quality_action_lock(lock: Mapping[str, Any]) -> dict[str, Mapping[str, Any]
     return combined
 
 
+def _workflow_job_section(workflow: str, job_name: str, next_job: str) -> str:
+    start_marker = f"\n  {job_name}:\n"
+    if start_marker not in workflow:
+        raise QualityToolchainError(
+            "quality_toolchain_job_missing",
+            f"quality workflow is missing required runtime job {job_name}",
+        )
+    section = workflow.split(start_marker, 1)[1]
+    if next_job:
+        end_marker = f"\n  {next_job}:\n"
+        if end_marker not in section:
+            raise QualityToolchainError(
+                "quality_toolchain_job_missing",
+                f"quality workflow is missing required job boundary {next_job} after {job_name}",
+            )
+        section = section.split(end_marker, 1)[0]
+    return section
+
+
 def validate_static(workspace_root: Path) -> dict[str, Any]:
     workspace = workspace_root.resolve()
     lock = _load_json(workspace / "deployment/ci/release-toolchain-lock.json")
@@ -135,10 +154,13 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         raise QualityToolchainError("quality_postgres_tag_forbidden", "mutable pgvector tag is forbidden")
     if re.search(r"pip\s+install[^\n]*\buv(?:\s|$)", workflow):
         raise QualityToolchainError("quality_uv_unlocked", "unhashed uv installation is forbidden")
-    for job_name, next_job in (("quality-quick", "quality-integration"), ("quality-integration", "governed-failure-stage1")):
-        section = workflow.split(f"  {job_name}:", 1)[1]
-        if next_job:
-            section = section.split(f"  {next_job}:", 1)[0]
+
+    runtime_jobs = (
+        ("quality-quick-execution", "quality-quick-required-status"),
+        ("quality-integration", "governed-failure-stage1"),
+    )
+    for job_name, next_job in runtime_jobs:
+        section = _workflow_job_section(workflow, job_name, next_job)
         try:
             bootstrap_index = section.index("- name: Bootstrap locked uv")
             runtime_index = section.index("- name: Validate locked runtime toolchain")
