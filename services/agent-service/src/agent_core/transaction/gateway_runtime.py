@@ -5,7 +5,6 @@ from typing import Any
 from uuid import uuid4
 
 from agent_core.transaction.authority import UI_AUTHORITY_PROTOCOL, deterministic_offer_readiness, policy_for_action
-from agent_core.business import ActorContext
 from agent_core.business import BusinessServiceError
 from agent_core.transaction.interaction import business_input_values, interaction_response_contract
 from agent_core.ledger import append_entries, artifact_entry, find_handle, ledger_cards, scope_for_state
@@ -13,21 +12,11 @@ from agent_core.kernel.decision_trace import append_decision as _append_decision
 from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.transaction import DRAFT_REQUIRES_REVIEW, transition_draft
 from agent_core.transaction.active_draft import active_draft_patch
-from agent_core.transaction.coordinator import persist_draft_from_offer
+from agent_core.transaction.coordinator import persist_draft_from_offer, transaction_store
+from agent_core.transaction.command_envelope import actor_context_from_state as _actor_context_from_state, build_business_command_envelope
+from agent_core.transaction.interaction_recovery import restore_awaiting_authority_projection
 from agent_core.transaction.capability_snapshot import snapshot_matches_registry
 from agent_core.transaction.target_contract import allowed_target_resource_types, target_unavailable_message
-
-def _actor_context_from_state(state: dict[str, Any]) -> ActorContext:
-    permissions = tuple(str(item) for item in (state.get("actor_permissions") or []) if str(item))
-    return ActorContext(
-        user_id=str(state.get("current_user_id") or ""),
-        role=str(state.get("current_role") or "customer"),
-        tenant_id=str(state.get("current_tenant_id") or "") or None,
-        subject_user_id=str(state.get("current_subject") or state.get("current_user_id") or "") or None,
-        subject=str(state.get("current_subject") or "") or None,
-        permissions=permissions,
-    )
-
 
 def _refresh_offer_preflight(
     state: dict[str, Any],
@@ -36,7 +25,12 @@ def _refresh_offer_preflight(
     *,
     deps: TransactionExecutionDeps,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
-    """Re-read Business Service when the queued Draft is not fresh this turn."""
+    """Re-read the authority before a possible commit.
+
+    ``prepare_contextual_operation`` has already run a preview.  A commit must
+    not trust that older preview: another actor may have shipped, cancelled or
+    changed the order meanwhile.
+    """
     adapter = deps.business_port
     actor = _actor_context_from_state(state)
     additions: list[dict[str, Any]] = []
@@ -62,6 +56,8 @@ def _refresh_offer_preflight(
                 handle=str(target.get("handle") or "") or None,
             ))
     except Exception:
+        # Preview remains the authoritative decision source; a failed fresh
+        # read is represented below as a preflight failure if preview fails.
         pass
     try:
         payload = adapter.preview_operation(
@@ -102,11 +98,21 @@ def _same_turn_prepared_preview(state: dict[str, Any], offer: dict[str, Any]) ->
 
 
 def _mark_offer_needs_input(state: dict[str, Any], offer: dict[str, Any], ledger: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Move a draft into the generic structured-input interaction state.
+
+    Missing fields are part of the transaction lifecycle, not a free-text
+    conversation detour.  The opaque form token/version are regenerated when
+    the required input contract changes, allowing every client to render the
+    same form without knowing the operation name.
+    """
     next_offer = transition_draft(offer, "NEEDS_INPUT")
     next_offer["interaction_revision"] = int(state.get("turn_index") or 0)
     next_offer["input_form_id"] = str(uuid4())
     next_offer["input_form_version"] = int(offer.get("input_form_version") or 0) + 1
     next_offer["input_errors"] = {}
+    # Persist semantic field metadata with the draft.  The UI contract can
+    # later render labels/controls without hard-coding action names, even
+    # after a successful form submission clears ``required_inputs``.
     schema = _required_offer_input_rows(next_offer)
     next_offer["input_schema"] = schema
     known_steps = sorted({max(1, int(row.get("step") or row.get("step_index") or 1)) for row in schema}) or [1]
@@ -118,21 +124,88 @@ def _mark_offer_needs_input(state: dict[str, Any], offer: dict[str, Any], ledger
 
 
 def _mark_offer_awaiting_authority(state: dict[str, Any], offer: dict[str, Any], ledger: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    next_offer = transition_draft(offer, "AWAITING_AUTHORIZATION")
+    """Move an Agent-created draft to a separate UI-authority boundary.
+
+    This transition is intentionally deterministic.  No model judgement,
+    confidence score, or natural-language interpretation can bypass it.
+    """
+    prior = find_handle(
+        ledger,
+        str(offer.get("handle") or ""),
+        scope=scope_for_state(state),
+        allowed_kinds={"offer"},
+        active_only=False,
+    )
+    next_offer = transition_draft(offer, "AWAITING_AUTHORIZATION", previous=prior)
     next_offer["authority_protocol"] = UI_AUTHORITY_PROTOCOL
     next_offer["authority_requirement"] = "ui_action_authority"
     next_offer["authority_revision"] = int(state.get("turn_index") or 0)
     next_offer["confirmation_id"] = str(uuid4())
     next_offer["confirmation_version"] = int(offer.get("confirmation_version") or 0) + 1
     next_offer["updated_turn"] = int(state.get("turn_index") or 0)
+
+    # Persist a locator for the already-verified target so a lost Workflow
+    # checkpoint can rebuild the card and commit preflight boundary.  Do not
+    # copy mutable business facts here: Business Service remains authoritative
+    # and commit-time preflight must re-read current state.
+    existing_reference = offer.get("target_reference") if isinstance(offer.get("target_reference"), dict) else None
+    if existing_reference is not None:
+        next_offer["target_reference"] = deepcopy(existing_reference)
+    else:
+        target = find_handle(
+            ledger,
+            str(offer.get("target_handle") or ""),
+            scope=scope_for_state(state),
+            allowed_kinds={"artifact"},
+            active_only=False,
+        )
+        if target is not None:
+            next_offer["target_reference"] = {
+                "handle": str(target.get("handle") or ""),
+                "resource_type": str(target.get("resource_type") or ""),
+                "resource_id": str(target.get("resource_id") or ""),
+                "label": str(target.get("label") or ""),
+                "scope": deepcopy(target.get("scope") or scope_for_state(state)),
+            }
     persist_draft_from_offer(state=state, offer=next_offer, draft_state="AWAITING_AUTHORIZATION")
     return append_entries(ledger, [next_offer]), next_offer
 
 
 def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecutionDeps) -> dict[str, Any]:
+    # The response contract wins over every normal loop/fallback path.  This
+    # makes a card recoverable even if a transport loses the interrupt delta.
     existing_interaction = interaction_response_contract(state)
     if existing_interaction is not None:
-        return {"response_contract": existing_interaction, "current_final_answer": None, "phase": "offer_confirmation", "status": "TransactionInteractionRequired"}
+        return {
+            "response_contract": existing_interaction,
+            "current_final_answer": None,
+            "phase": "offer_confirmation",
+            "status": "TransactionInteractionRequired",
+        }
+
+    # A resumed Workflow checkpoint may have lost the ephemeral offer/card
+    # projection while the durable transaction repository still owns an
+    # AWAITING_AUTHORIZATION Draft. Restore only that projection; never
+    # prepare another Draft and never infer Grant authority from chat text.
+    restored = restore_awaiting_authority_projection(state, transactions=transaction_store(state))
+    if restored is not None:
+        restored_state = {**state, **restored}
+        restored_interaction = interaction_response_contract(restored_state)
+        if restored_interaction is not None:
+            restored_interaction = {**restored_interaction, "source": "transaction_repository_projection"}
+            return {
+                **restored,
+                "ledger_snapshot": ledger_cards(
+                    restored_state.get("artifact_ledger") or [],
+                    scope=scope_for_state(restored_state),
+                ),
+                "response_contract": restored_interaction,
+                "commit_authority": None,
+                "current_final_answer": None,
+                "phase": "offer_confirmation",
+                "status": "TransactionInteractionRestored",
+            }
+
     queue = list(state.get("action_queue") or [])
     if not queue:
         return {"response_contract": None, "phase": "agent_loop", "status": "NoActionProposal"}
@@ -145,22 +218,42 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
         return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionDraftUnavailable")
     if not snapshot_matches_registry(offer):
         review = transition_draft(offer, DRAFT_REQUIRES_REVIEW, reason="operation_capability_snapshot_unavailable")
-        review["read_only"] = True; review["updated_turn"] = int(state.get("turn_index") or 0)
+        review["read_only"] = True
+        review["updated_turn"] = int(state.get("turn_index") or 0)
         persist_draft_from_offer(state=state, offer=review, draft_state=DRAFT_REQUIRES_REVIEW)
         ledger = append_entries(ledger, [review])
-        result = {"decision": "review_required", "reason": "该办理记录使用的能力合同已不可验证，只能查看或取消，未执行任何业务写操作。", "offer_handle": handle}
-        return _gateway_observation_update(state, queue, ledger, result, phase="agent_loop", status="ActionCapabilityReviewRequired")
+        result = {
+            "decision": "review_required",
+            "reason": "该办理记录使用的能力合同已不可验证，只能查看或取消，未执行任何业务写操作。",
+            "offer_handle": handle,
+        }
+        return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionCapabilityReviewRequired")
     target = find_handle(ledger, str(offer.get("target_handle") or ""), scope=scope_for_state(state), allowed_kinds={"artifact"}, allowed_resource_types=allowed_target_resource_types(str(offer.get("action_id") or "")), active_only=False)
     policy = policy_for_action(str(offer.get("action_id") or ""))
     if str(offer.get("draft_state") or "") == "NEEDS_INPUT" and target is not None:
         ledger, pending = _mark_offer_needs_input(state, offer, ledger)
-        result = {"decision": "needs_input", "reason": str((offer.get("preview") or {}).get("message") or "请补充必要信息。"), "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level, "preview": dict(offer.get("preview") or {})}
+        result = {
+            "decision": "needs_input",
+            "reason": str((offer.get("preview") or {}).get("message") or "请补充必要信息。"),
+            "offer_handle": handle,
+            "action_id": offer.get("action_id"),
+            "risk_level": policy.risk_level,
+            "preview": dict(offer.get("preview") or {}),
+        }
         contract = interaction_response_contract({**state, "artifact_ledger": ledger, **active_draft_patch(pending.get("handle"))})
         if contract is None:
             raise RuntimeError("needs-input offer could not produce an interaction contract")
-        return _gateway_observation_update(state, queue, ledger, result, phase="offer_confirmation", status="ActionInputRequired", pending_offer=pending, response_contract=contract)
+        return _gateway_observation_update(
+            state, queue, ledger, result,
+            phase="offer_confirmation",
+            status="ActionInputRequired",
+            pending_offer=pending,
+            response_contract=contract,
+        )
     ok, readiness_reason = deterministic_offer_readiness(offer=offer, current_turn=int(state.get("turn_index") or 0), target_exists=target is not None)
     if not ok:
+        # An old draft may still be useful after clarification, but it must not
+        # auto-commit.  Route to the model with the objective reason.
         result = {"decision": "clarify", "reason": readiness_reason, "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level}
         return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionDraftReadinessInsufficient")
     assert target is not None
@@ -172,60 +265,156 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
     ledger = append_entries(ledger, additions)
     if not preflight.get("success") or preview is None:
         stale = transition_draft(offer, "FAILED_FINAL", reason="latest_preflight_failed")
-        stale["updated_turn"] = int(state.get("turn_index") or 0); stale["superseded_reason"] = "latest_preflight_failed"
+        stale["updated_turn"] = int(state.get("turn_index") or 0)
+        stale["superseded_reason"] = "latest_preflight_failed"
         persist_draft_from_offer(state=state, offer=stale, draft_state="FAILED_FINAL")
         ledger = append_entries(ledger, [stale])
         result = {"decision": "rejected", "reason": str(preflight.get("error") or "业务预检失败"), "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level}
         return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionPreflightFailed")
     decision = str(preview.get("decision") or "")
-    refreshed = deepcopy(offer); refreshed["preview"] = preview
+    refreshed = deepcopy(offer)
+    refreshed["preview"] = preview
     values = dict(refreshed.get("input_values") or {})
     snapshot = preview.get("snapshot") if isinstance(preview.get("snapshot"), dict) else {}
     if snapshot.get("version") is not None:
         values["expected_version"] = int(snapshot.get("version") or values.get("expected_version") or 1)
-    refreshed["input_values"] = values; refreshed["updated_turn"] = int(state.get("turn_index") or 0)
+    refreshed["input_values"] = values
+    refreshed["updated_turn"] = int(state.get("turn_index") or 0)
     if decision == "NEEDS_INPUT":
-        refreshed = transition_draft(refreshed, "NEEDS_INPUT"); refreshed["required_inputs"] = list(preview.get("required_inputs") or [])
+        refreshed = transition_draft(refreshed, "NEEDS_INPUT")
+        refreshed["required_inputs"] = list(preview.get("required_inputs") or [])
         ledger, pending = _mark_offer_needs_input(state, refreshed, ledger)
         result = {"decision": "needs_input", "reason": str(preview.get("message") or "业务动作需要补充信息"), "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level, "preview": preview}
-        contract = interaction_response_contract({**state, "artifact_ledger": ledger, **active_draft_patch(pending.get("handle"))})
+        contract = interaction_response_contract({
+            **state,
+            "artifact_ledger": ledger,
+            **active_draft_patch(pending.get("handle")),
+        })
         if contract is None:
             raise RuntimeError("pending input offer could not produce an interaction contract")
-        return _gateway_observation_update(state, queue, ledger, result, phase="offer_confirmation", status="ActionInputRequired", pending_offer=pending, response_contract=contract)
+        return _gateway_observation_update(
+            state, queue, ledger, result,
+            phase="offer_confirmation",
+            status="ActionInputRequired",
+            pending_offer=pending,
+            response_contract=contract,
+        )
     if decision not in {"ALLOWED", "NEEDS_REVIEW"}:
-        refreshed = transition_draft(refreshed, "FAILED_FINAL", reason="latest_preflight_rejected"); refreshed["superseded_reason"] = "latest_preflight_rejected"
+        refreshed = transition_draft(refreshed, "FAILED_FINAL", reason="latest_preflight_rejected")
+        refreshed["superseded_reason"] = "latest_preflight_rejected"
         persist_draft_from_offer(state=state, offer=refreshed, draft_state="FAILED_FINAL")
         ledger = append_entries(ledger, [refreshed])
         result = {"decision": "rejected", "reason": str(preview.get("message") or "当前业务状态不允许该动作。"), "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level, "preview": preview}
         return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionPreflightRejected")
     ledger = append_entries(ledger, [refreshed])
     offer = find_handle(ledger, handle, scope=scope_for_state(state), allowed_kinds={"offer"}, active_only=False) or refreshed
+
     if policy.authority_requirement == "human_review":
-        review = transition_draft(offer, "FAILED_FINAL", reason="human_review_required"); review["updated_turn"] = int(state.get("turn_index") or 0)
-        persist_draft_from_offer(state=state, offer=review, draft_state="FAILED_FINAL"); ledger = append_entries(ledger, [review])
-        result = {"decision": "human_review", "reason": "该动作按风险策略需人工审核，未执行任何业务写操作。", "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level, "preview": preview}
+        review = transition_draft(offer, "FAILED_FINAL", reason="human_review_required")
+        review["updated_turn"] = int(state.get("turn_index") or 0)
+        persist_draft_from_offer(state=state, offer=review, draft_state="FAILED_FINAL")
+        ledger = append_entries(ledger, [review])
+        result = {
+            "decision": "human_review",
+            "reason": "该动作按风险策略需人工审核，未执行任何业务写操作。",
+            "offer_handle": handle,
+            "action_id": offer.get("action_id"),
+            "risk_level": policy.risk_level,
+            "preview": preview,
+        }
         return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionHumanReview")
-    ledger, pending = _mark_offer_awaiting_authority(state, offer, ledger)
-    result = {"decision": "awaiting_structured_authority", "reason": "动作草稿已完成预检，等待用户对明确对象的结构化 UI 授权。", "authority_protocol": UI_AUTHORITY_PROTOCOL, "offer_handle": handle, "action_id": offer.get("action_id"), "target_handle": offer.get("target_handle"), "risk_level": policy.risk_level, "preview": preview}
-    contract = interaction_response_contract({**state, "artifact_ledger": ledger, **active_draft_patch(pending.get("handle")), "pending_confirmation_id": pending.get("confirmation_id"), "pending_confirmation_version": pending.get("confirmation_version")})
-    if contract is None:
+
+    # Crucial transaction rule: a chat-originated draft can never auto-commit.  The
+    # next transition is always a distinct UI authority interaction containing
+    # the exact action, target, revision and one-time token.
+    # Freeze the exact Business Service command before exposing the
+    # authority card.  The subsequent AuthorityGrant binds this persisted
+    # Draft revision/digest; approval never creates or rewrites the command.
+    try:
+        refreshed["business_command_envelope"] = build_business_command_envelope(state, refreshed, target)
+    except ValueError as exc:
+        failed = transition_draft(refreshed, "FAILED_FINAL", reason="authority_command_envelope_invalid", previous=offer)
+        failed["updated_turn"] = int(state.get("turn_index") or 0)
+        persist_draft_from_offer(state=state, offer=failed, draft_state="FAILED_FINAL")
+        ledger = append_entries(ledger, [failed])
+        result = {
+            "decision": "rejected",
+            "reason": str(exc),
+            "offer_handle": handle,
+            "action_id": offer.get("action_id"),
+            "risk_level": policy.risk_level,
+        }
+        return _gateway_observation_update(
+            state, queue, ledger, result,
+            phase="action_gateway" if queue else "agent_loop",
+            status="ActionCommandEnvelopeInvalid",
+        )
+    refreshed["command_id"] = str((refreshed.get("business_command_envelope") or {}).get("command_id") or "")
+    ledger, pending = _mark_offer_awaiting_authority(state, refreshed, ledger)
+    result = {
+        "decision": "awaiting_structured_authority",
+        "reason": "动作草稿已完成预检，等待用户对明确对象的结构化 UI 授权。",
+        "authority_protocol": UI_AUTHORITY_PROTOCOL,
+        "offer_handle": handle,
+        "action_id": offer.get("action_id"),
+        "target_handle": offer.get("target_handle"),
+        "risk_level": policy.risk_level,
+        "preview": preview,
+    }
+    contract = interaction_response_contract({
+        **state,
+        "artifact_ledger": ledger,
+        **active_draft_patch(pending.get("handle")),
+        "pending_confirmation_id": pending.get("confirmation_id"),
+        "pending_confirmation_version": pending.get("confirmation_version"),
+    })
+    if contract is None:  # fail closed: a pending offer without a public interaction contract must never become prose.
         raise RuntimeError("pending authority offer could not produce a response contract")
-    return _gateway_observation_update(state, queue, ledger, result, phase="offer_confirmation", status="ActionAuthorityRequired", pending_offer=pending, response_contract=contract)
+    return _gateway_observation_update(
+        state,
+        queue,
+        ledger,
+        result,
+        phase="offer_confirmation",
+        status="ActionAuthorityRequired",
+        pending_offer=pending,
+        response_contract=contract,
+    )
 
 
 def _gateway_observation_update(
-    state: dict[str, Any], queue: list[dict[str, Any]], ledger: list[dict[str, Any]], result: dict[str, Any], *,
-    phase: str, status: str, pending_offer: dict[str, Any] | None = None, pending_handle: str | None = None,
+    state: dict[str, Any],
+    queue: list[dict[str, Any]],
+    ledger: list[dict[str, Any]],
+    result: dict[str, Any],
+    *,
+    phase: str,
+    status: str,
+    pending_offer: dict[str, Any] | None = None,
+    pending_handle: str | None = None,
     response_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    trace = [*(state.get("tool_trace") or []), {"plan_id": str((state.get("current_turn_plan") or {}).get("plan_id") or ""), "loop_step": int(state.get("agent_loop_step") or 0), "name": "action_gateway", "args": {"offer_handle": result.get("offer_handle")}, "result": {"ok": result.get("decision") not in {"rejected"}, "data": result}, "classification": "transaction_gateway"}]
+    trace = [*(state.get("tool_trace") or []), {
+        "plan_id": str((state.get("current_turn_plan") or {}).get("plan_id") or ""),
+        "loop_step": int(state.get("agent_loop_step") or 0),
+        "name": "action_gateway",
+        "args": {"offer_handle": result.get("offer_handle")},
+        "result": {"ok": result.get("decision") not in {"rejected"}, "data": result},
+        "classification": "transaction_gateway",
+    }]
     return {
-        "artifact_ledger": ledger, "ledger_snapshot": ledger_cards(ledger, scope=scope_for_state(state)), "action_queue": queue,
-        "action_gateway_result": result, "tool_trace": trace,
+        "artifact_ledger": ledger,
+        "ledger_snapshot": ledger_cards(ledger, scope=scope_for_state(state)),
+        "action_queue": queue,
+        "action_gateway_result": result,
+        "tool_trace": trace,
         **active_draft_patch(str((pending_offer or {}).get("handle") or pending_handle or "") or None),
         "pending_confirmation_id": (pending_offer or {}).get("confirmation_id") if pending_offer else None,
         "pending_confirmation_version": (pending_offer or {}).get("confirmation_version") if pending_offer else None,
-        "response_contract": response_contract, "commit_authority": None, "phase": phase, "status": status,
+        "response_contract": response_contract,
+        "commit_authority": None,
+        "phase": phase,
+        "status": status,
         "decision_chain": _append_decision(state, stage="action_gateway", decision=str(result.get("decision") or ""), details=result),
     }
 
@@ -234,7 +423,6 @@ def _queue_phase_or_final(queue: list[dict[str, Any]], *, fallback_answer: str |
     if queue:
         return {"phase": "action_gateway", "status": "ContinueActionQueue"}
     return {"phase": "final", "status": "ActionAuthorityTerminal", "current_final_answer": fallback_answer}
-
 def _required_offer_input_rows(offer: dict[str, Any]) -> list[dict[str, Any]]:
     preview = offer.get("preview") if isinstance(offer.get("preview"), dict) else {}
     rows = preview.get("required_inputs") if isinstance(preview, dict) else None
@@ -243,5 +431,7 @@ def _required_offer_input_rows(offer: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(row) for row in rows or [] if isinstance(row, dict) and str(row.get("name") or "").strip()]
 
 
+# Graph compatibility wrapper.  Runtime callers use advance_transaction_gateway();
+# the public LangGraph node name remains action_gateway_node.
 def action_gateway_node(state: dict[str, Any], *, deps: TransactionExecutionDeps) -> dict[str, Any]:
     return advance_transaction_gateway(state, deps=deps)
