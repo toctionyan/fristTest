@@ -294,6 +294,7 @@ jobs:
           AUTONOMY_GRANT_ID: ${{ inputs.autonomy_grant_id }}
           AUTONOMY_GRANT_SHA256: ${{ inputs.autonomy_grant_sha256 }}
           AUTONOMY_PLAN_SHA256: ${{ inputs.autonomy_plan_sha256 }}
+          STAGE2_CONTROL_SHA: ${{ steps.control.outputs.control_sha }}
           INPUT_KIND: ${{ steps.source.outputs.input_kind }}
           REPAIR_ROUND: ${{ steps.source.outputs.repair_round }}
         run: |
@@ -314,6 +315,12 @@ jobs:
           if [[ "${INPUT_KIND}" == "autonomy_stage1" ]]; then
             handoff_result=$(find incoming/autonomy -type f -name handoff-result.json -print -quit 2>/dev/null || true)
             [[ -n "${handoff_result}" ]]
+            [[ "${STAGE2_CONTROL_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            [[ "${AUTONOMY_HANDOFF_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+            if [[ "${STAGE2_CONTROL_SHA}" != "${AUTONOMY_HANDOFF_HEAD_SHA}" ]]; then
+              echo "Stage-2 trusted control SHA differs from the owner-authorized control SHA" >&2
+              exit 1
+            fi
             "${pythonLocation}/bin/python" -B control/scripts/github_repair_autonomy_stage2.py \
               --failure-case "${failure_case}" \
               --stage1-task-run "${task_run}" \
@@ -324,6 +331,7 @@ jobs:
               --handoff-run-id "${AUTONOMY_HANDOFF_RUN_ID}" \
               --handoff-run-attempt "${AUTONOMY_HANDOFF_RUN_ATTEMPT}" \
               --handoff-head-sha "${AUTONOMY_HANDOFF_HEAD_SHA}" \
+              --stage2-control-sha "${STAGE2_CONTROL_SHA}" \
               --github-output "$GITHUB_OUTPUT"
             jq -e --arg auth_id "${AUTONOMY_AUTHORIZATION_ID}" \
               --arg auth_sha "${AUTONOMY_AUTHORIZATION_SHA256}" \
