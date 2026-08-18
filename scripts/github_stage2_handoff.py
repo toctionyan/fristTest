@@ -27,6 +27,7 @@ from engineering_autonomy_continuation import (  # type: ignore  # noqa: E402
 )
 
 SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@2"
+MAX_FAILURE_SIGNATURE_BYTES = 512
 
 
 class HandoffError(RuntimeError):
@@ -52,6 +53,18 @@ def _normalize_path(raw: object) -> str:
     return value
 
 
+def _failure_signature(value: object) -> str:
+    result = str(value or "").strip()
+    if (
+        not result
+        or "\n" in result
+        or "\r" in result
+        or len(result.encode("utf-8")) > MAX_FAILURE_SIGNATURE_BYTES
+    ):
+        raise HandoffError("Stage-1 source authority failure signature is invalid")
+    return result
+
+
 def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
     candidate_paths = failure.get("candidate_paths")
     if not isinstance(candidate_paths, list) or not candidate_paths:
@@ -73,7 +86,7 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         "head_sha": str(failure.get("head_sha") or ""),
         "head_branch": str(failure.get("head_branch") or ""),
         "source_pr_number": int(failure.get("source_pr_number") or 0),
-        "failure_signature": str(failure.get("failure_signature") or ""),
+        "failure_signature": _failure_signature(failure.get("failure_signature")),
         "classification": str(failure.get("classification") or ""),
         "repair_allowed": failure.get("repair_allowed") is True,
         "same_repository": failure.get("same_repository") is True,
@@ -89,8 +102,6 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         raise HandoffError("Stage-1 source authority binding is incomplete")
     if not re.fullmatch(r"[0-9a-f]{40}", authority["head_sha"]):
         raise HandoffError("Stage-1 source authority head SHA is invalid")
-    if not re.fullmatch(r"[0-9a-f]{64}", authority["failure_signature"]):
-        raise HandoffError("Stage-1 source authority failure signature is invalid")
     if authority["classification"] != "code_or_contract":
         raise HandoffError("Stage-1 source authority classification is not repairable")
     if not authority["repair_allowed"] or not authority["same_repository"]:
