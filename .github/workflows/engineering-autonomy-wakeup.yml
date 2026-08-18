@@ -14,7 +14,7 @@ env:
   GH_REPO: ${{ github.repository }}
 
 concurrency:
-  group: engineering-autonomy-wakeup-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  group: engineering-autonomy-wakeup-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
