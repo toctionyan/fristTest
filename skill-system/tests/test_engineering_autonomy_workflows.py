@@ -84,6 +84,22 @@ class EngineeringAutonomyWorkflowContractTests(unittest.TestCase):
         self.assertIn("PREVIOUS_NETWORK_FAILURE", self.wakeup)
         self.assertIn('if [[ "${RESERVATION_STATE}" != "NEW" ]]', self.wakeup)
 
+    def test_wakeup_reservation_check_is_serialized_across_authorization_runs(self) -> None:
+        # GitHub commit statuses are not compare-and-swap. Two successful owner
+        # authorization runs for the same decision could otherwise both observe no
+        # marker and both issue the network request. Serialize the short wakeup
+        # adapter per repository so reservation inspection + request + receipt is one
+        # fail-closed critical section across duplicate authorization deliveries.
+        self.assertIn(
+            "group: engineering-autonomy-wakeup-${{ github.repository }}",
+            self.wakeup,
+        )
+        self.assertNotIn(
+            "group: engineering-autonomy-wakeup-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}",
+            self.wakeup,
+        )
+        self.assertIn("cancel-in-progress: false", self.wakeup)
+
     def test_stage2_keeps_manual_and_autonomy_entry_paths_mutually_exclusive(self) -> None:
         for field in (
             "autonomy_handoff_run_id:",
