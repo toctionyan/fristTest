@@ -194,3 +194,17 @@ def test_pr_comment_transport_is_rest_and_never_authoritative():
     assert text.index("Record completed post-merge validation") < text.index(
         "Upload immutable post-merge evidence"
     )
+
+
+def test_post_merge_waits_use_deadline_budgets_instead_of_short_attempt_counts():
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "timeout-minutes: 45" in text
+    assert "QUALITY_WAIT_TIMEOUT_SECONDS: '1200'" in text
+    assert "CONVERGENCE_WAIT_TIMEOUT_SECONDS: '900'" in text
+    assert "for attempt in $(seq 1 90)" not in text
+    assert "for attempt in $(seq 1 60)" not in text
+    assert "quality_deadline=$(( $(date +%s) + QUALITY_WAIT_TIMEOUT_SECONDS ))" in text
+    assert "convergence_deadline=$(( $(date +%s) + CONVERGENCE_WAIT_TIMEOUT_SECONDS ))" in text
+    assert "exact post-merge Quality timed out before completion" in text
+    assert "exact project-convergence timed out before completion" in text
