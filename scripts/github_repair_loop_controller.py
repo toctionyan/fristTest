@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Durable outer controller for governed Repair -> Verify feedback loops.
 
-The controller owns repair-round accounting across Stage 2 and Stage 3.  A
+The controller owns repair-round accounting across Stage 2 and Stage 3. A
 Stage-2 model/fixer cycle is not a repair round, and a GitHub workflow rerun is
-not a repair round.  One repair round means one source candidate was produced
-and independently validated.  Independent validation failures are typed before
-routing so harness/environment retries do not consume product repair budget and
+not a repair round. One repair round means one source candidate was produced
+and independently validated. Independent validation failures are typed before
+routing so harness/environment retries do not consume repair budget and
 protected-oracle disagreements cannot be "fixed" by mutating the judge.
+
+M8.6 keeps the historical product path unchanged and adds one immutable
+``CONTROL_PLANE_IMPLEMENTATION`` route. Once Stage 1 has semantically bound that
+route, later rounds may only repair the exact same engineering-verifier
+implementation scope. Tests/oracles remain evidence only.
 """
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ import re
 import shutil
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "skill-system" / "controller"
@@ -33,21 +38,29 @@ from task_run import TaskRunStore  # type: ignore  # noqa: E402
 LOOP_SCHEMA = "github-governed-repair-loop@1"
 FEEDBACK_SCHEMA = "github-governed-repair-feedback@1"
 STAGE2_SCHEMA = "github-governed-repair-stage2@1"
-STAGE3_SCHEMA = "github-governed-repair-stage3@1"
+STAGE3_SCHEMAS = {"github-governed-repair-stage3@1", "github-governed-repair-stage3@2"}
 FAILURE_SCHEMA = "github-failure-ingest@1"
 SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@2"
 MAX_REPAIR_ROUNDS = 8
 STAGNATION_LIMIT = 2
 MAX_VALIDATION_RETRIES_PER_CANDIDATE = 3
 MAX_TEXT = 80_000
+PRODUCT_DOMAIN = "PRODUCT_CODE"
+CONTROL_DOMAIN = "CONTROL_PLANE_IMPLEMENTATION"
+PRODUCT_FAILURE = "PRODUCT_SOURCE_FAILURE"
+CONTROL_FAILURE = "CONTROL_PLANE_IMPLEMENTATION_FAILURE"
+REPAIRABLE_FAILURES = {PRODUCT_FAILURE, CONTROL_FAILURE}
+CONTROL_COMPONENT = "skill-control-plane"
 
 _SOURCE_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])((?:services/agent-service/(?:src|app)/|"
-    r"services/business-service/business_service/|contracts/|web/)[A-Za-z0-9_./@+\-]+"
+    r"services/business-service/business_service/|contracts/|web/|"
+    r"scripts/verify_engineering_)[A-Za-z0-9_./@+\-]+"
     r"\.(?:py|js|jsx|ts|tsx|mjs|cjs|json|ya?ml|toml|md|sh))(?![A-Za-z0-9_.-])"
 )
 _TEST_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9_.-])((?:tests/|services/[^\s:]+/tests/|web/[^\s:]*tests?/)[A-Za-z0-9_./@+\-]+)"
+    r"(?<![A-Za-z0-9_.-])((?:tests/|skill-system/tests/|services/[^\s:]+/tests/|"
+    r"web/[^\s:]*tests?/)[A-Za-z0-9_./@+\-]+)"
 )
 HARNESS_TERMS = (
     "modulenotfounderror: no module named 'agent_core'",
@@ -77,6 +90,7 @@ ASSERTION_TERMS = (
     "assert ",
     "differing items:",
     "full diff:",
+    "failed (failures=",
 )
 
 
@@ -133,11 +147,7 @@ def _candidate_paths_digest(paths: Iterable[str]) -> str:
         raise RepairLoopError("outer-loop repair paths are invalid")
     if not normalized:
         raise RepairLoopError("outer-loop repair paths are empty")
-    canonical = json.dumps(
-        normalized,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    canonical = json.dumps(normalized, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
 
 
@@ -157,7 +167,9 @@ def _combined_result_text(rows: Iterable[dict[str, Any]]) -> str:
     return "\n".join(chunks)[-MAX_TEXT:]
 
 
-def _failed_components(targeted: dict[str, Any], quick_summary: dict[str, Any] | None = None) -> list[str]:
+def _failed_components(
+    targeted: dict[str, Any], quick_summary: dict[str, Any] | None = None
+) -> list[str]:
     values = [
         str(row.get("component") or "unknown")
         for row in targeted.get("results") or []
@@ -177,6 +189,45 @@ def _extract_source_paths(text: str, allowed: set[str]) -> list[str]:
     return [path for path in _unique(found) if path in allowed]
 
 
+def _original_domain(original_failure: Mapping[str, Any]) -> str:
+    classification = str(original_failure.get("classification") or "").strip()
+    supplied = str(original_failure.get("repair_domain") or "").strip()
+    if classification == "code_or_contract":
+        if supplied and supplied != PRODUCT_DOMAIN:
+            raise RepairLoopError("product outer-loop failure attempted repair-domain switch")
+        return PRODUCT_DOMAIN
+    if classification != "control_plane_implementation" or supplied != CONTROL_DOMAIN:
+        raise RepairLoopError(
+            f"outer-loop original failure is outside repair authority: {classification!r}/{supplied!r}"
+        )
+    route = original_failure.get("repair_route")
+    if route is not None:
+        if not isinstance(route, Mapping):
+            raise RepairLoopError("control-plane semantic route must be an object")
+        if (
+            route.get("repair_class") != "CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE"
+            or route.get("repair_domain") != CONTROL_DOMAIN
+            or route.get("automatic_write_allowed") is not True
+            or route.get("test_write_allowed") is not False
+            or route.get("acceptance_write_allowed") is not False
+            or route.get("scope_expansion_allowed") is not False
+        ):
+            raise RepairLoopError("control-plane semantic route crossed an authority boundary")
+    candidates = [_normalize_path(item) for item in original_failure.get("candidate_paths") or []]
+    if (
+        not candidates
+        or any(not path for path in candidates)
+        or candidates != _unique(candidates)
+        or any(not path.startswith("scripts/verify_engineering_") or not path.endswith(".py") for path in candidates)
+    ):
+        raise RepairLoopError("control-plane original candidate scope is invalid")
+    if isinstance(route, Mapping):
+        routed = [_normalize_path(item) for item in route.get("allowed_write_paths") or []]
+        if routed != candidates:
+            raise RepairLoopError("control-plane semantic route scope drifted")
+    return CONTROL_DOMAIN
+
+
 def _failure_fingerprint(
     *,
     failure_class: str,
@@ -186,7 +237,9 @@ def _failure_fingerprint(
 ) -> str:
     rows: list[dict[str, Any]] = []
     evidence_rows: list[dict[str, Any]] = [
-        row for row in targeted.get("results") or [] if isinstance(row, dict) and row.get("passed") is not True
+        row
+        for row in targeted.get("results") or []
+        if isinstance(row, dict) and row.get("passed") is not True
     ]
     if quick_summary is not None:
         evidence_rows.extend(
@@ -204,11 +257,7 @@ def _failure_fingerprint(
                 "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             }
         )
-    payload = {
-        "failure_class": failure_class,
-        "repair_paths": repair_paths,
-        "rows": rows,
-    }
+    payload = {"failure_class": failure_class, "repair_paths": repair_paths, "rows": rows}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -230,6 +279,7 @@ def _classify_rows(
     if any(term in low for term in HARNESS_TERMS):
         return "HARNESS_FAILURE", [], f"{context} harness/runtime contract failed"
 
+    domain = _original_domain(original_failure)
     allowed = {
         path
         for path in (_normalize_path(item) for item in original_failure.get("candidate_paths") or [])
@@ -237,14 +287,26 @@ def _classify_rows(
     }
     source_paths = _extract_source_paths(text, allowed)
     if source_paths:
-        return (
-            "PRODUCT_SOURCE_FAILURE",
-            source_paths,
-            f"{context} implicated governed writable product source",
-        )
+        failure_class = CONTROL_FAILURE if domain == CONTROL_DOMAIN else PRODUCT_FAILURE
+        return failure_class, source_paths, f"{context} implicated governed writable source"
 
-    has_test_evidence = bool(_TEST_PATH_RE.search(text))
+    has_test_evidence = bool(_TEST_PATH_RE.search(text)) or "test_" in low
     has_assertion = any(term in low for term in ASSERTION_TERMS)
+    if domain == CONTROL_DOMAIN and context == "targeted validation":
+        failed_control = any(
+            isinstance(row, dict)
+            and str(row.get("component") or "") == CONTROL_COMPONENT
+            and row.get("passed") is not True
+            for row in rows
+        )
+        if failed_control and has_test_evidence and has_assertion:
+            exact_scope = [_normalize_path(item) for item in original_failure.get("candidate_paths") or []]
+            return (
+                CONTROL_FAILURE,
+                exact_scope,
+                "targeted skill-control-plane assertion failure remains inside the immutable verifier implementation scope",
+            )
+
     if has_test_evidence and has_assertion:
         return (
             "TEST_CONTRACT_REVIEW_REQUIRED",
@@ -259,7 +321,7 @@ def classify_targeted_failure(
     *,
     original_failure: dict[str, Any],
 ) -> tuple[str, list[str], str]:
-    if targeted.get("schema") != STAGE3_SCHEMA:
+    if targeted.get("schema") not in STAGE3_SCHEMAS:
         raise RepairLoopError("unsupported Stage-3 targeted result schema")
     if targeted.get("status") == "TARGETED_VALIDATION_PASSED":
         return "PASS", [], "targeted validation passed"
@@ -290,7 +352,10 @@ def classify_independent_failure(
         and quick_summary.get("completion_eligible") is True
     ):
         return "PASS", [], "targeted and complete Quick validation passed"
-    if quick_summary.get("decision") == "BLOCKED_BY_ENVIRONMENT" or quick_summary.get("loop_status") == "BLOCKED_BY_ENVIRONMENT":
+    if (
+        quick_summary.get("decision") == "BLOCKED_BY_ENVIRONMENT"
+        or quick_summary.get("loop_status") == "BLOCKED_BY_ENVIRONMENT"
+    ):
         return "ENVIRONMENT_FAILURE", [], "complete Quick validation was blocked by environment"
     rows = [
         row
@@ -304,12 +369,7 @@ def classify_independent_failure(
 
 def _authority_digest(authority: dict[str, Any]) -> str:
     return hashlib.sha256(
-        json.dumps(
-            authority,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        json.dumps(authority, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
 
 
@@ -318,15 +378,10 @@ def _resolve_original_failure(
     stage2: dict[str, Any],
     fallback: dict[str, Any],
 ) -> dict[str, Any]:
-    """Prefer the exact Stage-1 authority snapshot that Stage 2 actually consumed.
-
-    Older Stage-2 artifacts do not carry this snapshot and retain the legacy
-    coordinator-provided failure-case path. New candidates are self-bound so a
-    later coordinator cannot accidentally substitute a stale artifact that has
-    the same source run ID but a different normalized failure signature/scope.
-    """
+    """Prefer the exact Stage-1 authority snapshot that Stage 2 actually consumed."""
     raw = stage2.get("source_failure_authority")
     if raw is None:
+        _original_domain(fallback)
         return fallback
     if not isinstance(raw, dict):
         raise RepairLoopError("Stage-2 source failure authority must be an object")
@@ -340,8 +395,6 @@ def _resolve_original_failure(
         raise RepairLoopError("Stage-2 source failure authority digest mismatch")
     if authority.get("schema") != FAILURE_SCHEMA or authority.get("status") != "INGESTED":
         raise RepairLoopError("Stage-2 source failure authority contract is invalid")
-    if authority.get("classification") != "code_or_contract":
-        raise RepairLoopError("Stage-2 source failure authority classification is not repairable")
     if authority.get("repair_allowed") is not True or authority.get("same_repository") is not True:
         raise RepairLoopError("Stage-2 source failure authority did not authorize repair")
 
@@ -361,6 +414,26 @@ def _resolve_original_failure(
     for key, value in expected.items():
         if not value or str(authority.get(key)) != str(value):
             raise RepairLoopError(f"Stage-2 source failure authority binding mismatch: {key}")
+
+    classification = str(authority.get("classification") or "")
+    if classification == "control_plane_implementation":
+        if str(authority.get("repair_domain") or "") != CONTROL_DOMAIN:
+            raise RepairLoopError("Stage-2 control-plane source authority domain drift")
+        route_sha = str(authority.get("repair_route_sha256") or "")
+        fallback_route = fallback.get("repair_route") if isinstance(fallback.get("repair_route"), dict) else None
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", route_sha)
+            or fallback_route is None
+            or str(fallback_route.get("route_sha256") or "") != route_sha
+        ):
+            raise RepairLoopError("control-plane semantic route evidence is unavailable or stale")
+        authority["repair_route"] = dict(fallback_route)
+    elif classification == "code_or_contract":
+        if str(authority.get("repair_domain") or "") not in {"", PRODUCT_DOMAIN}:
+            raise RepairLoopError("Stage-2 product source authority domain drift")
+    else:
+        raise RepairLoopError("Stage-2 source failure authority classification is not repairable")
+    _original_domain(authority)
     return authority
 
 
@@ -373,7 +446,7 @@ def _validate_bindings(
 ) -> dict[str, Any]:
     if stage2.get("schema") != STAGE2_SCHEMA or stage2.get("status") != "REPAIR_CANDIDATE_READY":
         raise RepairLoopError("Stage-2 result is not a repair candidate")
-    if plan.get("schema") != STAGE3_SCHEMA or plan.get("status") != "CANDIDATE_PREPARED":
+    if plan.get("schema") not in STAGE3_SCHEMAS or plan.get("status") != "CANDIDATE_PREPARED":
         raise RepairLoopError("Stage-3 plan is not a prepared candidate")
     if original_failure.get("schema") != FAILURE_SCHEMA or original_failure.get("status") != "INGESTED":
         raise RepairLoopError("original failure-case evidence is invalid")
@@ -392,6 +465,19 @@ def _validate_bindings(
     for key in ("workflow_name", "workflow_run_attempt"):
         if str(original_failure.get(key)) != str(binding.get(key)):
             raise RepairLoopError(f"original failure/TaskRun binding mismatch: {key}")
+    domain = _original_domain(original_failure)
+    if str(stage2.get("repair_domain") or domain) != domain:
+        raise RepairLoopError("Stage-2 repair domain differs from original failure")
+    if str(plan.get("repair_domain") or domain) != domain:
+        raise RepairLoopError("Stage-3 repair domain differs from original failure")
+    if domain == CONTROL_DOMAIN:
+        route_sha = str((original_failure.get("repair_route") or {}).get("route_sha256") or "")
+        if str(binding.get("repair_domain") or "") != domain:
+            raise RepairLoopError("TaskRun control-plane repair domain binding mismatch")
+        if str(binding.get("repair_route_sha256") or "") != route_sha:
+            raise RepairLoopError("TaskRun control-plane semantic route binding mismatch")
+        if str(plan.get("repair_route_sha256") or "") != route_sha:
+            raise RepairLoopError("Stage-3 control-plane semantic route binding mismatch")
     if str(plan.get("source_run_id")) != str(stage2.get("workflow_run_id")):
         raise RepairLoopError("Stage-3 plan source run does not match Stage-2")
     if str(plan.get("head_sha")) != str(stage2.get("head_sha")):
@@ -452,42 +538,27 @@ def _resolve_autonomy_continuation(
     task_prior: dict[str, Any] | None = None
     if artifact_prior_raw is not None:
         artifact_prior = _validate_continuation_for_binding(
-            artifact_prior_raw,
-            binding=binding,
-            source="previous outer-loop artifact",
+            artifact_prior_raw, binding=binding, source="previous outer-loop artifact"
         )
         _assert_continuation_budget_binding(
-            previous,
-            artifact_prior,
-            source="previous outer-loop artifact",
+            previous, artifact_prior, source="previous outer-loop artifact"
         )
     if task_prior_raw is not None:
         task_prior = _validate_continuation_for_binding(
-            task_prior_raw,
-            binding=binding,
-            source="durable TaskRun metadata",
+            task_prior_raw, binding=binding, source="durable TaskRun metadata"
         )
         _assert_continuation_budget_binding(
-            task_loop,
-            task_prior,
-            source="durable TaskRun metadata",
+            task_loop, task_prior, source="durable TaskRun metadata"
         )
     if artifact_prior is not None and task_prior is not None and artifact_prior != task_prior:
-        raise RepairLoopError(
-            "previous outer-loop artifact conflicts with durable TaskRun metadata"
-        )
+        raise RepairLoopError("previous outer-loop artifact conflicts with durable TaskRun metadata")
 
     prior = task_prior if task_prior is not None else artifact_prior
     if raw is None:
         if prior is not None:
             raise RepairLoopError("autonomy continuation disappeared between repair rounds")
         return None
-
-    current = _validate_continuation_for_binding(
-        raw,
-        binding=binding,
-        source="Stage-2",
-    )
+    current = _validate_continuation_for_binding(raw, binding=binding, source="Stage-2")
     if prior_started:
         if prior is None:
             raise RepairLoopError("autonomy continuation appeared after the outer loop already started")
@@ -511,27 +582,53 @@ def _safe_feedback_failure(
     failure_fingerprint: str,
     autonomy_continuation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    routed_paths = list(repair_paths)
+    domain = _original_domain(original)
+    routed_paths = [_normalize_path(item) for item in repair_paths]
+    if any(not path for path in routed_paths) or routed_paths != _unique(routed_paths):
+        raise RepairLoopError("feedback repair scope is malformed")
+    original_paths = [_normalize_path(item) for item in original.get("candidate_paths") or []]
+    if any(path not in original_paths for path in routed_paths):
+        raise RepairLoopError("feedback attempted to expand original repair scope")
+    if domain == CONTROL_DOMAIN:
+        # The semantic route digest is immutable. Narrowing it would create a new
+        # authority identity, so a later control repair round keeps the exact
+        # original verifier implementation scope.
+        if routed_paths != original_paths:
+            raise RepairLoopError("control-plane feedback cannot change semantic route scope")
+        if any(not path.startswith("scripts/verify_engineering_") or not path.endswith(".py") for path in routed_paths):
+            raise RepairLoopError("control-plane feedback contains an unbounded path")
+    if not routed_paths:
+        raise RepairLoopError("feedback repair scope is empty")
+
     candidate_paths_sha256 = _candidate_paths_digest(routed_paths)
     feedback = dict(original)
     feedback.pop("authority_schema", None)
-    feedback["classification"] = "code_or_contract"
+    feedback["classification"] = (
+        "control_plane_implementation" if domain == CONTROL_DOMAIN else "code_or_contract"
+    )
+    feedback["repair_domain"] = domain
     feedback["repair_allowed"] = True
     feedback["candidate_paths"] = routed_paths
+    failure_class = CONTROL_FAILURE if domain == CONTROL_DOMAIN else PRODUCT_FAILURE
+    gate_id = CONTROL_COMPONENT if domain == CONTROL_DOMAIN else "governed-stage3-targeted"
+    failure_kind = "control_plane_implementation" if domain == CONTROL_DOMAIN else "product_source"
     feedback["failed_gates"] = [
         {
-            "gate_id": "governed-stage3-targeted",
+            "gate_id": gate_id,
             "status": "FAIL",
             "category": "independent-validation",
             "owner": "governed repair outer controller",
-            "failure_kind": "product_source",
-            "summary": "independent validation implicated governed writable source; protected oracle contents are intentionally withheld from the repair actor",
+            "failure_kind": failure_kind,
+            "summary": (
+                "independent validation implicated the immutable governed repair scope; "
+                "protected test/oracle contents are intentionally withheld from the repair actor"
+            ),
         }
     ]
     feedback["failure_summary"] = (
         "Independent Stage-3 validation failed after repair round "
-        f"{repair_round}. Re-diagnose only the governed writable source paths listed in candidate_paths. "
-        "The current protected test/oracle contents are not repair input and must not be modified. "
+        f"{repair_round}. Re-diagnose only the immutable governed paths listed in candidate_paths. "
+        "Protected tests/oracles are evidence only and must not be modified. "
         f"Verification attempt={verification_attempt}; failure_fingerprint={failure_fingerprint}."
     )
     feedback["loop_feedback"] = {
@@ -539,7 +636,8 @@ def _safe_feedback_failure(
         "repair_round": repair_round,
         "next_repair_round": repair_round + 1,
         "verification_attempt": verification_attempt,
-        "failure_class": "PRODUCT_SOURCE_FAILURE",
+        "failure_class": failure_class,
+        "repair_domain": domain,
         "failure_fingerprint": failure_fingerprint,
         "candidate_paths_sha256": candidate_paths_sha256,
         "scope_expanded": False,
@@ -578,6 +676,7 @@ def route_failure(
     )
     fallback_failure = _load(original_failure_path)
     original_failure = _resolve_original_failure(stage2=stage2, fallback=fallback_failure)
+    domain = _original_domain(original_failure)
     binding = _validate_bindings(
         task=task,
         stage2=stage2,
@@ -591,8 +690,12 @@ def route_failure(
             raise RepairLoopError("previous outer-loop state schema is invalid")
         if str(previous.get("source_run_id")) != str(binding.get("workflow_run_id")):
             raise RepairLoopError("previous outer-loop state belongs to another source run")
+        if str(previous.get("repair_domain") or domain) != domain:
+            raise RepairLoopError("previous outer-loop state changed repair domain")
 
     loop_meta = _existing_loop_metadata(task)
+    if loop_meta and str(loop_meta.get("repair_domain") or domain) != domain:
+        raise RepairLoopError("durable TaskRun outer-loop state changed repair domain")
     autonomy_continuation = _resolve_autonomy_continuation(
         stage2=stage2,
         previous=previous,
@@ -649,18 +752,17 @@ def route_failure(
     )
     stagnant_rounds = _int(previous.get("stagnant_rounds"), 0)
     if (
-        failure_class == "PRODUCT_SOURCE_FAILURE"
+        failure_class in REPAIRABLE_FAILURES
         and previous.get("failure_class") == failure_class
         and previous.get("failure_fingerprint") == failure_fp
         and _int(previous.get("repair_round"), 0) < repair_round
     ):
         stagnant_rounds += 1
-    elif failure_class == "PRODUCT_SOURCE_FAILURE":
+    elif failure_class in REPAIRABLE_FAILURES:
         stagnant_rounds = 0
 
     same_candidate = bool(
-        previous
-        and previous.get("candidate_sha") == str(plan.get("candidate_sha") or "")
+        previous and previous.get("candidate_sha") == str(plan.get("candidate_sha") or "")
     )
     previous_same_candidate_retries = (
         _int(previous.get("same_candidate_retry_count"), 0) if same_candidate else 0
@@ -685,17 +787,21 @@ def route_failure(
         else:
             action = "HARNESS_REPAIR_REQUIRED"
             stop_reason = "independent validation passed but Stage-3 did not persist a publishable validation receipt"
-    elif failure_class == "PRODUCT_SOURCE_FAILURE":
+    elif failure_class in REPAIRABLE_FAILURES:
         if repair_round >= max_rounds:
             action = "STOP_MAX_REPAIR_ROUNDS"
-            stop_reason = "max governed product repair rounds reached"
+            stop_reason = "max governed repair rounds reached"
         elif stagnant_rounds >= STAGNATION_LIMIT:
             action = "ARCHITECTURE_REPLAN_REQUIRED"
-            stop_reason = "two product repair rounds repeated the same independent validation failure"
+            stop_reason = "two repair rounds repeated the same independent validation failure"
         elif not repair_paths:
             action = "TEST_CONTRACT_REVIEW_REQUIRED"
             stop_reason = "no governed writable source path can be derived without expanding authority"
         else:
+            if domain == CONTROL_DOMAIN:
+                expected_scope = [_normalize_path(item) for item in original_failure.get("candidate_paths") or []]
+                if repair_paths != expected_scope:
+                    raise RepairLoopError("control-plane repair round attempted to change immutable scope")
             action = "DISPATCH_REPAIR"
             next_repair_round = repair_round + 1
             status = "FAILED_RECOVERABLE"
@@ -722,6 +828,7 @@ def route_failure(
         "source_run_attempt": str(binding.get("workflow_run_attempt")),
         "source_head_sha": str(binding.get("head_sha")),
         "failure_signature": str(binding.get("failure_signature")),
+        "repair_domain": domain,
         "repair_round": repair_round,
         "max_repair_rounds": max_rounds,
         "next_repair_round": next_repair_round,
@@ -756,7 +863,7 @@ def route_failure(
     if action == "DISPATCH_REPAIR":
         task.checkpoint(
             status="FAILED_RECOVERABLE",
-            phase="PRODUCT_SOURCE_FAILURE",
+            phase=failure_class,
             workspace_fingerprint=str(plan.get("validated_tree_sha") or ""),
             evidence_refs=evidence_refs,
             metadata={"repair_loop": state},
@@ -770,13 +877,12 @@ def route_failure(
             metadata={"repair_loop": state},
         )
     else:
-        code = action
         task.block(
-            code=code,
+            code=action,
             reason=stop_reason or classification_reason,
             attempted_strategies=("independent-validation", "typed-failure-router"),
             next_action=(
-                "review the protected contract/oracle before authorizing another product repair"
+                "review the protected contract/oracle before authorizing another repair"
                 if action == "TEST_CONTRACT_REVIEW_REQUIRED"
                 else "inspect outer-loop evidence and explicitly replan before another repair"
             ),
@@ -810,6 +916,7 @@ def _github_output(path: Path | None, state: dict[str, Any]) -> None:
         "action": state.get("action") or "",
         "source_run_id": state.get("source_run_id") or "",
         "source_run_attempt": state.get("source_run_attempt") or "",
+        "repair_domain": state.get("repair_domain") or "",
         "repair_round": state.get("repair_round") or 0,
         "next_repair_round": state.get("next_repair_round") or "",
         "verification_attempt": state.get("verification_attempt") or 0,

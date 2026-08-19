@@ -2,11 +2,11 @@
 """Augment governed failure ingestion with trusted control-plane failure markers.
 
 The base ingestion controller intentionally requires machine-readable failed-gate
-evidence before authorizing source repair. Some failures happen before the Quality
-Loop can upload ``run-summary.json``; the Skill control plane still emits exact
-failure witnesses. This wrapper recognizes only narrow trusted witnesses, keeps
-changed-file metadata non-authoritative, and then delegates to the existing
-bounded ingestion controller.
+evidence before authorizing product source repair. This adapter also recognizes a
+narrow autonomous control-plane implementation route: a real unittest/pytest
+failure must pair by module name with an exact source-PR change under
+``scripts/verify_engineering_*.py``. Tests/oracles remain read-only and changed
+file metadata alone never creates authority.
 """
 from __future__ import annotations
 
@@ -14,9 +14,22 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import sys
 from typing import Any
 
 import github_failure_ingest as base
+
+ROOT = Path(__file__).resolve().parents[1]
+CONTROL = ROOT / "skill-system" / "controller"
+if str(CONTROL) not in sys.path:
+    sys.path.insert(0, str(CONTROL))
+
+from autonomous_repair_router import (  # type: ignore  # noqa: E402
+    CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE,
+    PRODUCT_CODE_REPAIRABLE,
+    route_failure,
+    validate_route,
+)
 
 PRODUCT_SOURCE_DRIFT_MARKER = "product_source_changed:"
 PRODUCT_SOURCE_ROOTS = ("services/", "web/", "contracts/")
@@ -43,6 +56,7 @@ BRIDGE_PROTECTED_EXACT = {
     "scripts/verify_existing_candidate_adoption_contract.py",
 }
 _ORIGINAL_SUMMARY_FAILURES = base._summary_failures
+_ORIGINAL_TASK_IMMUTABLE_BINDING = base._task_immutable_binding
 
 
 def _control_plane_failures(
@@ -84,14 +98,7 @@ def _control_plane_failures(
 def _protected_baseline_count_failures(
     files: list[tuple[Path, str]],
 ) -> list[dict[str, Any]]:
-    """Recognize baseline cardinality drift without inventing implicated source paths.
-
-    The baseline binding unittest may fail before it prints per-path differences.
-    A count mismatch is still conclusive governance evidence that the protected
-    snapshot and accepted registry differ, but it is intentionally *not* source
-    repair evidence.  Therefore this detector emits no implicated paths and can
-    never manufacture an automatic write candidate.
-    """
+    """Recognize baseline cardinality drift without inventing implicated source paths."""
     rows: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
     for path, text in files:
@@ -154,6 +161,8 @@ def _recompute_failure_signature(report: dict[str, Any]) -> None:
                 "workflow": report.get("workflow_name"),
                 "sha": report.get("head_sha"),
                 "classification": report.get("classification"),
+                "repair_domain": report.get("repair_domain"),
+                "repair_route_sha256": (report.get("repair_route") or {}).get("route_sha256"),
                 "gates": report.get("failed_gates") or [],
                 "summary": report.get("failure_summary") or "",
                 "candidate_paths": report.get("candidate_paths") or [],
@@ -166,12 +175,7 @@ def _recompute_failure_signature(report: dict[str, Any]) -> None:
 
 
 def _scope_candidates_to_changed_evidence(report: dict[str, Any]) -> dict[str, Any]:
-    """Require PR candidates to be both log-derived and changed in that PR.
-
-    Changed-file metadata never creates a candidate. It may only remove unrelated
-    paths that appeared incidentally in logs, stack traces, or verifier commands.
-    Push runs without changed-file metadata retain the base evidence-derived scope.
-    """
+    """Require legacy product candidates to be both log-derived and changed in that PR."""
     changed = {
         base._normalize_repo_path(str(item))
         for item in report.get("source_changed_files") or []
@@ -193,15 +197,92 @@ def _scope_candidates_to_changed_evidence(report: dict[str, Any]) -> dict[str, A
     return report
 
 
+def _semantic_route(
+    report: dict[str, Any],
+    *,
+    artifact_files: list[tuple[Path, str]],
+) -> dict[str, Any]:
+    combined = "\n".join(text for _path, text in artifact_files)
+    route = validate_route(
+        route_failure(
+            workflow_name=str(report.get("workflow_name") or ""),
+            conclusion=str(report.get("conclusion") or ""),
+            legacy_classification=str(report.get("classification") or ""),
+            combined_text=combined,
+            failed_gates=[row for row in report.get("failed_gates") or [] if isinstance(row, dict)],
+            legacy_candidate_paths=report.get("candidate_paths") or [],
+            source_changed_files=report.get("source_changed_files") or [],
+            same_repository=report.get("same_repository") is True,
+        )
+    )
+    report["repair_route"] = route
+    report["repair_domain"] = route["repair_domain"]
+
+    if route["repair_class"] == CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE:
+        report["classification"] = "control_plane_implementation"
+        report["candidate_paths"] = list(route["allowed_write_paths"])
+        report["repair_allowed"] = True
+        guard = {
+            "gate_id": "skill-control-plane",
+            "status": "FAIL",
+            "category": "control-plane-implementation",
+            "owner": "skill-control-plane",
+            "failure_kind": "control_plane_implementation",
+            "summary": route["reason"],
+            "implicated_paths": list(route["allowed_write_paths"]),
+            "machine_envelope": False,
+        }
+        existing = report.get("failed_gates") if isinstance(report.get("failed_gates"), list) else []
+        if not any(
+            isinstance(row, dict)
+            and row.get("gate_id") == guard["gate_id"]
+            and row.get("failure_kind") == guard["failure_kind"]
+            for row in existing
+        ):
+            report["failed_gates"] = [*existing, guard]
+        if not str(report.get("failure_summary") or "").strip():
+            report["failure_summary"] = route["reason"]
+        _recompute_failure_signature(report)
+        return report
+
+    if route["repair_class"] == PRODUCT_CODE_REPAIRABLE:
+        report["repair_domain"] = route["repair_domain"]
+        _recompute_failure_signature(report)
+        return report
+
+    if report.get("repair_allowed") is not True:
+        report["repair_allowed"] = False
+        _recompute_failure_signature(report)
+    return report
+
+
+def _task_immutable_binding(report: dict[str, Any]) -> dict[str, Any]:
+    binding = dict(_ORIGINAL_TASK_IMMUTABLE_BINDING(report))
+    domain = str(report.get("repair_domain") or "NONE").strip() or "NONE"
+    route = report.get("repair_route") if isinstance(report.get("repair_route"), dict) else {}
+    binding.update(
+        {
+            "repair_domain": domain,
+            "repair_route_sha256": str(route.get("route_sha256") or ""),
+        }
+    )
+    return binding
+
+
 def install() -> None:
     """Install the narrow adapter without weakening the base ingestion boundary."""
     base.PROTECTED_EXACT.update(BRIDGE_PROTECTED_EXACT)
     base._summary_failures = _summary_failures
+    base._task_immutable_binding = _task_immutable_binding
 
 
 def build_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
     install()
-    return _scope_candidates_to_changed_evidence(base.build_report(*args, **kwargs))
+    artifact_files = kwargs.get("artifact_files")
+    if not isinstance(artifact_files, list):
+        artifact_files = []
+    report = _scope_candidates_to_changed_evidence(base.build_report(*args, **kwargs))
+    return _semantic_route(report, artifact_files=artifact_files)
 
 
 def main() -> int:
@@ -209,7 +290,11 @@ def main() -> int:
     original_build_report = base.build_report
 
     def scoped_build_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        return _scope_candidates_to_changed_evidence(original_build_report(*args, **kwargs))
+        artifact_files = kwargs.get("artifact_files")
+        if not isinstance(artifact_files, list):
+            artifact_files = []
+        report = _scope_candidates_to_changed_evidence(original_build_report(*args, **kwargs))
+        return _semantic_route(report, artifact_files=artifact_files)
 
     base.build_report = scoped_build_report
     return base.main()

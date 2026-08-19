@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Verify an exact M3 autonomy handoff before Stage-2 repair can start.
 
-Stage-1 failure evidence remains read-only classification evidence. Product repair
-authority comes only from the separately persisted local-first TaskRun carried by
-the trusted M3 handoff. Both ledgers must bind the exact same source run/attempt/
-head/failure before the protected Stage-2 repair environment may be entered.
+Stage-1 failure evidence remains read-only classification evidence. Repair
+continuation authority comes only from the separately persisted local-first
+TaskRun carried by the trusted M3 handoff. Both ledgers must bind the exact same
+source run/attempt/head/failure. M8.6 additionally binds the Stage-1 repair
+domain so a product task cannot silently switch into control-plane write scope.
 """
 from __future__ import annotations
 
@@ -18,8 +19,10 @@ from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "skill-system" / "controller"
-if str(CONTROL) not in sys.path:
-    sys.path.insert(0, str(CONTROL))
+SCRIPTS = ROOT / "scripts"
+for entry in (str(CONTROL), str(SCRIPTS)):
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
 
 from engineering_autonomy_continuation import build_autonomy_continuation  # type: ignore  # noqa: E402
 from engineering_autonomy_dispatch import AutonomyDispatchError  # type: ignore  # noqa: E402
@@ -30,6 +33,10 @@ from engineering_autonomy_handoff import (  # type: ignore  # noqa: E402
 from engineering_autonomy_network import (  # type: ignore  # noqa: E402
     validate_dispatch_plan,
     validate_network_request,
+)
+from governed_repair_path_policy import (  # type: ignore  # noqa: E402
+    REPAIR_DOMAIN_CONTROL_PLANE,
+    REPAIR_DOMAIN_PRODUCT,
 )
 
 
@@ -75,6 +82,35 @@ def _validate_result_digest(result: Mapping[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _repair_domain(failure: Mapping[str, Any]) -> str:
+    classification = _text(failure.get("classification"))
+    supplied = _text(failure.get("repair_domain"))
+    if classification == "code_or_contract":
+        if supplied and supplied != REPAIR_DOMAIN_PRODUCT:
+            raise AutonomyDispatchError("product Stage-1 failure attempted repair-domain switch")
+        return REPAIR_DOMAIN_PRODUCT
+    if classification == "control_plane_implementation":
+        if supplied != REPAIR_DOMAIN_CONTROL_PLANE:
+            raise AutonomyDispatchError("control-plane Stage-1 failure lacks exact repair domain")
+        route = failure.get("repair_route") if isinstance(failure.get("repair_route"), Mapping) else {}
+        if (
+            route.get("repair_class") != "CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE"
+            or route.get("repair_domain") != REPAIR_DOMAIN_CONTROL_PLANE
+            or route.get("automatic_write_allowed") is not True
+            or route.get("test_write_allowed") is not False
+            or route.get("acceptance_write_allowed") is not False
+        ):
+            raise AutonomyDispatchError("control-plane Stage-1 semantic route is invalid")
+        routed = tuple(str(item) for item in route.get("allowed_write_paths") or [])
+        candidates = tuple(str(item) for item in failure.get("candidate_paths") or [])
+        if not routed or routed != candidates:
+            raise AutonomyDispatchError("control-plane semantic route scope drifted")
+        return REPAIR_DOMAIN_CONTROL_PLANE
+    raise AutonomyDispatchError(
+        f"autonomy Stage-2 classification is outside automatic repair authority: {classification!r}"
+    )
+
+
 def verify_stage2_autonomy_handoff(
     *,
     failure: Mapping[str, Any],
@@ -96,8 +132,7 @@ def verify_stage2_autonomy_handoff(
         raise AutonomyDispatchError("Stage-1 evidence belongs to a different repository")
     if _text(failure.get("repository")) != _text(repository):
         raise AutonomyDispatchError("Stage-1 repository binding mismatch")
-    if _text(failure.get("classification")) != "code_or_contract":
-        raise AutonomyDispatchError("autonomy Stage-2 requires a code_or_contract Stage-1 classification")
+    domain = _repair_domain(failure)
     if not failure.get("candidate_paths"):
         raise AutonomyDispatchError("Stage-1 evidence has no bounded repair candidate paths")
     if _text(failure.get("head_branch")).startswith("governed-repair/"):
@@ -138,6 +173,15 @@ def verify_stage2_autonomy_handoff(
     for key, value in expected_stage1.items():
         if _text(binding.get(key)) != value:
             raise AutonomyDispatchError(f"Stage-1 TaskRun binding mismatch: {key}")
+    bound_domain = _text(binding.get("repair_domain"))
+    if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        route = failure.get("repair_route") if isinstance(failure.get("repair_route"), Mapping) else {}
+        if bound_domain != domain:
+            raise AutonomyDispatchError("Stage-1 TaskRun control-plane repair domain mismatch")
+        if _text(binding.get("repair_route_sha256")) != _text(route.get("route_sha256")):
+            raise AutonomyDispatchError("Stage-1 TaskRun semantic repair-route binding mismatch")
+    elif bound_domain and bound_domain != domain:
+        raise AutonomyDispatchError("Stage-1 TaskRun product repair domain drift")
 
     result = _validate_result_digest(handoff_result)
     task = result.get("task") if isinstance(result.get("task"), Mapping) else None
@@ -230,6 +274,7 @@ def verify_stage2_autonomy_handoff(
     )
     return {
         "repair_allowed": True,
+        "repair_domain": domain,
         "head_sha": failure_head,
         "source_run_id": source_id,
         "source_run_attempt": source_attempt,

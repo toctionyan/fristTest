@@ -2,11 +2,15 @@ from __future__ import annotations
 
 """Canonical path-capability policy for automatic governed source repair.
 
-This module is the single machine-readable source for *where* a product-repair
-write grant may point.  It owns no GitHub, filesystem, model, merge, baseline,
-or deployment side effects.  Both the grant compiler and the patch executor
-must consume the same policy fingerprint so a permissive secondary copy cannot
-silently create wider write authority.
+This module is the single machine-readable source for *where* an automatic
+repair write grant may point. Product-source repair keeps its historical policy
+unchanged. A second, deliberately narrower control-plane implementation domain
+may repair only engineering verifier implementation files that an upstream
+semantic router has already bound to the exact failing PR and failing tests.
+
+Neither domain may write tests/oracles, workflows, governance data, repair
+authority, secrets, dependency manifests, merge state, deploy state, or
+production state.
 """
 
 import hashlib
@@ -17,6 +21,10 @@ from typing import Any, Iterable, Mapping
 PATH_POLICY_SCHEMA = "governed-repair-path-policy@1"
 PATH_POLICY_ID = "customer-agent/governed-repair-path-policy@1"
 MAX_WRITE_PATHS = 16
+
+REPAIR_DOMAIN_PRODUCT = "PRODUCT_CODE"
+REPAIR_DOMAIN_CONTROL_PLANE = "CONTROL_PLANE_IMPLEMENTATION"
+REPAIR_DOMAINS = frozenset({REPAIR_DOMAIN_PRODUCT, REPAIR_DOMAIN_CONTROL_PLANE})
 
 SUPPORTED_SUFFIXES = frozenset(
     {
@@ -55,6 +63,10 @@ PROTECTED_PREFIXES = (
     ".git/",
     ".quality/",
 )
+# Keep this historical product projection byte-for-byte equivalent to the
+# existing Patch Owner filter. New M8.6 control-plane files are not made product
+# writable: product repair already rejects all ``scripts/`` paths by root, while
+# the separate control domain below is independently allow-listed.
 PROTECTED_EXACT = frozenset(
     {
         "scripts/quality_loop.py",
@@ -68,6 +80,13 @@ PROTECTED_EXACT = frozenset(
         "skill-system/registry/product-source-baseline.json",
     }
 )
+
+# This is intentionally not a generic ``scripts/`` capability. It is only the
+# implementation side of the engineering verifier family. The semantic router
+# must additionally prove that the exact file is already changed in the source
+# PR and paired with a failing test module before this path policy is consulted.
+CONTROL_PLANE_IMPLEMENTATION_PREFIXES = ("scripts/verify_engineering_",)
+CONTROL_PLANE_IMPLEMENTATION_SUFFIXES = frozenset({".py"})
 
 
 class RepairPathPolicyError(ValueError):
@@ -89,6 +108,23 @@ def policy_payload() -> dict[str, Any]:
         "environment_filename_rules": [".env", ".env.example"],
         "lock_suffix_forbidden": True,
         "existing_regular_file_required_at_execution": True,
+        "repair_domains": {
+            REPAIR_DOMAIN_PRODUCT: {
+                "automatic_source_roots": list(AUTOMATIC_SOURCE_ROOTS),
+                "test_write_allowed": False,
+                "acceptance_write_allowed": False,
+            },
+            REPAIR_DOMAIN_CONTROL_PLANE: {
+                "allowed_prefixes": list(CONTROL_PLANE_IMPLEMENTATION_PREFIXES),
+                "allowed_suffixes": sorted(CONTROL_PLANE_IMPLEMENTATION_SUFFIXES),
+                "requires_exact_source_pr_change": True,
+                "requires_failed_test_module_pairing": True,
+                "test_write_allowed": False,
+                "acceptance_write_allowed": False,
+                "workflow_write_allowed": False,
+                "governance_write_allowed": False,
+            },
+        },
     }
 
 
@@ -118,14 +154,7 @@ def normalize_repo_path(raw: object) -> str:
     return value
 
 
-def path_policy_violation(raw: object) -> str | None:
-    """Return a stable violation code, or ``None`` when the path is eligible."""
-
-    try:
-        path = normalize_repo_path(raw)
-    except RepairPathPolicyError:
-        return "invalid_repository_path"
-
+def _common_violation(path: str) -> str | None:
     lowered = path.casefold()
     pure = PurePosixPath(path)
     parts = {part.casefold() for part in pure.parts}
@@ -133,8 +162,6 @@ def path_policy_violation(raw: object) -> str | None:
 
     if path in PROTECTED_EXACT or any(path.startswith(prefix) for prefix in PROTECTED_PREFIXES):
         return "protected_control_plane_path"
-    if not any(path.startswith(root) for root in AUTOMATIC_SOURCE_ROOTS):
-        return "outside_automatic_product_source_roots"
     if parts & FORBIDDEN_PATH_PARTS:
         return "test_or_evaluation_path"
     if name.startswith("test_") or ".test." in name or ".spec." in name:
@@ -143,18 +170,55 @@ def path_policy_violation(raw: object) -> str | None:
         return "dependency_or_build_manifest"
     if lowered.endswith(("/.env", "/.env.example")):
         return "environment_configuration"
-    if pure.suffix.lower() not in SUPPORTED_SUFFIXES:
-        return "unsupported_file_type"
     return None
 
 
-def validate_automatic_repair_paths(paths: Iterable[object]) -> tuple[str, ...]:
-    """Normalize and fail closed unless every path is product-source repairable."""
+def path_policy_violation(
+    raw: object,
+    *,
+    repair_domain: str = REPAIR_DOMAIN_PRODUCT,
+) -> str | None:
+    """Return a stable violation code, or ``None`` when the path is eligible."""
 
+    try:
+        path = normalize_repo_path(raw)
+    except RepairPathPolicyError:
+        return "invalid_repository_path"
+
+    if repair_domain not in REPAIR_DOMAINS:
+        return "unknown_repair_domain"
+    common = _common_violation(path)
+    if common:
+        return common
+
+    pure = PurePosixPath(path)
+    if repair_domain == REPAIR_DOMAIN_PRODUCT:
+        if not any(path.startswith(root) for root in AUTOMATIC_SOURCE_ROOTS):
+            return "outside_automatic_product_source_roots"
+        if pure.suffix.lower() not in SUPPORTED_SUFFIXES:
+            return "unsupported_file_type"
+        return None
+
+    if not any(path.startswith(prefix) for prefix in CONTROL_PLANE_IMPLEMENTATION_PREFIXES):
+        return "outside_bounded_control_plane_implementation_prefixes"
+    if pure.suffix.lower() not in CONTROL_PLANE_IMPLEMENTATION_SUFFIXES:
+        return "unsupported_control_plane_implementation_type"
+    return None
+
+
+def validate_repair_paths(
+    paths: Iterable[object],
+    *,
+    repair_domain: str = REPAIR_DOMAIN_PRODUCT,
+) -> tuple[str, ...]:
+    """Normalize and fail closed unless every path is eligible for the exact domain."""
+
+    if repair_domain not in REPAIR_DOMAINS:
+        raise RepairPathPolicyError(f"unknown_repair_domain: {repair_domain}")
     result: list[str] = []
     for raw in paths:
         path = normalize_repo_path(raw)
-        violation = path_policy_violation(path)
+        violation = path_policy_violation(path, repair_domain=repair_domain)
         if violation:
             raise RepairPathPolicyError(f"{violation}: {path}")
         if path in result:
@@ -167,6 +231,12 @@ def validate_automatic_repair_paths(paths: Iterable[object]) -> tuple[str, ...]:
             f"repair_candidate_path_count_exceeds_{MAX_WRITE_PATHS}"
         )
     return tuple(result)
+
+
+def validate_automatic_repair_paths(paths: Iterable[object]) -> tuple[str, ...]:
+    """Historical product-source API; its authority remains unchanged."""
+
+    return validate_repair_paths(paths, repair_domain=REPAIR_DOMAIN_PRODUCT)
 
 
 def mutation_detection_matrix() -> dict[str, bool]:
@@ -189,7 +259,15 @@ def mutation_detection_matrix() -> dict[str, bool]:
 
     widen_roots = json.loads(json.dumps(baseline))
     widen_roots["automatic_source_roots"].append("scripts/")
-    mutations["control_plane_root_added"] = widen_roots
+    mutations["product_control_plane_root_added"] = widen_roots
+
+    widen_control = json.loads(json.dumps(baseline))
+    widen_control["repair_domains"][REPAIR_DOMAIN_CONTROL_PLANE]["allowed_prefixes"] = ["scripts/"]
+    mutations["control_plane_pattern_widened"] = widen_control
+
+    allow_control_tests = json.loads(json.dumps(baseline))
+    allow_control_tests["repair_domains"][REPAIR_DOMAIN_CONTROL_PLANE]["test_write_allowed"] = True
+    mutations["control_plane_tests_became_writable"] = allow_control_tests
 
     expand_count = json.loads(json.dumps(baseline))
     expand_count["max_write_paths"] = MAX_WRITE_PATHS + 1

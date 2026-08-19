@@ -2,11 +2,11 @@
 """Independently validate an RCA-bound Stage-2 repair candidate.
 
 Stage 3 has no model and no patch-authoring authority. It verifies the immutable
-failure case, read-only RCA, exact write grant, and patch digests; materializes
-that exact patch on the exact failed commit; runs fixed targeted suites and the
-repository Quick quality loop; and may publish only a Draft PR. It never changes
-the repair contents, broadens scope, refreshes protected baselines, merges,
-deploys, runs production certification, or closes production.
+failure case, read-only RCA, exact write grant, repair domain, and patch digests;
+materializes that exact patch on the exact failed commit; runs fixed targeted
+suites and the repository Quick quality loop; and may publish only a Draft PR.
+It never changes repair contents, broadens scope, refreshes protected baselines,
+merges, deploys, runs production certification, or closes production.
 """
 from __future__ import annotations
 
@@ -38,6 +38,12 @@ from github_repair_authority import (  # noqa: E402
     validate_write_grant,
     write_grant_fingerprint,
 )
+from governed_repair_path_policy import (  # noqa: E402
+    REPAIR_DOMAIN_CONTROL_PLANE,
+    REPAIR_DOMAIN_PRODUCT,
+    RepairPathPolicyError,
+    validate_repair_paths,
+)
 from run_python_test_suites import STANDARD_CONFIG_PREFIXES, STANDARD_ENV  # noqa: E402
 
 STAGE2_SCHEMA = "github-governed-repair-stage2@1"
@@ -45,6 +51,7 @@ STAGE3_SCHEMA = "github-governed-repair-stage3@2"
 MAX_PATCH_BYTES = 2_000_000
 MAX_OUTPUT_CHARS = 40_000
 ANTI_DRIFT_REQUIRED_GATE_ID = "python-test-suites"
+CONTROL_TARGETED_COMPONENT = "skill-control-plane"
 
 
 class Stage3Error(RuntimeError):
@@ -152,6 +159,15 @@ def _validate_binding(task: TaskRunStore, result: dict[str, Any]) -> None:
     ]
     if mismatched:
         raise Stage3Error(f"Stage-2 TaskRun binding mismatch: {mismatched}")
+    domain = str(result.get("repair_domain") or "")
+    if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        if str(binding.get("repair_domain") or "") != domain:
+            raise Stage3Error("TaskRun control-plane repair domain binding mismatch")
+        route_sha = str(result.get("repair_route_sha256") or "")
+        if not route_sha or str(binding.get("repair_route_sha256") or "") != route_sha:
+            raise Stage3Error("TaskRun control-plane semantic route binding mismatch")
+    elif str(binding.get("repair_domain") or "") not in {"", REPAIR_DOMAIN_PRODUCT}:
+        raise Stage3Error("TaskRun product repair domain drift")
     if task.payload.get("status") != "WAITING_EXTERNAL_RESULT":
         raise Stage3Error("TaskRun is not waiting for Stage-3 validation")
     if task.payload.get("phase") != "STAGE3_VALIDATION_REQUIRED":
@@ -237,6 +253,18 @@ def _validate_authority_bundle(
         raise Stage3Error("Stage-2 RCA digest mismatch")
     if str(result.get("write_grant_sha256") or "") != write_grant_fingerprint(grant):
         raise Stage3Error("Stage-2 write-grant digest mismatch")
+    domain = str(grant.get("repair_domain") or "")
+    if domain not in {REPAIR_DOMAIN_PRODUCT, REPAIR_DOMAIN_CONTROL_PLANE}:
+        raise Stage3Error("Stage-2 write grant lacks a supported repair domain")
+    if str(result.get("repair_domain") or domain) != domain:
+        raise Stage3Error("Stage-2 result repair domain differs from immutable write grant")
+    if str(failure_case.get("repair_domain") or domain) != domain:
+        raise Stage3Error("Stage-1 failure repair domain differs from immutable write grant")
+    if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        route = failure_case.get("repair_route") if isinstance(failure_case.get("repair_route"), dict) else {}
+        route_sha = str(route.get("route_sha256") or "")
+        if not route_sha or str(result.get("repair_route_sha256") or route_sha) != route_sha:
+            raise Stage3Error("Stage-2 control-plane semantic route digest drift")
     result_guard_ids = tuple(str(item or "").strip() for item in result.get("required_guard_ids") or [])
     grant_guard_ids = tuple(str(item or "").strip() for item in grant.get("required_guard_ids") or [])
     if result_guard_ids != grant_guard_ids or not result_guard_ids:
@@ -292,12 +320,16 @@ def inspect_handoff(
         grant=grant,
         changed_paths=changed,
     )
+    domain = str(grant.get("repair_domain") or REPAIR_DOMAIN_PRODUCT)
+    route = failure_case.get("repair_route") if isinstance(failure_case.get("repair_route"), dict) else {}
     return {
         "publish_allowed": True,
         "repository": str(result["repository"]),
         "source_run_id": str(result["workflow_run_id"]),
         "head_sha": str(result["head_sha"]),
         "failure_signature": str(result["failure_signature"]),
+        "repair_domain": domain,
+        "repair_route_sha256": str(route.get("route_sha256") or result.get("repair_route_sha256") or ""),
         "repair_branch": str(result["repair_branch"]),
         "repair_base_branch": str(result["repair_base_branch"]),
         "changed_paths": list(changed),
@@ -317,10 +349,71 @@ def inspect_handoff(
     }
 
 
+def _validate_stage3_paths(
+    workspace: Path,
+    paths: Iterable[str],
+    *,
+    repair_domain: str,
+) -> tuple[str, ...]:
+    raw = tuple(_normalize_path(str(item)) for item in paths)
+    if repair_domain == REPAIR_DOMAIN_PRODUCT:
+        try:
+            return validate_allowed_paths(workspace, raw)
+        except FixerError as exc:
+            raise Stage3Error(str(exc)) from exc
+    if repair_domain != REPAIR_DOMAIN_CONTROL_PLANE:
+        raise Stage3Error(f"unsupported Stage-3 repair domain: {repair_domain!r}")
+    try:
+        normalized = validate_repair_paths(raw, repair_domain=repair_domain)
+    except RepairPathPolicyError as exc:
+        raise Stage3Error(str(exc)) from exc
+    root = workspace.resolve()
+    for path in normalized:
+        candidate = root / path
+        if candidate.is_symlink() or not candidate.is_file():
+            raise Stage3Error(f"control-plane repair candidate must be a regular file: {path}")
+        try:
+            candidate.resolve().relative_to(root)
+        except ValueError as exc:
+            raise Stage3Error(f"control-plane repair candidate escapes workspace: {path}") from exc
+    return normalized
+
+
+def _verify_stage3_changed_files(
+    workspace: Path,
+    paths: Iterable[str],
+    *,
+    repair_domain: str,
+) -> tuple[bool, list[dict[str, Any]]]:
+    normalized = _validate_stage3_paths(workspace, paths, repair_domain=repair_domain)
+    if repair_domain == REPAIR_DOMAIN_PRODUCT:
+        return verify_changed_files(workspace, normalized)
+    rows: list[dict[str, Any]] = []
+    passed = True
+    for path in normalized:
+        candidate = workspace / path
+        try:
+            source = candidate.read_text(encoding="utf-8")
+            compile(source, path, "exec")
+            row = {"path": path, "kind": "python-compile", "passed": True}
+        except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+            passed = False
+            row = {
+                "path": path,
+                "kind": "python-compile",
+                "passed": False,
+                "error": str(exc)[:4000],
+            }
+        rows.append(row)
+    return passed, rows
+
+
 def _target_components(paths: Iterable[str], workspace: Path) -> list[str]:
     components: set[str] = set()
     for path in paths:
-        if path.startswith("services/agent-service/frontend/"):
+        if path.startswith("scripts/verify_engineering_") and path.endswith(".py"):
+            components.add(CONTROL_TARGETED_COMPONENT)
+        elif path.startswith("services/agent-service/frontend/"):
             components.add("agent-frontend")
         elif path.startswith("services/agent-service/"):
             components.add("agent-python")
@@ -336,7 +429,7 @@ def _target_components(paths: Iterable[str], workspace: Path) -> list[str]:
             raise Stage3Error(f"no fixed targeted suite for changed path: {path}")
     if not components:
         raise Stage3Error("targeted validation component set is empty")
-    order = ("agent-python", "business-python", "agent-frontend", "web-node")
+    order = (CONTROL_TARGETED_COMPONENT, "agent-python", "business-python", "agent-frontend", "web-node")
     return [name for name in order if name in components]
 
 
@@ -366,11 +459,9 @@ def prepare_candidate(
     if _changed_paths(workspace):
         raise Stage3Error("Stage-3 candidate workspace must start clean")
 
+    domain = str(handoff["repair_domain"])
     expected_paths = tuple(handoff["changed_paths"])
-    try:
-        validate_allowed_paths(workspace, expected_paths)
-    except FixerError as exc:
-        raise Stage3Error(str(exc)) from exc
+    _validate_stage3_paths(workspace, expected_paths, repair_domain=domain)
 
     check = _run(
         ["git", "apply", "--check", "--whitespace=error-all", str(patch_path.resolve())],
@@ -399,11 +490,10 @@ def prepare_candidate(
     unexpected = [path for path in actual_paths if path not in set(handoff["write_scope"])]
     if unexpected:
         raise Stage3Error(f"applied patch escaped write grant: {unexpected}")
-    try:
-        validate_allowed_paths(workspace, actual_paths)
-    except FixerError as exc:
-        raise Stage3Error(str(exc)) from exc
-    deterministic_passed, verification = verify_changed_files(workspace, actual_paths)
+    _validate_stage3_paths(workspace, actual_paths, repair_domain=domain)
+    deterministic_passed, verification = _verify_stage3_changed_files(
+        workspace, actual_paths, repair_domain=domain
+    )
     if not deterministic_passed:
         raise Stage3Error(f"Stage-3 deterministic verification failed: {verification}")
 
@@ -468,6 +558,8 @@ def prepare_candidate(
             "stage": 3,
             "governed_repair_state": "INDEPENDENT_REVIEW",
             "candidate_sha": candidate_sha,
+            "repair_domain": domain,
+            "repair_route_sha256": handoff.get("repair_route_sha256"),
             "targeted_components": components,
             "rca_sha256": handoff["rca_sha256"],
             "write_grant_sha256": handoff["write_grant_sha256"],
@@ -489,6 +581,16 @@ def _component_command(component: str, workspace: Path) -> tuple[list[str], Path
         "not integration and not preprod",
         "tests",
     ]
+    if component == CONTROL_TARGETED_COMPONENT:
+        return (
+            [
+                str(workspace / "services/agent-service/.venv/bin/python"),
+                "-B",
+                "skill-system/controller/profile_runner.py",
+                "skill-control-plane",
+            ],
+            workspace,
+        )
     if component == "agent-python":
         return (
             [str(workspace / "services/agent-service/.venv/bin/python"), *python_test_args],
@@ -588,6 +690,8 @@ def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
         "schema": STAGE3_SCHEMA,
         "status": "TARGETED_VALIDATION_PASSED" if passed else "TARGETED_VALIDATION_FAILED",
         "candidate_sha": plan.get("candidate_sha"),
+        "repair_domain": str(plan.get("repair_domain") or REPAIR_DOMAIN_PRODUCT),
+        "repair_route_sha256": plan.get("repair_route_sha256"),
         "rca_sha256": plan.get("rca_sha256"),
         "write_grant_sha256": plan.get("write_grant_sha256"),
         "required_guard_ids": plan.get("required_guard_ids"),
@@ -631,9 +735,17 @@ def validate_quick_evidence(summary_path: Path) -> dict[str, Any]:
 def _require_permanent_guard_reverified(
     summary: dict[str, Any],
     guard_ids: Iterable[str],
+    *,
+    targeted: dict[str, Any] | None = None,
+    repair_domain: str = REPAIR_DOMAIN_PRODUCT,
 ) -> dict[str, str]:
-    """Require every original machine guard to be mandatory and PASS in Quick."""
+    """Require every original machine guard to be mandatory and PASS.
 
+    Product guards remain Quick-required exactly as before. The M8.6
+    ``skill-control-plane`` guard is re-executed by the independent targeted
+    Stage-3 profile because it is a workflow/profile gate rather than a
+    ``quality_loop.py`` Quick gate; it is never inferred from a skipped check.
+    """
     required = {str(item) for item in summary.get("required_gate_ids") or []}
     statuses = {
         str(row.get("id")): str(row.get("status"))
@@ -643,14 +755,35 @@ def _require_permanent_guard_reverified(
     guards = tuple(str(item or "").strip() for item in guard_ids)
     if not guards or any(not item for item in guards) or len(set(guards)) != len(guards):
         raise Stage3Error("permanent_guard_not_reverified: invalid required_guard_ids")
-    missing_required = [item for item in guards if item not in required]
-    failed = [item for item in guards if statuses.get(item) != "PASS"]
+
+    proof: dict[str, str] = {}
+    remaining: list[str] = []
+    for guard in guards:
+        if repair_domain == REPAIR_DOMAIN_CONTROL_PLANE and guard == CONTROL_TARGETED_COMPONENT:
+            rows = targeted.get("results") if isinstance(targeted, dict) else None
+            matched = [
+                row for row in (rows or [])
+                if isinstance(row, dict)
+                and row.get("component") == CONTROL_TARGETED_COMPONENT
+                and row.get("passed") is True
+            ]
+            if not matched:
+                raise Stage3Error(
+                    "permanent_guard_not_reverified: skill-control-plane targeted profile did not PASS"
+                )
+            proof[guard] = "PASS"
+        else:
+            remaining.append(guard)
+
+    missing_required = [item for item in remaining if item not in required]
+    failed = [item for item in remaining if statuses.get(item) != "PASS"]
     if missing_required or failed:
         raise Stage3Error(
             "permanent_guard_not_reverified: "
             f"not_required={missing_required} not_pass={failed}"
         )
-    return {item: statuses[item] for item in guards}
+    proof.update({item: statuses[item] for item in remaining})
+    return proof
 
 
 def _require_anti_drift_proof(summary: dict[str, Any]) -> dict[str, str]:
@@ -661,7 +794,6 @@ def _require_anti_drift_proof(summary: dict[str, Any]) -> dict[str, str]:
     drifts a secondary lifecycle projection and requires the architecture verifier
     to turn RED. Removing that gate from Quick is therefore itself fail-closed.
     """
-
     required = {str(item) for item in summary.get("required_gate_ids") or []}
     statuses = {
         str(row.get("id")): str(row.get("status"))
@@ -698,10 +830,19 @@ def record_validation(
     for field in ("rca_sha256", "write_grant_sha256"):
         if targeted.get(field) != plan.get(field):
             raise Stage3Error(f"targeted evidence {field} mismatch")
+    domain = str(plan.get("repair_domain") or REPAIR_DOMAIN_PRODUCT)
+    targeted_domain = str(targeted.get("repair_domain") or REPAIR_DOMAIN_PRODUCT)
+    if targeted_domain != domain:
+        raise Stage3Error("targeted evidence repair_domain mismatch")
+    if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        if str(targeted.get("repair_route_sha256") or "") != str(plan.get("repair_route_sha256") or ""):
+            raise Stage3Error("targeted evidence repair-route digest mismatch")
     summary = validate_quick_evidence(quick_summary_path)
     guard_proof = _require_permanent_guard_reverified(
         summary,
         plan.get("required_guard_ids") or [],
+        targeted=targeted,
+        repair_domain=domain,
     )
     anti_drift_proof = _require_anti_drift_proof(summary)
     workspace = workspace.resolve()
@@ -725,6 +866,7 @@ def record_validation(
                     str(targeted_result_path),
                     str(quick_summary_path),
                     f"candidate-sha:{candidate_sha}",
+                    f"repair-domain:{domain}",
                     *[f"permanent-guard:{gate}:PASS" for gate in guard_proof],
                 ],
             },
@@ -776,6 +918,8 @@ def record_validation(
         evidence_refs=[str(targeted_result_path), str(quick_summary_path)],
         metadata={
             "candidate_sha": candidate_sha,
+            "repair_domain": domain,
+            "repair_route_sha256": plan.get("repair_route_sha256"),
             "quick_loop_status": "CI_VERIFIED",
             "governed_repair_state": "PR_CERTIFICATION",
             "gates": gates,
@@ -790,6 +934,8 @@ def record_validation(
         "source_run_id": plan.get("source_run_id"),
         "head_sha": plan.get("head_sha"),
         "candidate_sha": candidate_sha,
+        "repair_domain": domain,
+        "repair_route_sha256": plan.get("repair_route_sha256"),
         "repair_branch": plan.get("repair_branch"),
         "repair_base_branch": plan.get("repair_base_branch"),
         "changed_paths": plan.get("changed_paths"),
@@ -920,6 +1066,7 @@ def main() -> int:
                 {
                     "candidate_sha": payload["candidate_sha"],
                     "source_run_id": payload["source_run_id"],
+                    "repair_domain": payload["repair_domain"],
                     "repair_branch": payload["repair_branch"],
                     "repair_base_branch": payload["repair_base_branch"],
                     "rca_sha256": payload["rca_sha256"],
@@ -946,6 +1093,7 @@ def main() -> int:
                 Path(args.github_output) if args.github_output else None,
                 {
                     "candidate_sha": payload["candidate_sha"],
+                    "repair_domain": payload["repair_domain"],
                     "repair_branch": payload["repair_branch"],
                     "repair_base_branch": payload["repair_base_branch"],
                     "source_run_id": payload["source_run_id"],

@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Trusted Stage-2 scope compiler and mandatory read-only RCA authority.
 
-Stage-1 evidence may mention product source, tests/oracles, or unrelated verifier
-files. This wrapper first narrows evidence to the source PR's changed paths, then
-compiles a separate writable repair scope using the same path guard enforced by
-the Stage-2 fixer. Evidence can therefore remain visible to governance without
-granting write authority to tests, CI, governance, dependency manifests, or other
-protected files. Changed-file metadata and scope compilation can only remove
-repair authority, never add it.
+Stage-1 evidence may mention product source, tests/oracles, or control-plane
+implementation files. This wrapper first narrows evidence to the source PR's
+changed paths, then compiles a separate writable repair scope using the same
+canonical domain-aware path guard enforced by the existing Stage-2 fixer.
+Evidence can remain visible without granting write authority to tests/oracles,
+workflows, governance, dependencies, secrets, or unrelated control-plane files.
 
 Before *any* seed patch or repair edit is applied, the wrapper runs a mandatory
 read-only RCA against the clean candidate checkout. A deterministic write grant
 is compiled only from that immutable RCA and is bound to the exact failure case,
-head SHA, failure signature, and narrowed path set.
+repair domain, head SHA, failure signature, and narrowed path set.
 """
 from __future__ import annotations
 
@@ -28,7 +27,12 @@ from github_repair_authority import (
     RepairAuthorityError,
     compile_write_grant,
 )
+from github_repair_domain_adapter import repair_domain_runtime
 from github_repair_rca import RCAError, run_read_only_rca
+from governed_repair_path_policy import (
+    REPAIR_DOMAIN_CONTROL_PLANE,
+    REPAIR_DOMAIN_PRODUCT,
+)
 
 
 class ScopeNormalizationError(RuntimeError):
@@ -73,6 +77,15 @@ def _candidate_paths_digest(paths: list[str]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _expected_loop_failure_class(report: dict[str, Any]) -> str:
+    domain = str(report.get("repair_domain") or "").strip()
+    if domain == REPAIR_DOMAIN_PRODUCT:
+        return "PRODUCT_SOURCE_FAILURE"
+    if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        return "CONTROL_PLANE_IMPLEMENTATION_FAILURE"
+    raise ScopeNormalizationError(f"unsupported outer-loop repair domain: {domain!r}")
+
+
 def _validate_outer_loop_scope_binding(
     report: dict[str, Any],
     candidates: list[str],
@@ -82,8 +95,13 @@ def _validate_outer_loop_scope_binding(
         return
     if not isinstance(feedback, dict) or feedback.get("schema") != _LOOP_FEEDBACK_SCHEMA:
         raise ScopeNormalizationError("invalid outer-loop feedback contract")
-    if feedback.get("failure_class") != "PRODUCT_SOURCE_FAILURE":
-        raise ScopeNormalizationError("outer-loop feedback is not a product-source repair")
+    expected_failure_class = _expected_loop_failure_class(report)
+    if feedback.get("failure_class") != expected_failure_class:
+        raise ScopeNormalizationError(
+            "outer-loop failure class drifted from the immutable repair domain"
+        )
+    if feedback.get("repair_domain") != report.get("repair_domain"):
+        raise ScopeNormalizationError("outer-loop repair domain changed between rounds")
     if feedback.get("scope_expanded") is not False:
         raise ScopeNormalizationError("outer-loop feedback asserted scope expansion")
 
@@ -168,7 +186,8 @@ def normalize_failure_case(report: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(report)
     normalized["candidate_paths"] = scoped
     normalized["stage2_scope_normalization"] = {
-        "schema": "stage2-scope-normalization@3",
+        "schema": "stage2-scope-normalization@4",
+        "repair_domain": normalized.get("repair_domain"),
         "evidence_candidates": candidates,
         "source_changed_files": changed,
         "evidence_paths": scoped,
@@ -184,7 +203,7 @@ def normalize_failure_case(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def compile_repair_scope(report: dict[str, Any], *, workspace: Path) -> dict[str, Any]:
-    """Compile maximum possible write candidates using the fixer path guard.
+    """Compile maximum possible write candidates using the active domain path guard.
 
     This result is *not* write authority. The read-only RCA may only narrow this
     tuple, and ``github_repair_authority`` must then compile the exact grant.
@@ -249,52 +268,59 @@ def run(
     evidence_root.mkdir(parents=True, exist_ok=True)
 
     _assert_clean_candidate(workspace)
-    report = compile_repair_scope(_load_object(failure_case_path), workspace=workspace)
-    normalized_path = evidence_root / "normalized-failure-case.json"
-    _write_object(normalized_path, report)
+    raw_report = _load_object(failure_case_path)
+    with repair_domain_runtime(raw_report) as domain:
+        report = compile_repair_scope(raw_report, workspace=workspace)
+        if report.get("repair_domain") != domain:
+            raise ScopeNormalizationError("runtime repair domain differs from failure-case domain")
+        normalized_path = evidence_root / "normalized-failure-case.json"
+        _write_object(normalized_path, report)
 
-    candidate_paths = tuple(report.get("candidate_paths") or ())
-    if not candidate_paths:
-        raise ScopeNormalizationError(
-            "no product-source candidate remains for read-only RCA; write authority denied"
+        candidate_paths = tuple(report.get("candidate_paths") or ())
+        if not candidate_paths:
+            raise ScopeNormalizationError(
+                "no candidate remains inside the immutable repair domain; write authority denied"
+            )
+
+        rca = run_read_only_rca(
+            workspace=workspace,
+            failure_case=report,
+            candidate_paths=candidate_paths,
+            repair_round=repair_round,
         )
+        if rca.get("repair_domain") is None:
+            rca["repair_domain"] = domain
+            rca["rca_sha256"] = __import__("github_repair_authority").rca_fingerprint(rca)
+        rca_path = evidence_root / "rca.json"
+        _write_object(rca_path, rca)
 
-    rca = run_read_only_rca(
-        workspace=workspace,
-        failure_case=report,
-        candidate_paths=candidate_paths,
-        repair_round=repair_round,
-    )
-    rca_path = evidence_root / "rca.json"
-    _write_object(rca_path, rca)
+        grant = compile_write_grant(
+            failure_case=report,
+            rca=rca,
+            candidate_paths=candidate_paths,
+        )
+        grant_path = evidence_root / "write-grant.json"
+        _write_object(grant_path, grant)
 
-    grant = compile_write_grant(
-        failure_case=report,
-        rca=rca,
-        candidate_paths=candidate_paths,
-    )
-    grant_path = evidence_root / "write-grant.json"
-    _write_object(grant_path, grant)
+        report["stage2_scope_normalization"]["granted_paths"] = list(
+            grant["allowed_paths"]
+        )
+        report["stage2_scope_normalization"]["repair_scope_status"] = "WRITE_GRANTED"
+        report["governed_repair_state"] = "WRITE_GRANTED"
+        _write_object(normalized_path, report)
 
-    report["stage2_scope_normalization"]["granted_paths"] = list(
-        grant["allowed_paths"]
-    )
-    report["stage2_scope_normalization"]["repair_scope_status"] = "WRITE_GRANTED"
-    report["governed_repair_state"] = "WRITE_GRANTED"
-    _write_object(normalized_path, report)
-
-    return base.run_stage2(
-        workspace=workspace,
-        failure_case_path=normalized_path,
-        task_run_path=task_run_path,
-        evidence_root=evidence_root,
-        max_cycles=max_cycles,
-        seed_patch_path=seed_patch_path,
-        repair_round_number=repair_round,
-        max_repair_rounds=max_repair_rounds,
-        rca_path=rca_path,
-        write_grant_path=grant_path,
-    )
+        return base.run_stage2(
+            workspace=workspace,
+            failure_case_path=normalized_path,
+            task_run_path=task_run_path,
+            evidence_root=evidence_root,
+            max_cycles=max_cycles,
+            seed_patch_path=seed_patch_path,
+            repair_round_number=repair_round,
+            max_repair_rounds=max_repair_rounds,
+            rca_path=rca_path,
+            write_grant_path=grant_path,
+        )
 
 
 def main() -> int:
