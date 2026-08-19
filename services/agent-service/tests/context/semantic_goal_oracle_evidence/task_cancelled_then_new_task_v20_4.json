@@ -1,0 +1,81 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:task_cancelled_then_new_task",
+  "case_id": "task_cancelled_then_new_task",
+  "family": "multi_task_interleaving",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": ["task_cancelled_then_new_task"],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context"
+  },
+  "evidence": {
+    "user_turns": [
+      {"turn": 1, "text": "帮我取消鼠标订单"},
+      {"turn": 2, "text": "算了不取消了"},
+      {"turn": 3, "text": "查一下它物流"}
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "target_order": {"order_id": "10003", "product": "无线鼠标", "status": "待发货"}
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_type": "order_cancellation_action",
+        "state": "blocked_awaiting_authorization",
+        "required_slots": {"order_id": "10003", "product": "无线鼠标"},
+        "required_effect": "order.cancellation",
+        "forbidden_effect": "business_write_without_authorization",
+        "rationale": "M1 explicitly asks to cancel the mouse order. The safe lifecycle may prepare an authorization-gated Draft, but the utterance alone does not authorize a commit."
+      },
+      {
+        "after_turn": 2,
+        "goal_type": "transaction_draft_dismissal",
+        "state": "completed_and_prior_cancel_goal_cancelled",
+        "required_effect": "transaction.draft.dismissal",
+        "forbidden_effect": "order.cancellation",
+        "reference_semantics": {"kind": "pending_cancel_task_from_previous_turn", "target_order_id": "10003"},
+        "rationale": "M2 withdraws the pending cancellation task itself. It must revoke the unexecuted Draft and cancel the old semantic Goal; it must not cancel the order."
+      },
+      {
+        "after_turn": 3,
+        "goal_type": "order_logistics",
+        "state": "new_read_task",
+        "required_slots": {"order_id": "10003", "product": "无线鼠标"},
+        "required_effect": "shipment.tracking",
+        "reference_semantics": {"kind": "pronoun_to_cancelled_task_domain_target_without_transaction_authority", "source_turn": 1},
+        "rationale": "M3 starts a new read-only logistics task. The pronoun keeps the mouse order as the domain target, but the revoked cancellation Draft and its transaction authority must not be resumed or inherited."
+      }
+    ],
+    "invariants": [
+      "M1 targets exactly order 10003 / 无线鼠标 and may create only an authorization-gated cancellation Draft.",
+      "M2 means stop the pending cancellation task, not execute cancellation and not replace it with a generic order query.",
+      "After M2 the original cancellation Goal is CANCELLED and its Draft is REVOKED.",
+      "M3 is a new read-only logistics Goal for the same mouse order and must not reactivate, duplicate, authorize or commit the old cancellation task.",
+      "No business execute_command is authorized by any of these three utterances."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "鼠标订单取消 Draft 只等待授权而不提交",
+      "明确放弃后撤销该 Draft",
+      "随后对同一鼠标订单开启新的物流查询"
+    ],
+    "must_not_cover": [
+      "把‘算了不取消了’解释成取消订单",
+      "放弃后继续保留可授权的取消 Draft",
+      "把‘查一下它物流’解释成恢复取消任务",
+      "任何未授权业务写入"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}
