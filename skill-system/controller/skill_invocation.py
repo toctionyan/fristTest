@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 SKILL_INVOCATION_RECEIPT_SCHEMA = "skill-invocation-receipt@1"
+SKILL_INVOCATION_INDEX_SCHEMA = "skill-invocation-active-index@1"
 SKILL_CONTEXT_SCHEMA = "skill-context@1"
-CURRENT_RECEIPT = Path(".quality/skill-invocations/current.json")
+ACTIVE_INDEX = Path(".quality/skill-invocations/active.json")
 _REQUIRED_PHASES = ("discovery", "selection", "load", "execution", "output_binding")
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._:-]+$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -201,16 +202,63 @@ def receipt_path(workspace: Path, invocation_id: str) -> Path:
     return workspace / ".quality" / "skill-invocations" / f"{safe}.json"
 
 
+def _active_key(payload: Mapping[str, Any]) -> str:
+    subject = payload.get("subject") if isinstance(payload.get("subject"), Mapping) else {}
+    components = (
+        _safe_token(_text(payload.get("request_class")).upper(), label="request class"),
+        _safe_token(_text(payload.get("selected_skill")), label="selected skill"),
+        _text(subject.get("change_id")) or "-",
+        _text(subject.get("task_id")) or "-",
+    )
+    for value, label in zip(components[2:], ("change id", "task id")):
+        if value != "-":
+            _safe_token(value, label=label)
+    return "|".join(components)
+
+
+def _load_active_index(workspace: Path, *, allow_missing: bool = False) -> dict[str, Any]:
+    path = workspace / ACTIVE_INDEX
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if allow_missing:
+            return {"schema": SKILL_INVOCATION_INDEX_SCHEMA, "entries": {}}
+        raise SkillInvocationError(f"Skill invocation active index is missing: {path}")
+    except json.JSONDecodeError as exc:
+        raise SkillInvocationError(f"Skill invocation active index is invalid JSON: {path}") from exc
+    if not isinstance(payload, dict) or payload.get("schema") != SKILL_INVOCATION_INDEX_SCHEMA:
+        raise SkillInvocationError("unsupported Skill invocation active index schema")
+    entries = payload.get("entries")
+    if not isinstance(entries, dict):
+        raise SkillInvocationError("Skill invocation active index entries must be an object")
+    return payload
+
+
 def write_receipt(workspace: Path, payload: Mapping[str, Any], *, make_current: bool = True) -> Path:
+    """Persist one receipt and update its active key without evicting other Skills.
+
+    `make_current` is retained as a compatibility argument for callers but now means
+    "activate this receipt for its own request/skill/subject key". There is no
+    single global current receipt because a real host lifecycle may load several
+    required Skills before one governed write or completion decision.
+    """
+
     validated = validate_receipt(workspace, payload)
     path = receipt_path(workspace, _text(validated.get("invocation_id")))
     path.parent.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(validated, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     path.write_text(rendered, encoding="utf-8")
     if make_current:
-        current = workspace / CURRENT_RECEIPT
-        current.parent.mkdir(parents=True, exist_ok=True)
-        current.write_text(rendered, encoding="utf-8")
+        index = _load_active_index(workspace, allow_missing=True)
+        entries = dict(index.get("entries") or {})
+        entries[_active_key(validated)] = {
+            "receipt_path": path.relative_to(workspace).as_posix(),
+            "receipt_fingerprint_sha256": validated["receipt_fingerprint_sha256"],
+        }
+        active = {"schema": SKILL_INVOCATION_INDEX_SCHEMA, "entries": entries}
+        index_path = workspace / ACTIVE_INDEX
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(json.dumps(active, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
 
 
@@ -226,21 +274,71 @@ def load_receipt(path: Path) -> dict[str, Any]:
     return payload
 
 
-def current_receipt(workspace: Path) -> dict[str, Any]:
-    return load_receipt(workspace / CURRENT_RECEIPT)
+def find_active_receipt(
+    workspace: Path,
+    *,
+    request_class: str,
+    skill: str,
+    change_id: str | None = None,
+    task_id: str | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    request_class = _safe_token(request_class.upper(), label="request class")
+    skill = _safe_token(skill, label="skill")
+    subject: dict[str, str] = {}
+    if change_id:
+        subject["change_id"] = _safe_token(change_id, label="change id")
+    if task_id:
+        subject["task_id"] = _safe_token(task_id, label="task id")
+    key = _active_key({"request_class": request_class, "selected_skill": skill, "subject": subject})
+    index = _load_active_index(workspace)
+    raw = index["entries"].get(key)
+    if not isinstance(raw, Mapping):
+        raise SkillInvocationError(
+            f"active Skill invocation receipt is missing for request_class={request_class}, skill={skill}, change_id={change_id or '-'}, task_id={task_id or '-'}"
+        )
+    relative = Path(_text(raw.get("receipt_path")))
+    if relative.is_absolute() or ".." in relative.parts:
+        raise SkillInvocationError("active Skill invocation receipt path is unsafe")
+    path = workspace / relative
+    payload = load_receipt(path)
+    if raw.get("receipt_fingerprint_sha256") != payload.get("receipt_fingerprint_sha256"):
+        raise SkillInvocationError("active Skill invocation index fingerprint mismatch")
+    return path, payload
+
+
+def require_invocation(
+    workspace: Path,
+    *,
+    request_class: str,
+    skill: str,
+    change_id: str | None = None,
+    task_id: str | None = None,
+    require_response_bound: bool = False,
+) -> dict[str, Any]:
+    _path, payload = find_active_receipt(
+        workspace,
+        request_class=request_class,
+        skill=skill,
+        change_id=change_id,
+        task_id=task_id,
+    )
+    return validate_receipt(
+        workspace,
+        payload,
+        expected_request_class=request_class,
+        expected_skill=skill,
+        expected_change_id=change_id,
+        expected_task_id=task_id,
+        require_response_bound=require_response_bound,
+    )
 
 
 def require_change_scope_invocation(workspace: Path, *, change_id: str) -> dict[str, Any]:
-    """Fail closed for supported host writes unless `change-scope` was really loaded.
+    """Fail closed for supported host writes unless `change-scope` was really loaded."""
 
-    The receipt is tied to the unique Change Contract id and current canonical
-    Skill digest, so a static adapter file or a stale load cannot satisfy it.
-    """
-
-    return validate_receipt(
+    return require_invocation(
         workspace,
-        current_receipt(workspace),
-        expected_request_class="CHANGE_SCOPE",
-        expected_skill="change-scope",
-        expected_change_id=change_id,
+        request_class="CHANGE_SCOPE",
+        skill="change-scope",
+        change_id=change_id,
     )
