@@ -1,0 +1,77 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:authority_old_grant_expired",
+  "case_id": "authority_old_grant_expired",
+  "family": "transaction_authority",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "authority_old_grant_expired"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_evidence",
+    "derived_from_runtime_output": false,
+    "capability_availability_is_semantic_input": false,
+    "source_of_truth": "user_turns"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "帮我取消鼠标订单"
+      }
+    ]
+  },
+  "semantic_goal_oracle": {
+    "turns": [
+      {
+        "turn": 1,
+        "goals": [
+          {
+            "goal_type": "cancel_order",
+            "state": "action",
+            "requested_effect": {
+              "domain": "order",
+              "operation": "cancel",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "order.cancellation",
+                  "evidence_span": "帮我取消鼠标订单"
+                }
+              ]
+            },
+            "expected_cardinality": "single",
+            "target_description": "无线鼠标订单"
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      "The user utterance requests an order-cancellation effect; it does not itself create Draft, Grant, CommitAttempt, Receipt, or execution authority.",
+      "A structured UI Grant belongs exclusively to the Transaction Repository and is bound to one persisted transaction snapshot.",
+      "An expired Grant must fail closed before any CommitAttempt, Receipt, or business write is created.",
+      "Retrying or continuing with the same expired Grant must not revive, replace, or mint transaction authority.",
+      "Semantic Contract describes target and effect only; Grant validity is not a semantic or CapabilityGate decision."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "取消鼠标订单先形成待结构化授权的办理记录",
+      "过期授权不能继续提交"
+    ],
+    "must_not_cover": [
+      "把自然语言请求当成授权",
+      "复活旧 Grant",
+      "用过期 Grant 创建 CommitAttempt",
+      "用过期 Grant 创建 Receipt",
+      "执行取消订单业务写入"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "first_meaningful_red": null,
+    "runtime_edit_authorized": false
+  }
+}

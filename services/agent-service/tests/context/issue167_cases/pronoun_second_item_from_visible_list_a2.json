@@ -1,0 +1,343 @@
+{
+  "id": "pronoun_second_item_from_visible_list",
+  "category": "pronoun_reference",
+  "turns": [
+    {"role": "user", "text": "我买了什么？"},
+    {"role": "assistant", "expected": "answer"},
+    {"role": "user", "text": "第二个订单物流到哪了？"},
+    {"role": "assistant", "expected": "answer_for_exact_second_visible_order"},
+    {"role": "user", "text": "它能取消吗？"},
+    {"role": "assistant", "expected": "same_target_non_write_feasibility_or_exact_unsupported"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "resolve_second_visible_order_then_preserve_pronoun_without_action_draft",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "ordinal_from_global_or_hidden_scope",
+    "pronoun_switches_target",
+    "feasibility_question_becomes_cancel_draft",
+    "nearby_action_capability_substitution"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "我买了什么？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "我买了什么？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["list_orders"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "list",
+              "object_type": "order",
+              "requested_outputs": [
+                {"output_id": "order.collection", "evidence_span": "我买了什么？"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "列出当前用户订单，作为后续可见顺序引用的来源",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "列出当前用户的订单集合",
+                      "evidence_span": "我买了什么？",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "collection",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "order",
+                        "operation": "list",
+                        "object_type": "order",
+                        "raw_description": "列出当前用户的订单集合",
+                        "requested_outputs": [
+                          {"output_id": "order.collection", "evidence_span": "我买了什么？"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:second-item:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "list_orders",
+                "args": {
+                  "target": {"mode": "all_orders"},
+                  "expected_shape": "collection",
+                  "reference_span": "我买了什么？",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:second-item:t1:orders"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已按当前可见顺序列出订单。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:second-item:t1:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["list_orders", "respond_to_user"],
+        "required_tools": ["list_orders", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {"must_include": ["list_orders"], "must_not_include": []},
+          "draft": {"count": 0},
+          "port_calls": {"query_resources": {"min": 1}},
+          "result_assertions": [
+            {"tool": "list_orders", "path": "result.data.count", "equals": 3}
+          ],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "第二个订单物流到哪了？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "第二个订单物流到哪了？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["get_order_logistics"],
+            "requested_effect": {
+              "domain": "shipment",
+              "operation": "track",
+              "object_type": "shipment",
+              "requested_outputs": [
+                {"output_id": "shipment.tracking", "evidence_span": "物流到哪了"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "查询上一轮可见订单集合中第二个订单的物流位置或进展",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "查询上一轮可见订单集合第二个成员的物流进展",
+                      "evidence_span": "第二个订单物流到哪了？",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "shipment",
+                        "operation": "track",
+                        "object_type": "shipment",
+                        "raw_description": "查询上一轮可见订单集合第二个成员的物流进展",
+                        "requested_outputs": [
+                          {"output_id": "shipment.tracking", "evidence_span": "物流到哪了"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:second-item:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "get_order_logistics",
+                "args": {
+                  "target": {
+                    "mode": "set_operation",
+                    "operator": "ordinal",
+                    "left_handle": "$previous_turn.data.result_handle",
+                    "position": 2
+                  },
+                  "expected_shape": "one",
+                  "reference_span": "第二个订单",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:second-item:t2:logistics"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已查询上一轮可见结果中第二个订单的物流。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:second-item:t2:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["get_order_logistics", "respond_to_user"],
+        "required_tools": ["get_order_logistics", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {"must_include": ["get_order_logistics"], "must_not_include": []},
+          "draft": {"count": 0},
+          "port_calls": {"read_resource": {"min": 1}},
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "它能取消吗？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "consult",
+            "evidence_span": "它能取消吗？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["report_unsupported_request"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "assess_cancel_eligibility",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "open",
+                  "evidence_span": "能取消吗",
+                  "open_description": "订单当前是否具备取消可行性的只读核验结论"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "询问刚才第二个订单是否具备取消可行性，不要求执行取消",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "核验刚才选中订单是否可以取消，但不创建取消草稿",
+                      "evidence_span": "它能取消吗？",
+                      "goal_type": "consult",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "order",
+                        "operation": "assess_cancel_eligibility",
+                        "object_type": "order",
+                        "raw_description": "核验刚才选中订单是否可以取消，但不创建取消草稿",
+                        "requested_outputs": [
+                          {
+                            "output_id": "open",
+                            "evidence_span": "能取消吗",
+                            "open_description": "订单当前是否具备取消可行性的只读核验结论"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:second-item:t3:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "report_unsupported_request",
+                "args": {
+                  "request_span": "它能取消吗？",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:second-item:t3:unsupported"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "当前没有精确的只读取消资格核验能力，我不会把‘能取消吗’改成取消订单操作。",
+                  "evidence_handles": [],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:second-item:t3:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["report_unsupported_request", "respond_to_user"],
+        "required_tools": ["report_unsupported_request", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GeneralFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["report_unsupported_request"],
+            "must_not_include": ["prepare_cancel_order", "action_gateway", "commit_action"]
+          },
+          "draft": {"count": 0},
+          "port_calls": {"preview_operation": {"max": 0}, "execute_command": {"max": 0}},
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {"behavior": "ordinal_from_global_or_hidden_scope", "kind": "no_business_write"},
+      {"behavior": "pronoun_switches_target", "kind": "no_business_write"},
+      {"behavior": "feasibility_question_becomes_cancel_draft", "kind": "trace_absent", "tool_names": ["prepare_cancel_order", "commit_action"]},
+      {"behavior": "nearby_action_capability_substitution", "kind": "trace_absent", "tool_names": ["prepare_cancel_order"]}
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["list_orders", "get_order_logistics", "report_unsupported_request"],
+    "preproduction_forbidden_tools": ["prepare_cancel_order", "commit_action"]
+  }
+}

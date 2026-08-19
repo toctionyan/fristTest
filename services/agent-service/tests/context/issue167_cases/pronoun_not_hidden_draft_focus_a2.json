@@ -1,0 +1,502 @@
+{
+  "id": "pronoun_not_hidden_draft_focus",
+  "category": "pronoun_reference",
+  "turns": [
+    {
+      "role": "user",
+      "text": "帮我申请鼠标退款"
+    },
+    {
+      "role": "assistant",
+      "expected": "refund_draft_awaiting_authorization"
+    },
+    {
+      "role": "user",
+      "text": "查一下耳机物流"
+    },
+    {
+      "role": "assistant",
+      "expected": "answer_earphone_logistics_without_hidden_draft_focus"
+    },
+    {
+      "role": "user",
+      "text": "它什么时候到？"
+    },
+    {
+      "role": "assistant",
+      "expected": "answer_eta_for_latest_visible_earphone_not_mouse_draft"
+    }
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "resolve_pronoun_from_latest_visible_earphone_while_mouse_refund_draft_remains_pending",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "use_hidden_refund_draft_as_pronoun_focus",
+    "block_current_read_because_old_draft_exists",
+    "commit_or_reauthorize_refund_during_logistics_turns",
+    "arbitrary_global_order_fallback"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "帮我申请鼠标退款",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "action",
+            "evidence_span": "帮我申请鼠标退款",
+            "required": true,
+            "depends_on": [],
+            "required_tools": [
+              "prepare_refund"
+            ],
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "create",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "refund.request",
+                  "evidence_span": "帮我申请鼠标退款"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "为明确的鼠标订单准备退款申请，但只生成待授权 Draft，不执行提交",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "为无线鼠标订单准备退款申请",
+                      "evidence_span": "帮我申请鼠标退款",
+                      "goal_type": "action",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "refund",
+                        "operation": "create",
+                        "object_type": "order",
+                        "raw_description": "为无线鼠标订单准备退款申请",
+                        "requested_outputs": [
+                          {
+                            "output_id": "refund.request",
+                            "evidence_span": "帮我申请鼠标退款"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "prepare_refund",
+                "args": {
+                  "target": {
+                    "mode": "entity_match",
+                    "attribute_span": "鼠标"
+                  },
+                  "reference_span": "鼠标",
+                  "action_span": "帮我申请鼠标退款",
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t1:refund"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": [
+          "prepare_refund"
+        ],
+        "required_tools": [
+          "prepare_refund"
+        ],
+        "expected": {
+          "terminal_statuses": [
+            "ExecutionDisposition:structured_interaction"
+          ],
+          "workflow_levels": [
+            "L0_DIRECT"
+          ],
+          "workflow_statuses": [
+            "AWAITING_AUTHORIZATION"
+          ],
+          "public_interaction": "transaction_interaction",
+          "trace": {
+            "must_include": [
+              "prepare_refund",
+              "action_gateway"
+            ],
+            "must_not_include": [
+              "commit_action",
+              "get_order_logistics"
+            ]
+          },
+          "draft": {
+            "count": 1,
+            "states": [
+              "AWAITING_AUTHORIZATION"
+            ],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "preview_operation": {
+              "min": 1
+            },
+            "execute_command": {
+              "max": 0
+            }
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "查一下耳机物流",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "查一下耳机物流",
+            "required": true,
+            "depends_on": [],
+            "required_tools": [
+              "get_order_logistics"
+            ],
+            "requested_effect": {
+              "domain": "shipment",
+              "operation": "track",
+              "object_type": "shipment",
+              "requested_outputs": [
+                {
+                  "output_id": "shipment.tracking",
+                  "evidence_span": "耳机物流"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "查询蓝牙耳机订单的物流；旧鼠标退款 Draft 继续保留但不能成为当前读焦点",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "查询蓝牙耳机订单的物流进展",
+                      "evidence_span": "查一下耳机物流",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "shipment",
+                        "operation": "track",
+                        "object_type": "shipment",
+                        "raw_description": "查询蓝牙耳机订单的物流进展",
+                        "requested_outputs": [
+                          {
+                            "output_id": "shipment.tracking",
+                            "evidence_span": "耳机物流"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "get_order_logistics",
+                "args": {
+                  "target": {
+                    "mode": "entity_match",
+                    "attribute_span": "耳机"
+                  },
+                  "expected_shape": "one",
+                  "reference_span": "耳机物流",
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t2:logistics"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已查询蓝牙耳机订单的物流。",
+                  "evidence_handles": [
+                    "$last_tool.data.result_handle"
+                  ],
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t2:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": [
+          "get_order_logistics",
+          "respond_to_user"
+        ],
+        "required_tools": [
+          "get_order_logistics",
+          "respond_to_user"
+        ],
+        "expected": {
+          "terminal_statuses": [
+            "GroundedFinalAnswer"
+          ],
+          "workflow_levels": [
+            "L0_DIRECT"
+          ],
+          "workflow_statuses": [
+            "SUCCEEDED"
+          ],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": [
+              "get_order_logistics"
+            ],
+            "must_not_include": [
+              "prepare_refund",
+              "commit_action"
+            ]
+          },
+          "draft": {
+            "count": 1,
+            "states": [
+              "AWAITING_AUTHORIZATION"
+            ],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "read_resource": {
+              "min": 1
+            },
+            "execute_command": {
+              "max": 0
+            }
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "它什么时候到？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "它什么时候到？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": [
+              "get_order_logistics"
+            ],
+            "requested_effect": {
+              "domain": "shipment",
+              "operation": "eta",
+              "object_type": "shipment",
+              "requested_outputs": [
+                {
+                  "output_id": "shipment.eta",
+                  "evidence_span": "什么时候到"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "继续查询上一轮可见耳机物流结果对应订单的预计到达时间，而不是鼠标退款草稿目标",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "查询上一轮可见耳机订单的预计到达时间",
+                      "evidence_span": "它什么时候到？",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "shipment",
+                        "operation": "eta",
+                        "object_type": "shipment",
+                        "raw_description": "查询上一轮可见耳机订单的预计到达时间",
+                        "requested_outputs": [
+                          {
+                            "output_id": "shipment.eta",
+                            "evidence_span": "什么时候到"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t3:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "get_order_logistics",
+                "args": {
+                  "target": {
+                    "mode": "set_operation",
+                    "operator": "ordinal",
+                    "left_handle": "$previous_turn.data.result_handle",
+                    "position": 1
+                  },
+                  "expected_shape": "one",
+                  "reference_span": "它",
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t3:logistics"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已继续查询刚才耳机订单的预计到达时间。",
+                  "evidence_handles": [
+                    "$last_tool.data.result_handle"
+                  ],
+                  "goal_ids": [
+                    "g1"
+                  ]
+                },
+                "id": "issue167:hidden-draft-focus:t3:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": [
+          "get_order_logistics",
+          "respond_to_user"
+        ],
+        "required_tools": [
+          "get_order_logistics",
+          "respond_to_user"
+        ],
+        "expected": {
+          "terminal_statuses": [
+            "GroundedFinalAnswer"
+          ],
+          "workflow_levels": [
+            "L0_DIRECT"
+          ],
+          "workflow_statuses": [
+            "SUCCEEDED"
+          ],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": [
+              "get_order_logistics"
+            ],
+            "must_not_include": [
+              "prepare_refund",
+              "commit_action"
+            ]
+          },
+          "draft": {
+            "count": 1,
+            "states": [
+              "AWAITING_AUTHORIZATION"
+            ],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "read_resource": {
+              "min": 1
+            },
+            "execute_command": {
+              "max": 0
+            }
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {
+        "behavior": "use_hidden_refund_draft_as_pronoun_focus",
+        "kind": "no_business_write"
+      },
+      {
+        "behavior": "block_current_read_because_old_draft_exists",
+        "kind": "trace_contains_all",
+        "tool_names": [
+          "get_order_logistics"
+        ]
+      },
+      {
+        "behavior": "commit_or_reauthorize_refund_during_logistics_turns",
+        "kind": "trace_absent",
+        "tool_names": [
+          "commit_action"
+        ]
+      },
+      {
+        "behavior": "arbitrary_global_order_fallback",
+        "kind": "no_business_write"
+      }
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": [
+      "prepare_refund",
+      "get_order_logistics"
+    ],
+    "preproduction_forbidden_tools": [
+      "commit_action"
+    ]
+  }
+}

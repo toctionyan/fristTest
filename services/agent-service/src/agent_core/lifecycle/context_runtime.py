@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 from uuid import uuid4
 
@@ -16,7 +17,6 @@ from agent_core.transaction import TRANSACTION_CONTRACT_VERSION
 from agent_core.transaction.active_draft import active_draft_patch, get_active_draft_id
 from agent_core.lifecycle.goal_blockers import active_goal_blockers
 from agent_core.lifecycle.state_schema import CURRENT_STATE_SCHEMA_VERSION, migrate_checkpoint_state
-from agent_core.lifecycle.goal_lifecycle import active_goal_records
 
 def prepare_agent_loop_turn_node(state: dict[str, Any]) -> dict[str, Any]:
     """Migrate the checkpoint to State v2 and reset current-turn ephemera.
@@ -65,7 +65,15 @@ def prepare_agent_loop_turn_node(state: dict[str, Any]) -> dict[str, Any]:
         "pretool_execution_policy": None,
         "pretool_shadow_comparisons": [],
         "goal_blockers": active_goal_blockers(state),
-        "goal_records": active_goal_records(state),
+        # GoalRecord is the durable semantic lifecycle. Terminal records must
+        # remain available for audit/revision checks across later turns; the
+        # Context projection independently exposes only active Goals to the
+        # model, so preserving history here cannot steal semantic focus.
+        "goal_records": [
+            deepcopy(row)
+            for row in list(state.get("goal_records") or [])
+            if isinstance(row, dict)
+        ],
         # GoalOutputRef is scoped to one frozen turn semantic contract. A new
         # user turn must not inherit a prior contract's planning evidence.
         "goal_output_refs": [],
