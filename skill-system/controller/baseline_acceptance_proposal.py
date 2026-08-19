@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 from pathlib import Path
@@ -139,3 +140,31 @@ def render_baseline_acceptance_proposal(proposal: Mapping[str, Any]) -> str:
 
 def dump_proposal(proposal: Mapping[str, Any]) -> str:
     return json.dumps(dict(proposal), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Build a read-only product-source baseline acceptance proposal."
+    )
+    parser.add_argument("--workspace", required=True)
+    parser.add_argument("--candidate-sha")
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--summary-output")
+    args = parser.parse_args()
+
+    proposal = build_baseline_acceptance_proposal(
+        Path(args.workspace),
+        candidate_sha=args.candidate_sha,
+    )
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(dump_proposal(proposal), encoding="utf-8")
+    if args.summary_output:
+        summary = Path(args.summary_output)
+        summary.parent.mkdir(parents=True, exist_ok=True)
+        summary.write_text(render_baseline_acceptance_proposal(proposal) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
