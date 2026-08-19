@@ -270,6 +270,25 @@ jobs:
           --task-run incoming/task-run.json
           --github-output "$GITHUB_OUTPUT"
 
+      - name: Prepare read-only baseline acceptance proposal
+        if: ${{ steps.ingest.outputs.classification == 'protected_baseline_drift' }}
+        id: baseline_proposal
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B \
+            control/skill-system/controller/baseline_acceptance_proposal.py \
+            --workspace candidate \
+            --candidate-sha "${SOURCE_SHA}" \
+            --output incoming/baseline-acceptance-proposal.json \
+            --summary-output incoming/baseline-acceptance-proposal.txt
+          jq -e '.schema == "product-source-baseline-acceptance-proposal@1"' \
+            incoming/baseline-acceptance-proposal.json >/dev/null
+          jq -e '.baseline_write_allowed == false and .source_write_allowed == false and .oracle_write_allowed == false' \
+            incoming/baseline-acceptance-proposal.json >/dev/null
+          echo "proposal_ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Upload governed failure evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -280,6 +299,8 @@ jobs:
             incoming/failure-case.json
             incoming/task-run.json
             incoming/changed-files.json
+            incoming/baseline-acceptance-proposal.json
+            incoming/baseline-acceptance-proposal.txt
           retention-days: 30
           if-no-files-found: error
 
@@ -328,6 +349,33 @@ jobs:
               fi
               ;;
           esac
+
+          BASELINE_SECTION=""
+          if [[ -f incoming/baseline-acceptance-proposal.json ]]; then
+            ACCEPTED_FROM=$(jq -r '.accepted_generated_from' incoming/baseline-acceptance-proposal.json)
+            CANDIDATE_SHA=$(jq -r '.candidate_sha' incoming/baseline-acceptance-proposal.json)
+            ACCEPTED_COUNT=$(jq -r '.accepted_file_count' incoming/baseline-acceptance-proposal.json)
+            CANDIDATE_COUNT=$(jq -r '.candidate_file_count' incoming/baseline-acceptance-proposal.json)
+            ADDED_COUNT=$(jq -r '.drift.added_count' incoming/baseline-acceptance-proposal.json)
+            MODIFIED_COUNT=$(jq -r '.drift.modified_count' incoming/baseline-acceptance-proposal.json)
+            DELETED_COUNT=$(jq -r '.drift.deleted_count' incoming/baseline-acceptance-proposal.json)
+            TOTAL_COUNT=$(jq -r '.drift.total_count' incoming/baseline-acceptance-proposal.json)
+            BASELINE_SECTION=$(cat <<EOF
+
+          ### Read-only baseline acceptance proposal
+
+          - Accepted snapshot: \`${ACCEPTED_FROM}\`
+          - Candidate SHA: \`${CANDIDATE_SHA}\`
+          - Protected file counts: accepted=\`${ACCEPTED_COUNT}\`, candidate=\`${CANDIDATE_COUNT}\`
+          - Exact drift counts: added=\`${ADDED_COUNT}\`, modified=\`${MODIFIED_COUNT}\`, deleted=\`${DELETED_COUNT}\`, total=\`${TOTAL_COUNT}\`
+          - Baseline/source/oracle write authorized by proposal: \`false\`
+          - Exact added/modified/deleted path lists: \`baseline-acceptance-proposal.json\` in the governed evidence artifact
+
+          The proposal is decision preparation only. It does not accept the candidate snapshot or change the baseline.
+          EOF
+          )
+          fi
+
           BODY=$(cat <<EOF
           Stage-1 ingestion completed.
 
@@ -347,6 +395,7 @@ jobs:
           - Automatic remote Stage-2 dispatch: \`false\`
           - Evidence artifact: \`governed-ci-failure-${SOURCE_RUN_ID}\`
           - production_closed: false
+          ${BASELINE_SECTION}
 
           A failed attempt is recorded but does not automatically become a user interruption. Bounded
           repair/retry/diagnosis may continue only under the already-issued TaskRun authorities. Tests,
@@ -410,4 +459,11 @@ jobs:
             echo "- Automatic remote Stage 2 dispatch: \`false\`"
             echo "- Source changes: none"
             echo "- production_closed: false"
+            if [[ -f incoming/baseline-acceptance-proposal.json ]]; then
+              echo "- Baseline proposal: \`prepared-read-only\`"
+              echo "- Baseline accepted snapshot: \`$(jq -r '.accepted_generated_from' incoming/baseline-acceptance-proposal.json)\`"
+              echo "- Baseline candidate SHA: \`$(jq -r '.candidate_sha' incoming/baseline-acceptance-proposal.json)\`"
+              echo "- Baseline drift total: \`$(jq -r '.drift.total_count' incoming/baseline-acceptance-proposal.json)\`"
+              echo "- Baseline write authority: \`false\`"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
