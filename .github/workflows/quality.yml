@@ -74,6 +74,9 @@ jobs:
   quality-quick-execution:
     needs: quality-static
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -108,9 +111,19 @@ jobs:
         working-directory: services/agent-service/frontend
         run: npm ci --ignore-scripts=false
       - name: Install locked Chromium runtime
-        timeout-minutes: 10
+        timeout-minutes: 2
         working-directory: services/agent-service/frontend
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: |
+          test "${PLAYWRIGHT_BROWSERS_PATH}" = "/ms-playwright"
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage();
+          await page.goto('data:text/html,<title>quality-browser-runtime</title>');
+          const title = await page.title();
+          await browser.close();
+          if (title !== 'quality-browser-runtime') throw new Error(`unexpected title: ${title}`);
+          NODE
       - name: Create quick quality target
         env:
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-quick.md
@@ -213,6 +226,9 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: quality-quick-execution
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
     timeout-minutes: 30
     services:
       pgvector:
@@ -261,9 +277,19 @@ jobs:
         working-directory: services/agent-service/frontend
         run: npm ci --ignore-scripts=false
       - name: Install locked Chromium runtime
-        timeout-minutes: 10
+        timeout-minutes: 2
         working-directory: services/agent-service/frontend
-        run: ./node_modules/.bin/playwright install --with-deps chromium
+        run: |
+          test "${PLAYWRIGHT_BROWSERS_PATH}" = "/ms-playwright"
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage();
+          await page.goto('data:text/html,<title>quality-browser-runtime</title>');
+          const title = await page.title();
+          await browser.close();
+          if (title !== 'quality-browser-runtime') throw new Error(`unexpected title: ${title}`);
+          NODE
       - name: Create integration quality target
         env:
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
@@ -307,7 +333,7 @@ jobs:
           AGENT_TEST_URL: http://127.0.0.1:8000
           BUSINESS_TEST_URL: http://127.0.0.1:9000
           PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
-          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
+          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@pgvector:5432/agent_test
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/integration
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
         run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode integration --target "$QUALITY_TARGET"
@@ -358,14 +384,14 @@ jobs:
           BODY=$(cat <<EOF
           The active Quality workflow reached its terminal governed Stage-1 handoff.
 
-          - Stage: \`QUALITY_RUN_RECEIVED\`
-          - Ingestion trigger: \`quality-in-run-stage1\`
-          - Source workflow: \`quality\`
+          - Stage: `QUALITY_RUN_RECEIVED`
+          - Ingestion trigger: `quality-in-run-stage1`
+          - Source workflow: `quality`
           - Source run: ${SOURCE_URL}
-          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
-          - Head SHA: \`${SOURCE_SHA}\`
+          - Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`
+          - Head SHA: `${SOURCE_SHA}`
           - Ingestion classification: pending
-          - Stage 2 started: \`false\`
+          - Stage 2 started: `false`
           - Source changes: none
           - production_closed: false
 
@@ -496,13 +522,13 @@ jobs:
           BODY=$(cat <<EOF
           Direct Quality Stage-1 ingestion completed.
 
-          - Stage: \`QUALITY_RUN_INGESTED\`
-          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
-          - Classification: \`${CLASSIFICATION}\`
-          - Failure signature: \`${FAILURE_SIGNATURE}\`
-          - Structurally eligible for later repair: \`${REPAIR_ALLOWED}\`
-          - Stage 2 started by this job: \`false\`
-          - Evidence artifact: \`governed-ci-quality-stage1-${SOURCE_RUN_ID}\`
+          - Stage: `QUALITY_RUN_INGESTED`
+          - Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`
+          - Classification: `${CLASSIFICATION}`
+          - Failure signature: `${FAILURE_SIGNATURE}`
+          - Structurally eligible for later repair: `${REPAIR_ALLOWED}`
+          - Stage 2 started by this job: `false`
+          - Evidence artifact: `governed-ci-quality-stage1-${SOURCE_RUN_ID}`
           - Source changes: none
           - production_closed: false
 
@@ -520,4 +546,4 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run \`${SOURCE_RUN_ID}\`. Stage 2 remains disabled, source changes are none, and \`production_closed=false\`."
+          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run `${SOURCE_RUN_ID}`. Stage 2 remains disabled, source changes are none, and `production_closed=false`."
