@@ -74,6 +74,10 @@ jobs:
   quality-quick-execution:
     needs: quality-static
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -94,12 +98,32 @@ jobs:
         run: >-
           "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
           --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
-      - name: Install locked Python environments
+      - name: Install locked Agent environment
+        timeout-minutes: 5
+        working-directory: services/agent-service
+        run: uv sync --locked --all-groups
+      - name: Install locked Business environment
+        timeout-minutes: 5
+        working-directory: services/business-service
+        run: uv sync --locked --all-groups
+      - name: Install locked frontend dependencies
+        timeout-minutes: 5
+        working-directory: services/agent-service/frontend
+        run: npm ci --ignore-scripts=false
+      - name: Install locked Chromium runtime
+        timeout-minutes: 2
+        working-directory: services/agent-service/frontend
         run: |
-          cd services/agent-service && uv sync --locked --all-groups
-          cd ../business-service && uv sync --locked --all-groups
-          cd ../agent-service/frontend && npm ci --ignore-scripts=false
-          ./node_modules/.bin/playwright install --with-deps chromium
+          test "${PLAYWRIGHT_BROWSERS_PATH}" = "/ms-playwright"
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage();
+          await page.goto('data:text/html,<title>quality-browser-runtime</title>');
+          const title = await page.title();
+          await browser.close();
+          if (title !== 'quality-browser-runtime') throw new Error(`unexpected title: ${title}`);
+          NODE
       - name: Create quick quality target
         env:
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-quick.md
@@ -136,7 +160,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           TEST_MERGE_SHA: ${{ github.sha }}
           STATIC_RESULT: ${{ needs.quality-static.result }}
           QUICK_RESULT: ${{ needs.quality-quick-execution.result }}
@@ -148,15 +171,16 @@ jobs:
             exit 1
           }
           [[ "${PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${PR_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${TEST_MERGE_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
           gh api "repos/${GITHUB_REPOSITORY}/git/commits/${TEST_MERGE_SHA}" > merge-identity.json
-          jq -e --arg base "${PR_BASE_SHA}" --arg head "${PR_HEAD_SHA}" '
+          jq -e --arg head "${PR_HEAD_SHA}" '
             (.parents | length) == 2
-            and .parents[0].sha == $base
+            and (.parents[0].sha | test("^[0-9a-f]{40}$"))
             and .parents[1].sha == $head
           ' merge-identity.json >/dev/null
+          TEST_BASE_SHA=$(jq -r '.parents[0].sha' merge-identity.json)
+          [[ "${TEST_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
           state=failure
           description="quality-quick or merge provenance failed"
@@ -202,6 +226,10 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: quality-quick-execution
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
+    timeout-minutes: 30
     services:
       pgvector:
         image: pgvector/pgvector@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
@@ -236,12 +264,32 @@ jobs:
         run: >-
           "${pythonLocation}/bin/python" -B scripts/quality_toolchain_contract.py
           --workspace-root . --runtime-only --output "$QUALITY_TOOLCHAIN_RESULT"
-      - name: Install locked Python environments
+      - name: Install locked Agent environment
+        timeout-minutes: 5
+        working-directory: services/agent-service
+        run: uv sync --locked --all-groups
+      - name: Install locked Business environment
+        timeout-minutes: 5
+        working-directory: services/business-service
+        run: uv sync --locked --all-groups
+      - name: Install locked frontend dependencies
+        timeout-minutes: 5
+        working-directory: services/agent-service/frontend
+        run: npm ci --ignore-scripts=false
+      - name: Install locked Chromium runtime
+        timeout-minutes: 2
+        working-directory: services/agent-service/frontend
         run: |
-          cd services/agent-service && uv sync --locked --all-groups
-          cd ../business-service && uv sync --locked --all-groups
-          cd ../agent-service/frontend && npm ci --ignore-scripts=false
-          ./node_modules/.bin/playwright install --with-deps chromium
+          test "${PLAYWRIGHT_BROWSERS_PATH}" = "/ms-playwright"
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage();
+          await page.goto('data:text/html,<title>quality-browser-runtime</title>');
+          const title = await page.title();
+          await browser.close();
+          if (title !== 'quality-browser-runtime') throw new Error(`unexpected title: ${title}`);
+          NODE
       - name: Create integration quality target
         env:
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
@@ -285,7 +333,7 @@ jobs:
           AGENT_TEST_URL: http://127.0.0.1:8000
           BUSINESS_TEST_URL: http://127.0.0.1:9000
           PRODUCT_HTTP_SMOKE_EPHEMERAL_DATA: 'true'
-          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@127.0.0.1:5432/agent_test
+          AGENT_TEST_POSTGRES_URL: postgresql+psycopg://agent:agent-test-password@pgvector:5432/agent_test
           QUALITY_EVIDENCE_DIR: ${{ runner.temp }}/quality-evidence/integration
           QUALITY_TARGET: ${{ github.workspace }}/.quality/targets/quality-target-integration.md
         run: services/agent-service/.venv/bin/python -B scripts/quality_loop.py --mode integration --target "$QUALITY_TARGET"
@@ -336,14 +384,14 @@ jobs:
           BODY=$(cat <<EOF
           The active Quality workflow reached its terminal governed Stage-1 handoff.
 
-          - Stage: \`QUALITY_RUN_RECEIVED\`
-          - Ingestion trigger: \`quality-in-run-stage1\`
-          - Source workflow: \`quality\`
+          - Stage: `QUALITY_RUN_RECEIVED`
+          - Ingestion trigger: `quality-in-run-stage1`
+          - Source workflow: `quality`
           - Source run: ${SOURCE_URL}
-          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
-          - Head SHA: \`${SOURCE_SHA}\`
+          - Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`
+          - Head SHA: `${SOURCE_SHA}`
           - Ingestion classification: pending
-          - Stage 2 started: \`false\`
+          - Stage 2 started: `false`
           - Source changes: none
           - production_closed: false
 
@@ -474,13 +522,13 @@ jobs:
           BODY=$(cat <<EOF
           Direct Quality Stage-1 ingestion completed.
 
-          - Stage: \`QUALITY_RUN_INGESTED\`
-          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
-          - Classification: \`${CLASSIFICATION}\`
-          - Failure signature: \`${FAILURE_SIGNATURE}\`
-          - Structurally eligible for later repair: \`${REPAIR_ALLOWED}\`
-          - Stage 2 started by this job: \`false\`
-          - Evidence artifact: \`governed-ci-quality-stage1-${SOURCE_RUN_ID}\`
+          - Stage: `QUALITY_RUN_INGESTED`
+          - Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`
+          - Classification: `${CLASSIFICATION}`
+          - Failure signature: `${FAILURE_SIGNATURE}`
+          - Structurally eligible for later repair: `${REPAIR_ALLOWED}`
+          - Stage 2 started by this job: `false`
+          - Evidence artifact: `governed-ci-quality-stage1-${SOURCE_RUN_ID}`
           - Source changes: none
           - production_closed: false
 
@@ -498,4 +546,4 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run \`${SOURCE_RUN_ID}\`. Stage 2 remains disabled, source changes are none, and \`production_closed=false\`."
+          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run `${SOURCE_RUN_ID}`. Stage 2 remains disabled, source changes are none, and `production_closed=false`."

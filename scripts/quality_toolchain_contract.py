@@ -15,6 +15,10 @@ from typing import Any, Mapping
 
 CONTRACT = "quality-toolchain-contract@1"
 LOCK_CONTRACT = "release-toolchain-lock@1"
+PINNED_PLAYWRIGHT_IMAGE = (
+    "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:"
+    "5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48"
+)
 _ACTION_RE = re.compile(r"^\s*(?:-\s+)?uses:\s+([^\s@]+)@([^\s#]+)(?:\s+#\s*(.*))?\s*$")
 _VERSION_TOKEN_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
@@ -154,25 +158,61 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         raise QualityToolchainError("quality_postgres_tag_forbidden", "mutable pgvector tag is forbidden")
     if re.search(r"pip\s+install[^\n]*\buv(?:\s|$)", workflow):
         raise QualityToolchainError("quality_uv_unlocked", "unhashed uv installation is forbidden")
+    if workflow.count(f"image: {PINNED_PLAYWRIGHT_IMAGE}") != 2:
+        raise QualityToolchainError(
+            "quality_playwright_image_unlocked",
+            "quick and integration must use the exact digest-pinned Playwright runtime image",
+        )
 
     runtime_jobs = (
         ("quality-quick-execution", "quality-quick-required-status"),
         ("quality-integration", "governed-failure-stage1"),
     )
+    install_markers = (
+        "- name: Install locked Agent environment",
+        "- name: Install locked Business environment",
+        "- name: Install locked frontend dependencies",
+        "- name: Install locked Chromium runtime",
+    )
     for job_name, next_job in runtime_jobs:
         section = _workflow_job_section(workflow, job_name, next_job)
+        required_runtime_fragments = (
+            f"image: {PINNED_PLAYWRIGHT_IMAGE}",
+            "options: --user 1001",
+            "- name: Install locked Chromium runtime\n        timeout-minutes: 2",
+            'test "${PLAYWRIGHT_BROWSERS_PATH}" = "/ms-playwright"',
+            "import { chromium } from 'playwright';",
+            "chromium.launch({ headless: true })",
+            "quality-browser-runtime",
+        )
+        runtime_missing = [fragment for fragment in required_runtime_fragments if fragment not in section]
+        if runtime_missing:
+            raise QualityToolchainError(
+                "quality_playwright_runtime_unlocked",
+                f"{job_name} is missing pinned Playwright runtime controls: {runtime_missing}",
+            )
+        if "playwright install --with-deps" in section or "playwright install-deps" in section:
+            raise QualityToolchainError(
+                "quality_playwright_network_install_forbidden",
+                f"{job_name} must use the prebuilt Playwright runtime instead of apt-backed browser dependency installation",
+            )
         try:
             bootstrap_index = section.index("- name: Bootstrap locked uv")
             runtime_index = section.index("- name: Validate locked runtime toolchain")
-            install_index = section.index("- name: Install locked Python environments")
+            install_indexes = [section.index(marker) for marker in install_markers]
         except ValueError as exc:
             raise QualityToolchainError(
                 "quality_toolchain_step_missing", f"{job_name} is missing a locked toolchain step"
             ) from exc
-        if not bootstrap_index < runtime_index < install_index:
+        if not bootstrap_index < runtime_index < install_indexes[0]:
             raise QualityToolchainError(
                 "quality_toolchain_step_order_invalid",
                 f"{job_name} must bootstrap uv, validate runtime, then install project dependencies",
+            )
+        if install_indexes != sorted(install_indexes) or len(set(install_indexes)) != len(install_indexes):
+            raise QualityToolchainError(
+                "quality_toolchain_step_order_invalid",
+                f"{job_name} locked dependency install steps are out of order",
             )
 
     return {
@@ -186,6 +226,7 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         "npm_version": npm_version,
         "uv_version": uv_version,
         "postgres_image": postgres_image,
+        "playwright_image": PINNED_PLAYWRIGHT_IMAGE,
         "action_count": len(rows),
         "shared_action_count": len(lock.get("github_actions") or {}),
         "quality_only_action_count": len(lock.get("quality_github_actions") or {}),

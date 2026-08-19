@@ -336,20 +336,69 @@ def _manifest_product_snapshot(
     return rows
 
 
+def _event_default_branch(explicit: str | None) -> str:
+    if explicit is not None:
+        return str(explicit).strip()
+    event_path = str(os.environ.get("GITHUB_EVENT_PATH") or "").strip()
+    if not event_path:
+        return ""
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    repository = payload.get("repository") if isinstance(payload, dict) else None
+    if not isinstance(repository, dict):
+        return ""
+    return str(repository.get("default_branch") or "").strip()
+
+
 def baseline_mode_for_authority(
     authority_name: str,
     *,
     event_name: str | None = None,
+    ref_type: str | None = None,
+    ref_name: str | None = None,
+    default_branch: str | None = None,
 ) -> BaselineMode:
     if authority_name.startswith("change-permit:"):
         return BaselineMode.PERMIT_BOUND
+
     resolved_event = (
         os.environ.get("GITHUB_EVENT_NAME", "")
         if event_name is None
         else event_name
     )
-    if str(resolved_event).strip().casefold() == "pull_request":
+    event = str(resolved_event).strip().casefold()
+    if event == "pull_request":
         return BaselineMode.PR_CANDIDATE
+
+    if event == "push":
+        resolved_ref_type = (
+            os.environ.get("GITHUB_REF_TYPE", "")
+            if ref_type is None
+            else ref_type
+        )
+        resolved_ref_name = (
+            os.environ.get("GITHUB_REF_NAME", "")
+            if ref_name is None
+            else ref_name
+        )
+        branch_type = str(resolved_ref_type).strip().casefold()
+        branch_name = str(resolved_ref_name).strip()
+        accepted_branch = _event_default_branch(default_branch)
+
+        # A push to a non-default branch is still a candidate observation. It
+        # must not be promoted to accepted-ref authority merely because the
+        # workflow trigger is `push`. Default-branch pushes and all ambiguous
+        # push identities remain fail-closed as ACCEPTED_REF.
+        if (
+            branch_type == "branch"
+            and branch_name
+            and accepted_branch
+            and branch_name != accepted_branch
+        ):
+            return BaselineMode.PR_CANDIDATE
+
     return BaselineMode.ACCEPTED_REF
 
 

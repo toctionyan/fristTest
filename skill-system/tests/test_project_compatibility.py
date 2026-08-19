@@ -154,9 +154,41 @@ class ProjectCompatibilityPermitTest(unittest.TestCase):
         self.assertEqual(result["baseline_file_count"], 1)
         self.assertEqual(result["drift_paths"], ["services/app.py", "services/obsolete.py"])
 
+    def test_feature_branch_push_historical_candidate_drift_is_pre_acceptance(self) -> None:
+        self._close_change()
+        event_path = self.root / "github-push-event.json"
+        write(event_path, {"repository": {"default_branch": "main"}})
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_EVENT_NAME": "push",
+                "GITHUB_REF_TYPE": "branch",
+                "GITHUB_REF_NAME": "repair/issue167-a1-semantic-goal-oracle-20260817",
+                "GITHUB_EVENT_PATH": str(event_path),
+            },
+            clear=False,
+        ):
+            result = evaluate(self.root)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["baseline_mode"], "pr_candidate")
+        self.assertEqual(result["drift_paths"], ["services/app.py", "services/obsolete.py"])
+
     def test_accepted_ref_historical_candidate_drift_still_fails(self) -> None:
         self._close_change()
-        with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push"}, clear=False):
+        # Keep this negative-path test hermetic. On GitHub Actions, an outer PR
+        # run exports GITHUB_REF_TYPE/GITHUB_REF_NAME; leaving them inherited
+        # would accidentally turn this synthetic identity-less push into a real
+        # feature-branch push and change the authority class under test.
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_EVENT_NAME": "push",
+                "GITHUB_REF_TYPE": "",
+                "GITHUB_REF_NAME": "",
+                "GITHUB_EVENT_PATH": "",
+            },
+            clear=False,
+        ):
             result = evaluate(self.root)
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(result["baseline_mode"], "accepted_ref")
