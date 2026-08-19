@@ -56,6 +56,7 @@ BRIDGE_PROTECTED_EXACT = {
     "scripts/verify_existing_candidate_adoption_contract.py",
 }
 _ORIGINAL_SUMMARY_FAILURES = base._summary_failures
+_ORIGINAL_TASK_IMMUTABLE_BINDING = base._task_immutable_binding
 
 
 def _control_plane_failures(
@@ -245,8 +246,6 @@ def _semantic_route(
         return report
 
     if route["repair_class"] == PRODUCT_CODE_REPAIRABLE:
-        # Preserve historical product classification and scope. Only project the
-        # domain/route identity so later stages can prove it never switched.
         report["repair_domain"] = route["repair_domain"]
         _recompute_failure_signature(report)
         return report
@@ -257,10 +256,24 @@ def _semantic_route(
     return report
 
 
+def _task_immutable_binding(report: dict[str, Any]) -> dict[str, Any]:
+    binding = dict(_ORIGINAL_TASK_IMMUTABLE_BINDING(report))
+    domain = str(report.get("repair_domain") or "NONE").strip() or "NONE"
+    route = report.get("repair_route") if isinstance(report.get("repair_route"), dict) else {}
+    binding.update(
+        {
+            "repair_domain": domain,
+            "repair_route_sha256": str(route.get("route_sha256") or ""),
+        }
+    )
+    return binding
+
+
 def install() -> None:
     """Install the narrow adapter without weakening the base ingestion boundary."""
     base.PROTECTED_EXACT.update(BRIDGE_PROTECTED_EXACT)
     base._summary_failures = _summary_failures
+    base._task_immutable_binding = _task_immutable_binding
 
 
 def build_report(*args: Any, **kwargs: Any) -> dict[str, Any]:
