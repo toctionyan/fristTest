@@ -349,7 +349,7 @@ jobs:
             ${{ runner.temp }}/agent.log
             ${{ github.workspace }}/.quality/targets/quality-target-integration.md
             ${{ github.workspace }}/.quality/targets/quality-target-integration.claims.json
-            ${{ runner.temp }}/quality-toolchain-${{ github.job }}.json
+            ${{ runner.temp }}/quality-toolchain-quality-integration.json
 
   governed-failure-stage1:
     if: >-
