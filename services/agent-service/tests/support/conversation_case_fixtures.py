@@ -25,12 +25,15 @@ FIXTURE_ID = "customer_orders_v1"
 FIXTURE_EVIDENCE_HANDLE = "result:fixture:orders"
 
 
-@dataclass
-class FixtureBusinessPort:
-    """A recordable, read/preview-only BusinessPort for graph regressions."""
+def fixture_orders(variant: str = "default") -> dict[str, dict[str, Any]]:
+    """Return one isolated order population for a declared regression variant.
 
-    calls: list[dict[str, Any]] = field(default_factory=list)
-    orders: dict[str, dict[str, Any]] = field(default_factory=lambda: {
+    The default population remains byte-for-byte equivalent in business facts
+    to the long-lived conversation fixture.  High-risk collection tests may
+    opt into a named variant instead of mutating global fixture semantics for
+    unrelated cases.
+    """
+    orders: dict[str, dict[str, Any]] = {
         "10001": {
             "order_id": "10001",
             "product_name": "蓝牙耳机",
@@ -58,7 +61,22 @@ class FixtureBusinessPort:
             "version": 3,
             "created_at": "2026-01-04T10:00:00Z",
         },
-    })
+    }
+    normalized = str(variant or "default").strip() or "default"
+    if normalized == "default":
+        return orders
+    if normalized == "two_signed_orders":
+        orders["10002"]["status"] = "已签收"
+        return orders
+    raise AssertionError(f"unknown conversation fixture variant: {normalized}")
+
+
+@dataclass
+class FixtureBusinessPort:
+    """A recordable, read/preview-only BusinessPort for graph regressions."""
+
+    calls: list[dict[str, Any]] = field(default_factory=list)
+    orders: dict[str, dict[str, Any]] = field(default_factory=fixture_orders)
 
     def _record(self, kind: str, **data: Any) -> None:
         self.calls.append({"kind": kind, **deepcopy(data)})
@@ -200,10 +218,16 @@ class FixtureBusinessPort:
         raise AssertionError("conversation regression attempted a business write")
 
 
-def fixture_ledger(*, tenant_id: str, user_id: str, thread_id: str) -> list[dict[str, Any]]:
+def fixture_ledger(
+    *,
+    tenant_id: str,
+    user_id: str,
+    thread_id: str,
+    orders: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Create fixed, customer-visible order references for one graph thread."""
     scope = {"tenant_id": tenant_id, "user_id": user_id, "thread_id": thread_id}
-    rows = list(FixtureBusinessPort().orders.values())
+    rows = list(deepcopy(orders if orders is not None else fixture_orders()).values())
     artifacts = [
         artifact_entry(
             resource_type="order",
@@ -298,4 +322,10 @@ def fixture_ledger(*, tenant_id: str, user_id: str, thread_id: str) -> list[dict
     )
 
 
-__all__ = ["FIXTURE_EVIDENCE_HANDLE", "FIXTURE_ID", "FixtureBusinessPort", "fixture_ledger"]
+__all__ = [
+    "FIXTURE_EVIDENCE_HANDLE",
+    "FIXTURE_ID",
+    "FixtureBusinessPort",
+    "fixture_ledger",
+    "fixture_orders",
+]

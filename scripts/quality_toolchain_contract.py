@@ -159,20 +159,31 @@ def validate_static(workspace_root: Path) -> dict[str, Any]:
         ("quality-quick-execution", "quality-quick-required-status"),
         ("quality-integration", "governed-failure-stage1"),
     )
+    install_markers = (
+        "- name: Install locked Agent environment",
+        "- name: Install locked Business environment",
+        "- name: Install locked frontend dependencies",
+        "- name: Install locked Chromium runtime",
+    )
     for job_name, next_job in runtime_jobs:
         section = _workflow_job_section(workflow, job_name, next_job)
         try:
             bootstrap_index = section.index("- name: Bootstrap locked uv")
             runtime_index = section.index("- name: Validate locked runtime toolchain")
-            install_index = section.index("- name: Install locked Python environments")
+            install_indexes = [section.index(marker) for marker in install_markers]
         except ValueError as exc:
             raise QualityToolchainError(
                 "quality_toolchain_step_missing", f"{job_name} is missing a locked toolchain step"
             ) from exc
-        if not bootstrap_index < runtime_index < install_index:
+        if not bootstrap_index < runtime_index < install_indexes[0]:
             raise QualityToolchainError(
                 "quality_toolchain_step_order_invalid",
                 f"{job_name} must bootstrap uv, validate runtime, then install project dependencies",
+            )
+        if install_indexes != sorted(install_indexes) or len(set(install_indexes)) != len(install_indexes):
+            raise QualityToolchainError(
+                "quality_toolchain_step_order_invalid",
+                f"{job_name} locked dependency install steps are out of order",
             )
 
     return {

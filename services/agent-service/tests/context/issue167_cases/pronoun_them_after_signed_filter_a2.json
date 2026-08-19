@@ -1,0 +1,369 @@
+{
+  "id": "pronoun_them_after_signed_filter",
+  "category": "pronoun_reference",
+  "turns": [
+    {"role": "user", "text": "我都买了什么？"},
+    {"role": "assistant", "expected": "answer"},
+    {"role": "user", "text": "哪些签收了？"},
+    {"role": "assistant", "expected": "answer"},
+    {"role": "user", "text": "它们都能退吗？"},
+    {"role": "assistant", "expected": "answer"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "preserve_signed_collection_and_assess_every_member",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "widen_signed_subset",
+    "collapse_collection_to_one_order",
+    "turn_consult_into_refund_write"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "variant": "two_signed_orders",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "我都买了什么？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "我都买了什么？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["list_orders"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "list",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "order.collection",
+                  "evidence_span": "我都买了什么？"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "列出我的订单",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "列出当前用户的订单集合",
+                      "evidence_span": "我都买了什么？",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "collection",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "order",
+                        "operation": "list",
+                        "object_type": "order",
+                        "raw_description": "列出当前用户的订单集合",
+                        "requested_outputs": [
+                          {
+                            "output_id": "order.collection",
+                            "evidence_span": "我都买了什么？"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:pronoun:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "list_orders",
+                "args": {
+                  "target": {"mode": "all_orders"},
+                  "expected_shape": "collection",
+                  "reference_span": "我都买了什么？",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:pronoun:t1:orders"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已列出当前订单。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:pronoun:t1:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["list_orders", "respond_to_user"],
+        "required_tools": ["list_orders", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {"must_include": ["list_orders"], "must_not_include": []},
+          "draft": {"count": 0},
+          "port_calls": {"query_resources": {"min": 1}},
+          "result_assertions": [
+            {"tool": "list_orders", "path": "result.data.count", "equals": 3}
+          ],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "哪些签收了？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "query",
+            "evidence_span": "哪些签收了？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["list_orders"],
+            "requested_effect": {
+              "domain": "order",
+              "operation": "list",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "order.collection",
+                  "evidence_span": "哪些签收了？"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "从刚才可见订单集合中筛出已签收订单",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "筛选刚才可见订单中的已签收订单",
+                      "evidence_span": "哪些签收了？",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "collection",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "order",
+                        "operation": "list",
+                        "object_type": "order",
+                        "raw_description": "筛选刚才可见订单中的已签收订单",
+                        "requested_outputs": [
+                          {
+                            "output_id": "order.collection",
+                            "evidence_span": "哪些签收了？"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:pronoun:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "list_orders",
+                "args": {
+                  "target": {
+                    "mode": "set_operation",
+                    "operator": "filter",
+                    "left_handle": "$previous_turn.data.result_handle",
+                    "status": "已签收",
+                    "status_span": "签收"
+                  },
+                  "expected_shape": "collection",
+                  "reference_span": "哪些签收了？",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:pronoun:t2:signed"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已从刚才结果中筛出已签收订单。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:pronoun:t2:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["list_orders", "respond_to_user"],
+        "required_tools": ["list_orders", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {"must_include": ["list_orders"], "must_not_include": []},
+          "draft": {"count": 0},
+          "port_calls": {"read_resource": {"min": 2}},
+          "result_assertions": [
+            {"tool": "list_orders", "path": "result.data.count", "equals": 2}
+          ],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "它们都能退吗？",
+        "goal_oracle": [
+          {
+            "oracle_id": "g1",
+            "goal_type": "consult",
+            "evidence_span": "它们都能退吗？",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["evaluate_refund_eligibility"],
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "assess_eligibility",
+              "object_type": "order",
+              "requested_outputs": [
+                {
+                  "output_id": "refund.eligibility",
+                  "evidence_span": "它们都能退吗？"
+                }
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "核验刚才已签收订单集合中的每一笔是否都能退",
+                  "goals": [
+                    {
+                      "goal_id": "g1",
+                      "description": "对刚才已签收订单集合逐笔核验退款资格",
+                      "evidence_span": "它们都能退吗？",
+                      "goal_type": "consult",
+                      "expected_result_cardinality": "collection",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "refund",
+                        "operation": "assess_eligibility",
+                        "object_type": "order",
+                        "raw_description": "对刚才已签收订单集合逐笔核验退款资格",
+                        "requested_outputs": [
+                          {
+                            "output_id": "refund.eligibility",
+                            "evidence_span": "它们都能退吗？"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:pronoun:t3:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "evaluate_refund_eligibility",
+                "args": {
+                  "target": {
+                    "mode": "collection",
+                    "left_handle": "$previous_turn.data.result_handle"
+                  },
+                  "reference_span": "它们",
+                  "question_span": "它们都能退吗？",
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:pronoun:t3:eligibility"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已逐笔核验刚才已签收订单集合的退款资格。",
+                  "evidence_handles": ["$previous_turn.data.result_handle"],
+                  "goal_ids": ["g1"]
+                },
+                "id": "issue167:pronoun:t3:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["evaluate_refund_eligibility", "respond_to_user"],
+        "required_tools": ["evaluate_refund_eligibility", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["evaluate_refund_eligibility"],
+            "must_not_include": ["prepare_refund", "commit_action"]
+          },
+          "draft": {"count": 0},
+          "port_calls": {"preview_operation": 2},
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {
+        "behavior": "widen_signed_subset",
+        "kind": "no_business_write"
+      },
+      {
+        "behavior": "collapse_collection_to_one_order",
+        "kind": "no_business_write"
+      },
+      {
+        "behavior": "turn_consult_into_refund_write",
+        "kind": "no_business_write"
+      }
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["list_orders", "evaluate_refund_eligibility"],
+    "preproduction_forbidden_tools": ["prepare_refund", "commit_action"]
+  }
+}

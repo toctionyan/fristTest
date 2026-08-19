@@ -1,0 +1,83 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:similar_courier_phone_not_logistics",
+  "case_id": "similar_courier_phone_not_logistics",
+  "family": "similar_capability_rejection",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "similar_courier_phone_not_logistics"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context",
+    "capability_availability_is_semantic_input": false
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "快递员手机号给我，不是物流状态"
+      }
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "customer_role": true,
+      "business_fact_required_to_understand_requested_output": false
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_type": "courier_contact_lookup",
+        "state": "active_requested_output",
+        "required_semantic_output": "open:快递员手机号",
+        "evidence_span": "快递员手机号",
+        "rationale": "用户明确要求的是快递员手机号；这个可验收结果必须在能力发现之前保持原样。"
+      },
+      {
+        "after_turn": 1,
+        "goal_type": "courier_contact_lookup",
+        "state": "explicit_nearby_effect_exclusion",
+        "forbidden_semantic_output": "shipment.tracking",
+        "evidence_span": "不是物流状态",
+        "rationale": "用户主动排除了物流状态，因此相近的物流查询不能被当作完成该 Goal。"
+      },
+      {
+        "after_turn": 1,
+        "goal_type": "courier_contact_lookup",
+        "state": "capability_absence_must_be_proven_post_freeze",
+        "required_match_policy": "structured_identity_exact_only",
+        "forbidden_match_policy": "similarity_substitution",
+        "rationale": "是否支持该结果属于 Capability Surface 的后冻结证明，不属于 Semantic Contract 的语言理解权威。"
+      }
+    ],
+    "invariants": [
+      "Semantic Contract preserves courier-phone meaning without consulting installed tool availability.",
+      "The explicit phrase ‘不是物流状态’ prevents shipment tracking from satisfying the Goal.",
+      "If exact courier-phone capability is absent, Runtime may report unsupported but must not dispatch get_order_logistics as a substitute.",
+      "No courier phone number may be invented without authoritative evidence.",
+      "No Draft, Grant, Attempt, Receipt, or business write is authorized by this read-only request."
+    ]
+  },
+  "expected_public_outcome": {
+    "when_exact_capability_absent": "explicitly report unsupported and optionally offer logistics query or human assistance",
+    "must_cover": [
+      "快递员手机号当前无法被精确核验",
+      "不会用物流状态替代手机号"
+    ],
+    "must_not_cover": [
+      "把物流状态当作手机号请求的完成结果",
+      "编造快递员手机号",
+      "创建或提交业务写操作"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false,
+    "runtime_edit_reason": "A2 contract must execute first; a GREEN result authorizes no product runtime change."
+  }
+}
