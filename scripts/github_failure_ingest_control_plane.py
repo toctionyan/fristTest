@@ -110,8 +110,9 @@ def _protected_baseline_failures(
 
     Machine failure envelopes remain preferred. This fallback keys on stable policy
     error codes emitted by the baseline authority itself, while retaining the legacy
-    count assertion parser for historical evidence. It never invents implicated
-    source paths when the log does not contain them.
+    count assertion parser for historical evidence. Baseline/oracle evidence never
+    invents source write paths; explicit source drift markers remain a separate
+    diagnostic row and cannot be promoted into baseline write authority.
     """
 
     rows: list[dict[str, Any]] = []
@@ -147,7 +148,7 @@ def _protected_baseline_failures(
                         "owner": "skill-control-plane",
                         "failure_kind": "protected_baseline_drift",
                         "summary": summary,
-                        "implicated_paths": list(implicated),
+                        "implicated_paths": [],
                         "evidence_source": path.name,
                         "machine_envelope": False,
                     }
@@ -172,7 +173,7 @@ def _protected_baseline_failures(
                     "owner": "skill-control-plane",
                     "failure_kind": "protected_baseline_drift",
                     "summary": summary,
-                    "implicated_paths": list(implicated),
+                    "implicated_paths": [],
                     "evidence_source": path.name,
                     "machine_envelope": False,
                 }
