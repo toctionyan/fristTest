@@ -360,6 +360,20 @@ def _assert_forbidden_behavior(case: dict[str, Any], executed: ExecutedConversat
         tools = {str(value) for value in assertion.get("tool_names") or [] if str(value)}
         if kind == "trace_absent":
             assert trace_names.isdisjoint(tools), (case["id"], behavior, trace_names & tools)
+        elif kind == "turn_trace_absent":
+            turn_index = assertion.get("turn_index")
+            assert isinstance(turn_index, int) and not isinstance(turn_index, bool) and 1 <= turn_index <= len(executed.turns), (
+                case["id"], behavior, "invalid_turn_index", turn_index, len(executed.turns)
+            )
+            turn_trace = [
+                row
+                for row in list(executed.turns[turn_index - 1].result.get("tool_trace") or [])
+                if isinstance(row, dict)
+            ]
+            turn_trace_names = {str(row.get("name") or "") for row in turn_trace}
+            assert turn_trace_names.isdisjoint(tools), (
+                case["id"], behavior, turn_index, turn_trace_names & tools
+            )
         elif kind == "trace_contains_all":
             assert tools.issubset(trace_names), (case["id"], behavior, tools - trace_names)
         elif kind == "no_business_write":
