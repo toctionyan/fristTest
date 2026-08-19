@@ -2,11 +2,11 @@
 """Augment governed failure ingestion with trusted control-plane failure markers.
 
 The base ingestion controller intentionally requires machine-readable failed-gate
-evidence before authorizing product source repair. This adapter also recognizes a
-narrow autonomous control-plane implementation route: a real unittest/pytest
-failure must pair by module name with an exact source-PR change under
-``scripts/verify_engineering_*.py``. Tests/oracles remain read-only and changed
-file metadata alone never creates authority.
+evidence before authorizing product source repair. This adapter recognizes the
+narrow autonomous control-plane implementation route and preserves semantic
+non-repairable failures such as protected baseline drift. Unknown failures remain
+write-closed but may enter a bounded read-only diagnosis state instead of forcing
+an immediate owner interaction.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 import re
 import sys
-from typing import Any
+from typing import Any, Mapping
 
 import github_failure_ingest as base
 
@@ -30,11 +30,16 @@ from autonomous_repair_router import (  # type: ignore  # noqa: E402
     route_failure,
     validate_route,
 )
+from failure_recovery_policy import AUTO_DIAGNOSE, decide_recovery  # type: ignore  # noqa: E402
 
 PRODUCT_SOURCE_DRIFT_MARKER = "product_source_changed:"
 PRODUCT_SOURCE_ROOTS = ("services/", "web/", "contracts/")
-BASELINE_TEST_MARKER = "test_baseline_matches_current_git_tracked_protected_snapshot"
+LEGACY_BASELINE_TEST_MARKER = "test_baseline_matches_current_git_tracked_protected_snapshot"
 BASELINE_COUNT_ASSERTION = re.compile(r"AssertionError:\s*(\d+)\s*!=\s*(\d+)")
+BASELINE_SEMANTIC_ERRORS = (
+    "current_file_count_mismatch",
+    "protected_baseline_drift",
+)
 BRIDGE_PROTECTED_EXACT = {
     ".github/workflows/governed-ci-failure-sweeper.yml",
     ".github/workflows/governed-ci-failure-sweeper-wakeup.yml",
@@ -57,6 +62,9 @@ BRIDGE_PROTECTED_EXACT = {
 }
 _ORIGINAL_SUMMARY_FAILURES = base._summary_failures
 _ORIGINAL_TASK_IMMUTABLE_BINDING = base._task_immutable_binding
+_ORIGINAL_CREATE_TASK_RUN = base._create_task_run
+_ORIGINAL_WRITE_OUTPUT = base._write_output
+_LAST_RECOVERY_OUTPUT: dict[str, Any] = {}
 
 
 def _control_plane_failures(
@@ -98,11 +106,16 @@ def _control_plane_failures(
 def _protected_baseline_count_failures(
     files: list[tuple[Path, str]],
 ) -> list[dict[str, Any]]:
-    """Recognize baseline cardinality drift without inventing implicated source paths."""
+    """Preserve the historical count-only fallback contract exactly.
+
+    An unrelated ``AssertionError: N != M`` is not baseline evidence. The legacy
+    count parser is activated only when the historical baseline test marker is
+    present, and it never invents source paths or write authority.
+    """
     rows: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
     for path, text in files:
-        if BASELINE_TEST_MARKER not in text:
+        if LEGACY_BASELINE_TEST_MARKER not in text:
             continue
         for match in BASELINE_COUNT_ASSERTION.finditer(text):
             recorded = int(match.group(1))
@@ -130,6 +143,50 @@ def _protected_baseline_count_failures(
     return rows
 
 
+def _protected_baseline_failures(
+    files: list[tuple[Path, str]],
+) -> list[dict[str, Any]]:
+    """Recognize semantic baseline drift without depending on one test name/format.
+
+    Machine failure envelopes remain preferred. This fallback keys on stable policy
+    error codes emitted by the baseline authority itself and then adds the historical
+    count-only fallback. Baseline/oracle evidence never invents source write paths.
+    """
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for path, text in files:
+        low = text.casefold()
+        semantic = [token for token in BASELINE_SEMANTIC_ERRORS if token in low]
+        if "protected_baseline_drift" not in semantic:
+            continue
+        summary = "Protected product-source baseline binding failed: " + ",".join(semantic)
+        identity = (path.name, summary)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        rows.append(
+            {
+                "gate_id": "protected-product-source-baseline",
+                "status": "FAIL",
+                "category": "governance",
+                "owner": "skill-control-plane",
+                "failure_kind": "protected_baseline_drift",
+                "summary": summary,
+                "implicated_paths": [],
+                "evidence_source": path.name,
+                "machine_envelope": False,
+            }
+        )
+
+    for row in _protected_baseline_count_failures(files):
+        identity = (str(row.get("evidence_source") or ""), str(row.get("summary") or ""))
+        if identity not in seen:
+            rows.append(row)
+            seen.add(identity)
+    return rows
+
+
 def _summary_failures(
     files: list[tuple[Path, str]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -142,7 +199,7 @@ def _summary_failures(
         )
         for row in failures
     }
-    for row in [*_protected_baseline_count_failures(files), *_control_plane_failures(files)]:
+    for row in [*_protected_baseline_failures(files), *_control_plane_failures(files)]:
         identity = (
             str(row.get("gate_id") or ""),
             str(row.get("failure_kind") or ""),
@@ -163,6 +220,7 @@ def _recompute_failure_signature(report: dict[str, Any]) -> None:
                 "classification": report.get("classification"),
                 "repair_domain": report.get("repair_domain"),
                 "repair_route_sha256": (report.get("repair_route") or {}).get("route_sha256"),
+                "recovery_disposition": report.get("recovery_disposition"),
                 "gates": report.get("failed_gates") or [],
                 "summary": report.get("failure_summary") or "",
                 "candidate_paths": report.get("candidate_paths") or [],
@@ -202,6 +260,8 @@ def _semantic_route(
     *,
     artifact_files: list[tuple[Path, str]],
 ) -> dict[str, Any]:
+    global _LAST_RECOVERY_OUTPUT
+
     combined = "\n".join(text for _path, text in artifact_files)
     route = validate_route(
         route_failure(
@@ -242,17 +302,31 @@ def _semantic_route(
             report["failed_gates"] = [*existing, guard]
         if not str(report.get("failure_summary") or "").strip():
             report["failure_summary"] = route["reason"]
-        _recompute_failure_signature(report)
-        return report
 
-    if route["repair_class"] == PRODUCT_CODE_REPAIRABLE:
+    elif route["repair_class"] == PRODUCT_CODE_REPAIRABLE:
         report["repair_domain"] = route["repair_domain"]
-        _recompute_failure_signature(report)
-        return report
 
-    if report.get("repair_allowed") is not True:
+    elif report.get("repair_allowed") is not True:
         report["repair_allowed"] = False
-        _recompute_failure_signature(report)
+
+    policy = decide_recovery(
+        repair_route=route,
+        classification=str(report.get("classification") or ""),
+        diagnosis_attempt=0,
+        max_diagnosis_attempts=2,
+        retry_count=0,
+        max_retry_count=3,
+    )
+    report["recovery_policy"] = policy
+    report["recovery_disposition"] = policy["disposition"]
+    report["human_required"] = policy["human_required"]
+    _LAST_RECOVERY_OUTPUT = {
+        "recovery_disposition": policy["disposition"],
+        "human_required": policy["human_required"],
+        "diagnostic_allowed": policy["diagnostic_allowed"],
+        "retry_allowed": policy["retry_allowed"],
+    }
+    _recompute_failure_signature(report)
     return report
 
 
@@ -269,11 +343,86 @@ def _task_immutable_binding(report: dict[str, Any]) -> dict[str, Any]:
     return binding
 
 
+def _create_read_only_diagnosis_task(report: dict[str, Any], path: Path) -> None:
+    identity_binding = base._task_identity_binding(report)
+    binding = _task_immutable_binding(report)
+    task = base.TaskRunStore.open_or_create(
+        path,
+        task_id=base.stable_task_id("github-repair", identity_binding),
+        task_kind="github-governed-repair",
+        binding=binding,
+        required_conditions=(
+            "failure_ingested",
+            "classification_complete",
+            "source_changed",
+            "validation_passed",
+            "draft_pr_published",
+            "governance_closed",
+            "baseline_accepted",
+            "exact_head_certified",
+            "ready_for_review",
+        ),
+    )
+    evidence = [str(path.with_name("failure-case.json"))]
+    task.checkpoint(
+        status="RUNNING",
+        phase="FAILURE_INGESTED",
+        workspace_fingerprint=None,
+        evidence_refs=evidence,
+        metadata={
+            "governed_repair_state": "EVIDENCE_FROZEN",
+            "classification": report["classification"],
+            "repair_allowed": False,
+            "recovery_disposition": AUTO_DIAGNOSE,
+            "human_required": False,
+            "production_closed": False,
+        },
+    )
+    task.mark_condition("failure_ingested", evidence_refs=evidence)
+    task.mark_condition(
+        "classification_complete",
+        evidence_refs=[f"classification:{report['classification']}"],
+    )
+    task.checkpoint(
+        status="WAITING_EXTERNAL_RESULT",
+        phase="READ_ONLY_DIAGNOSIS_REQUIRED",
+        workspace_fingerprint=None,
+        evidence_refs=evidence,
+        metadata={
+            "governed_repair_state": "EVIDENCE_FROZEN",
+            "next_action": "analyze_failure",
+            "source_write_allowed": False,
+            "test_write_allowed": False,
+            "oracle_write_allowed": False,
+            "diagnosis_attempt": 0,
+            "max_diagnosis_attempts": 2,
+            "human_required": False,
+            "production_closed": False,
+        },
+    )
+
+
+def _create_task_run(report: dict[str, Any], path: Path) -> None:
+    policy = report.get("recovery_policy") if isinstance(report.get("recovery_policy"), Mapping) else {}
+    if policy.get("disposition") == AUTO_DIAGNOSE:
+        _create_read_only_diagnosis_task(report, path)
+        return
+    _ORIGINAL_CREATE_TASK_RUN(report, path)
+
+
+def _write_output(path: Path | None, values: dict[str, Any]) -> None:
+    enriched = dict(values)
+    enriched.update(_LAST_RECOVERY_OUTPUT)
+    _ORIGINAL_WRITE_OUTPUT(path, enriched)
+
+
 def install() -> None:
     """Install the narrow adapter without weakening the base ingestion boundary."""
     base.PROTECTED_EXACT.update(BRIDGE_PROTECTED_EXACT)
     base._summary_failures = _summary_failures
     base._task_immutable_binding = _task_immutable_binding
+    base._create_task_run = _create_task_run
+    base._write_output = _write_output
 
 
 def build_report(*args: Any, **kwargs: Any) -> dict[str, Any]:

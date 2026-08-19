@@ -293,16 +293,41 @@ jobs:
           TRIGGER_MODE: ${{ steps.source.outputs.trigger_mode }}
           CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
           REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
+          RECOVERY_DISPOSITION: ${{ steps.ingest.outputs.recovery_disposition }}
+          HUMAN_REQUIRED: ${{ steps.ingest.outputs.human_required }}
+          DIAGNOSTIC_ALLOWED: ${{ steps.ingest.outputs.diagnostic_allowed }}
+          RETRY_ALLOWED: ${{ steps.ingest.outputs.retry_allowed }}
           FAILURE_SIGNATURE: ${{ steps.ingest.outputs.failure_signature }}
         run: |
           set -euo pipefail
-          if [[ "${REPAIR_ALLOWED}" == "true" ]]; then
-            NEXT_ACTION="RETURN_TO_LOCAL_PATCH_OWNER"
-            REMOTE_FALLBACK_ELIGIBLE="true"
-          else
-            NEXT_ACTION="BLOCKED_FOR_DIAGNOSIS"
-            REMOTE_FALLBACK_ELIGIBLE="false"
-          fi
+          REMOTE_FALLBACK_ELIGIBLE="false"
+          case "${RECOVERY_DISPOSITION}" in
+            AUTO_REPAIR)
+              NEXT_ACTION="AUTO_REPAIR_CONTINUATION"
+              REMOTE_FALLBACK_ELIGIBLE="true"
+              ;;
+            AUTO_RETRY)
+              NEXT_ACTION="AUTO_RETRY_PENDING"
+              ;;
+            AUTO_DIAGNOSE)
+              NEXT_ACTION="READ_ONLY_DIAGNOSIS_REQUIRED"
+              ;;
+            WAIT_EXTERNAL)
+              NEXT_ACTION="WAITING_EXTERNAL_RECOVERY"
+              ;;
+            HUMAN_REQUIRED)
+              NEXT_ACTION="HUMAN_DECISION_REQUIRED"
+              ;;
+            *)
+              if [[ "${REPAIR_ALLOWED}" == "true" ]]; then
+                NEXT_ACTION="RETURN_TO_LOCAL_PATCH_OWNER"
+                REMOTE_FALLBACK_ELIGIBLE="true"
+              else
+                NEXT_ACTION="HUMAN_DECISION_REQUIRED"
+                HUMAN_REQUIRED="true"
+              fi
+              ;;
+          esac
           BODY=$(cat <<EOF
           Stage-1 ingestion completed.
 
@@ -312,19 +337,22 @@ jobs:
           - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
           - Classification: \`${CLASSIFICATION}\`
           - Failure signature: \`${FAILURE_SIGNATURE}\`
-          - Product-code failure eligible for repair: \`${REPAIR_ALLOWED}\`
-          - Default repair authority: \`local Patch Owner / local-first TaskRun\`
+          - Recovery disposition: \`${RECOVERY_DISPOSITION:-UNKNOWN}\`
+          - Human decision required now: \`${HUMAN_REQUIRED:-true}\`
+          - Product/source automatic write eligible: \`${REPAIR_ALLOWED}\`
+          - Read-only automatic diagnosis eligible: \`${DIAGNOSTIC_ALLOWED:-false}\`
+          - Same-candidate automatic retry eligible: \`${RETRY_ALLOWED:-false}\`
           - Next action: \`${NEXT_ACTION}\`
           - Explicit remote Stage-2 fallback structurally eligible: \`${REMOTE_FALLBACK_ELIGIBLE}\`
           - Automatic remote Stage-2 dispatch: \`false\`
           - Evidence artifact: \`governed-ci-failure-${SOURCE_RUN_ID}\`
           - production_closed: false
 
-          Stage 1 only receives, redacts, classifies, and records evidence. It does not authorize
-          automatic remote source repair, read production Environment secrets, modify source, push a
-          branch, create a pull request, merge main, or claim production closure. A code/contract
-          failure returns to the original local Patch Owner by default. Remote Stage 2 requires a
-          separate explicit fallback invocation.
+          A failed attempt is recorded but does not automatically become a user interruption. Bounded
+          repair/retry/diagnosis may continue only under the already-issued TaskRun authorities. Tests,
+          acceptance, baseline/oracle changes, scope expansion, merge, deploy and production remain
+          outside this Stage-1 authority. Human interaction is required only when the recovery policy
+          explicitly reports \`HUMAN_REQUIRED\` or a later bounded recovery exhausts its budget.
           EOF
           )
           gh issue comment "${ISSUE_NUMBER}" --body "${BODY}"
@@ -359,6 +387,10 @@ jobs:
         env:
           CLASSIFICATION: ${{ steps.ingest.outputs.classification }}
           REPAIR_ALLOWED: ${{ steps.ingest.outputs.repair_allowed }}
+          RECOVERY_DISPOSITION: ${{ steps.ingest.outputs.recovery_disposition }}
+          HUMAN_REQUIRED: ${{ steps.ingest.outputs.human_required }}
+          DIAGNOSTIC_ALLOWED: ${{ steps.ingest.outputs.diagnostic_allowed }}
+          RETRY_ALLOWED: ${{ steps.ingest.outputs.retry_allowed }}
           SOURCE_RUN_ID: ${{ steps.source.outputs.source_run_id }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           TRIGGER_MODE: ${{ steps.source.outputs.trigger_mode }}
@@ -370,8 +402,11 @@ jobs:
             echo "- Trigger mode: \`${TRIGGER_MODE}\`"
             echo "- Receipt issue: \`#${ISSUE_NUMBER}\`"
             echo "- Classification: \`${CLASSIFICATION:-not-produced}\`"
-            echo "- Product-code repair eligibility: \`${REPAIR_ALLOWED:-false}\`"
-            echo "- Default next repair lane: \`local Patch Owner\`"
+            echo "- Recovery disposition: \`${RECOVERY_DISPOSITION:-not-produced}\`"
+            echo "- Human decision required now: \`${HUMAN_REQUIRED:-true}\`"
+            echo "- Product/source automatic write eligibility: \`${REPAIR_ALLOWED:-false}\`"
+            echo "- Read-only diagnosis eligibility: \`${DIAGNOSTIC_ALLOWED:-false}\`"
+            echo "- Same-candidate retry eligibility: \`${RETRY_ALLOWED:-false}\`"
             echo "- Automatic remote Stage 2 dispatch: \`false\`"
             echo "- Source changes: none"
             echo "- production_closed: false"

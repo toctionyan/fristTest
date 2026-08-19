@@ -27,6 +27,9 @@ Skill 版本：6.7.0
 9. **受治理修复闭环**：Repair、Migration、Revert 在进入写入态前，必须以同一 change_id 串联 FailureCase、RootCauseProof、RepairPlan、只读 PlanReview、baseline-bound ChangePermit；实现后必须通过独立 DiffReview 和八维 ClosureMatrix。达到最大循环次数、环境阻塞或缺少证据均不得映射为 CONVERGED。
 10. **当前轮语义唯一权威**：新 Turn 只能消费冻结的语义合同、正式 Plan Definition/Run、Goal/Blocker 与派生投影。退休字段只能在单点 checkpoint 迁移器中一次性读取；Runtime、Capability、Clarification、Tool execution 和 Answer release 不得再读取、写入或静默回退到旧语义链。
 11. **上下文投影不代替目标裁决**：历史 ResultRef、集合、焦点和最近分组只能形成只读、带来源的 ReferentSet；不得自动选择目标。多结果后的单数续问必须 fail closed，显式返回或分组必须验证原文字面证据、成员数和连续性；Capability 只能按结构化 requested effect 精确匹配，缺失时必须 unsupported。
+12. **整任务完成不可由局部成功代替**：长任务只能由同一 TaskRun 的 Completion Contract 和最终完成 checkpoint 裁决。单个 Tool、PR、merge、CI run、Stage 或最近一次成功动作都不得单独升级为“整个任务完成”。预期的后继步骤、post-merge/main CI 或 landed acceptance 尚未出现时必须保持 PENDING。
+13. **失败尝试不等于人工接管**：每个失败 Attempt 都必须保留为不可丢失证据；在已有授权、精确范围和预算内可安全重试、诊断或修复时，应继续原 TaskRun，不得仅因为出现 RED 就要求用户再次“继续”。只有 Goal/Acceptance/Authority/Oracle/独立 Review/权限扩大、外部不可恢复阻塞或安全恢复预算耗尽时，才把控制权交回用户。
+14. **状态透明且不得伪造运行态**：进度回答必须投影整个 TaskRun，公开已完成步骤、当前步骤、历史失败及恢复、未解决失败和是否需要用户介入。`run finished` 不等于 `task succeeded`；“已授权恢复”也不等于“正在恢复”。只有存在与当前动作绑定的 durable executor RUNNING evidence 时才能声称任务/修复正在运行。
 
 ## STRONG_DEFAULT
 
@@ -37,6 +40,7 @@ Skill 版本：6.7.0
 5. **冻结后不重释**：执行可以因缺少输入、动态 Assessment 或环境失败重规划步骤，但不得改变已经冻结的用户 Goal；改变语义只能由新用户消息或受控语义重编译产生。
 6. **一个正式裁决链**：内部可以并行读取、探索和审查，但同一事实和副作用只有一个正式 Owner。Shadow 路径必须只读、有切换条件、回滚条件、清理条件和截止日期。
 7. **行为优先于形状**：Gate 优先验证 Owner、数据流、禁止替代、输入输出闭合、旧链退出和结果证据；类名、目录和节点名只能来自当前项目基线或 Architecture Decision。
+8. **恢复与交互分离**：可恢复 RED 优先进入已有 Patch Owner/Retry/Read-only Diagnosis 子流程；Human Gate 是恢复分类的结果，不是所有 failure 的默认 UI。查询进度时必须完整展示这些子流程，但执行本身不应为了每个中间失败制造新的用户点击。
 
 ## REFERENCE_PATTERN
 
@@ -61,6 +65,15 @@ Skill 版本：6.7.0
 - 系统再按 Goal 的业务效果检索 Capability。语义相似度只可召回候选，正式匹配必须比较能力身份、对象类型、基数、权限、部署状态和禁止替代约束。
 - 用户语言参数由模型提出并绑定原文证据；对象、用户、租户、Assessment、版本、授权、幂等键和摘要由权威系统提供；真实 Tool 参数由固定 Adapter 从规范命令生成。
 - Planner 可以提出局部 DAG；程序验证每个输入来源、用户顺序、能力前置条件、事务顺序、循环依赖、并行冲突和全部 Goal 覆盖。
+
+## 长任务执行与状态透明度
+
+- 一个长期 TaskRun 应持久化可见执行计划和 Attempt 历史；后续 PASS 只能把先前 RED 标记为 recovered，不能删除、覆盖或让查询侧看不到它。
+- 状态 Projection 只读，不得成为第二个 Task Owner。TaskRun 决定任务生命周期；GitHub workflow/job/step、Quality result、Failure Envelope、Repair Receipt 都只是证据。
+- 状态查询至少展示：整体状态、N/M（存在计划时）、全部 required stage、当前 stage、已恢复失败、未解决失败、恢复是 READY 还是 RUNNING、是否需要用户介入及真实 blocker。
+- `RECOVERY_READY` 表示已有授权但没有执行器运行证据；`RECOVERING` 只能来自与当前 action 绑定的 `task-recovery-execution@1` RUNNING evidence。
+- UNKNOWN failure 不能获得写权限；先做有界只读诊断。能建立现有范围内的可靠 repair/retry route 就继续；诊断预算耗尽或需要改变测试、Oracle、Acceptance、Baseline、Goal、权限、独立 Review 时再要求用户决策。
+- Baseline/Oracle drift 必须先生成只读差异和 acceptance proposal；不得为了 GREEN 自动重写 accepted snapshot。
 
 ## 合法偏离与项目基线
 

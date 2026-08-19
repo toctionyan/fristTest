@@ -5,6 +5,7 @@ from typing import Any, Iterable, Mapping
 
 
 EXECUTION_PROGRESS_SCHEMA = "execution-progress@1"
+RECOVERY_EXECUTION_SCHEMA = "task-recovery-execution@1"
 
 STAGE_STATUSES = {
     "PENDING",
@@ -18,6 +19,11 @@ STAGE_STATUSES = {
 _TERMINAL_SUCCESS = {"success", "neutral"}
 _TERMINAL_FAILURE = {"failure", "timed_out", "cancelled", "action_required", "startup_failure"}
 _TERMINAL_SKIPPED = {"skipped"}
+_FAILURE_STATUSES = {"FAIL", "BLOCKED"}
+_ACTIVE_STATUSES = {"RUNNING", "PENDING"}
+_RECOVERY_RUNNING = {"RUNNING", "IN_PROGRESS"}
+_RECOVERY_READY = {"READY", "QUEUED", "PENDING", "DISPATCHED", "REQUESTED"}
+_RECOVERY_TERMINAL = {"COMPLETED", "PASS", "FAILED", "FAIL", "CANCELLED", "CANCELED"}
 
 
 class ExecutionProgressError(ValueError):
@@ -147,16 +153,93 @@ def project_quality_results(results: Iterable[Mapping[str, Any]]) -> list[StageP
                 label=label,
                 status=status,
                 source="quality-gate",
-                detail=_text(result.get("stderr"))[:500] or None if status == "FAIL" else None,
+                detail=(_text(result.get("stderr"))[:500] or None) if status == "FAIL" else None,
                 evidence_ref=(f"quality-gate:{result.get('id')}" if result.get("id") else None),
             )
         )
     return projections
 
 
+def project_task_conditions(task: Mapping[str, Any]) -> list[StageProjection]:
+    required = task.get("required_conditions") if isinstance(task.get("required_conditions"), list) else []
+    conditions = task.get("conditions") if isinstance(task.get("conditions"), Mapping) else {}
+    rows: list[StageProjection] = []
+    for index, raw_name in enumerate(required, start=1):
+        name = _text(raw_name)
+        condition = conditions.get(name) if isinstance(conditions.get(name), Mapping) else {}
+        satisfied = condition.get("satisfied") is True
+        refs = condition.get("evidence_refs") if isinstance(condition.get("evidence_refs"), list) else []
+        rows.append(
+            StageProjection(
+                stage_id=_stage_id(f"condition-{name}", fallback=f"task-condition-{index}"),
+                label=name,
+                status="PASS" if satisfied and refs else "PENDING",
+                source="task-condition",
+                detail=None if satisfied and refs else "required completion condition not yet satisfied",
+                evidence_ref=(str(refs[0]) if satisfied and refs else None),
+            )
+        )
+    return rows
+
+
+def project_planned_stages(
+    task: Mapping[str, Any],
+    explicit: Iterable[Mapping[str, Any]] = (),
+) -> list[StageProjection]:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), Mapping) else {}
+    plan = metadata.get("execution_plan") if isinstance(metadata.get("execution_plan"), Mapping) else {}
+    configured = plan.get("stages") if isinstance(plan.get("stages"), list) else []
+    source_rows = list(explicit) or [row for row in configured if isinstance(row, Mapping)]
+    result: list[StageProjection] = []
+    seen: set[str] = set()
+    for index, row in enumerate(source_rows, start=1):
+        stage_id = _stage_id(row.get("id") or row.get("label"), fallback=f"planned-stage-{index}")
+        if stage_id in seen:
+            raise ExecutionProgressError(f"duplicate planned stage id: {stage_id}")
+        seen.add(stage_id)
+        result.append(
+            StageProjection(
+                stage_id=stage_id,
+                label=_text(row.get("label")) or stage_id,
+                status=_normalize_status(row.get("status") or "PENDING"),
+                source="task-plan",
+                detail=_text(row.get("detail")) or None,
+                evidence_ref=_text(row.get("evidence_ref")) or None,
+            )
+        )
+    return result
+
+
+def _merge_stage_projections(
+    planned: Iterable[StageProjection],
+    observed: Iterable[StageProjection],
+) -> list[StageProjection]:
+    result: list[StageProjection] = []
+    positions: dict[str, int] = {}
+    for stage in planned:
+        positions[stage.stage_id] = len(result)
+        result.append(stage)
+    for stage in observed:
+        position = positions.get(stage.stage_id)
+        if position is None:
+            positions[stage.stage_id] = len(result)
+            result.append(stage)
+            continue
+        planned_stage = result[position]
+        result[position] = StageProjection(
+            stage_id=planned_stage.stage_id,
+            label=planned_stage.label,
+            status=stage.status,
+            source=stage.source,
+            detail=stage.detail,
+            evidence_ref=stage.evidence_ref,
+        )
+    return result
+
+
 def _first_failure(stages: Iterable[StageProjection]) -> dict[str, Any] | None:
     for stage in stages:
-        if stage.status in {"FAIL", "BLOCKED"}:
+        if stage.status in _FAILURE_STATUSES:
             payload = {
                 "stage_id": stage.stage_id,
                 "label": stage.label,
@@ -205,9 +288,9 @@ def _verdict(stages: Iterable[StageProjection], *, sources: set[str]) -> str:
     rows = [stage for stage in stages if stage.source in sources]
     if not rows:
         return "UNKNOWN"
-    if any(stage.status in {"FAIL", "BLOCKED"} for stage in rows):
+    if any(stage.status in _FAILURE_STATUSES for stage in rows):
         return "FAIL"
-    if any(stage.status in {"RUNNING", "PENDING"} for stage in rows):
+    if any(stage.status in _ACTIVE_STATUSES for stage in rows):
         return "RUNNING"
     if any(stage.status == "PASS" for stage in rows):
         return "PASS"
@@ -224,6 +307,115 @@ def _transport_verdict(stages: Iterable[StageProjection]) -> str:
     return _verdict(stages, sources={"github-job", "github-step"})
 
 
+def _normalize_attempt_history(attempts: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, raw in enumerate(attempts, start=1):
+        stage_id = _stage_id(raw.get("stage_id") or raw.get("stage") or raw.get("label"), fallback=f"attempt-stage-{index}")
+        status = _normalize_status(raw.get("status"), conclusion=raw.get("conclusion"))
+        rows.append(
+            {
+                "sequence": int(raw.get("sequence") or index),
+                "stage_id": stage_id,
+                "label": _text(raw.get("label")) or stage_id,
+                "attempt": int(raw.get("attempt") or index),
+                "status": status,
+                "detail": _text(raw.get("detail")) or None,
+                "evidence_ref": _text(raw.get("evidence_ref")) or None,
+                "human_required": raw.get("human_required") is True,
+                "recoverable": raw.get("recoverable") is not False,
+            }
+        )
+    rows.sort(key=lambda row: row["sequence"])
+    return rows
+
+
+def _attempt_failure_views(attempts: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in attempts:
+        grouped.setdefault(row["stage_id"], []).append(row)
+    recovered: list[dict[str, Any]] = []
+    unresolved: list[dict[str, Any]] = []
+    for stage_id, rows in grouped.items():
+        failed = [row for row in rows if row["status"] in _FAILURE_STATUSES]
+        if not failed:
+            continue
+        latest = rows[-1]
+        summary = {
+            "stage_id": stage_id,
+            "label": latest["label"],
+            "failed_attempts": [row["attempt"] for row in failed],
+            "latest_attempt": latest["attempt"],
+            "latest_status": latest["status"],
+            "last_failure_detail": failed[-1].get("detail"),
+            "last_failure_evidence_ref": failed[-1].get("evidence_ref"),
+        }
+        if latest["status"] in {"PASS", "SKIPPED"}:
+            recovered.append(summary)
+        else:
+            unresolved.append(summary)
+    return recovered, unresolved
+
+
+def _latest_reconcile_outcome(task: Mapping[str, Any]) -> dict[str, Any] | None:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), Mapping) else {}
+    reconciler = metadata.get("engineering_reconciler") if isinstance(metadata.get("engineering_reconciler"), Mapping) else {}
+    decisions = reconciler.get("decisions") if isinstance(reconciler.get("decisions"), Mapping) else {}
+    key = _text(reconciler.get("last_delivery_key"))
+    entry = decisions.get(key) if key and isinstance(decisions.get(key), Mapping) else None
+    if entry is None and decisions:
+        candidate = list(decisions.values())[-1]
+        entry = candidate if isinstance(candidate, Mapping) else None
+    if not isinstance(entry, Mapping):
+        return None
+    outcome = entry.get("outcome")
+    return dict(outcome) if isinstance(outcome, Mapping) else None
+
+
+def _recovery_execution(task: Mapping[str, Any]) -> dict[str, Any] | None:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), Mapping) else {}
+    raw = metadata.get("recovery_execution")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ExecutionProgressError("recovery execution evidence must be an object")
+    if raw.get("schema") != RECOVERY_EXECUTION_SCHEMA:
+        raise ExecutionProgressError("unsupported recovery execution evidence schema")
+    status = _text(raw.get("status")).upper()
+    if status not in _RECOVERY_RUNNING | _RECOVERY_READY | _RECOVERY_TERMINAL:
+        raise ExecutionProgressError(f"unsupported recovery execution status: {status}")
+    action = _text(raw.get("action"))
+    evidence_ref = _text(raw.get("evidence_ref"))
+    if not action:
+        raise ExecutionProgressError("recovery execution evidence requires action")
+    if status in _RECOVERY_RUNNING and not evidence_ref:
+        raise ExecutionProgressError(
+            "active recovery execution must carry durable executor evidence"
+        )
+    return {
+        "schema": RECOVERY_EXECUTION_SCHEMA,
+        "status": status,
+        "action": action,
+        "evidence_ref": evidence_ref or None,
+        "detail": _text(raw.get("detail")) or None,
+        "authority_effect": False,
+    }
+
+
+def _task_completion(task: Mapping[str, Any]) -> tuple[bool | None, list[str]]:
+    required = task.get("required_conditions") if isinstance(task.get("required_conditions"), list) else []
+    if not required:
+        return None, []
+    conditions = task.get("conditions") if isinstance(task.get("conditions"), Mapping) else {}
+    missing: list[str] = []
+    for raw in required:
+        name = _text(raw)
+        row = conditions.get(name) if isinstance(conditions.get(name), Mapping) else {}
+        refs = row.get("evidence_refs") if isinstance(row.get("evidence_refs"), list) else []
+        if row.get("satisfied") is not True or not refs:
+            missing.append(name)
+    return not missing, missing
+
+
 def build_execution_progress(
     *,
     task: Mapping[str, Any] | None = None,
@@ -231,24 +423,34 @@ def build_execution_progress(
     github_steps: Iterable[Mapping[str, Any]] = (),
     github_step_job_name: str = "github",
     quality_results: Iterable[Mapping[str, Any]] = (),
+    planned_stages: Iterable[Mapping[str, Any]] = (),
+    attempt_history: Iterable[Mapping[str, Any]] = (),
     run_id: int | None = None,
     workflow: str | None = None,
     head_sha: str | None = None,
 ) -> dict[str, Any]:
-    """Project durable execution facts without acquiring any control authority.
+    """Project durable task, attempt, Quality, and GitHub evidence without control authority.
 
-    This function is intentionally read-only. It may summarize TaskRun, Quality,
-    and GitHub evidence, but it cannot mutate a task, authorize a repair, dispatch
-    a workflow, reinterpret a failed gate as PASS, or declare product completion.
+    The projection is intentionally read-only. It keeps historical failed attempts
+    visible even after recovery, distinguishes an authorized recovery from an
+    executor that is actually running, and never declares the whole task complete
+    until the TaskRun completion contract and final COMPLETED checkpoint agree.
     """
 
-    stages = [
+    task_payload = dict(task or {})
+    planned = [
+        *project_planned_stages(task_payload, planned_stages),
+        *project_task_conditions(task_payload),
+    ]
+    observed = [
         *project_quality_results(quality_results),
         *project_github_jobs(github_jobs),
         *project_github_steps(github_steps, job_name=github_step_job_name),
     ]
+    stages = _merge_stage_projections(planned, observed)
+    attempts = _normalize_attempt_history(attempt_history)
+    recovered_failures, unresolved_attempt_failures = _attempt_failure_views(attempts)
 
-    task_payload = dict(task or {})
     task_status = _text(task_payload.get("status")) or None
     task_phase = _text(task_payload.get("phase")) or None
     task_id = _text(task_payload.get("task_id")) or None
@@ -256,6 +458,92 @@ def build_execution_progress(
     local_first = metadata.get("local_first") if isinstance(metadata.get("local_first"), Mapping) else {}
     counters = local_first.get("counters") if isinstance(local_first.get("counters"), Mapping) else {}
     budgets = local_first.get("budgets") if isinstance(local_first.get("budgets"), Mapping) else {}
+    latest_outcome = _latest_reconcile_outcome(task_payload)
+    recovery_execution = _recovery_execution(task_payload)
+
+    stage_failure = _first_failure(stages)
+    unresolved_failures = list(unresolved_attempt_failures)
+    if stage_failure and not any(row.get("stage_id") == stage_failure["stage_id"] for row in unresolved_failures):
+        unresolved_failures.append(dict(stage_failure))
+
+    recovery_authorized = bool(
+        latest_outcome
+        and latest_outcome.get("allowed") is True
+        and latest_outcome.get("human_required") is not True
+        and _text(latest_outcome.get("action"))
+        and unresolved_failures
+    )
+    recovery_action = _text(latest_outcome.get("action")) if latest_outcome else ""
+    recovery_state = "NONE"
+    if recovery_authorized:
+        recovery_state = "READY"
+        if recovery_execution:
+            if recovery_execution["action"] != recovery_action:
+                raise ExecutionProgressError(
+                    "recovery execution action does not match the latest authorized action"
+                )
+            status = _text(recovery_execution.get("status")).upper()
+            if status in _RECOVERY_RUNNING:
+                recovery_state = "RUNNING"
+            elif status in _RECOVERY_READY:
+                recovery_state = "READY"
+            elif status in {"FAILED", "FAIL", "CANCELLED", "CANCELED"}:
+                recovery_state = "FAILED"
+            elif status in {"COMPLETED", "PASS"}:
+                recovery_state = "COMPLETED"
+
+    human_required = bool(
+        task_status == "BLOCKED"
+        or (
+            latest_outcome
+            and latest_outcome.get("human_required") is True
+            and latest_outcome.get("allowed") is not True
+        )
+    )
+
+    overall = _overall(stages)
+    if human_required:
+        overall = "BLOCKED"
+    elif recovery_state == "RUNNING":
+        overall = "RECOVERING"
+    elif recovery_state == "READY":
+        overall = "RECOVERY_READY"
+    elif recovery_state == "FAILED":
+        overall = "FAILED"
+
+    conditions_complete, missing_conditions = _task_completion(task_payload)
+    final_taskrun_complete = bool(
+        task_id
+        and task_status == "COMPLETED"
+        and task_phase == "COMPLETED"
+    )
+    active_or_failed_stage = any(
+        stage.status in _ACTIVE_STATUSES | _FAILURE_STATUSES for stage in stages
+    )
+    if conditions_complete is False:
+        completion_eligible = False
+        if overall == "COMPLETED":
+            overall = "PENDING"
+    elif conditions_complete is True:
+        completion_eligible = final_taskrun_complete and not active_or_failed_stage
+        if not completion_eligible and overall == "COMPLETED":
+            overall = "PENDING"
+    else:
+        if task_id:
+            completion_eligible = final_taskrun_complete and overall == "COMPLETED"
+            if not final_taskrun_complete and overall == "COMPLETED":
+                overall = "PENDING"
+        else:
+            completion_eligible = overall == "COMPLETED"
+
+    task_plan_basis = [stage for stage in stages if stage.source == "task-plan"]
+    condition_basis = [stage for stage in stages if stage.source == "task-condition"]
+    progress_basis = task_plan_basis or condition_basis or stages
+    completed_steps = sum(1 for stage in progress_basis if stage.status in {"PASS", "SKIPPED"})
+    total_steps = len(progress_basis)
+
+    blockers = task_payload.get("blockers") if isinstance(task_payload.get("blockers"), list) else []
+    current_blocker = blockers[-1] if blockers and isinstance(blockers[-1], Mapping) and task_status == "BLOCKED" else None
 
     progress: dict[str, Any] = {
         "schema": EXECUTION_PROGRESS_SCHEMA,
@@ -264,13 +552,39 @@ def build_execution_progress(
             "task_id": task_id,
             "status": task_status,
             "phase": task_phase,
+            "final_checkpoint_complete": final_taskrun_complete,
         },
-        "overall": _overall(stages),
+        "overall": overall,
+        "completion_eligible": bool(completion_eligible),
+        "completion_authority": "TASK_RUN" if task_id else "OBSERVATION_ONLY",
+        "missing_completion_conditions": missing_conditions,
         "product_verdict": _product_verdict(stages),
         "transport_verdict": _transport_verdict(stages),
         "current_stage": _current_stage(stages),
-        "first_failure": _first_failure(stages),
+        "first_failure": stage_failure,
         "stages": [stage.as_dict() for stage in stages],
+        "attempt_history": attempts,
+        "recovered_failures": recovered_failures,
+        "unresolved_failures": unresolved_failures,
+        "recovery": {
+            "authorized": recovery_authorized,
+            "state": recovery_state,
+            "active": recovery_state == "RUNNING",
+            "ready": recovery_state == "READY",
+            "latest_decision": dict(latest_outcome) if latest_outcome else None,
+            "execution": dict(recovery_execution) if recovery_execution else None,
+        },
+        "human": {
+            "required": human_required,
+            "current_blocker": dict(current_blocker) if isinstance(current_blocker, Mapping) else None,
+        },
+        "summary": {
+            "completed_steps": completed_steps,
+            "total_steps": total_steps,
+            "recovered_failure_count": len(recovered_failures),
+            "unresolved_failure_count": len(unresolved_failures),
+            "needs_user_action": human_required,
+        },
         "loop": {
             "repair_round": counters.get("local_repair_rounds"),
             "max_repair_rounds": budgets.get("local_repair_rounds"),
@@ -287,7 +601,7 @@ def build_execution_progress(
 
 
 def render_progress_text(progress: Mapping[str, Any]) -> str:
-    """Render the projection deterministically for chat/CLI/GitHub summaries."""
+    """Render the full task projection deterministically for chat/CLI/GitHub summaries."""
 
     icon = {
         "PASS": "✅",
@@ -297,7 +611,24 @@ def render_progress_text(progress: Mapping[str, Any]) -> str:
         "SKIPPED": "⏭️",
         "BLOCKED": "⛔",
     }
-    lines: list[str] = []
+    overall_icon = {
+        "COMPLETED": "✅",
+        "RUNNING": "🔄",
+        "PENDING": "⏳",
+        "RECOVERING": "🔧",
+        "RECOVERY_READY": "🛠️",
+        "FAILED": "❌",
+        "BLOCKED": "⛔",
+        "SKIPPED": "⏭️",
+        "UNKNOWN": "❔",
+    }
+    overall = _text(progress.get("overall")) or "UNKNOWN"
+    summary = progress.get("summary") if isinstance(progress.get("summary"), Mapping) else {}
+    lines: list[str] = [f"整体状态：{overall_icon.get(overall, '❔')} {overall}"]
+    total = summary.get("total_steps")
+    completed = summary.get("completed_steps")
+    if isinstance(total, int) and total > 0 and isinstance(completed, int):
+        lines.append(f"整体进度：{completed}/{total}")
     for row in progress.get("stages") or []:
         if not isinstance(row, Mapping):
             continue
@@ -307,9 +638,41 @@ def render_progress_text(progress: Mapping[str, Any]) -> str:
     current = _text(progress.get("current_stage"))
     if current:
         lines.append(f"当前阶段：{current}")
-    failure = progress.get("first_failure")
-    if isinstance(failure, Mapping):
-        lines.append(f"首次失败：{_text(failure.get('label')) or _text(failure.get('stage_id'))}")
+
+    recovered = progress.get("recovered_failures") if isinstance(progress.get("recovered_failures"), list) else []
+    if recovered:
+        lines.append(f"已自动恢复失败：{len(recovered)}")
+        for row in recovered:
+            if isinstance(row, Mapping):
+                attempts = ",".join(str(item) for item in row.get("failed_attempts") or [])
+                lines.append(f"↳ {(_text(row.get('label')) or _text(row.get('stage_id')))}：失败尝试 {attempts}，后续已恢复")
+
+    unresolved = progress.get("unresolved_failures") if isinstance(progress.get("unresolved_failures"), list) else []
+    if unresolved:
+        lines.append(f"当前未解决失败：{len(unresolved)}")
+        for row in unresolved:
+            if isinstance(row, Mapping):
+                lines.append(f"↳ {(_text(row.get('label')) or _text(row.get('stage_id')))}")
+
+    recovery = progress.get("recovery") if isinstance(progress.get("recovery"), Mapping) else {}
+    decision = recovery.get("latest_decision") if isinstance(recovery.get("latest_decision"), Mapping) else {}
+    action = _text(decision.get("action")) or _text(decision.get("decision")) or "bounded recovery"
+    if recovery.get("state") == "RUNNING":
+        execution = recovery.get("execution") if isinstance(recovery.get("execution"), Mapping) else {}
+        evidence = _text(execution.get("evidence_ref"))
+        suffix = f"，执行证据={evidence}" if evidence else ""
+        lines.append(f"自动恢复：正在执行（{action}{suffix}）")
+    elif recovery.get("state") == "READY":
+        lines.append(f"自动恢复：已授权/待执行（{action}；当前没有运行中执行器证据）")
+    elif recovery.get("state") == "FAILED":
+        lines.append(f"自动恢复：执行失败（{action}）")
+
+    human = progress.get("human") if isinstance(progress.get("human"), Mapping) else {}
+    lines.append(f"需要你介入：{'是' if human.get('required') is True else '否'}")
+    if human.get("required") is True and isinstance(human.get("current_blocker"), Mapping):
+        blocker = human["current_blocker"]
+        lines.append(f"阻塞原因：{_text(blocker.get('reason')) or _text(blocker.get('code'))}")
+
     lines.append(f"产品判定：{_text(progress.get('product_verdict')) or 'UNKNOWN'}")
     lines.append(f"执行/传输判定：{_text(progress.get('transport_verdict')) or 'UNKNOWN'}")
     return "\n".join(lines)
