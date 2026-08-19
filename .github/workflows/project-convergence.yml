@@ -93,10 +93,20 @@ jobs:
 
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}/attempts/${quality_run_attempt}/jobs?per_page=100" \
             > incoming/jobs.json
-          quick_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-quick")][0].conclusion // "missing"' incoming/jobs.json)
-          [[ "${quick_conclusion}" != "missing" && "${quick_conclusion}" != "skipped" ]]
+          static_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-static")][0].conclusion // "missing"' incoming/jobs.json)
+          quick_execution_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-quick-execution")][0].conclusion // "missing"' incoming/jobs.json)
+          required_status_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-quick-required-status")][0].conclusion // "missing"' incoming/jobs.json)
+          [[ "${static_conclusion}" == "success" ]]
+          [[ "${quick_execution_conclusion}" == "success" ]]
+          if [[ "${source_event}" == "pull_request" ]]; then
+            [[ "${required_status_conclusion}" == "success" ]]
+          else
+            [[ "${required_status_conclusion}" == "missing" || "${required_status_conclusion}" == "skipped" ]]
+          fi
+
           integration_conclusion=$(jq -r '[.jobs[] | select(.name == "quality-integration")][0].conclusion // "missing"' incoming/jobs.json)
           if [[ "${integration_conclusion}" != "missing" && "${integration_conclusion}" != "skipped" ]]; then
+            [[ "${integration_conclusion}" == "success" ]]
             expected_profile="project-integration"
           else
             expected_profile="project-quick"
