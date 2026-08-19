@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+CONTROL = ROOT / "skill-system" / "controller"
+WORKFLOW = ROOT / ".github" / "workflows" / "governed-ci-post-merge-validation.yml"
+if str(CONTROL) not in sys.path:
+    sys.path.insert(0, str(CONTROL))
+
+import execution_progress  # noqa: E402
+
+
+class PostMergeExpectedChildTriggerTests(unittest.TestCase):
+    def test_owner_direct_merge_to_main_auto_starts_post_merge_validator(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("pull_request_target:", text)
+        self.assertIn("types: [closed]", text)
+        self.assertIn("github.event.pull_request.merged == true", text)
+        self.assertIn("github.event.pull_request.base.ref == 'main'", text)
+        self.assertIn('EVENT_NAME: ${{ github.event_name }}', text)
+        self.assertIn('MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}', text)
+        self.assertIn('MERGED_PR_SHA: ${{ github.event.pull_request.merge_commit_sha }}', text)
+        self.assertIn('MERGED_PR_BASE: ${{ github.event.pull_request.base.ref }}', text)
+        self.assertIn('MERGED_PR_MERGED: ${{ github.event.pull_request.merged }}', text)
+        self.assertIn('MERGED_PR_MERGED_BY: ${{ github.event.pull_request.merged_by.login }}', text)
+        self.assertIn('elif [[ "${EVENT_NAME}" == "pull_request_target" ]]; then', text)
+        self.assertIn('[[ "${MERGED_PR_MERGED}" == "true" ]]', text)
+        self.assertIn('[[ "${MERGED_PR_BASE}" == "main" ]]', text)
+        self.assertIn('[[ "${MERGED_PR_MERGED_BY}" == "${OWNER}" ]]', text)
+        self.assertIn('merge_sha="${MERGED_PR_SHA}"', text)
+        self.assertIn('pr_number="${MERGED_PR_NUMBER}"', text)
+        self.assertIn('authorizing_actor="${MERGED_PR_MERGED_BY}"', text)
+
+        # Keep the workflow_run path because merges produced by GITHUB_TOKEN-backed
+        # governed workflows may not emit a second downstream PR event.
+        self.assertIn("workflow_run:", text)
+        self.assertIn("- governed-ci-repair-merge", text)
+
+    def test_missing_expected_child_evidence_is_pending_not_running(self) -> None:
+        progress = execution_progress.build_execution_progress(
+            planned_stages=[
+                {
+                    "id": "canonical-merge",
+                    "label": "canonical merge",
+                    "status": "PASS",
+                    "evidence_ref": "commit:d82cd617",
+                },
+                {
+                    "id": "post-merge-validation",
+                    "label": "post-merge validation",
+                    "status": "PENDING",
+                    "detail": "expected child has not been observed yet",
+                },
+            ]
+        )
+
+        self.assertEqual(progress["overall"], "PENDING")
+        self.assertEqual(progress["current_stage"], "post-merge-validation")
+        self.assertFalse(progress["recovery"]["active"])
+        self.assertFalse(progress["human"]["required"])
+        self.assertEqual(progress["summary"]["completed_steps"], 1)
+        self.assertEqual(progress["summary"]["total_steps"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
