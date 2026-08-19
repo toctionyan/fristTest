@@ -35,12 +35,29 @@ def execute_evaluate_refund_eligibility(state: dict[str, Any], args: dict[str, A
             return error
     # The current Planner decides whether this is a qualification question;
     # the program has already verified question_span belongs to the user text.
-    target, target_error = _target_members(state, args.get("target") if isinstance(args.get("target"), dict) else {}, expected_shape="one", allowed_resource_types={"order"}, target_authority="decision")
+    # A verified collection remains a collection: eligibility is evaluated
+    # independently for every member in resolver order and is never narrowed
+    # to an arbitrary single order.
+    target, target_error = _target_members(
+        state,
+        args.get("target") if isinstance(args.get("target"), dict) else {},
+        expected_shape="collection",
+        allowed_resource_types={"order"},
+        target_authority="decision",
+    )
     if target_error:
         return target_error
     assert target is not None
-    order_handle = str(target["member_handles"][0])
-    working_state = {**state, "artifact_ledger": append_entries(state.get("artifact_ledger") or [], list(target.get("entries") or []))}
+    order_handles = [str(value) for value in list(target.get("member_handles") or []) if str(value)]
+    if not order_handles:
+        return _error("EMPTY_CONTEXT_TARGET", "当前上下文目标没有匹配对象。")
+    working_state = {
+        **state,
+        "artifact_ledger": append_entries(
+            state.get("artifact_ledger") or [],
+            list(target.get("entries") or []),
+        ),
+    }
     reason = str(args.get("reason_span") or "")
     values = {"reason": reason}
     reason_code, reason_code_error = _structured_reason_code(
@@ -50,15 +67,101 @@ def execute_evaluate_refund_eligibility(state: dict[str, Any], args: dict[str, A
         return reason_code_error
     if reason_code:
         values["reason_code"] = reason_code
-    row, error, additions, preview = _preview_order_action(working_state, action_id="create_refund", operation="APPLY_REFUND", order_handle=order_handle, inputs=values, source="module:ecommerce.refund.eligibility")
-    if error:
-        return error
-    assert row is not None and preview is not None
-    eligible = str(preview.get("decision") or "") in {"ALLOWED", "NEEDS_REVIEW"}
-    if not eligible:
-        return _ok({"preview": preview, "eligible": False}, entries=additions)
-    eligibility = eligibility_entry(action_id="create_refund", operation="APPLY_REFUND", target_handle=order_handle, input_values={**values, "expected_version": int((preview.get("snapshot") or {}).get("version") or row.get("version") or 1)}, preview=preview, scope=scope_for_state(state), turn=_turn(state), label="退款资格核验")
-    return _ok({"preview": preview, "eligible": True, "eligibility_handle": eligibility["handle"], "target_label": row.get("product_name")}, entries=[*additions, eligibility])
+
+    def _evaluate_one(order_handle: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, Any] | None]:
+        row, preview_error, additions, preview = _preview_order_action(
+            working_state,
+            action_id="create_refund",
+            operation="APPLY_REFUND",
+            order_handle=order_handle,
+            inputs=values,
+            source="module:ecommerce.refund.eligibility",
+        )
+        if preview_error:
+            return None, additions, preview_error
+        assert row is not None and preview is not None
+        eligible = str(preview.get("decision") or "") in {"ALLOWED", "NEEDS_REVIEW"}
+        item: dict[str, Any] = {
+            "preview": preview,
+            "eligible": eligible,
+            "target_handle": order_handle,
+            "target_label": row.get("product_name"),
+        }
+        if not eligible:
+            return item, additions, None
+        eligibility = eligibility_entry(
+            action_id="create_refund",
+            operation="APPLY_REFUND",
+            target_handle=order_handle,
+            input_values={
+                **values,
+                "expected_version": int(
+                    (preview.get("snapshot") or {}).get("version")
+                    or row.get("version")
+                    or 1
+                ),
+            },
+            preview=preview,
+            scope=scope_for_state(state),
+            turn=_turn(state),
+            label="退款资格核验",
+        )
+        item["eligibility_handle"] = eligibility["handle"]
+        return item, [*additions, eligibility], None
+
+    # Preserve the established one-order response contract exactly so existing
+    # callers do not need a migration merely because the capability now also
+    # accepts a verified collection.
+    if len(order_handles) == 1:
+        item, entries, item_error = _evaluate_one(order_handles[0])
+        if item_error:
+            return item_error
+        assert item is not None
+        single = {
+            "preview": item["preview"],
+            "eligible": bool(item["eligible"]),
+        }
+        if item.get("eligibility_handle"):
+            single["eligibility_handle"] = item["eligibility_handle"]
+            single["target_label"] = item.get("target_label")
+        return _ok(single, entries=entries)
+
+    items: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
+    for order_handle in order_handles:
+        item, item_entries, item_error = _evaluate_one(order_handle)
+        if item_error:
+            return item_error
+        assert item is not None
+        items.append(item)
+        entries.extend(item_entries)
+        # Subsequent members see only authority-backed observations accumulated
+        # so far; this does not change the frozen target membership.
+        working_state = {
+            **working_state,
+            "artifact_ledger": append_entries(
+                working_state.get("artifact_ledger") or [],
+                item_entries,
+            ),
+        }
+
+    eligibility_handles = [
+        str(item.get("eligibility_handle") or "")
+        for item in items
+        if str(item.get("eligibility_handle") or "")
+    ]
+    return _ok(
+        {
+            "count": len(items),
+            "items": items,
+            "member_handles": order_handles,
+            "target_labels": [str(item.get("target_label") or "") for item in items],
+            "eligibility_handles": eligibility_handles,
+            "eligible_count": sum(1 for item in items if bool(item.get("eligible"))),
+            "all_eligible": all(bool(item.get("eligible")) for item in items),
+        },
+        entries=entries,
+    )
 
 
 def _prepare_refund_from_eligibility(state: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:

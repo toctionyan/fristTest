@@ -904,7 +904,12 @@ def _formal_goal_scope_coverage_proof(
     }
 
 
-def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _visible_reference_proof(
+    state: dict[str, Any],
+    args: dict[str, Any],
+    *,
+    semantic_reference_binding: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Validate only explicit references carried by the formal target schema.
 
     Entity matching and all-orders are fresh business queries rather than
@@ -943,6 +948,21 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
         })
         if error:
             errors.append(f"visible_result_ref:{field}:{error}")
+    semantic_checks = [
+        row
+        for row in list((semantic_reference_binding or {}).get("checks") or [])
+        if isinstance(row, dict) and bool(row.get("required"))
+    ]
+    semantic_reference_authority_bound = bool(
+        isinstance(semantic_reference_binding, dict)
+        and semantic_reference_binding.get("complete")
+        and semantic_checks
+        and all(
+            str(row.get("resolution_status") or "") == "UNIQUE"
+            and bool(row.get("matched"))
+            for row in semantic_checks
+        )
+    )
     visible_refs = visible_result_refs_from_ledger(
         state.get("artifact_ledger") or [],
         state=state,
@@ -1041,6 +1061,7 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
         and (mode in {"collection", "artifact"} or (mode == "pipeline" and str(target.get("source_kind") or "") == "collection"))
         and len(selected_latest_handles) == 1
         and binding_kind != "explicit_return"
+        and not semantic_reference_authority_bound
     ):
         # Several independent results crossed the release boundary in the same
         # latest turn.  A bare singular continuation cannot choose one of them.
@@ -1130,6 +1151,7 @@ def _visible_reference_proof(state: dict[str, Any], args: dict[str, Any]) -> dic
             "latest_visible_scope_count": len(latest_scopes),
             "latest_visible_equivalent_alias_count": max(0, len(latest_handles) - len(latest_scopes)),
             "latest_visible_scope_ambiguous": len(latest_scopes) > 1,
+            "semantic_reference_authority_bound": semantic_reference_authority_bound,
             "group_source_span": group_source_span if explicit_group_binding else None,
             "explicit_group_binding_complete": explicit_group_binding,
         },
@@ -1558,7 +1580,26 @@ def issue_execution_permit(
         "version": "constraint-coverage-proof@1", "bindings": [], "parameterization_complete": False,
         "errors": ["tool_schema_invalid"] if arg_errors else ["tool_not_registered"],
     }
-    visible_reference = _visible_reference_proof(state, normalized_args) if contract is not None and not arg_errors else {
+    semantic = None
+    surface = state.get("capability_surface") if isinstance(state.get("capability_surface"), dict) else None
+    effect = next((
+        row for row in list((state.get("current_turn_plan") or {}).get("effects") or [])
+        if isinstance(row, dict) and str(row.get("effect_id") or "") == str(effect_id or "")
+    ), {})
+    goal_ids = {str(value) for value in list(effect.get("goal_ids") or []) if str(value)}
+    planning_target = getattr(getattr(contract, "planning_contract", None), "target", None)
+    target_cardinality = str(getattr(planning_target, "cardinality", "") or "")
+    semantic_reference_binding = _semantic_reference_binding_proof(
+        state,
+        normalized_args,
+        goal_ids=goal_ids,
+        target_cardinality=target_cardinality,
+    )
+    visible_reference = _visible_reference_proof(
+        state,
+        normalized_args,
+        semantic_reference_binding=semantic_reference_binding,
+    ) if contract is not None and not arg_errors else {
         "version": "runtime-result-ref-proof@4", "checks": [], "complete": False,
         "errors": ["tool_schema_invalid"] if arg_errors else ["tool_not_registered"],
     }
@@ -1578,26 +1619,11 @@ def issue_execution_permit(
             "errors": ["visible_result_reference_invalid"],
         }
     )
-    semantic = None
-    surface = state.get("capability_surface") if isinstance(state.get("capability_surface"), dict) else None
-    effect = next((
-        row for row in list((state.get("current_turn_plan") or {}).get("effects") or [])
-        if isinstance(row, dict) and str(row.get("effect_id") or "") == str(effect_id or "")
-    ), {})
-    goal_ids = {str(value) for value in list(effect.get("goal_ids") or []) if str(value)}
     formal_condition_coverage = _formal_goal_condition_coverage_proof(
         state, goal_ids=goal_ids, parameterization=parameterization
     )
     formal_scope_coverage = _formal_goal_scope_coverage_proof(
         state, goal_ids=goal_ids, parameterization=parameterization, visible_reference=visible_reference
-    )
-    planning_target = getattr(getattr(contract, "planning_contract", None), "target", None)
-    target_cardinality = str(getattr(planning_target, "cardinality", "") or "")
-    semantic_reference_binding = _semantic_reference_binding_proof(
-        state,
-        normalized_args,
-        goal_ids=goal_ids,
-        target_cardinality=target_cardinality,
     )
     semantic = (
         verify_candidate_semantics(
