@@ -5,6 +5,8 @@ on:
     workflows:
       - governed-ci-repair-merge
     types: [completed]
+  pull_request_target:
+    types: [closed]
   workflow_dispatch:
     inputs:
       merge_sha:
@@ -25,7 +27,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: governed-ci-post-merge-validation-${{ github.repository }}-${{ inputs.merge_sha || github.event.workflow_run.id || github.event.issue.number }}
+  group: governed-ci-post-merge-validation-${{ github.repository }}-${{ github.event.pull_request.merge_commit_sha || inputs.merge_sha || github.event.workflow_run.id || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
@@ -33,6 +35,9 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'pull_request_target'
+          && github.event.pull_request.merged == true
+          && github.event.pull_request.base.ref == 'main')
       || (github.event_name == 'issue_comment'
           && github.event.issue.pull_request != null
           && startsWith(github.event.comment.body, '/governed-post-merge-validate '))
@@ -55,6 +60,11 @@ jobs:
           SOURCE_STATUS: ${{ github.event.workflow_run.status }}
           SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          MERGED_PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGED_PR_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          MERGED_PR_BASE: ${{ github.event.pull_request.base.ref }}
+          MERGED_PR_MERGED: ${{ github.event.pull_request.merged }}
+          MERGED_PR_MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
         run: |
           set -euo pipefail
           mkdir -p post-merge-bootstrap
@@ -122,6 +132,30 @@ jobs:
             merge_sha=$(jq -r '.merge_commit_sha' post-merge-bootstrap/merge-consumption.json)
             pr_number=$(jq -r '.pull_request_number' post-merge-bootstrap/merge-grant.json)
             authorizing_actor="${SOURCE_ACTOR}"
+          elif [[ "${EVENT_NAME}" == "pull_request_target" ]]; then
+            [[ "${MERGED_PR_MERGED}" == "true" ]] || {
+              echo "pull_request_target event is not a merged pull request" >&2
+              exit 1
+            }
+            [[ "${MERGED_PR_BASE}" == "main" ]] || {
+              echo "post-merge validation only auto-starts for merges into main" >&2
+              exit 1
+            }
+            [[ "${MERGED_PR_MERGED_BY}" == "${OWNER}" ]] || {
+              echo "merged pull request was not merged by the repository owner" >&2
+              exit 1
+            }
+            [[ "${MERGED_PR_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "merged pull request is missing an exact merge commit SHA" >&2
+              exit 1
+            }
+            [[ "${MERGED_PR_NUMBER}" =~ ^[1-9][0-9]*$ ]] || {
+              echo "merged pull request number is invalid" >&2
+              exit 1
+            }
+            merge_sha="${MERGED_PR_SHA}"
+            pr_number="${MERGED_PR_NUMBER}"
+            authorizing_actor="${MERGED_PR_MERGED_BY}"
           elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
             [[ "${ACTOR}" == "${OWNER}" ]] || {
               echo "post-merge validation may only be started by the repository owner" >&2
