@@ -2,8 +2,9 @@
 """Bind a successful Stage-2 patch to immutable metadata required by Stage 3.
 
 The handoff preserves the Stage-1 failure authority and additionally requires the
-read-only RCA, exact write-grant digests, immutable write scope, and G0 scope
-proof already recorded by Stage 2. It never broadens or creates repair authority.
+read-only RCA, exact write-grant digests, immutable write scope, repair domain,
+and G0 scope proof already recorded by Stage 2. It never broadens or creates
+repair authority.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "skill-system" / "controller"
@@ -28,6 +29,8 @@ from engineering_autonomy_continuation import (  # type: ignore  # noqa: E402
 
 SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@2"
 MAX_FAILURE_SIGNATURE_BYTES = 512
+PRODUCT_DOMAIN = "PRODUCT_CODE"
+CONTROL_DOMAIN = "CONTROL_PLANE_IMPLEMENTATION"
 
 
 class HandoffError(RuntimeError):
@@ -65,6 +68,36 @@ def _failure_signature(value: object) -> str:
     return result
 
 
+def _failure_domain(failure: Mapping[str, Any]) -> tuple[str, str]:
+    classification = str(failure.get("classification") or "").strip()
+    supplied = str(failure.get("repair_domain") or "").strip()
+    if classification == "code_or_contract":
+        if supplied and supplied != PRODUCT_DOMAIN:
+            raise HandoffError("product Stage-1 source authority changed repair domain")
+        return PRODUCT_DOMAIN, ""
+    if classification == "control_plane_implementation":
+        if supplied != CONTROL_DOMAIN:
+            raise HandoffError("control-plane Stage-1 source authority lacks exact repair domain")
+        route = failure.get("repair_route") if isinstance(failure.get("repair_route"), Mapping) else {}
+        if (
+            route.get("repair_class") != "CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE"
+            or route.get("repair_domain") != CONTROL_DOMAIN
+            or route.get("automatic_write_allowed") is not True
+            or route.get("test_write_allowed") is not False
+            or route.get("acceptance_write_allowed") is not False
+        ):
+            raise HandoffError("control-plane Stage-1 semantic route is invalid")
+        digest = str(route.get("route_sha256") or "").strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise HandoffError("control-plane Stage-1 semantic route digest is invalid")
+        routed = [_normalize_path(item) for item in route.get("allowed_write_paths") or []]
+        candidates = [_normalize_path(item) for item in failure.get("candidate_paths") or []]
+        if not routed or routed != candidates:
+            raise HandoffError("control-plane Stage-1 semantic route scope drift")
+        return CONTROL_DOMAIN, digest
+    raise HandoffError("Stage-1 source authority classification is not repairable")
+
+
 def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
     candidate_paths = failure.get("candidate_paths")
     if not isinstance(candidate_paths, list) or not candidate_paths:
@@ -74,6 +107,7 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         path = _normalize_path(raw)
         if path not in normalized_paths:
             normalized_paths.append(path)
+    domain, route_sha = _failure_domain(failure)
 
     authority = {
         "authority_schema": SOURCE_AUTHORITY_SCHEMA,
@@ -88,6 +122,8 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         "source_pr_number": int(failure.get("source_pr_number") or 0),
         "failure_signature": _failure_signature(failure.get("failure_signature")),
         "classification": str(failure.get("classification") or ""),
+        "repair_domain": domain,
+        "repair_route_sha256": route_sha,
         "repair_allowed": failure.get("repair_allowed") is True,
         "same_repository": failure.get("same_repository") is True,
         "candidate_paths": normalized_paths,
@@ -102,8 +138,6 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         raise HandoffError("Stage-1 source authority binding is incomplete")
     if not re.fullmatch(r"[0-9a-f]{40}", authority["head_sha"]):
         raise HandoffError("Stage-1 source authority head SHA is invalid")
-    if authority["classification"] != "code_or_contract":
-        raise HandoffError("Stage-1 source authority classification is not repairable")
     if not authority["repair_allowed"] or not authority["same_repository"]:
         raise HandoffError("Stage-1 source authority did not authorize same-repository repair")
     if not authority["repair_branch"].startswith("governed-repair/"):
@@ -192,6 +226,9 @@ def bind_handoff(
 
     source_authority = _source_failure_authority(failure)
     _validate_repair_authority(result)
+    result_domain = str(result.get("repair_domain") or source_authority["repair_domain"])
+    if result_domain != source_authority["repair_domain"]:
+        raise HandoffError("Stage-2 result repair domain differs from Stage-1 authority")
     stage1_scope = set(source_authority["candidate_paths"])
     stage2_scope = [_normalize_path(item) for item in result.get("write_scope") or []]
     expanded_scope = [path for path in stage2_scope if path not in stage1_scope]
@@ -242,6 +279,8 @@ def bind_handoff(
             "repository": str(failure.get("repository") or ""),
             "head_branch": str(failure.get("head_branch") or ""),
             "source_pr_number": int(failure.get("source_pr_number") or 0),
+            "repair_domain": source_authority["repair_domain"],
+            "repair_route_sha256": source_authority["repair_route_sha256"],
             "repair_branch": repair_branch,
             "repair_base_branch": repair_base,
             "patch_sha256": hashlib.sha256(data).hexdigest(),
