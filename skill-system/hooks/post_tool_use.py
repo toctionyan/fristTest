@@ -13,6 +13,7 @@ if str(CONTROLLER) not in sys.path:
 from contract import load_contract  # type: ignore
 from product_scope import PRODUCT_PROFILES  # type: ignore
 from scope_guard import command_requires_contract  # type: ignore
+from skill_invocation import SkillInvocationError, require_change_scope_invocation  # type: ignore
 
 
 def main() -> int:
@@ -28,13 +29,18 @@ def main() -> int:
         [sys.executable, "-B", str(workspace / "skill-system/controller/registry.py"), "--verify"],
         [sys.executable, "-B", str(workspace / "skill-system/controller/host_conformance.py")],
     ]
+    failures: list[tuple[str, str]] = []
     try:
         contract = load_contract(workspace, require_approved=False)
+        if contract.target_kind.requires_candidate_change:
+            try:
+                require_change_scope_invocation(workspace, change_id=contract.change_id)
+            except SkillInvocationError as exc:
+                failures.append(("skill-invocation", str(exc)))
         if contract.profile in PRODUCT_PROFILES:
             commands.append([sys.executable, "-B", str(workspace / "skill-system/controller/product_contract_gate.py")])
     except ValueError:
         pass
-    failures = []
     for command in commands:
         completed = subprocess.run(command, cwd=workspace, text=True, capture_output=True, check=False, timeout=90)
         if completed.returncode:

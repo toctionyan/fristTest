@@ -11,6 +11,7 @@ if str(CONTROLLER) not in sys.path:
 from contract import load_contract  # type: ignore
 from scope_guard import bootstrap_command_allowed, command_decision, command_requires_contract, extract_paths, parse_hook_input, path_decision  # type: ignore
 from repair_governance import permit_path_decision, validate_begin_ready  # type: ignore
+from skill_invocation import SkillInvocationError, require_change_scope_invocation  # type: ignore
 
 
 def _agent_role(payload: dict[str, object]) -> str | None:
@@ -42,6 +43,11 @@ def main() -> int:
         contract = load_contract(workspace)
     except ValueError as exc:
         return deny(str(exc))
+    if contract.target_kind.requires_candidate_change:
+        try:
+            require_change_scope_invocation(workspace, change_id=contract.change_id)
+        except SkillInvocationError as exc:
+            return deny(f"required change-scope Skill invocation evidence is invalid: {exc}")
     role = _agent_role(payload)
     expected = str(contract.payload.get("writer_role") or "")
     if role and expected not in {"", "none"} and role != expected:
@@ -63,7 +69,7 @@ def main() -> int:
             ok, reason = permit_path_decision(workspace, contract.payload, path)
             if not ok:
                 return deny(reason)
-    return allow(f"active change: {contract.change_id}; writer: {expected}; profile: {contract.profile}")
+    return allow(f"active change: {contract.change_id}; writer: {expected}; profile: {contract.profile}; change-scope invocation: PASS")
 
 
 if __name__ == "__main__":

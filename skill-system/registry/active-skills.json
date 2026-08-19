@@ -40,6 +40,11 @@
       "name": "product-code-governance",
       "path": "skill-system/skills/product-code-governance/SKILL.md",
       "status": "active"
+    },
+    {
+      "name": "task-execution-status",
+      "path": "skill-system/skills/task-execution-status/SKILL.md",
+      "status": "active"
     }
   ]
 }
