@@ -31,6 +31,28 @@ class EngineeringAuthorizedMergeWorkflowTests(unittest.TestCase):
         self.assertIn("github_engineering_authorized_merge.py gate", source)
         self.assertIn("github_engineering_authorized_merge.py request", source)
 
+    def test_final_landings_are_serialized_repository_wide(self) -> None:
+        source = (ROOT / ".github/workflows/engineering-authorized-merge.yml").read_text(encoding="utf-8")
+        self.assertIn("group: engineering-authorized-merge-${{ github.repository }}", source)
+        self.assertNotIn("group: engineering-authorized-merge-${{ github.repository }}-${{ github.event.workflow_run.id }}", source)
+        self.assertIn("statuses: write", source)
+        self.assertIn("cancel-in-progress: false", source)
+
+    def test_single_use_grant_is_reserved_after_cas_request_and_before_merge(self) -> None:
+        source = (ROOT / ".github/workflows/engineering-authorized-merge.yml").read_text(encoding="utf-8")
+        request = source.index("Re-read exact PR and compile CAS merge request")
+        reserve = source.index("Reserve single-use MergeGrant consumption")
+        merge = source.index("Execute exact-head merge-commit request")
+        finalize = source.index("Finalize single-use MergeGrant consumption")
+        self.assertLess(request, reserve)
+        self.assertLess(reserve, merge)
+        self.assertLess(merge, finalize)
+        self.assertIn("github_engineering_merge_consumption.py", source)
+        self.assertIn('[[ "${state}" == "RESERVABLE" ]]', source)
+        self.assertIn("single-use autonomous merge grant reserved", source)
+        self.assertIn("single-use merge grant consumed", source)
+        self.assertIn("new authority required", source)
+
     def test_final_network_mutation_is_exact_merge_commit_only(self) -> None:
         source = (ROOT / ".github/workflows/engineering-authorized-merge.yml").read_text(encoding="utf-8")
         self.assertIn('method=$(jq -r \'.body.merge_method\'', source)
