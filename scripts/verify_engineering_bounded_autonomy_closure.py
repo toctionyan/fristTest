@@ -30,7 +30,8 @@ REQUIRED: dict[str, tuple[str, ...]] = {
         "bounded-auto-merge",
         "github.actor == github.repository_owner",
         "Compile independent bounded final merge grant",
-        "engineering-merge-grant-${TASK_FP}",
+        "Upload independent bounded merge grant",
+        "steps.merge-grant.outputs.artifact_name",
     ),
     "autonomy_wakeup": (
         "workflows:\n      - engineering-autonomy-authorize",
