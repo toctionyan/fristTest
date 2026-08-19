@@ -112,8 +112,11 @@ class ControlPlaneRepairAuthorityTests(unittest.TestCase):
             (CONTROL_PATH,),
         )
         self.assertTrue(grant["authority"]["write_authority"])
-        self.assertFalse(grant["authority"]["test_authority"])
-        self.assertFalse(grant["authority"]["goal_authority"])
+        self.assertFalse(grant["authority"]["tests_oracles_write_allowed"])
+        self.assertFalse(grant["authority"]["skill_control_plane_write_allowed"])
+        self.assertFalse(grant["authority"]["scope_expansion_allowed"])
+        self.assertFalse(grant["authority"]["merge_allowed"])
+        self.assertFalse(grant["authority"]["deploy_allowed"])
         self.assertFalse(grant["production_closed"])
 
     def test_control_route_domain_tamper_is_rejected(self) -> None:
