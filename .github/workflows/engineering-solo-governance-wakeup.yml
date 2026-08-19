@@ -145,10 +145,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ANCHOR_SHA: ${{ steps.stage3.outputs.stage3_head_sha }}
           TASK_FP: ${{ steps.stage3.outputs.task_binding_fingerprint }}
+          STAGE3_RUN_ID: ${{ github.event.workflow_run.id }}
+          STAGE3_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -euo pipefail
           [[ "${ANCHOR_SHA}" =~ ^[0-9a-f]{40}$ && "${TASK_FP}" =~ ^[0-9a-f]{64}$ ]]
-          context="engineering-solo-g6-wakeup/${GITHUB_RUN_ID}/${TASK_FP:0:16}"
+          context="engineering-solo-g6/${STAGE3_RUN_ID}/${STAGE3_RUN_ATTEMPT}/${TASK_FP:0:12}"
           statuses=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${ANCHOR_SHA}/status")
           state=$(jq -r --arg context "${context}" '[.statuses[] | select(.context == $context)][0].state // empty' <<<"${statuses}")
           case "${state}" in
