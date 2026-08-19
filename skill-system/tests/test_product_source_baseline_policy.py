@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +18,7 @@ from product_source_baseline_policy import (  # type: ignore
     BaselineMode,
     ProductSourcePolicyError,
     SnapshotSource,
+    baseline_mode_for_authority,
     evaluate_binding,
     file_sha256,
     load_baseline_document,
@@ -94,6 +97,66 @@ class ProductSourceBaselinePolicyMatrixTests(unittest.TestCase):
             )
         self.assertEqual(result.status, "PASS")
         self.assertEqual(result.drift_paths, ("services/app.py",))
+
+    def test_feature_branch_push_is_candidate_not_accepted_ref(self) -> None:
+        mode = baseline_mode_for_authority(
+            "historical-registry-baseline",
+            event_name="push",
+            ref_type="branch",
+            ref_name="repair/issue167-a1-semantic-goal-oracle-20260817",
+            default_branch="main",
+        )
+        self.assertEqual(mode, BaselineMode.PR_CANDIDATE)
+
+    def test_feature_branch_push_uses_actual_github_event_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            event_path = Path(temporary) / "event.json"
+            event_path.write_text(
+                json.dumps({"repository": {"default_branch": "main"}}),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_REF_TYPE": "branch",
+                    "GITHUB_REF_NAME": "repair/issue167-a1-semantic-goal-oracle-20260817",
+                    "GITHUB_EVENT_PATH": str(event_path),
+                },
+                clear=False,
+            ):
+                mode = baseline_mode_for_authority("historical-registry-baseline")
+        self.assertEqual(mode, BaselineMode.PR_CANDIDATE)
+
+    def test_default_branch_push_remains_accepted_ref(self) -> None:
+        mode = baseline_mode_for_authority(
+            "historical-registry-baseline",
+            event_name="push",
+            ref_type="branch",
+            ref_name="main",
+            default_branch="main",
+        )
+        self.assertEqual(mode, BaselineMode.ACCEPTED_REF)
+
+    def test_tag_push_remains_fail_closed_as_accepted_ref(self) -> None:
+        mode = baseline_mode_for_authority(
+            "historical-registry-baseline",
+            event_name="push",
+            ref_type="tag",
+            ref_name="v1.2.3",
+            default_branch="main",
+        )
+        self.assertEqual(mode, BaselineMode.ACCEPTED_REF)
+
+    def test_missing_push_ref_identity_remains_fail_closed(self) -> None:
+        mode = baseline_mode_for_authority(
+            "historical-registry-baseline",
+            event_name="push",
+            ref_type="",
+            ref_name="",
+            default_branch="",
+        )
+        self.assertEqual(mode, BaselineMode.ACCEPTED_REF)
 
     def test_missing_empty_protected_root_is_allowed(self) -> None:
         temporary, root, digest = self._workspace()
