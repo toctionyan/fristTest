@@ -14,7 +14,18 @@ on:
         type: string
       approval_token:
         description: Type CLOSE_SOLO_GOVERNANCE_AND_ACCEPT_BASELINE to acknowledge solo-owner G6
-        required: true
+        required: false
+        default: ''
+        type: string
+      preauthorized_merge_grant_run_id:
+        description: Optional exact owner-dispatched engineering-autonomy-authorize run carrying this TaskRun MergeGrant
+        required: false
+        default: ''
+        type: string
+      preauthorized_merge_grant_run_attempt:
+        description: Exact owner authorization run attempt when preauthorized_merge_grant_run_id is supplied
+        required: false
+        default: '1'
         type: string
 
 permissions:
@@ -39,12 +50,25 @@ jobs:
       issues: write
     steps:
       - name: Require explicit repository-owner acknowledgement
+        id: authorization
         env:
           APPROVAL_TOKEN: ${{ inputs.approval_token }}
+          PREAUTHORIZED_RUN_ID: ${{ inputs.preauthorized_merge_grant_run_id }}
+          PREAUTHORIZED_RUN_ATTEMPT: ${{ inputs.preauthorized_merge_grant_run_attempt }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
+          if [[ -n "${PREAUTHORIZED_RUN_ID}" ]]; then
+            [[ -z "${APPROVAL_TOKEN}" ]] || {
+              echo "manual approval token and task preauthorization cannot be mixed" >&2
+              exit 1
+            }
+            [[ "${PREAUTHORIZED_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${PREAUTHORIZED_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+            echo "mode=task_bound_owner_preauthorization" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ "${APPROVAL_TOKEN}" != "CLOSE_SOLO_GOVERNANCE_AND_ACCEPT_BASELINE" ]]; then
             echo "explicit solo-owner governance acknowledgement token is required" >&2
             exit 1
@@ -53,6 +77,7 @@ jobs:
             echo "solo governance may only be acknowledged by the repository owner" >&2
             exit 1
           fi
+          echo "mode=explicit_owner_acknowledgement" >> "$GITHUB_OUTPUT"
 
       - name: Checkout trusted governance control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -142,8 +167,57 @@ jobs:
         with:
           python-version: '3.12.13'
 
+      - name: Verify durable task-bound owner preauthorization
+        id: preauth
+        if: steps.authorization.outputs.mode == 'task_bound_owner_preauthorization'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREAUTHORIZED_RUN_ID: ${{ inputs.preauthorized_merge_grant_run_id }}
+          PREAUTHORIZED_RUN_ATTEMPT: ${{ inputs.preauthorized_merge_grant_run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p governance-evidence incoming/preauth
+          task=$(find incoming/stage3 -type f -name task-run.json -print -quit)
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py fingerprint \
+            --task "${task}" --github-output "$GITHUB_OUTPUT"
+          task_fp=$("${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py fingerprint --task "${task}")
+          [[ "${task_fp}" =~ ^[0-9a-f]{64}$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREAUTHORIZED_RUN_ID}" > incoming/preauth/authorize-run.json
+          jq -e --arg attempt "${PREAUTHORIZED_RUN_ATTEMPT}" --arg owner "${GITHUB_REPOSITORY_OWNER}" '
+            .name == "engineering-autonomy-authorize"
+            and .event == "workflow_dispatch"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+            and .actor.login == $owner
+          ' incoming/preauth/authorize-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREAUTHORIZED_RUN_ID}/artifacts?per_page=100" > incoming/preauth/artifacts.json
+          artifact_name="engineering-merge-grant-${task_fp}"
+          artifact_id=$(jq -r --arg name "${artifact_name}" '[.artifacts[] | select(.expired == false) | select(.name == $name)] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/preauth/artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/preauth/grant.zip
+          unzip -q incoming/preauth/grant.zip -d incoming/preauth/grant
+          grant=$(find incoming/preauth/grant -type f -name merge-grant.json -print -quit)
+          [[ -n "${grant}" ]]
+          cp "${grant}" governance-evidence/merge-grant.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_solo_governance_preauth.py \
+            --task "${task}" \
+            --grant governance-evidence/merge-grant.json \
+            --authorize-run incoming/preauth/authorize-run.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --repository-owner "${GITHUB_REPOSITORY_OWNER}" \
+            --expected-run-id "${PREAUTHORIZED_RUN_ID}" \
+            --expected-run-attempt "${PREAUTHORIZED_RUN_ATTEMPT}" \
+            --output governance-evidence/solo-preauthorization.json \
+            --github-output "$GITHUB_OUTPUT"
+          echo "approval_ref=engineering-autonomy-authorize:${PREAUTHORIZED_RUN_ID}/${PREAUTHORIZED_RUN_ATTEMPT}:task-bound-preauthorization" >> "$GITHUB_OUTPUT"
+
       - name: Close governance from explicit solo-owner acknowledgement
         env:
+          AUTHORIZATION_MODE: ${{ steps.authorization.outputs.mode }}
+          PREAUTHORIZED_ACTOR: ${{ steps.preauth.outputs.governance_actor }}
+          PREAUTHORIZED_APPROVAL_REF: ${{ steps.preauth.outputs.approval_ref }}
+          PREAUTH_SHA: ${{ steps.preauth.outputs.preauthorization_sha256 }}
           GOVERNANCE_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
@@ -156,22 +230,34 @@ jobs:
           cp "$(find incoming/stage3 -type f -name publication-commit.json -print -quit)" governance-evidence/publication-commit.json
           cp "$(find incoming/stage3 -type f -name rca.json -print -quit)" governance-evidence/rca.json
           cp "$(find incoming/stage3 -type f -name write-grant.json -print -quit)" governance-evidence/write-grant.json
+          approval_ref="github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}:solo-owner-explicit-acknowledgement"
+          if [[ "${AUTHORIZATION_MODE}" == "task_bound_owner_preauthorization" ]]; then
+            [[ -n "${PREAUTHORIZED_ACTOR}" && -n "${PREAUTHORIZED_APPROVAL_REF}" && "${PREAUTH_SHA}" =~ ^[0-9a-f]{64}$ ]]
+            GOVERNANCE_ACTOR="${PREAUTHORIZED_ACTOR}"
+            approval_ref="${PREAUTHORIZED_APPROVAL_REF}"
+          fi
           "${pythonLocation}/bin/python" -B control/scripts/github_repair_governance.py \
             --publication-receipt governance-evidence/publication-result.json \
             --task-run governance-evidence/task-run.json \
             --actor "${GOVERNANCE_ACTOR}" \
-            --approval-ref "github-actions:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}:solo-owner-explicit-acknowledgement" \
+            --approval-ref "${approval_ref}" \
             --output governance-evidence/governance-receipt.json
           jq -e '.status == "GOVERNANCE_CLOSED" and .governance_closed == true and .baseline_accepted == false' \
             governance-evidence/governance-receipt.json >/dev/null
           jq -n \
             --arg actor "${GOVERNANCE_ACTOR}" \
             --arg run "${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
+            --arg mode "${AUTHORIZATION_MODE}" \
+            --arg approval_ref "${approval_ref}" \
+            --arg preauth_sha "${PREAUTH_SHA}" \
             '{
               schema:"governed-repair-solo-governance-attestation@1",
               governance_mode:"solo_owner",
               governance_actor:$actor,
               acknowledgement_run:$run,
+              authorization_mode:$mode,
+              authorization_ref:$approval_ref,
+              preauthorization_sha256:(if $preauth_sha == "" then null else $preauth_sha end),
               independent_human_review:false,
               machine_gates_remain_mandatory:true,
               pr_remains_draft:true,
@@ -370,6 +456,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
           EXACT_SHA: ${{ steps.baseline.outputs.baseline_sha }}
+          AUTHORIZATION_MODE: ${{ steps.authorization.outputs.mode }}
         run: |
           set -euo pipefail
-          gh pr comment "${PR_URL}" --body "G0-G6 machine evidence is PASS on exact head \`${EXACT_SHA}\` for this exact PR. Governance mode is \`solo_owner\`: the repository owner explicitly acknowledged G6, and there is **no independent human review claim**. The PR intentionally remains Draft. Automatic merge and deployment are disabled; production_closed=false."
+          gh pr comment "${PR_URL}" --body "G0-G6 machine evidence is PASS on exact head \`${EXACT_SHA}\` for this exact PR. Governance mode is \`solo_owner\`; authorization mode is \`${AUTHORIZATION_MODE}\`, and there is **no independent human review claim**. The PR intentionally remains Draft. Automatic landing is only possible through a separate bounded MergeGrant gate; deployment remains disabled; production_closed=false."
