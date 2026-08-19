@@ -255,30 +255,59 @@ class ExecutionProgressProjectionTests(unittest.TestCase):
         self.assertIn("已自动恢复失败：1", rendered)
         self.assertIn("失败尝试 1，后续已恢复", rendered)
 
-    def test_recoverable_failure_does_not_interrupt_user_while_automatic_action_is_authorized(self) -> None:
-        task = {
+    def _recoverable_task(self, *, with_execution: bool) -> dict:
+        metadata = {
+            "engineering_reconciler": {
+                "schema": "engineering-task-reconciler@1",
+                "last_delivery_key": "1:1:abc",
+                "decisions": {
+                    "1:1:abc": {
+                        "outcome": {
+                            "decision": "RETRY_CI",
+                            "action": "retry_transient_ci",
+                            "allowed": True,
+                            "human_required": False,
+                        }
+                    }
+                },
+            }
+        }
+        if with_execution:
+            metadata["recovery_execution"] = {
+                "schema": "task-recovery-execution@1",
+                "status": "RUNNING",
+                "action": "retry_transient_ci",
+                "evidence_ref": "github-run:9001",
+            }
+        return {
             "task_id": "auto-recover",
             "status": "FAILED_RECOVERABLE",
             "phase": "CI_RED",
-            "metadata": {
-                "engineering_reconciler": {
-                    "schema": "engineering-task-reconciler@1",
-                    "last_delivery_key": "1:1:abc",
-                    "decisions": {
-                        "1:1:abc": {
-                            "outcome": {
-                                "decision": "RETRY_CI",
-                                "action": "retry_transient_ci",
-                                "allowed": True,
-                                "human_required": False,
-                            }
-                        }
-                    },
-                }
-            },
+            "metadata": metadata,
         }
+
+    def test_authorized_recovery_without_executor_evidence_is_ready_not_running(self) -> None:
         progress = execution_progress.build_execution_progress(
-            task=task,
+            task=self._recoverable_task(with_execution=False),
+            planned_stages=[{"id": "ci", "label": "CI", "status": "FAIL"}],
+            attempt_history=[
+                {"stage_id": "ci", "label": "CI", "attempt": 1, "status": "FAIL"}
+            ],
+        )
+
+        self.assertEqual(progress["overall"], "RECOVERY_READY")
+        self.assertTrue(progress["recovery"]["authorized"])
+        self.assertTrue(progress["recovery"]["ready"])
+        self.assertFalse(progress["recovery"]["active"])
+        self.assertFalse(progress["human"]["required"])
+        rendered = execution_progress.render_progress_text(progress)
+        self.assertIn("自动恢复：已授权/待执行", rendered)
+        self.assertIn("当前没有运行中执行器证据", rendered)
+        self.assertNotIn("自动恢复：正在执行", rendered)
+
+    def test_recovery_is_running_only_with_durable_executor_evidence(self) -> None:
+        progress = execution_progress.build_execution_progress(
+            task=self._recoverable_task(with_execution=True),
             planned_stages=[{"id": "ci", "label": "CI", "status": "FAIL"}],
             attempt_history=[
                 {"stage_id": "ci", "label": "CI", "attempt": 1, "status": "FAIL"}
@@ -287,11 +316,24 @@ class ExecutionProgressProjectionTests(unittest.TestCase):
 
         self.assertEqual(progress["overall"], "RECOVERING")
         self.assertTrue(progress["recovery"]["active"])
+        self.assertFalse(progress["recovery"]["ready"])
         self.assertFalse(progress["human"]["required"])
-        self.assertFalse(progress["summary"]["needs_user_action"])
         rendered = execution_progress.render_progress_text(progress)
-        self.assertIn("自动恢复：进行中", rendered)
-        self.assertIn("需要你介入：否", rendered)
+        self.assertIn("自动恢复：正在执行", rendered)
+        self.assertIn("github-run:9001", rendered)
+
+    def test_running_recovery_without_executor_evidence_fails_closed(self) -> None:
+        task = self._recoverable_task(with_execution=False)
+        task["metadata"]["recovery_execution"] = {
+            "schema": "task-recovery-execution@1",
+            "status": "RUNNING",
+            "action": "retry_transient_ci",
+        }
+        with self.assertRaises(execution_progress.ExecutionProgressError):
+            execution_progress.build_execution_progress(
+                task=task,
+                planned_stages=[{"id": "ci", "label": "CI", "status": "FAIL"}],
+            )
 
     def test_true_human_blocker_is_prominent_and_never_hidden_by_other_green_stages(self) -> None:
         task = {
