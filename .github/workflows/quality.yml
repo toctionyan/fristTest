@@ -136,7 +136,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           TEST_MERGE_SHA: ${{ github.sha }}
           STATIC_RESULT: ${{ needs.quality-static.result }}
           QUICK_RESULT: ${{ needs.quality-quick-execution.result }}
@@ -148,15 +147,16 @@ jobs:
             exit 1
           }
           [[ "${PR_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${PR_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${TEST_MERGE_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
           gh api "repos/${GITHUB_REPOSITORY}/git/commits/${TEST_MERGE_SHA}" > merge-identity.json
-          jq -e --arg base "${PR_BASE_SHA}" --arg head "${PR_HEAD_SHA}" '
+          jq -e --arg head "${PR_HEAD_SHA}" '
             (.parents | length) == 2
-            and .parents[0].sha == $base
+            and (.parents[0].sha | test("^[0-9a-f]{40}$"))
             and .parents[1].sha == $head
           ' merge-identity.json >/dev/null
+          TEST_BASE_SHA=$(jq -r '.parents[0].sha' merge-identity.json)
+          [[ "${TEST_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
           state=failure
           description="quality-quick or merge provenance failed"
