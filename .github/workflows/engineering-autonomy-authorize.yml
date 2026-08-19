@@ -7,6 +7,14 @@ on:
         description: Compact engineering-autonomy-handoff-bundle@1 JSON produced by the governed local host
         required: true
         type: string
+      merge_policy:
+        description: Optional independent bounded final-merge authority for the same TaskRun
+        required: false
+        default: disabled
+        type: choice
+        options:
+          - disabled
+          - bounded-auto-merge
 
 permissions:
   contents: read
@@ -25,6 +33,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: write
     steps:
       - name: Checkout trusted autonomy control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -109,6 +118,19 @@ jobs:
             --output-dir handoff \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Compile independent bounded final merge grant
+        id: merge-grant
+        if: ${{ inputs.merge_policy == 'bounded-auto-merge' }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py authorize \
+            --bundle incoming/handoff-bundle.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --actor "${GITHUB_ACTOR}" \
+            --owner-authorization-ref "engineering-autonomy-authorize:${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
+            --output handoff/merge-grant.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Upload immutable autonomy handoff evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -123,6 +145,33 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Upload independent bounded merge grant
+        if: ${{ inputs.merge_policy == 'bounded-auto-merge' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.merge-grant.outputs.artifact_name }}
+          path: handoff/merge-grant.json
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Publish merge-grant locator on source PR
+        if: ${{ inputs.merge_policy == 'bounded-auto-merge' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PR_NUMBER: ${{ steps.bundle.outputs.source_pr_number }}
+          GRANT_SHA: ${{ steps.merge-grant.outputs.grant_sha256 }}
+          TASK_FP: ${{ steps.merge-grant.outputs.task_binding_fingerprint }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<EOF
+          <!-- engineering-merge-grant-ref@1 -->
+          authorize_run: ${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}
+          grant_sha256: ${GRANT_SHA}
+          task_binding_fingerprint: ${TASK_FP}
+          EOF
+          )
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${SOURCE_PR_NUMBER}/comments" -f body="${body}" >/dev/null
+
       - name: Publish authorization summary
         if: always()
         env:
@@ -132,6 +181,8 @@ jobs:
           SOURCE_RUN_ATTEMPT: ${{ steps.compile.outputs.source_run_attempt }}
           SOURCE_HEAD_SHA: ${{ steps.compile.outputs.source_head_sha }}
           PLAN_SHA: ${{ steps.compile.outputs.plan_sha256 }}
+          MERGE_POLICY: ${{ inputs.merge_policy }}
+          MERGE_GRANT_SHA: ${{ steps.merge-grant.outputs.grant_sha256 }}
         run: |
           {
             echo "## Engineering autonomy authorization"
@@ -143,7 +194,9 @@ jobs:
             echo "- Network kind: \`${NETWORK_KIND:-not-compiled}\`"
             echo "- Plan SHA-256: \`${PLAN_SHA:-not-compiled}\`"
             echo "- Network execution in this workflow: \`false\`"
-            echo "- merge_allowed: \`false\`"
-            echo "- deploy_allowed: \`false\`"
+            echo "- Merge policy: \`${MERGE_POLICY}\`"
+            echo "- Independent merge grant SHA-256: \`${MERGE_GRANT_SHA:-not-issued}\`"
+            echo "- AutonomyGrant merge_allowed: \`false\`"
+            echo "- Deploy allowed: \`false\`"
             echo "- production_closed: \`false\`"
           } >> "$GITHUB_STEP_SUMMARY"

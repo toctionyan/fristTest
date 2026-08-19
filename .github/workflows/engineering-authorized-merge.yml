@@ -1,0 +1,266 @@
+name: engineering-authorized-merge
+
+on:
+  workflow_run:
+    workflows:
+      - governed-ci-repair-governance
+      - governed-ci-repair-solo-governance
+      - governed-ci-repair-exact-head-resume
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GH_REPO: ${{ github.repository }}
+
+concurrency:
+  group: engineering-authorized-merge-${{ github.repository }}-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Checkout trusted final-merge control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve exact completed G6 evidence
+        id: g6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          G6_RUN_ID: ${{ github.event.workflow_run.id }}
+          G6_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          G6_WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/g6 evidence
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${G6_RUN_ID}" > incoming/g6-run.json
+          jq -e --arg attempt "${G6_RUN_ATTEMPT}" --arg workflow "${G6_WORKFLOW}" '
+            .name == $workflow
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/g6-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${G6_RUN_ID}/artifacts?per_page=100" > incoming/g6-artifacts.json
+          case "${G6_WORKFLOW}" in
+            governed-ci-repair-solo-governance) pattern='^governed-ci-repair-solo-g6-' ;;
+            governed-ci-repair-governance) pattern='^governed-ci-repair-g6-' ;;
+            governed-ci-repair-exact-head-resume) pattern='^governed-ci-repair-exact-head-resume-' ;;
+            *) echo "unsupported final-governance workflow: ${G6_WORKFLOW}" >&2; exit 1 ;;
+          esac
+          artifact_id=$(jq -r --arg pattern "${pattern}" '[.artifacts[] | select(.expired == false) | select(.name | test($pattern))] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/g6-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/g6.zip
+          unzip -q incoming/g6.zip -d incoming/g6
+
+          task=$(find incoming/g6 -type f -name task-run.json -print -quit)
+          exact=$(find incoming/g6 -type f -name exact-head-result.json -print -quit)
+          if [[ -z "${task}" || -z "${exact}" ]]; then
+            echo "G6 has no terminal exact-head result; merge remains blocked." >> "$GITHUB_STEP_SUMMARY"
+            echo "terminal_ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          lineage=$(find incoming/g6 -type f -name publication-result.json -print -quit)
+          [[ -n "${lineage}" ]] || lineage=$(find incoming/g6 -type f -name baseline-acceptance.json -print -quit)
+          ci_state=$(find incoming/g6 -type f -name exact-head-ci-state-after-resume.json -print -quit)
+          [[ -n "${ci_state}" ]] || ci_state=$(find incoming/g6 -type f -name exact-head-ci-state.json -print -quit)
+          [[ -n "${lineage}" && -n "${ci_state}" ]]
+          jq -e '
+            .schema == "governed-repair-exact-head@1"
+            and .status == "READY_FOR_REVIEW"
+            and .governance_closed == true
+            and .baseline_accepted == true
+            and .exact_head_certified == true
+            and .ready_for_review == true
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' "${exact}" >/dev/null
+          jq -e '.schema == "governed-repair-exact-head-ci-state@1" and .status == "EXACT_HEAD_CI_PASSED"' "${ci_state}" >/dev/null
+          pr_number=$(jq -r '.pull_request_number // empty' "${exact}")
+          exact_head=$(jq -r '.baseline_commit_sha // empty' "${exact}")
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ && "${exact_head}" =~ ^[0-9a-f]{40}$ ]]
+          cp "${task}" evidence/task-run.json
+          cp "${exact}" evidence/exact-head-result.json
+          cp "${lineage}" evidence/lineage-result.json
+          cp "${ci_state}" evidence/exact-head-ci-state.json
+          echo "terminal_ready=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "exact_head=${exact_head}" >> "$GITHUB_OUTPUT"
+
+      - name: Bind TaskRun fingerprint
+        id: task
+        if: steps.g6.outputs.terminal_ready == 'true'
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py fingerprint \
+            --task evidence/task-run.json --github-output "$GITHUB_OUTPUT"
+
+      - name: Resolve owner-issued independent merge grant
+        id: grant
+        if: steps.g6.outputs.terminal_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_FP: ${{ steps.task.outputs.task_binding_fingerprint }}
+        run: |
+          set -euo pipefail
+          artifact_name="engineering-merge-grant-${TASK_FP}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" > incoming/merge-grants.json
+          artifact_id=$(jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/merge-grants.json)
+          if [[ ! "${artifact_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "No bounded merge grant exists for this TaskRun." >> "$GITHUB_STEP_SUMMARY"
+            echo "grant_ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          authorize_run_id=$(jq -r --argjson id "${artifact_id}" '[.artifacts[] | select(.id == $id)][0].workflow_run.id // empty' incoming/merge-grants.json)
+          [[ "${authorize_run_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${authorize_run_id}" > incoming/authorize-run.json
+          jq -e --arg owner "${GITHUB_REPOSITORY_OWNER}" '
+            .name == "engineering-autonomy-authorize"
+            and .event == "workflow_dispatch"
+            and .status == "completed"
+            and .conclusion == "success"
+            and .actor.login == $owner
+          ' incoming/authorize-run.json >/dev/null
+          mkdir -p incoming/grant
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/grant.zip
+          unzip -q incoming/grant.zip -d incoming/grant
+          grant=$(find incoming/grant -type f -name merge-grant.json -print -quit)
+          [[ -n "${grant}" ]]
+          cp "${grant}" evidence/merge-grant.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py verify-task-grant \
+            --grant evidence/merge-grant.json --task evidence/task-run.json --github-output "$GITHUB_OUTPUT"
+          echo "grant_ready=true" >> "$GITHUB_OUTPUT"
+          echo "authorize_run_id=${authorize_run_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Read exact current PR and current-head evidence
+        if: steps.grant.outputs.grant_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.g6.outputs.pr_number }}
+          EXACT_HEAD: ${{ steps.g6.outputs.exact_head }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > evidence/pr-before-ready.json
+          jq -e --arg head "${EXACT_HEAD}" --arg repo "${GITHUB_REPOSITORY}" '
+            .state == "open" and .merged == false and .head.sha == $head
+            and .head.repo.full_name == $repo and .base.ref == "main"
+          ' evidence/pr-before-ready.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_HEAD}&per_page=100" > evidence/workflow-runs.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq -s 'add' > evidence/changed-files.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" | jq -s 'add' > evidence/reviews.json
+          owner="${GITHUB_REPOSITORY%%/*}"; repo="${GITHUB_REPOSITORY#*/}"
+          gh api graphql \
+            -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved} pageInfo{hasNextPage}}}}}' \
+            -F owner="${owner}" -F repo="${repo}" -F number="${PR_NUMBER}" > evidence/review-threads-raw.json
+          jq '{nodes:(.data.repository.pullRequest.reviewThreads.nodes // [])}' evidence/review-threads-raw.json > evidence/review-threads.json
+          if jq -e '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage == true' evidence/review-threads-raw.json >/dev/null; then
+            printf '%s\n' '["review-thread-evidence-paginated"]' > evidence/human-gates.json
+          else
+            printf '%s\n' '[]' > evidence/human-gates.json
+          fi
+
+      - name: Evaluate exact final merge gate
+        id: gate
+        if: steps.grant.outputs.grant_ready == 'true'
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py gate \
+            --grant evidence/merge-grant.json \
+            --task evidence/task-run.json \
+            --pr evidence/pr-before-ready.json \
+            --lineage evidence/lineage-result.json \
+            --exact-head-result evidence/exact-head-result.json \
+            --exact-head-ci-state evidence/exact-head-ci-state.json \
+            --workflow-runs evidence/workflow-runs.json \
+            --files evidence/changed-files.json \
+            --reviews evidence/reviews.json \
+            --review-threads evidence/review-threads.json \
+            --human-gates evidence/human-gates.json \
+            --output evidence/merge-decision.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Mark exact governed PR Ready
+        if: steps.gate.outputs.mark_ready_allowed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.g6.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          node_id=$(jq -r '.node_id' evidence/pr-before-ready.json)
+          [[ -n "${node_id}" && "${node_id}" != "null" ]]
+          gh api graphql \
+            -f query='mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{isDraft}}}' \
+            -F id="${node_id}" > evidence/ready-result.json
+          jq -e '.data.markPullRequestReadyForReview.pullRequest.isDraft == false' evidence/ready-result.json >/dev/null
+
+      - name: Re-read exact PR and compile CAS merge request
+        id: request
+        if: steps.gate.outputs.merge_allowed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.g6.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > evidence/pr-after-ready.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py request \
+            --grant evidence/merge-grant.json \
+            --decision evidence/merge-decision.json \
+            --pr evidence/pr-after-ready.json \
+            --output evidence/merge-request.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Execute exact-head merge-commit request
+        id: merge
+        if: steps.gate.outputs.merge_allowed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          path=$(jq -r '.path' evidence/merge-request.json)
+          expected_head=$(jq -r '.body.sha' evidence/merge-request.json)
+          method=$(jq -r '.body.merge_method' evidence/merge-request.json)
+          [[ "${expected_head}" == "${{ steps.g6.outputs.exact_head }}" && "${method}" == "merge" ]]
+          jq '.body' evidence/merge-request.json | gh api -X PUT "${path}" --input - > evidence/merge-result.json
+          jq -e '.merged == true and (.sha | test("^[0-9a-f]{40}$"))' evidence/merge-result.json >/dev/null
+          echo "merge_sha=$(jq -r '.sha' evidence/merge-result.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload final merge evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engineering-authorized-merge-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: evidence
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Publish final status
+        if: always()
+        run: |
+          {
+            echo "## Engineering authorized merge"
+            echo "- Terminal G6 ready: \`${{ steps.g6.outputs.terminal_ready || 'false' }}\`"
+            echo "- Task merge grant found: \`${{ steps.grant.outputs.grant_ready || 'false' }}\`"
+            echo "- Merge gate: \`${{ steps.gate.outputs.status || 'not-evaluated' }}\`"
+            echo "- Merge SHA: \`${{ steps.merge.outputs.merge_sha || 'not-merged' }}\`"
+            echo "- Merge method: \`merge\`"
+            echo "- Deploy: \`false\`"
+            echo "- Production: \`false\`"
+          } >> "$GITHUB_STEP_SUMMARY"
