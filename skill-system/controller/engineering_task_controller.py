@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from autonomy_grant import authorize_autonomous_action
+from failure_recovery_policy import AUTO_DIAGNOSE, decide_recovery
 from local_first_governance import (
     CIFeedbackBindingError,
     LocalFirstGovernanceError,
@@ -628,7 +629,7 @@ def reconcile_stage1_failure(
         repository=repository,
         current_head_sha=current_head_sha,
     )
-    key = _delivery_key(run_id=run_id, run_attempt=run_attempt, head_sha=head_sha)
+    recovery_hint = failure_case.get("recovery_policy") if isinstance(failure_case.get("recovery_policy"), Mapping) else {}
     fingerprint = _digest(
         {
             "source": "stage1",
@@ -638,8 +639,10 @@ def reconcile_stage1_failure(
             "failure_signature": failure_signature,
             "classification": classification,
             "repair_allowed": failure_case.get("repair_allowed") is True,
+            "recovery_disposition": recovery_hint.get("disposition"),
         }
     )
+    key = _delivery_key(run_id=run_id, run_attempt=run_attempt, head_sha=head_sha)
     existing = _existing_outcome(store, key=key, fingerprint=fingerprint)
     if existing is not None:
         return existing
@@ -744,15 +747,60 @@ def reconcile_stage1_failure(
             )
         return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
 
+    recovery = decide_recovery(
+        repair_route=(failure_case.get("repair_route") if isinstance(failure_case.get("repair_route"), Mapping) else {}),
+        classification=classification,
+        diagnosis_attempt=int(recovery_hint.get("diagnosis_attempt") or 0),
+        max_diagnosis_attempts=int(recovery_hint.get("max_diagnosis_attempts") or 2),
+        retry_count=int(recovery_hint.get("retry_count") or 0),
+        max_retry_count=int(recovery_hint.get("max_retry_count") or 3),
+    )
+    if recovery.get("disposition") == AUTO_DIAGNOSE:
+        authorization = authorize_autonomous_action(
+            store,
+            grant,
+            repository=repository,
+            action="analyze_failure",
+            context={
+                "failure_class": "INSUFFICIENT_EVIDENCE",
+                "read_only": True,
+                "source_write_allowed": False,
+            },
+        )
+        if authorization.allowed:
+            outcome = _base_outcome(
+                store,
+                key=key,
+                decision="ANALYZE_FAILURE",
+                action="analyze_failure",
+                allowed=True,
+                human_required=False,
+                failure_class="INSUFFICIENT_EVIDENCE",
+                reason=recovery["reason"],
+                product_write_allowed=False,
+            )
+        else:
+            outcome = _base_outcome(
+                store,
+                key=key,
+                decision="STOP_DIAGNOSIS_AUTHORITY",
+                action=None,
+                allowed=False,
+                human_required=authorization.human_required,
+                failure_class="INSUFFICIENT_EVIDENCE",
+                reason=authorization.reason,
+            )
+        return _persist_outcome(store, key=key, fingerprint=fingerprint, outcome=outcome)
+
     if classification == "protected_baseline_drift":
         failure_class = "PROTECTED_BASELINE_DRIFT"
         reason = "protected baseline drift requires governed baseline acceptance; autonomous product repair is not authorized"
     elif classification == "unknown_failure_without_gate_evidence":
         failure_class = "INSUFFICIENT_EVIDENCE"
-        reason = "Stage-1 failure lacks machine gate evidence; fail closed"
+        reason = recovery["reason"]
     else:
         failure_class = classification.upper()
-        reason = "Stage-1 failure class has no bounded autonomous continuation contract"
+        reason = recovery["reason"] or "Stage-1 failure class has no bounded autonomous continuation contract"
     outcome = _base_outcome(
         store,
         key=key,
