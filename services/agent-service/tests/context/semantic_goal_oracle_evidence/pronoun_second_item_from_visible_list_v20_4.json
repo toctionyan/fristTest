@@ -1,0 +1,104 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:pronoun_second_item_from_visible_list",
+  "case_id": "pronoun_second_item_from_visible_list",
+  "family": "pronoun_reference",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "pronoun_second_item_from_visible_list"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "我买了什么？"
+      },
+      {
+        "turn": 2,
+        "text": "第二个订单物流到哪了？"
+      },
+      {
+        "turn": 3,
+        "text": "它能取消吗？"
+      }
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "visible_order_sequence": [
+        {"position": 1, "order_id": "10001", "product": "蓝牙耳机"},
+        {"position": 2, "order_id": "10002", "product": "机械键盘"},
+        {"position": 3, "order_id": "10003", "product": "无线鼠标"}
+      ]
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_type": "order_collection_query",
+        "state": "completed",
+        "required_scope": "current_user_orders",
+        "rationale": "M1 explicitly asks what the user bought and establishes the visible ordered result that later ordinal reference depends on."
+      },
+      {
+        "after_turn": 2,
+        "goal_type": "order_logistics",
+        "state": "active",
+        "required_slots": {
+          "order_id": "10002",
+          "product": "机械键盘"
+        },
+        "reference_semantics": {
+          "kind": "ordinal_from_latest_relevant_visible_result",
+          "position": 2
+        },
+        "rationale": "M2 says ‘第二个订单’; against the visible sequence established by M1, the second member is order 10002 / 机械键盘."
+      },
+      {
+        "after_turn": 3,
+        "goal_type": "order_cancellation_feasibility",
+        "state": "active_non_write_question",
+        "required_slots": {
+          "order_id": "10002",
+          "product": "机械键盘"
+        },
+        "reference_semantics": {
+          "kind": "pronoun_to_latest_relevant_single_order",
+          "source_turn": 2
+        },
+        "forbidden_effect": "order.cancel",
+        "rationale": "M3 uses ‘它’ to refer to the single order selected in M2. ‘能取消吗’ asks feasibility and is not an instruction to create or execute a cancellation."
+      }
+    ],
+    "invariants": [
+      "The ordinal ‘第二个’ is evaluated against the latest relevant visible order result, not against an arbitrary global order or hidden draft.",
+      "M2 resolves exactly to order 10002 / 机械键盘.",
+      "M3 pronoun ‘它’ keeps the same order 10002 referent established by M2.",
+      "A cancellation-feasibility question must never be rewritten into a cancellation command merely because a nearby cancellation action capability exists.",
+      "No cancellation Draft, Grant, Attempt, Receipt, or business write is authorized by M3."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "第二个可见订单 10002 / 机械键盘的物流",
+      "针对同一订单的取消可行性问题；若没有精确只读能力则明确 unsupported"
+    ],
+    "must_not_cover": [
+      "第一或第三个订单的物流",
+      "把‘能取消吗’当成取消命令",
+      "创建取消草稿",
+      "提交取消"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}
