@@ -5,6 +5,7 @@ from typing import Any, Iterable, Mapping
 
 
 EXECUTION_PROGRESS_SCHEMA = "execution-progress@1"
+RECOVERY_EXECUTION_SCHEMA = "task-recovery-execution@1"
 
 STAGE_STATUSES = {
     "PENDING",
@@ -20,6 +21,9 @@ _TERMINAL_FAILURE = {"failure", "timed_out", "cancelled", "action_required", "st
 _TERMINAL_SKIPPED = {"skipped"}
 _FAILURE_STATUSES = {"FAIL", "BLOCKED"}
 _ACTIVE_STATUSES = {"RUNNING", "PENDING"}
+_RECOVERY_RUNNING = {"RUNNING", "IN_PROGRESS"}
+_RECOVERY_READY = {"READY", "QUEUED", "PENDING", "DISPATCHED", "REQUESTED"}
+_RECOVERY_TERMINAL = {"COMPLETED", "PASS", "FAILED", "FAIL", "CANCELLED", "CANCELED"}
 
 
 class ExecutionProgressError(ValueError):
@@ -367,6 +371,36 @@ def _latest_reconcile_outcome(task: Mapping[str, Any]) -> dict[str, Any] | None:
     return dict(outcome) if isinstance(outcome, Mapping) else None
 
 
+def _recovery_execution(task: Mapping[str, Any]) -> dict[str, Any] | None:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), Mapping) else {}
+    raw = metadata.get("recovery_execution")
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ExecutionProgressError("recovery execution evidence must be an object")
+    if raw.get("schema") != RECOVERY_EXECUTION_SCHEMA:
+        raise ExecutionProgressError("unsupported recovery execution evidence schema")
+    status = _text(raw.get("status")).upper()
+    if status not in _RECOVERY_RUNNING | _RECOVERY_READY | _RECOVERY_TERMINAL:
+        raise ExecutionProgressError(f"unsupported recovery execution status: {status}")
+    action = _text(raw.get("action"))
+    evidence_ref = _text(raw.get("evidence_ref"))
+    if not action:
+        raise ExecutionProgressError("recovery execution evidence requires action")
+    if status in _RECOVERY_RUNNING and not evidence_ref:
+        raise ExecutionProgressError(
+            "active recovery execution must carry durable executor evidence"
+        )
+    return {
+        "schema": RECOVERY_EXECUTION_SCHEMA,
+        "status": status,
+        "action": action,
+        "evidence_ref": evidence_ref or None,
+        "detail": _text(raw.get("detail")) or None,
+        "authority_effect": False,
+    }
+
+
 def _task_completion(task: Mapping[str, Any]) -> tuple[bool | None, list[str]]:
     required = task.get("required_conditions") if isinstance(task.get("required_conditions"), list) else []
     if not required:
@@ -398,9 +432,9 @@ def build_execution_progress(
     """Project durable task, attempt, Quality, and GitHub evidence without control authority.
 
     The projection is intentionally read-only. It keeps historical failed attempts
-    visible even after recovery, distinguishes an automatically recoverable RED from
-    a true human stop, and never declares the whole task complete while a required
-    completion condition is still missing.
+    visible even after recovery, distinguishes an authorized recovery from an
+    executor that is actually running, and never declares the whole task complete
+    while a required completion condition is still missing.
     """
 
     task_payload = dict(task or {})
@@ -425,19 +459,39 @@ def build_execution_progress(
     counters = local_first.get("counters") if isinstance(local_first.get("counters"), Mapping) else {}
     budgets = local_first.get("budgets") if isinstance(local_first.get("budgets"), Mapping) else {}
     latest_outcome = _latest_reconcile_outcome(task_payload)
+    recovery_execution = _recovery_execution(task_payload)
 
     stage_failure = _first_failure(stages)
     unresolved_failures = list(unresolved_attempt_failures)
     if stage_failure and not any(row.get("stage_id") == stage_failure["stage_id"] for row in unresolved_failures):
         unresolved_failures.append(dict(stage_failure))
 
-    auto_recovery_active = bool(
+    recovery_authorized = bool(
         latest_outcome
         and latest_outcome.get("allowed") is True
         and latest_outcome.get("human_required") is not True
         and _text(latest_outcome.get("action"))
         and unresolved_failures
     )
+    recovery_action = _text(latest_outcome.get("action")) if latest_outcome else ""
+    recovery_state = "NONE"
+    if recovery_authorized:
+        recovery_state = "READY"
+        if recovery_execution:
+            if recovery_execution["action"] != recovery_action:
+                raise ExecutionProgressError(
+                    "recovery execution action does not match the latest authorized action"
+                )
+            status = _text(recovery_execution.get("status")).upper()
+            if status in _RECOVERY_RUNNING:
+                recovery_state = "RUNNING"
+            elif status in _RECOVERY_READY:
+                recovery_state = "READY"
+            elif status in {"FAILED", "FAIL", "CANCELLED", "CANCELED"}:
+                recovery_state = "FAILED"
+            elif status in {"COMPLETED", "PASS"}:
+                recovery_state = "COMPLETED"
+
     human_required = bool(
         task_status == "BLOCKED"
         or (
@@ -450,8 +504,12 @@ def build_execution_progress(
     overall = _overall(stages)
     if human_required:
         overall = "BLOCKED"
-    elif auto_recovery_active:
+    elif recovery_state == "RUNNING":
         overall = "RECOVERING"
+    elif recovery_state == "READY":
+        overall = "RECOVERY_READY"
+    elif recovery_state == "FAILED":
+        overall = "FAILED"
 
     completion_eligible, missing_conditions = _task_completion(task_payload)
     if completion_eligible is False and overall == "COMPLETED":
@@ -490,8 +548,12 @@ def build_execution_progress(
         "recovered_failures": recovered_failures,
         "unresolved_failures": unresolved_failures,
         "recovery": {
-            "active": auto_recovery_active,
+            "authorized": recovery_authorized,
+            "state": recovery_state,
+            "active": recovery_state == "RUNNING",
+            "ready": recovery_state == "READY",
             "latest_decision": dict(latest_outcome) if latest_outcome else None,
+            "execution": dict(recovery_execution) if recovery_execution else None,
         },
         "human": {
             "required": human_required,
@@ -535,6 +597,7 @@ def render_progress_text(progress: Mapping[str, Any]) -> str:
         "RUNNING": "🔄",
         "PENDING": "⏳",
         "RECOVERING": "🔧",
+        "RECOVERY_READY": "🛠️",
         "FAILED": "❌",
         "BLOCKED": "⛔",
         "SKIPPED": "⏭️",
@@ -573,9 +636,17 @@ def render_progress_text(progress: Mapping[str, Any]) -> str:
                 lines.append(f"↳ {(_text(row.get('label')) or _text(row.get('stage_id')))}")
 
     recovery = progress.get("recovery") if isinstance(progress.get("recovery"), Mapping) else {}
-    if recovery.get("active") is True:
-        decision = recovery.get("latest_decision") if isinstance(recovery.get("latest_decision"), Mapping) else {}
-        lines.append(f"自动恢复：进行中（{_text(decision.get('action')) or _text(decision.get('decision')) or 'bounded recovery'}）")
+    decision = recovery.get("latest_decision") if isinstance(recovery.get("latest_decision"), Mapping) else {}
+    action = _text(decision.get("action")) or _text(decision.get("decision")) or "bounded recovery"
+    if recovery.get("state") == "RUNNING":
+        execution = recovery.get("execution") if isinstance(recovery.get("execution"), Mapping) else {}
+        evidence = _text(execution.get("evidence_ref"))
+        suffix = f"，执行证据={evidence}" if evidence else ""
+        lines.append(f"自动恢复：正在执行（{action}{suffix}）")
+    elif recovery.get("state") == "READY":
+        lines.append(f"自动恢复：已授权/待执行（{action}；当前没有运行中执行器证据）")
+    elif recovery.get("state") == "FAILED":
+        lines.append(f"自动恢复：执行失败（{action}）")
 
     human = progress.get("human") if isinstance(progress.get("human"), Mapping) else {}
     lines.append(f"需要你介入：{'是' if human.get('required') is True else '否'}")
