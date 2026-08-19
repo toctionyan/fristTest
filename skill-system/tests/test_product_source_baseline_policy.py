@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,6 +106,26 @@ class ProductSourceBaselinePolicyMatrixTests(unittest.TestCase):
             ref_name="repair/issue167-a1-semantic-goal-oracle-20260817",
             default_branch="main",
         )
+        self.assertEqual(mode, BaselineMode.PR_CANDIDATE)
+
+    def test_feature_branch_push_uses_actual_github_event_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            event_path = Path(temporary) / "event.json"
+            event_path.write_text(
+                json.dumps({"repository": {"default_branch": "main"}}),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ,
+                {
+                    "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_REF_TYPE": "branch",
+                    "GITHUB_REF_NAME": "repair/issue167-a1-semantic-goal-oracle-20260817",
+                    "GITHUB_EVENT_PATH": str(event_path),
+                },
+                clear=False,
+            ):
+                mode = baseline_mode_for_authority("historical-registry-baseline")
         self.assertEqual(mode, BaselineMode.PR_CANDIDATE)
 
     def test_default_branch_push_remains_accepted_ref(self) -> None:
