@@ -3,10 +3,10 @@ from __future__ import annotations
 """Scoped runtime adapter for the existing governed repair writer.
 
 This module does not implement a second patch writer. It temporarily binds the
-*existing* ``github_agent_fixer`` and ``github_repair_orchestrator`` path checks
-and prompts to the deterministic repair domain already certified by
-``github_repair_authority``. The adapter is process-local and restored after the
-single Stage-2 run, so product behavior is unchanged outside that scope.
+*existing* ``github_agent_fixer`` and ``github_repair_orchestrator`` path checks,
+preflight, TaskRun binding, and prompts to the deterministic repair domain already
+certified by ``github_repair_authority``. The adapter is process-local and restored
+after the single Stage-2 run, so historical product behavior remains unchanged.
 
 All actual path authority still comes from ``governed_repair_path_policy`` and
 the immutable write grant. Tests/oracles/workflows/governance are never added to
@@ -52,6 +52,72 @@ def _domain_validator(domain: str):
         return tuple(checked)
 
     return validate_allowed_paths
+
+
+def _control_failure_validator(domain_validator):
+    def validate_failure_case(report: dict[str, Any], workspace: Path) -> tuple[str, ...]:
+        if report.get("schema") != "github-failure-ingest@1" or report.get("status") != "INGESTED":
+            raise orchestrator.OrchestratorError("unsupported or incomplete failure-case evidence")
+        if report.get("repair_allowed") is not True:
+            raise orchestrator.OrchestratorError("Stage 1 did not authorize a repair candidate")
+        if report.get("classification") != "control_plane_implementation":
+            raise orchestrator.OrchestratorError(
+                "control-plane repair runtime requires control_plane_implementation classification"
+            )
+        if report.get("repair_domain") != REPAIR_DOMAIN_CONTROL_PLANE:
+            raise orchestrator.OrchestratorError("control-plane repair domain is missing or drifted")
+        route = report.get("repair_route") if isinstance(report.get("repair_route"), dict) else {}
+        if route.get("repair_class") != "CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE":
+            raise orchestrator.OrchestratorError("control-plane semantic route is missing or invalid")
+        if route.get("automatic_write_allowed") is not True:
+            raise orchestrator.OrchestratorError("control-plane semantic route did not authorize write")
+        if route.get("test_write_allowed") is not False or route.get("acceptance_write_allowed") is not False:
+            raise orchestrator.OrchestratorError("control-plane route attempted protected test authority")
+        if report.get("same_repository") is not True:
+            raise orchestrator.OrchestratorError("foreign-repository control failure is not repairable")
+        expected_sha = str(report.get("head_sha") or "")
+        actual_sha = orchestrator._git(workspace, "rev-parse", "HEAD")
+        if not expected_sha or expected_sha != actual_sha:
+            raise orchestrator.OrchestratorError(
+                "candidate checkout does not match the ingested commit SHA"
+            )
+        initial = orchestrator._changed_paths(workspace)
+        if initial:
+            raise orchestrator.OrchestratorError(
+                f"candidate workspace must start clean: {list(initial)}"
+            )
+        paths = tuple(str(item) for item in report.get("candidate_paths") or [])
+        if not paths:
+            raise orchestrator.OrchestratorError(
+                "control-plane failure evidence does not identify an implementation repair path"
+            )
+        routed = tuple(str(item) for item in route.get("allowed_write_paths") or [])
+        if routed != paths:
+            raise orchestrator.OrchestratorError(
+                "control-plane semantic route scope differs from candidate paths"
+            )
+        return domain_validator(workspace, paths)
+
+    return validate_failure_case
+
+
+def _domain_task_binding_validator(original, domain: str):
+    def validate_task_binding(task, report: dict[str, Any]) -> None:
+        original(task, report)
+        binding = task.payload.get("binding") if isinstance(task.payload.get("binding"), dict) else {}
+        bound_domain = str(binding.get("repair_domain") or "").strip()
+        bound_route = str(binding.get("repair_route_sha256") or "").strip()
+        route = report.get("repair_route") if isinstance(report.get("repair_route"), dict) else {}
+        route_sha = str(route.get("route_sha256") or "").strip()
+        if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+            if bound_domain != domain or not route_sha or bound_route != route_sha:
+                raise orchestrator.OrchestratorError(
+                    "TaskRun control-plane repair domain/route binding mismatch"
+                )
+        elif bound_domain and bound_domain != domain:
+            raise orchestrator.OrchestratorError("TaskRun product repair domain drift")
+
+    return validate_task_binding
 
 
 def _control_rca_messages(
@@ -170,18 +236,23 @@ def _control_patch_messages(
 @contextmanager
 def repair_domain_runtime(failure_case: Mapping[str, Any]) -> Iterator[str]:
     """Bind the existing single writer to one immutable repair domain and restore it."""
-
     domain = repair_domain(failure_case)
     validator = _domain_validator(domain)
     originals = {
         "fixer_validate": fixer.validate_allowed_paths,
         "orchestrator_validate": orchestrator.validate_allowed_paths,
+        "orchestrator_failure": orchestrator._validate_failure_case,
+        "orchestrator_task": orchestrator._validate_task_binding,
         "fixer_messages": fixer.build_messages,
         "rca_messages": rca_module._build_messages,
     }
     fixer.validate_allowed_paths = validator
     orchestrator.validate_allowed_paths = validator
+    orchestrator._validate_task_binding = _domain_task_binding_validator(
+        originals["orchestrator_task"], domain
+    )
     if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        orchestrator._validate_failure_case = _control_failure_validator(validator)
         fixer.build_messages = _control_patch_messages
         rca_module._build_messages = _control_rca_messages
     elif domain != REPAIR_DOMAIN_PRODUCT:
@@ -191,5 +262,7 @@ def repair_domain_runtime(failure_case: Mapping[str, Any]) -> Iterator[str]:
     finally:
         fixer.validate_allowed_paths = originals["fixer_validate"]
         orchestrator.validate_allowed_paths = originals["orchestrator_validate"]
+        orchestrator._validate_failure_case = originals["orchestrator_failure"]
+        orchestrator._validate_task_binding = originals["orchestrator_task"]
         fixer.build_messages = originals["fixer_messages"]
         rca_module._build_messages = originals["rca_messages"]
