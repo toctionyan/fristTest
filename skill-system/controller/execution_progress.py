@@ -434,7 +434,7 @@ def build_execution_progress(
     The projection is intentionally read-only. It keeps historical failed attempts
     visible even after recovery, distinguishes an authorized recovery from an
     executor that is actually running, and never declares the whole task complete
-    while a required completion condition is still missing.
+    until the TaskRun completion contract and final COMPLETED checkpoint agree.
     """
 
     task_payload = dict(task or {})
@@ -511,13 +511,30 @@ def build_execution_progress(
     elif recovery_state == "FAILED":
         overall = "FAILED"
 
-    completion_eligible, missing_conditions = _task_completion(task_payload)
-    if completion_eligible is False and overall == "COMPLETED":
-        overall = "PENDING"
-    if completion_eligible is True and any(stage.status in _ACTIVE_STATUSES | _FAILURE_STATUSES for stage in stages):
+    conditions_complete, missing_conditions = _task_completion(task_payload)
+    final_taskrun_complete = bool(
+        task_id
+        and task_status == "COMPLETED"
+        and task_phase == "COMPLETED"
+    )
+    active_or_failed_stage = any(
+        stage.status in _ACTIVE_STATUSES | _FAILURE_STATUSES for stage in stages
+    )
+    if conditions_complete is False:
         completion_eligible = False
-    if completion_eligible is None:
-        completion_eligible = overall == "COMPLETED"
+        if overall == "COMPLETED":
+            overall = "PENDING"
+    elif conditions_complete is True:
+        completion_eligible = final_taskrun_complete and not active_or_failed_stage
+        if not completion_eligible and overall == "COMPLETED":
+            overall = "PENDING"
+    else:
+        if task_id:
+            completion_eligible = final_taskrun_complete and overall == "COMPLETED"
+            if not final_taskrun_complete and overall == "COMPLETED":
+                overall = "PENDING"
+        else:
+            completion_eligible = overall == "COMPLETED"
 
     task_plan_basis = [stage for stage in stages if stage.source == "task-plan"]
     condition_basis = [stage for stage in stages if stage.source == "task-condition"]
@@ -535,9 +552,11 @@ def build_execution_progress(
             "task_id": task_id,
             "status": task_status,
             "phase": task_phase,
+            "final_checkpoint_complete": final_taskrun_complete,
         },
         "overall": overall,
         "completion_eligible": bool(completion_eligible),
+        "completion_authority": "TASK_RUN" if task_id else "OBSERVATION_ONLY",
         "missing_completion_conditions": missing_conditions,
         "product_verdict": _product_verdict(stages),
         "transport_verdict": _transport_verdict(stages),
