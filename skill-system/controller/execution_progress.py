@@ -461,9 +461,9 @@ def build_execution_progress(
     if completion_eligible is None:
         completion_eligible = overall == "COMPLETED"
 
-    progress_basis = [stage for stage in stages if stage.source in {"task-plan", "task-condition"}]
-    if not progress_basis:
-        progress_basis = stages
+    task_plan_basis = [stage for stage in stages if stage.source == "task-plan"]
+    condition_basis = [stage for stage in stages if stage.source == "task-condition"]
+    progress_basis = task_plan_basis or condition_basis or stages
     completed_steps = sum(1 for stage in progress_basis if stage.status in {"PASS", "SKIPPED"})
     total_steps = len(progress_basis)
 
