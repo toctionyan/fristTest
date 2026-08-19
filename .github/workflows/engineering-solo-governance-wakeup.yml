@@ -43,17 +43,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p evidence incoming
-          if gh api "repos/${GITHUB_REPOSITORY}/environments/governed-repair-governance" > evidence/governance-environment.json 2>evidence/governance-environment-error.txt; then
-            if jq -e '
-              ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length) > 0
-              and ([.protection_rules[]? | select(.type == "required_reviewers") | .prevent_self_review] | any(. == true))
-            ' evidence/governance-environment.json >/dev/null; then
-              echo "independent_human_gate=true" >> "$GITHUB_OUTPUT"
-              echo "Protected independent reviewer policy exists; solo preauthorization cannot bypass it." >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          else
-            printf '%s\n' '{}' > evidence/governance-environment.json
+          if ! gh api "repos/${GITHUB_REPOSITORY}/environments/governed-repair-governance" > evidence/governance-environment.json 2>evidence/governance-environment-error.txt; then
+            echo "independent_human_gate=true" >> "$GITHUB_OUTPUT"
+            echo "environment_inspection_unavailable=true" >> "$GITHUB_OUTPUT"
+            echo "Independent-review policy could not be read; fail closed to Human Gate instead of assuming solo mode." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "environment_inspection_unavailable=false" >> "$GITHUB_OUTPUT"
+          if jq -e '
+            ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length) > 0
+            and ([.protection_rules[]? | select(.type == "required_reviewers") | .prevent_self_review] | any(. == true))
+          ' evidence/governance-environment.json >/dev/null; then
+            echo "independent_human_gate=true" >> "$GITHUB_OUTPUT"
+            echo "Protected independent reviewer policy exists; solo preauthorization cannot bypass it." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           echo "independent_human_gate=false" >> "$GITHUB_OUTPUT"
 
