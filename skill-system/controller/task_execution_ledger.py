@@ -8,6 +8,7 @@ from task_run import TaskRunStore
 
 TASK_EXECUTION_LEDGER_SCHEMA = "task-execution-ledger@1"
 ATTEMPT_STATUSES = frozenset({"PENDING", "RUNNING", "PASS", "FAIL", "SKIPPED", "BLOCKED"})
+_LOCAL_GATE_ORDER = ("targeted", "module", "static", "quick", "review", "scope")
 
 
 class TaskExecutionLedgerError(ValueError):
@@ -154,10 +155,166 @@ def record_execution_attempt(
     return row
 
 
+def _terminal_attempt(
+    *,
+    sequence: int,
+    stage_id: str,
+    label: str,
+    attempt: int,
+    status: str,
+    evidence_refs: Iterable[object],
+    detail: str | None = None,
+    recoverable: bool = True,
+    human_required: bool = False,
+) -> dict[str, Any]:
+    refs = [str(ref).strip() for ref in evidence_refs if str(ref).strip()]
+    evidence_ref = refs[0] if refs else f"task-checkpoint:{sequence}"
+    return {
+        "sequence": sequence,
+        "stage_id": stage_id,
+        "label": label,
+        "attempt": attempt,
+        "status": _status(status),
+        "detail": _text(detail) or None,
+        "evidence_ref": evidence_ref,
+        "evidence_refs": refs or [evidence_ref],
+        "recoverable": bool(recoverable),
+        "human_required": bool(human_required),
+        "authority_effect": False,
+        "production_closed": False,
+    }
+
+
+def _local_first_projection_inputs(
+    task: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    """Reconstruct durable local-first history from existing TaskRun checkpoints.
+
+    Local-first governance already persisted every gate result and CI terminal
+    checkpoint before this execution ledger existed. Reconstructing those records is
+    read-only and prevents historical REDs from disappearing merely because an older
+    TaskRun lacks `task_execution_ledger` metadata.
+    """
+
+    metadata = _metadata(task)
+    local = metadata.get("local_first")
+    if not isinstance(local, Mapping):
+        return None
+
+    labels = {
+        "targeted": "Local targeted validation",
+        "module": "Local module validation",
+        "static": "Local static validation",
+        "quick": "Local quick validation",
+        "review": "Local independent review",
+        "scope": "Local scope validation",
+    }
+    planned = [
+        {
+            "id": f"local-{gate}",
+            "label": labels[gate],
+            "status": "PENDING",
+            "detail": "",
+            "evidence_ref": "",
+        }
+        for gate in _LOCAL_GATE_ORDER
+    ]
+    planned.append(
+        {
+            "id": "ci-certification",
+            "label": "Exact candidate CI certification",
+            "status": "PENDING",
+            "detail": "",
+            "evidence_ref": "",
+        }
+    )
+
+    attempts: list[dict[str, Any]] = []
+    attempt_counts: dict[str, int] = {}
+    checkpoints = task.get("checkpoints") if isinstance(task.get("checkpoints"), list) else []
+    for checkpoint in checkpoints:
+        if not isinstance(checkpoint, Mapping):
+            continue
+        sequence = int(checkpoint.get("sequence") or len(attempts) + 1)
+        phase = _text(checkpoint.get("phase"))
+        row_metadata = checkpoint.get("metadata") if isinstance(checkpoint.get("metadata"), Mapping) else {}
+        refs = checkpoint.get("evidence_refs") if isinstance(checkpoint.get("evidence_refs"), list) else []
+        gate = _text(row_metadata.get("gate")).lower()
+        result = _text(row_metadata.get("result")).upper()
+        if gate in _LOCAL_GATE_ORDER and result in {"PASS", "FAIL"}:
+            stage = f"local-{gate}"
+            attempt_counts[stage] = attempt_counts.get(stage, 0) + 1
+            attempts.append(
+                _terminal_attempt(
+                    sequence=sequence,
+                    stage_id=stage,
+                    label=labels[gate],
+                    attempt=attempt_counts[stage],
+                    status=result,
+                    evidence_refs=refs,
+                    detail=phase,
+                    recoverable=result == "FAIL",
+                    human_required=False,
+                )
+            )
+            continue
+
+        ci_status: str | None = None
+        if phase == "CI_CERTIFICATION_GREEN":
+            ci_status = "PASS"
+        elif phase in {
+            "CI_FAILURE_RETURNED_TO_PATCH_OWNER",
+            "CI_RELIABILITY_RETRY_PENDING",
+            "CI_PLATFORM_OR_AUTHORITY_BLOCKED",
+            "CI_TRANSPORT_FAILURE_RECONCILED",
+        }:
+            ci_status = "FAIL"
+        if ci_status:
+            stage = "ci-certification"
+            attempt_counts[stage] = attempt_counts.get(stage, 0) + 1
+            decision_kind = _text(row_metadata.get("kind"))
+            reason = _text(row_metadata.get("reason"))
+            attempts.append(
+                _terminal_attempt(
+                    sequence=sequence,
+                    stage_id=stage,
+                    label="Exact candidate CI certification",
+                    attempt=attempt_counts[stage],
+                    status=ci_status,
+                    evidence_refs=refs,
+                    detail=reason or decision_kind or phase,
+                    recoverable=phase != "CI_PLATFORM_OR_AUTHORITY_BLOCKED",
+                    human_required=phase == "CI_PLATFORM_OR_AUTHORITY_BLOCKED",
+                )
+            )
+
+    attempts.sort(key=lambda row: int(row.get("sequence") or 0))
+    latest_by_stage: dict[str, Mapping[str, Any]] = {}
+    for row in attempts:
+        latest_by_stage[str(row.get("stage_id"))] = row
+    for stage in planned:
+        latest = latest_by_stage.get(stage["id"])
+        if latest:
+            stage["status"] = str(latest.get("status") or "PENDING")
+            stage["detail"] = str(latest.get("detail") or "")
+            stage["evidence_ref"] = str(latest.get("evidence_ref") or "")
+    return planned, attempts
+
+
 def projection_inputs(task: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return execution-progress compatible plan and attempt rows."""
+    """Return execution-progress compatible plan and attempt rows.
+
+    Prefer the explicit durable ledger. For older/local-first TaskRuns that predate
+    it, reconstruct the same read-only view from their durable checkpoints so status
+    queries remain lossless without rewriting history.
+    """
 
     ledger = read_execution_ledger(task)
+    if not ledger["stages"] and not ledger["attempts"]:
+        fallback = _local_first_projection_inputs(task)
+        if fallback is not None:
+            return fallback
+
     attempts = ledger["attempts"]
     latest_by_stage: dict[str, Mapping[str, Any]] = {}
     for row in attempts:
