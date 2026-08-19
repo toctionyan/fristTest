@@ -162,12 +162,47 @@ jobs:
           EXACT_HEAD: ${{ steps.g6.outputs.exact_head }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > evidence/pr-before-ready.json
-          jq -e --arg head "${EXACT_HEAD}" --arg repo "${GITHUB_REPOSITORY}" '
-            .state == "open" and .merged == false and .head.sha == $head
-            and .head.repo.full_name == $repo and .base.ref == "main"
-          ' evidence/pr-before-ready.json >/dev/null
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_HEAD}&per_page=100" > evidence/workflow-runs.json
+          deadline=$((SECONDS + 1800))
+          final_observation_ready=false
+          while (( SECONDS < deadline )); do
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > evidence/pr-before-ready.json
+            jq -e --arg head "${EXACT_HEAD}" --arg repo "${GITHUB_REPOSITORY}" '
+              .state == "open" and .merged == false and .head.sha == $head
+              and .head.repo.full_name == $repo and .base.ref == "main"
+            ' evidence/pr-before-ready.json >/dev/null
+            mergeable=$(jq -r '.mergeable // "unknown"' evidence/pr-before-ready.json)
+            if [[ "${mergeable}" == "false" ]]; then
+              echo "PR is not mergeable; autonomous landing blocked." >&2
+              exit 1
+            fi
+
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_HEAD}&per_page=100" > evidence/workflow-runs.json
+            waiting_push_runs=$(jq -r --arg head "${EXACT_HEAD}" '
+              ["quality", "skill-self-validation"] as $names
+              | [$names[] as $name
+                 | ([.workflow_runs[]
+                       | select(.name == $name)
+                       | select(.head_sha == $head)
+                       | select(.event == "push")]
+                    | sort_by(.run_number, .run_attempt, .id)
+                    | reverse
+                    | .[0] // null)
+                 | select(. != null)
+                 | select(.status != "completed")]
+              | length
+            ' evidence/workflow-runs.json)
+            if [[ "${mergeable}" == "true" && "${waiting_push_runs}" == "0" ]]; then
+              final_observation_ready=true
+              break
+            fi
+            echo "Waiting for GitHub mergeability/current-head push evidence: mergeable=${mergeable}, waiting_push_runs=${waiting_push_runs}"
+            sleep 15
+          done
+          [[ "${final_observation_ready}" == "true" ]] || {
+            echo "timed out waiting for final mergeability/current-head push evidence" >&2
+            exit 1
+          }
+
           gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq -s 'add' > evidence/changed-files.json
           gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" | jq -s 'add' > evidence/reviews.json
           owner="${GITHUB_REPOSITORY%%/*}"; repo="${GITHUB_REPOSITORY#*/}"
