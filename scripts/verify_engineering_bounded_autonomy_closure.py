@@ -161,7 +161,7 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
     return {
         "schema": SCHEMA,
         "status": "PASS" if not errors else "FAIL",
-        "routine_manual_clicks_required_after_bounded_owner_authorization": True if not errors else None,
+        "routine_manual_clicks_required_after_bounded_owner_authorization": False if not errors else None,
         "bounded_merge_authority": "engineering-merge-grant@1",
         "ordinary_autonomy_grant_merge_allowed": False,
         "true_human_gates": [
