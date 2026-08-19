@@ -18,6 +18,7 @@ from skill_invocation import (  # type: ignore  # noqa: E402
     SkillInvocationError,
     build_receipt,
     canonical_skill_path,
+    find_active_receipt,
     load_receipt,
     validate_receipt,
     write_receipt,
@@ -152,12 +153,26 @@ def cmd_status_project(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    path = Path(args.receipt) if args.receipt else ROOT / ".quality/skill-invocations/current.json"
-    if not path.is_absolute():
-        path = ROOT / path
+    if args.receipt:
+        path = Path(args.receipt)
+        if not path.is_absolute():
+            path = ROOT / path
+        payload = load_receipt(path)
+    else:
+        if not args.request_class or not args.skill:
+            raise SkillInvocationError(
+                "active receipt lookup requires --request-class and --skill when --receipt is omitted"
+            )
+        path, payload = find_active_receipt(
+            ROOT,
+            request_class=args.request_class,
+            skill=args.skill,
+            change_id=args.change_id,
+            task_id=args.task_id,
+        )
     payload = validate_receipt(
         ROOT,
-        load_receipt(path),
+        payload,
         expected_request_class=args.request_class,
         expected_skill=args.skill,
         expected_change_id=args.change_id,
