@@ -63,20 +63,20 @@ PROTECTED_PREFIXES = (
     ".git/",
     ".quality/",
 )
+# Keep this historical product projection byte-for-byte equivalent to the
+# existing Patch Owner filter. New M8.6 control-plane files are not made product
+# writable: product repair already rejects all ``scripts/`` paths by root, while
+# the separate control domain below is independently allow-listed.
 PROTECTED_EXACT = frozenset(
     {
         "scripts/quality_loop.py",
         "scripts/repair_loop.py",
         "scripts/github_failure_ingest.py",
-        "scripts/github_failure_ingest_control_plane.py",
         "scripts/github_agent_fixer.py",
         "scripts/github_repair_orchestrator.py",
         "scripts/github_repair_orchestrator_control_plane.py",
         "scripts/github_repair_authority.py",
         "scripts/github_repair_rca.py",
-        "scripts/github_stage2_handoff.py",
-        "scripts/github_repair_stage3.py",
-        "scripts/governed_repair_path_policy.py",
         "skill-system/registry/product-source-baseline.json",
     }
 )
