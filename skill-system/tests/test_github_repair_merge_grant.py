@@ -15,6 +15,8 @@ import github_repair_merge_grant as merge_grant  # noqa: E402
 class MergeGrantTests(unittest.TestCase):
     HEAD = "9" * 40
     BASE = "8" * 40
+    HISTORICAL_PR_BASE = "7" * 40
+    SYNC_HEAD = "6" * 40
     PR_URL = "https://github.com/owner/repo/pull/99"
 
     def _exact_head(self) -> dict[str, object]:
@@ -62,86 +64,143 @@ class MergeGrantTests(unittest.TestCase):
             "state": "OPEN",
             "is_draft": False,
             "head_sha": self.HEAD,
+            "head_sha_authority": "certified_exact_head",
+            "certified_head_sha": self.HEAD,
             "base_branch": "main",
-            "base_sha": self.BASE,
+            "base_sha": self.HISTORICAL_PR_BASE,
+            "mergeable": True,
+            "mergeable_state": "clean",
         }
 
-    def test_owner_can_issue_exact_head_base_bound_merge_grant(self) -> None:
-        grant = merge_grant.issue_merge_grant(
-            self._exact_head(),
-            self._pr_state(),
-            actor="owner",
-            repository_owner="owner",
-            approval_ref="github-actions:123/1:owner-merge",
+    def _sync_pr_state(self) -> dict[str, object]:
+        state = self._pr_state()
+        state.update(
+            {
+                "head_sha": self.SYNC_HEAD,
+                "head_sha_authority": "verified_base_sync",
+                "certified_head_sha": self.HEAD,
+                "integration_base_sha": self.BASE,
+                "integration_parents_verified": True,
+                "integration_tree_verified": True,
+            }
         )
+        return state
+
+    def _base_state(self) -> dict[str, object]:
+        return {"branch": "main", "sha": self.BASE}
+
+    def _issue(self, **overrides: object) -> dict[str, object]:
+        args: dict[str, object] = {
+            "exact_head": self._exact_head(),
+            "pr_state": self._pr_state(),
+            "base_state": self._base_state(),
+            "actor": "owner",
+            "repository_owner": "owner",
+            "approval_ref": "github-actions:123/1:owner-merge",
+        }
+        args.update(overrides)
+        return merge_grant.issue_merge_grant(**args)  # type: ignore[arg-type]
+
+    def test_owner_can_issue_exact_head_live_base_bound_merge_grant(self) -> None:
+        grant = self._issue()
         self.assertEqual(grant["status"], "MERGE_GRANT_ISSUED")
+        self.assertEqual(grant["certified_head_sha"], self.HEAD)
         self.assertEqual(grant["head_sha"], self.HEAD)
+        self.assertEqual(grant["head_sha_authority"], "certified_exact_head")
         self.assertEqual(grant["base_sha"], self.BASE)
+        self.assertEqual(grant["base_sha_authority"], "live_branch_tip")
+        self.assertNotEqual(grant["base_sha"], self.HISTORICAL_PR_BASE)
         self.assertTrue(grant["merge_allowed"])
         self.assertFalse(grant["grant_consumed"])
         self.assertFalse(grant["deploy_allowed"])
         self.assertFalse(grant["production_closed"])
 
-    def test_non_owner_cannot_issue_merge_grant(self) -> None:
-        with self.assertRaisesRegex(
-            merge_grant.MergeGrantError,
-            "repository owner",
-        ):
-            merge_grant.issue_merge_grant(
-                self._exact_head(),
-                self._pr_state(),
-                actor="reviewer",
-                repository_owner="owner",
-                approval_ref="approval:1",
-            )
+    def test_verified_base_sync_can_wrap_certified_head_without_recertifying_candidate(self) -> None:
+        grant = self._issue(pr_state=self._sync_pr_state())
+        self.assertEqual(grant["certified_head_sha"], self.HEAD)
+        self.assertEqual(grant["head_sha"], self.SYNC_HEAD)
+        self.assertEqual(grant["head_sha_authority"], "verified_base_sync")
+        self.assertEqual(grant["base_sha"], self.BASE)
+        self.assertTrue(grant["merge_allowed"])
 
-    def test_stale_head_invalidates_merge_grant(self) -> None:
+    def test_non_owner_cannot_issue_merge_grant(self) -> None:
+        with self.assertRaisesRegex(merge_grant.MergeGrantError, "repository owner"):
+            self._issue(actor="reviewer")
+
+    def test_unverified_stale_head_invalidates_merge_grant(self) -> None:
         pr = self._pr_state()
-        pr["head_sha"] = "7" * 40
+        pr["head_sha"] = self.SYNC_HEAD
+        pr["head_sha_authority"] = ""
         with self.assertRaisesRegex(merge_grant.MergeGrantError, "head drifted"):
-            merge_grant.issue_merge_grant(
-                self._exact_head(),
-                pr,
-                actor="owner",
-                repository_owner="owner",
-                approval_ref="approval:1",
-            )
+            self._issue(pr_state=pr)
+
+    def test_base_sync_requires_parent_and_tree_proof(self) -> None:
+        for field in ("integration_parents_verified", "integration_tree_verified"):
+            pr = self._sync_pr_state()
+            pr[field] = False
+            with self.subTest(field=field):
+                with self.assertRaises(merge_grant.MergeGrantError):
+                    self._issue(pr_state=pr)
+
+    def test_base_sync_must_bind_current_live_base(self) -> None:
+        pr = self._sync_pr_state()
+        pr["integration_base_sha"] = "5" * 40
+        with self.assertRaisesRegex(merge_grant.MergeGrantError, "live base"):
+            self._issue(pr_state=pr)
+
+    def test_behind_pr_cannot_receive_merge_grant(self) -> None:
+        pr = self._pr_state()
+        pr["mergeable_state"] = "behind"
+        with self.assertRaisesRegex(merge_grant.MergeGrantError, "behind"):
+            self._issue(pr_state=pr)
 
     def test_draft_pr_cannot_receive_merge_grant(self) -> None:
         pr = self._pr_state()
         pr["is_draft"] = True
         with self.assertRaisesRegex(merge_grant.MergeGrantError, "Ready for review"):
-            merge_grant.issue_merge_grant(
-                self._exact_head(),
-                pr,
-                actor="owner",
-                repository_owner="owner",
-                approval_ref="approval:1",
-            )
+            self._issue(pr_state=pr)
 
     def test_tampered_exact_head_receipt_is_rejected(self) -> None:
         exact = self._exact_head()
         exact["ready_for_review"] = False
         with self.assertRaises(merge_grant.MergeGrantError):
-            merge_grant.issue_merge_grant(
-                exact,
-                self._pr_state(),
-                actor="owner",
-                repository_owner="owner",
-                approval_ref="approval:1",
-            )
+            self._issue(exact_head=exact)
+
+    def test_live_base_branch_must_match_certified_base_branch(self) -> None:
+        with self.assertRaisesRegex(merge_grant.MergeGrantError, "live base branch"):
+            self._issue(base_state={"branch": "release", "sha": self.BASE})
+
+    def test_missing_or_invalid_live_base_sha_fails_closed(self) -> None:
+        for sha in ("", "not-a-sha", "a" * 39):
+            with self.subTest(sha=sha):
+                with self.assertRaisesRegex(merge_grant.MergeGrantError, "live base SHA"):
+                    self._issue(base_state={"branch": "main", "sha": sha})
 
     def test_grant_never_carries_deploy_or_production_authority(self) -> None:
-        grant = merge_grant.issue_merge_grant(
-            self._exact_head(),
-            self._pr_state(),
-            actor="owner",
-            repository_owner="owner",
-            approval_ref="approval:1",
-        )
+        grant = self._issue(pr_state=self._sync_pr_state())
         self.assertTrue(grant["merge_allowed"])
         self.assertFalse(grant["deploy_allowed"])
         self.assertFalse(grant["production_closed"])
+
+    def test_workflow_verifies_live_base_and_canonical_base_sync_before_merge(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "governed-ci-repair-merge.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("git/ref/heads/${BASE_BRANCH}", workflow)
+        self.assertIn("--base-state merge-evidence/base-state.json", workflow)
+        self.assertIn("base_sha_authority == \"live_branch_tip\"", workflow)
+        self.assertIn("live base drifted after MergeGrant issuance", workflow)
+        self.assertIn('mergeable_state != "behind"', workflow)
+        self.assertIn("merge-tree --write-tree", workflow)
+        self.assertIn("verified_base_sync", workflow)
+        self.assertIn("integration_parents_verified", workflow)
+        self.assertIn("integration_tree_verified", workflow)
+        self.assertIn("certified_head_sha", workflow)
+        self.assertIn("head_sha=${HEAD_SHA}&event=pull_request", workflow)
+        self.assertIn('successful("quality")', workflow)
+        self.assertIn('successful("skill-self-validation")', workflow)
+        self.assertIn("historical_pr_base_sha:.base.sha", workflow)
+        self.assertIn("jq --arg branch \"${BASE_BRANCH}\" '{branch:$branch, sha:.object.sha}'", workflow)
 
 
 if __name__ == "__main__":

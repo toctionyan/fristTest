@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from agent_core.storage.repositories.base import TransactionScope, ActiveDraftValidationCode, ActiveDraftValidationResult
+from agent_core.operations.draft import draft_persistence_update_decision
+from agent_core.storage.transaction_policy import attempt_persistence_update_decision, draft_terminal_observation_decision, existing_attempt_matches_request, grant_consumption_decision, grant_issue_decision, grant_reservation_decision, validate_receipt_binding
 
 from agent_core.persistence.thread_store import ThreadOwnershipError, ThreadTenantMismatchError
 from agent_core.persistence.database_settings import DatabaseSettings
@@ -717,6 +719,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
 
     def issue_grant(self, **kwargs: Any) -> dict[str, Any]:
         table = self.t["transaction_grants"]
+        drafts = self.t["transaction_drafts"]
         kwargs.setdefault("correlation_id", get_correlation_id())
         condition = self.sa.and_(
             table.c.tenant_id == kwargs["tenant_id"], table.c.user_id == kwargs["user_id"],
@@ -725,6 +728,18 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             table.c.confirmation_id == kwargs["confirmation_id"],
         )
         with self.p.conn() as conn:
+            draft_row = _row(conn.execute(self.sa.select(drafts).where(self.sa.and_(
+                drafts.c.draft_id == kwargs["draft_id"], drafts.c.tenant_id == kwargs["tenant_id"],
+                drafts.c.user_id == kwargs["user_id"], drafts.c.thread_id == kwargs["thread_id"],
+            ))).first())
+            draft = self._decode_row(draft_row) if draft_row else None
+            allowed, reason = grant_issue_decision(
+                draft, tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"], thread_id=kwargs["thread_id"],
+                draft_id=kwargs["draft_id"], draft_revision=int(kwargs["draft_revision"]),
+                command_digest=kwargs["command_digest"], confirmation_id=kwargs["confirmation_id"],
+            )
+            if not allowed:
+                raise ValueError(f"canonical Draft rejected Grant issuance: {reason}")
             row = _row(conn.execute(self.sa.select(table).where(condition)).first())
             if row:
                 return self._decode_row(row) or {}
@@ -746,16 +761,13 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             return [self._decode_row(_row(row)) or {} for row in conn.execute(stmt).fetchall()]
 
     def reserve_grant(self, grant_id: str, *, attempt_id: str | None = None) -> dict[str, Any]:
-        table = self.t["transaction_grants"]
-        now = _now()
-        with self.p.conn() as conn:
-            conn.execute(table.update().where(self.sa.and_(table.c.grant_id == grant_id, table.c.state == "ISSUED", table.c.expires_at.is_not(None), table.c.expires_at <= now)).values(state="EXPIRED", revoked_at=now, reason="grant_expired"))
-            result = conn.execute(table.update().where(self.sa.and_(table.c.grant_id == grant_id, table.c.state == "ISSUED", self.sa.or_(table.c.expires_at.is_(None), table.c.expires_at > now))).values(state="RESERVED", reserved_at=now, attempt_id=attempt_id))
-        return {"reserved": int(result.rowcount or 0) == 1, "grant": self.get_grant(grant_id) or {}}
+        """Compatibility surface; authority reservation is atomic with Attempt creation."""
+        return {"reserved": False, "grant": self.get_grant(grant_id) or {}, "reason": "atomic_attempt_required"}
 
     def reserve_grant_and_start_attempt(self, **kwargs: Any) -> dict[str, Any]:
         grants = self.t["transaction_grants"]
         attempts = self.t["transaction_attempts"]
+        drafts = self.t["transaction_drafts"]
         kwargs.setdefault("correlation_id", get_correlation_id())
         now = _now()
         key = str(kwargs["idempotency_key"])
@@ -765,38 +777,83 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             with self.p.conn() as conn:
                 existing = _row(conn.execute(self.sa.select(attempts).where(attempts.c.idempotency_key == key)).first())
                 if existing:
+                    existing_payload = self._decode_row(existing) or {}
                     grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
-                    return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": self._decode_row(existing) or {}}
-                conn.execute(grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED", grants.c.expires_at.is_not(None), grants.c.expires_at <= now)).values(state="EXPIRED", revoked_at=now, reason="grant_expired"))
-                reserved = conn.execute(grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED", self.sa.or_(grants.c.expires_at.is_(None), grants.c.expires_at > now))).values(state="RESERVED", reserved_at=now, attempt_id=attempt_id))
+                    if not existing_attempt_matches_request(
+                        existing_payload, grant_id=grant_id, tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"],
+                        thread_id=kwargs["thread_id"], draft_id=kwargs["draft_id"], draft_revision=int(kwargs["draft_revision"]),
+                        action_id=kwargs["action_id"], command_digest=kwargs["command_digest"],
+                    ):
+                        return {"reserved": False, "grant": {}, "created": False, "attempt": {}}
+                    return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": existing_payload}
+
+                grant_row = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
+                grant_payload = self._decode_row(grant_row) if grant_row else None
+                canonical = _row(conn.execute(self.sa.select(drafts).where(self.sa.and_(
+                    drafts.c.draft_id == kwargs["draft_id"],
+                    drafts.c.tenant_id == kwargs["tenant_id"],
+                    drafts.c.user_id == kwargs["user_id"],
+                    drafts.c.thread_id == kwargs["thread_id"],
+                ))).first())
+                canonical_payload = self._decode_row(canonical) if canonical else None
+                reservation_ok, reservation_reason = grant_reservation_decision(
+                    grant_payload, canonical_payload, tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"],
+                    thread_id=kwargs["thread_id"], draft_id=kwargs["draft_id"], draft_revision=int(kwargs["draft_revision"]),
+                    command_digest=kwargs["command_digest"],
+                )
+                if not reservation_ok:
+                    if grant_payload and str(grant_payload.get("state") or "").upper() == "ISSUED" and reservation_reason.startswith("reservation_canonical_Draft_"):
+                        conn.execute(
+                            grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED"))
+                            .values(state="REVOKED", revoked_at=now, reason="draft_missing")
+                        )
+                    return {"reserved": False, "grant": grant_payload or {}, "created": False, "attempt": {}}
+                if canonical_payload:
+                    committing_projection = dict(canonical_payload)
+                    committing_projection.update({
+                        "draft_state": "COMMITTING",
+                        "draft_revision": int(kwargs["draft_revision"]),
+                        "command_digest": kwargs["command_digest"],
+                    })
+                    if kwargs.get("draft_projection") is not None:
+                        committing_projection["projection"] = kwargs.get("draft_projection")
+                    allowed, reason = draft_persistence_update_decision(canonical_payload, committing_projection)
+                    if not allowed:
+                        conn.execute(
+                            grants.update().where(self.sa.and_(grants.c.grant_id == grant_id, grants.c.state == "ISSUED"))
+                            .values(state="REVOKED", revoked_at=now, reason="draft_update_rejected:" + reason)
+                        )
+                        grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
+                        return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": {}}
+
+                conn.execute(
+                    grants.update().where(self.sa.and_(
+                        grants.c.grant_id == grant_id, grants.c.state == "ISSUED",
+                        grants.c.expires_at.is_not(None), grants.c.expires_at <= now,
+                    )).values(state="EXPIRED", revoked_at=now, reason="grant_expired")
+                )
+                reserved = conn.execute(
+                    grants.update().where(self.sa.and_(
+                        grants.c.grant_id == grant_id, grants.c.state == "ISSUED",
+                        self.sa.or_(grants.c.expires_at.is_(None), grants.c.expires_at > now),
+                    )).values(state="RESERVED", reserved_at=now, attempt_id=attempt_id)
+                )
                 grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
                 if int(reserved.rowcount or 0) != 1:
                     return {"reserved": False, "grant": self._decode_row(grant) or {}, "created": False, "attempt": {}}
                 payload = kwargs["canonical_payload"]
                 values = {
                     "attempt_id": attempt_id,
-                    "tenant_id": kwargs["tenant_id"],
-                    "user_id": kwargs["user_id"],
-                    "thread_id": kwargs["thread_id"],
-                    "draft_id": kwargs["draft_id"],
-                    "draft_revision": int(kwargs["draft_revision"]),
-                    "grant_id": grant_id,
-                    "action_id": kwargs["action_id"],
-                    "command_digest": kwargs["command_digest"],
-                    "idempotency_key": key,
-                    "canonical_payload_json": _json(payload),
+                    "tenant_id": kwargs["tenant_id"], "user_id": kwargs["user_id"], "thread_id": kwargs["thread_id"],
+                    "draft_id": kwargs["draft_id"], "draft_revision": int(kwargs["draft_revision"]),
+                    "grant_id": grant_id, "action_id": kwargs["action_id"], "command_digest": kwargs["command_digest"],
+                    "idempotency_key": key, "canonical_payload_json": _json(payload),
                     "business_command_envelope_json": _json(kwargs.get("business_command_envelope")) if kwargs.get("business_command_envelope") is not None else None,
-                    "state": "STARTED",
-                    "business_result_json": None,
-                    "receipt_handle": None,
-                    "error_code": None,
-                    "error": None,
-                    "created_at": now,
-                    "updated_at": now,
-                    "reconciled_at": None,
+                    "state": "STARTED", "business_result_json": None, "receipt_handle": None,
+                    "error_code": None, "error": None, "created_at": now, "updated_at": now,
+                    "reconciled_at": None, "correlation_id": kwargs.get("correlation_id"),
                 }
                 conn.execute(attempts.insert().values(**values))
-                drafts = self.t["transaction_drafts"]
                 projection = kwargs.get("draft_projection") or {}
                 draft_values = {
                     "draft_id": kwargs["draft_id"], "tenant_id": kwargs["tenant_id"], "user_id": kwargs["user_id"],
@@ -804,7 +861,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                     "action_id": kwargs["action_id"], "command_digest": kwargs["command_digest"],
                     "command_envelope_json": _json(kwargs.get("business_command_envelope")) if kwargs.get("business_command_envelope") is not None else None,
                     "projection_json": _json(projection), "active_grant_id": grant_id, "current_attempt_id": attempt_id,
-                    "created_at": now, "updated_at": now,
+                    "created_at": now, "updated_at": now, "correlation_id": kwargs.get("correlation_id"),
                 }
                 existing_draft = _row(conn.execute(self.sa.select(drafts).where(drafts.c.draft_id == kwargs["draft_id"])).first())
                 if existing_draft:
@@ -814,8 +871,6 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
                 attempt = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == attempt_id)).first())
                 return {"reserved": True, "grant": self._decode_row(grant) or {}, "created": True, "attempt": self._decode_row(attempt) or {}}
         except self.sa.exc.IntegrityError:
-            # A concurrent process may have created the idempotency record after
-            # our read.  The transaction rolls back, so re-read safely.
             existing = self.get_attempt_by_idempotency_key(key) or {}
             return {"reserved": False, "grant": self.get_grant(grant_id) or {}, "created": False, "attempt": existing}
 
@@ -835,6 +890,15 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
         with self.p.conn() as conn:
             existing = _row(conn.execute(self.sa.select(table).where(table.c.draft_id == values["draft_id"])).first())
             if existing:
+                existing_payload = self._decode_row(existing) or {}
+                incoming_payload = {
+                    **kwargs,
+                    "command_envelope": command_envelope,
+                    "projection": projection,
+                }
+                allowed, _reason = draft_persistence_update_decision(existing_payload, incoming_payload)
+                if not allowed:
+                    return existing_payload
                 conn.execute(table.update().where(table.c.draft_id == values["draft_id"]).values(**{k:v for k,v in values.items() if k not in {"draft_id", "created_at"}}))
             else:
                 conn.execute(table.insert().values(**values))
@@ -922,6 +986,32 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
         if current_attempt_id is not None: values["current_attempt_id"] = current_attempt_id
         if projection is not None: values["projection_json"] = _json(projection)
         with self.p.conn() as conn:
+            existing = _row(conn.execute(self.sa.select(table).where(table.c.draft_id == draft_id)).first())
+            if not existing:
+                return
+            current = self._decode_row(existing) or {}
+            incoming = dict(current)
+            incoming["draft_state"] = draft_state
+            if draft_revision is not None: incoming["draft_revision"] = int(draft_revision)
+            if command_digest is not None: incoming["command_digest"] = command_digest
+            if command_envelope is not None: incoming["command_envelope"] = command_envelope
+            if projection is not None: incoming["projection"] = projection
+            allowed, _reason = draft_persistence_update_decision(current, incoming)
+            if not allowed:
+                return
+            attempt_id_for_terminal = str(incoming.get("current_attempt_id") or current.get("current_attempt_id") or "")
+            attempts = self.t["transaction_attempts"]
+            receipts = self.t["transaction_receipts"]
+            attempt_row = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == attempt_id_for_terminal)).first()) if attempt_id_for_terminal else None
+            attempt_payload = self._decode_row(attempt_row) if attempt_row else None
+            receipt_row = _row(conn.execute(self.sa.select(receipts).where(receipts.c.attempt_id == attempt_id_for_terminal)).first()) if attempt_id_for_terminal else None
+            receipt_payload = self._decode_row(receipt_row) if receipt_row else None
+            terminal_ok, _terminal_reason = draft_terminal_observation_decision(
+                {**current, "current_attempt_id": attempt_id_for_terminal},
+                target_state=draft_state, attempt=attempt_payload, receipt=receipt_payload,
+            )
+            if not terminal_ok:
+                return
             conn.execute(table.update().where(table.c.draft_id == draft_id).values(**values))
 
     def list_drafts_by_thread(self, *, tenant_id: str, user_id: str, thread_id: str, limit: int = 100) -> list[dict[str, Any]]:
@@ -932,19 +1022,44 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
 
     def record_receipt(self, **kwargs: Any) -> dict[str, Any]:
         table = self.t["transaction_receipts"]
+        attempts = self.t["transaction_attempts"]
+        grants = self.t["transaction_grants"]
         kwargs.setdefault("correlation_id", get_correlation_id())
         business_result = kwargs.pop("business_result", None)
         values = {
             **kwargs,
+            "receipt_state": str(kwargs.get("receipt_state") or "").upper(),
             "business_result_json": _json(business_result),
             "created_at": _now(),
         }
+        attempt_id = str(values.get("attempt_id") or "")
         with self.p.conn() as conn:
-            existing = _row(conn.execute(self.sa.select(table).where(table.c.attempt_id == values["attempt_id"])).first())
+            attempt = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == attempt_id)).first())
+            attempt_payload = self._decode_row(attempt) if attempt else None
+            grant_id = str((attempt_payload or {}).get("grant_id") or "")
+            grant = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first()) if grant_id else None
+            grant_payload = self._decode_row(grant) if grant else None
+            valid, reason = validate_receipt_binding(
+                attempt=attempt_payload,
+                grant=grant_payload,
+                tenant_id=str(values.get("tenant_id") or ""),
+                user_id=str(values.get("user_id") or ""),
+                thread_id=str(values.get("thread_id") or ""),
+                draft_id=str(values.get("draft_id") or ""),
+                attempt_id=attempt_id,
+                receipt_state=str(values.get("receipt_state") or ""),
+                business_result=business_result,
+            )
+            if not valid:
+                raise ValueError(f"transaction receipt attempt binding rejected: {reason}")
+            existing = _row(conn.execute(self.sa.select(table).where(table.c.attempt_id == attempt_id)).first())
             if existing:
                 return self._decode_row(existing) or {}
+            receipt_id_conflict = _row(conn.execute(self.sa.select(table).where(table.c.receipt_id == values["receipt_id"])).first())
+            if receipt_id_conflict:
+                raise ValueError("transaction receipt id already belongs to another attempt")
             conn.execute(table.insert().values(**values))
-        return self.get_receipt_by_attempt(values["attempt_id"]) or {}
+        return self.get_receipt_by_attempt(attempt_id) or {}
 
     def get_receipt_by_attempt(self, attempt_id: str | None) -> dict[str, Any] | None:
         if not attempt_id: return None
@@ -953,9 +1068,40 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
             return self._decode_row(_row(conn.execute(self.sa.select(table).where(table.c.attempt_id == attempt_id)).first()))
 
     def consume_grant(self, grant_id: str, *, attempt_id: str | None = None, receipt_handle: str | None = None) -> None:
-        table = self.t["transaction_grants"]
+        grants = self.t["transaction_grants"]
+        attempts = self.t["transaction_attempts"]
+        receipts = self.t["transaction_receipts"]
+        requested_attempt = str(attempt_id or "")
         with self.p.conn() as conn:
-            conn.execute(table.update().where(table.c.grant_id == grant_id).values(state="CONSUMED", consumed_at=_now(), attempt_id=attempt_id, receipt_handle=receipt_handle))
+            grant_row = _row(conn.execute(self.sa.select(grants).where(grants.c.grant_id == grant_id)).first())
+            grant = self._decode_row(grant_row) if grant_row else None
+            attempt_row = _row(conn.execute(self.sa.select(attempts).where(attempts.c.attempt_id == requested_attempt)).first()) if requested_attempt else None
+            attempt = self._decode_row(attempt_row) if attempt_row else None
+            receipt_row = _row(conn.execute(self.sa.select(receipts).where(receipts.c.attempt_id == requested_attempt)).first()) if requested_attempt else None
+            receipt = self._decode_row(receipt_row) if receipt_row else None
+            allowed, _reason = grant_consumption_decision(
+                grant,
+                attempt=attempt,
+                receipt=receipt,
+                attempt_id=attempt_id,
+                receipt_handle=receipt_handle,
+            )
+            if not allowed:
+                return
+            if str((grant or {}).get("state") or "").upper() == "CONSUMED":
+                return
+            conn.execute(
+                grants.update().where(self.sa.and_(
+                    grants.c.grant_id == grant_id,
+                    grants.c.state == "RESERVED",
+                    grants.c.attempt_id == requested_attempt,
+                )).values(
+                    state="CONSUMED",
+                    consumed_at=_now(),
+                    attempt_id=requested_attempt,
+                    receipt_handle=str(receipt_handle or ""),
+                )
+            )
 
     def revoke_grant(self, grant_id: str, *, reason: str) -> None:
         table = self.t["transaction_grants"]
@@ -992,6 +1138,7 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
 
     def transition_attempt(self, attempt_id: str, *, state: str, business_result: dict[str, Any] | None = None, receipt_handle: str | None = None, error_code: str | None = None, error: str | None = None, reconciled: bool = False) -> None:
         table = self.t["transaction_attempts"]
+        receipts = self.t["transaction_receipts"]
         values: dict[str, Any] = {"state": state, "updated_at": _now(), "error_code": error_code, "error": error}
         if business_result is not None:
             values["business_result_json"] = _json(business_result)
@@ -1000,6 +1147,21 @@ class _SqlAlchemyTransactionLifecycleRepository(_Repo):
         if reconciled:
             values["reconciled_at"] = _now()
         with self.p.conn() as conn:
+            existing = _row(conn.execute(self.sa.select(table).where(table.c.attempt_id == attempt_id)).first())
+            if not existing:
+                raise ValueError("transaction attempt missing")
+            current = self._decode_row(existing) or {}
+            receipt = _row(conn.execute(self.sa.select(receipts).where(receipts.c.attempt_id == attempt_id)).first())
+            receipt_payload = self._decode_row(receipt) if receipt else None
+            allowed, _reason = attempt_persistence_update_decision(
+                current,
+                target_state=state,
+                business_result=business_result,
+                receipt_handle=receipt_handle,
+                receipt=receipt_payload,
+            )
+            if not allowed:
+                return
             conn.execute(table.update().where(table.c.attempt_id == attempt_id).values(**values))
 
     def list_reconcilable_attempts(self, *, scope: TransactionScope | None = None, tenant_id: str | None = None, user_id: str | None = None, thread_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:

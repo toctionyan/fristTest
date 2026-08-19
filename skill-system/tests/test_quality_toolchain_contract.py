@@ -99,6 +99,32 @@ def test_quality_workflow_rejects_toolchain_step_reordering(tmp_path: Path):
     assert caught.value.code == "quality_toolchain_step_order_invalid"
 
 
+def test_quality_workflow_accepts_required_status_wrapper_outside_runtime_contract():
+    result = MODULE.validate_static(WORKSPACE)
+    assert result["status"] == "PASS"
+    workflow = (WORKSPACE / ".github/workflows/quality.yml").read_text(encoding="utf-8")
+    wrapper = workflow.split("\n  quality-quick-required-status:\n", 1)[1].split(
+        "\n  quality-integration:\n", 1
+    )[0]
+    assert "Validate locked runtime toolchain" not in wrapper
+    assert "Install locked Python environments" not in wrapper
+
+
+def test_quality_workflow_reports_missing_runtime_job_as_contract_error(tmp_path: Path):
+    root = _copy_workspace(tmp_path)
+    workflow = root / ".github/workflows/quality.yml"
+    text = workflow.read_text(encoding="utf-8")
+    assert "\n  quality-quick-execution:\n" in text
+    workflow.write_text(
+        text.replace("\n  quality-quick-execution:\n", "\n  quality-quick-execution-missing:\n", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(MODULE.QualityToolchainError) as caught:
+        MODULE.validate_static(root)
+    assert caught.value.code == "quality_toolchain_job_missing"
+    assert "quality-quick-execution" in str(caught.value)
+
+
 def test_runtime_accepts_uv_platform_suffix(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     root = _copy_workspace(tmp_path)
     outputs = iter(

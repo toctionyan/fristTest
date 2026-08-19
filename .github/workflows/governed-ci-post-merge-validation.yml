@@ -1,0 +1,471 @@
+name: governed-ci-post-merge-validation
+
+on:
+  workflow_run:
+    workflows:
+      - governed-ci-repair-merge
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      merge_sha:
+        description: Exact already-consumed merge commit SHA to validate
+        required: true
+        type: string
+      source_pr_number:
+        description: Merged source pull request number
+        required: true
+        type: string
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: governed-ci-post-merge-validation-${{ github.repository }}-${{ inputs.merge_sha || github.event.workflow_run.id || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'issue_comment'
+          && github.event.issue.pull_request != null
+          && startsWith(github.event.comment.body, '/governed-post-merge-validate '))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Resolve owner-authorized validation target
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          DISPATCH_MERGE_SHA: ${{ inputs.merge_sha }}
+          DISPATCH_PR_NUMBER: ${{ inputs.source_pr_number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_PR_NUMBER: ${{ github.event.issue.number }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          SOURCE_STATUS: ${{ github.event.workflow_run.status }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login }}
+        run: |
+          set -euo pipefail
+          mkdir -p post-merge-bootstrap
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            [[ "${SOURCE_WORKFLOW_NAME}" == "governed-ci-repair-merge" ]]
+            [[ "${SOURCE_STATUS}" == "completed" && "${SOURCE_CONCLUSION}" == "success" ]]
+            [[ "${SOURCE_ACTOR}" == "${OWNER}" ]] || {
+              echo "source canonical merge was not owner-authorized" >&2
+              exit 1
+            }
+            [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" \
+              > post-merge-bootstrap/source-artifacts.json
+            mapfile -t artifact_ids < <(jq -r '
+              [.artifacts[]
+               | select(.expired == false)
+               | select(.name | startswith("governed-ci-repair-merge-"))]
+              | sort_by(.created_at) | reverse | .[].id
+            ' post-merge-bootstrap/source-artifacts.json)
+            [[ "${#artifact_ids[@]}" -gt 0 ]] || {
+              echo "canonical merge run has no immutable merge evidence artifact" >&2
+              exit 1
+            }
+            found=0
+            for artifact_id in "${artifact_ids[@]}"; do
+              rm -rf post-merge-bootstrap/artifact post-merge-bootstrap/artifact.zip
+              gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+                > post-merge-bootstrap/artifact.zip
+              mkdir -p post-merge-bootstrap/artifact
+              unzip -q post-merge-bootstrap/artifact.zip -d post-merge-bootstrap/artifact
+              mapfile -t consumptions < <(find post-merge-bootstrap/artifact -type f -name merge-consumption.json -print)
+              mapfile -t grants < <(find post-merge-bootstrap/artifact -type f -name merge-grant.json -print)
+              if [[ "${#consumptions[@]}" -eq 1 && "${#grants[@]}" -eq 1 ]]; then
+                cp "${consumptions[0]}" post-merge-bootstrap/merge-consumption.json
+                cp "${grants[0]}" post-merge-bootstrap/merge-grant.json
+                found=1
+                break
+              fi
+            done
+            [[ "${found}" -eq 1 ]] || {
+              echo "canonical merge evidence is missing a unique grant/consumption pair" >&2
+              exit 1
+            }
+            jq -e '
+              .schema == "governed-repair-merge-consumption@1"
+              and .status == "MERGED_GRANT_CONSUMED"
+              and .grant_consumed == true
+              and .merge_allowed == false
+              and .deploy_allowed == false
+              and .production_closed == false
+            ' post-merge-bootstrap/merge-consumption.json >/dev/null
+            jq -e '
+              .schema == "governed-repair-merge-grant@1"
+              and .status == "MERGE_GRANT_ISSUED"
+              and .grant_consumed == false
+              and .merge_allowed == true
+              and .deploy_allowed == false
+              and .production_closed == false
+            ' post-merge-bootstrap/merge-grant.json >/dev/null
+            jq -e --slurpfile grant post-merge-bootstrap/merge-grant.json '
+              .merge_grant_sha256 == $grant[0].merge_grant_sha256
+              and .head_sha == $grant[0].head_sha
+              and .base_sha == $grant[0].base_sha
+            ' post-merge-bootstrap/merge-consumption.json >/dev/null
+            merge_sha=$(jq -r '.merge_commit_sha' post-merge-bootstrap/merge-consumption.json)
+            pr_number=$(jq -r '.pull_request_number' post-merge-bootstrap/merge-grant.json)
+            authorizing_actor="${SOURCE_ACTOR}"
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            [[ "${ACTOR}" == "${OWNER}" ]] || {
+              echo "post-merge validation may only be started by the repository owner" >&2
+              exit 1
+            }
+            merge_sha="${DISPATCH_MERGE_SHA}"
+            pr_number="${DISPATCH_PR_NUMBER}"
+            authorizing_actor="${ACTOR}"
+          else
+            [[ "${ACTOR}" == "${OWNER}" ]] || {
+              echo "post-merge validation comment may only be issued by the repository owner" >&2
+              exit 1
+            }
+            [[ "${COMMENT_BODY}" =~ ^/governed-post-merge-validate[[:space:]]+([0-9a-f]{40})$ ]] || {
+              echo "issue comment is not an exact post-merge validation command" >&2
+              exit 1
+            }
+            merge_sha="${BASH_REMATCH[1]}"
+            pr_number="${COMMENT_PR_NUMBER}"
+            authorizing_actor="${ACTOR}"
+          fi
+          [[ "${merge_sha}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${pr_number}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${authorizing_actor}" == "${OWNER}" ]]
+          echo "merge_sha=${merge_sha}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "authorizing_actor=${authorizing_actor}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted post-merge control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Verify merged PR identity and exact merge lineage
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ steps.request.outputs.authorizing_actor }}
+          OWNER: ${{ github.repository_owner }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p post-merge-evidence
+          if [[ -d post-merge-bootstrap ]]; then
+            cp -R post-merge-bootstrap post-merge-evidence/source-merge-run
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > post-merge-evidence/pr.json
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${MERGE_SHA}" > post-merge-evidence/merge-commit.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_post_merge_validation.py verify-target \
+            --pr post-merge-evidence/pr.json \
+            --merge-commit post-merge-evidence/merge-commit.json \
+            --source-pr-number "${PR_NUMBER}" \
+            --merge-sha "${MERGE_SHA}" \
+            --actor "${ACTOR}" \
+            --repository-owner "${OWNER}" \
+            --output post-merge-evidence/target.json
+          git -C control fetch --no-tags origin "${MERGE_SHA}" main >/dev/null 2>&1
+          git -C control merge-base --is-ancestor "${MERGE_SHA}" origin/main || {
+            echo "requested merge commit is not an ancestor of current main" >&2
+            exit 1
+          }
+          temp_branch="governed-post-merge-validation/${MERGE_SHA:0:12}-${GITHUB_RUN_ID}"
+          echo "temp_branch=${temp_branch}" >> "$GITHUB_OUTPUT"
+
+      - name: Record post-merge validation start
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          body="Post-merge validation started for exact merge \`${MERGE_SHA}\` in workflow run \`${GITHUB_RUN_ID}\`. This stage is validation-only: authority_effect=false, merge_allowed=false, deploy_allowed=false, production_closed=false."
+          jq -n --arg body "${body}" '{body:$body}' > post-merge-evidence/start-comment-request.json
+          if gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --input post-merge-evidence/start-comment-request.json \
+            > post-merge-evidence/start-comment-response.json; then
+            jq -e '.id > 0' post-merge-evidence/start-comment-response.json >/dev/null
+          else
+            rc=$?
+            echo "::warning::non-authoritative start comment could not be written; validation continues"
+            jq -n --argjson exit_code "${rc}" \
+              '{status:"COMMENT_WRITE_FAILED_NON_AUTHORITATIVE",exit_code:$exit_code}' \
+              > post-merge-evidence/start-comment-response.json
+          fi
+
+      - name: Create temporary exact-merge validation ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+        run: |
+          set -euo pipefail
+          jq -n --arg ref "refs/heads/${TEMP_BRANCH}" --arg sha "${MERGE_SHA}" '{ref:$ref,sha:$sha}' \
+            > post-merge-evidence/create-ref-request.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --input post-merge-evidence/create-ref-request.json > post-merge-evidence/create-ref-response.json
+          jq -e --arg sha "${MERGE_SHA}" '.object.sha == $sha' post-merge-evidence/create-ref-response.json >/dev/null
+
+      - name: Dispatch Quality on the exact merge ref
+        id: quality-dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+        run: |
+          set -euo pipefail
+          dispatched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n --arg ref "${TEMP_BRANCH}" '{ref:$ref}' > post-merge-evidence/quality-dispatch-request.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/quality.yml/dispatches" \
+            --input post-merge-evidence/quality-dispatch-request.json
+          echo "dispatched_at=${dispatched_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve and await exact post-merge Quality
+        id: quality
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+          DISPATCHED_AT: ${{ steps.quality-dispatch.outputs.dispatched_at }}
+          QUALITY_DISCOVERY_TIMEOUT_SECONDS: '60'
+          QUALITY_WAIT_TIMEOUT_SECONDS: '1200'
+          POLL_INTERVAL_SECONDS: '5'
+        run: |
+          set -euo pipefail
+          [[ "${QUALITY_DISCOVERY_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALITY_WAIT_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${POLL_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]]
+          quality_run_id=""
+          discovery_deadline=$(( $(date +%s) + QUALITY_DISCOVERY_TIMEOUT_SECONDS ))
+          while (( $(date +%s) < discovery_deadline )); do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/quality.yml/runs?event=workflow_dispatch&branch=${TEMP_BRANCH}&per_page=20" \
+              > post-merge-evidence/quality-runs.json
+            quality_run_id=$(jq -r --arg sha "${MERGE_SHA}" --arg started "${DISPATCHED_AT}" '
+              [.workflow_runs[]
+               | select(.head_sha == $sha)
+               | select(.event == "workflow_dispatch")
+               | select(.created_at >= $started)]
+              | sort_by(.created_at) | reverse | .[0].id // empty
+            ' post-merge-evidence/quality-runs.json)
+            [[ "${quality_run_id}" =~ ^[1-9][0-9]*$ ]] && break
+            sleep 2
+          done
+          [[ "${quality_run_id}" =~ ^[1-9][0-9]*$ ]] || {
+            echo "could not resolve the exact dispatched Quality run within ${QUALITY_DISCOVERY_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          }
+          quality_deadline=$(( $(date +%s) + QUALITY_WAIT_TIMEOUT_SECONDS ))
+          while true; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${quality_run_id}" > post-merge-evidence/quality-run.json
+            status=$(jq -r '.status' post-merge-evidence/quality-run.json)
+            if [[ "${status}" == "completed" ]]; then
+              break
+            fi
+            if (( $(date +%s) >= quality_deadline )); then
+              echo "exact post-merge Quality timed out before completion after ${QUALITY_WAIT_TIMEOUT_SECONDS}s; last_status=${status}; run_id=${quality_run_id}" >&2
+              exit 1
+            fi
+            sleep "${POLL_INTERVAL_SECONDS}"
+          done
+          jq -e --arg sha "${MERGE_SHA}" '
+            .name == "quality"
+            and .event == "workflow_dispatch"
+            and .head_sha == $sha
+            and .status == "completed"
+            and .conclusion == "success"
+          ' post-merge-evidence/quality-run.json >/dev/null || {
+            conclusion=$(jq -r '.conclusion // "unknown"' post-merge-evidence/quality-run.json)
+            echo "exact post-merge Quality completed without success; conclusion=${conclusion}; run_id=${quality_run_id}" >&2
+            exit 1
+          }
+          echo "run_id=${quality_run_id}" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$(jq -r '.run_attempt' post-merge-evidence/quality-run.json)" >> "$GITHUB_OUTPUT"
+          echo "completed_at=$(jq -r '.updated_at' post-merge-evidence/quality-run.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch project convergence for exact Quality
+        id: convergence-dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+          QUALITY_RUN_ID: ${{ steps.quality.outputs.run_id }}
+          QUALITY_RUN_ATTEMPT: ${{ steps.quality.outputs.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "${QUALITY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALITY_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          dispatched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n \
+            --arg ref "${TEMP_BRANCH}" \
+            --arg quality_run_id "${QUALITY_RUN_ID}" \
+            --arg quality_run_attempt "${QUALITY_RUN_ATTEMPT}" \
+            '{ref:$ref,inputs:{quality_run_id:$quality_run_id,quality_run_attempt:$quality_run_attempt}}' \
+            > post-merge-evidence/convergence-dispatch-request.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/project-convergence.yml/dispatches" \
+            --input post-merge-evidence/convergence-dispatch-request.json
+          echo "dispatched_at=${dispatched_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve and await explicitly dispatched project convergence
+        id: convergence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+          DISPATCHED_AT: ${{ steps.convergence-dispatch.outputs.dispatched_at }}
+          QUALITY_RUN_ID: ${{ steps.quality.outputs.run_id }}
+          QUALITY_RUN_ATTEMPT: ${{ steps.quality.outputs.run_attempt }}
+          CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS: '180'
+          CONVERGENCE_WAIT_TIMEOUT_SECONDS: '900'
+          POLL_INTERVAL_SECONDS: '5'
+        run: |
+          set -euo pipefail
+          [[ "${QUALITY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${QUALITY_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${CONVERGENCE_WAIT_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${POLL_INTERVAL_SECONDS}" =~ ^[1-9][0-9]*$ ]]
+          convergence_run_id=""
+          discovery_deadline=$(( $(date +%s) + CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS ))
+          while (( $(date +%s) < discovery_deadline )); do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/project-convergence.yml/runs?event=workflow_dispatch&branch=${TEMP_BRANCH}&per_page=20" \
+              > post-merge-evidence/convergence-runs.json
+            convergence_run_id=$(jq -r --arg sha "${MERGE_SHA}" --arg started "${DISPATCHED_AT}" '
+              [.workflow_runs[]
+               | select(.head_sha == $sha)
+               | select(.event == "workflow_dispatch")
+               | select(.created_at >= $started)]
+              | sort_by(.created_at) | reverse | .[0].id // empty
+            ' post-merge-evidence/convergence-runs.json)
+            [[ "${convergence_run_id}" =~ ^[1-9][0-9]*$ ]] && break
+            sleep 3
+          done
+          [[ "${convergence_run_id}" =~ ^[1-9][0-9]*$ ]] || {
+            echo "could not resolve explicitly dispatched project-convergence within ${CONVERGENCE_DISCOVERY_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          }
+          convergence_deadline=$(( $(date +%s) + CONVERGENCE_WAIT_TIMEOUT_SECONDS ))
+          while true; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${convergence_run_id}" > post-merge-evidence/convergence-run.json
+            status=$(jq -r '.status' post-merge-evidence/convergence-run.json)
+            if [[ "${status}" == "completed" ]]; then
+              break
+            fi
+            if (( $(date +%s) >= convergence_deadline )); then
+              echo "exact project-convergence timed out before completion after ${CONVERGENCE_WAIT_TIMEOUT_SECONDS}s; last_status=${status}; run_id=${convergence_run_id}" >&2
+              exit 1
+            fi
+            sleep "${POLL_INTERVAL_SECONDS}"
+          done
+          jq -e --arg sha "${MERGE_SHA}" '
+            .name == "project-convergence"
+            and .event == "workflow_dispatch"
+            and .head_sha == $sha
+            and .status == "completed"
+            and .conclusion == "success"
+          ' post-merge-evidence/convergence-run.json >/dev/null || {
+            conclusion=$(jq -r '.conclusion // "unknown"' post-merge-evidence/convergence-run.json)
+            echo "exact project-convergence completed without success; conclusion=${conclusion}; run_id=${convergence_run_id}" >&2
+            exit 1
+          }
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${convergence_run_id}/jobs?per_page=100" \
+            > post-merge-evidence/convergence-jobs.json
+          jq -e '[.jobs[] | select(.name == "assess" and .conclusion == "success")] | length == 1' \
+            post-merge-evidence/convergence-jobs.json >/dev/null
+          convergence_started_at=$(jq -r '.run_started_at // empty' post-merge-evidence/convergence-run.json)
+          [[ -n "${convergence_started_at}" ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${convergence_run_id}/artifacts?per_page=100" \
+            > post-merge-evidence/convergence-artifacts.json
+          artifact_name="project-convergence-${QUALITY_RUN_ID}-${QUALITY_RUN_ATTEMPT}"
+          jq -e --arg name "${artifact_name}" --arg started "${convergence_started_at}" '
+            [.artifacts[]
+             | select(.expired == false)
+             | select(.name == $name)
+             | select(.created_at >= $started)]
+            | length == 1
+          ' post-merge-evidence/convergence-artifacts.json >/dev/null
+          echo "run_id=${convergence_run_id}" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$(jq -r '.run_attempt' post-merge-evidence/convergence-run.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize immutable post-merge validation receipt
+        env:
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/github_post_merge_validation.py finalize \
+            --target post-merge-evidence/target.json \
+            --quality-run post-merge-evidence/quality-run.json \
+            --convergence-run post-merge-evidence/convergence-run.json \
+            --output post-merge-evidence/post-merge-validation.json
+          jq -e --arg sha "${MERGE_SHA}" '
+            .status == "POST_MERGE_VALIDATED"
+            and .merge_sha == $sha
+            and .authority_effect == false
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' post-merge-evidence/post-merge-validation.json >/dev/null
+
+      - name: Record completed post-merge validation
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          MERGE_SHA: ${{ steps.request.outputs.merge_sha }}
+          QUALITY_RUN_ID: ${{ steps.quality.outputs.run_id }}
+          CONVERGENCE_RUN_ID: ${{ steps.convergence.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          body="Post-merge validation completed for exact merge \`${MERGE_SHA}\`: Quality run \`${QUALITY_RUN_ID}\` and project-convergence run \`${CONVERGENCE_RUN_ID}\` both succeeded on that exact merge snapshot. POST_MERGE_VALIDATED; authority_effect=false, merge_allowed=false, deploy_allowed=false, production_closed=false."
+          jq -n --arg body "${body}" '{body:$body}' > post-merge-evidence/completed-comment-request.json
+          if gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --input post-merge-evidence/completed-comment-request.json \
+            > post-merge-evidence/completed-comment-response.json; then
+            jq -e '.id > 0' post-merge-evidence/completed-comment-response.json >/dev/null
+          else
+            rc=$?
+            echo "::warning::non-authoritative completion comment could not be written; validated receipt remains authoritative"
+            jq -n --argjson exit_code "${rc}" \
+              '{status:"COMMENT_WRITE_FAILED_NON_AUTHORITATIVE",exit_code:$exit_code}' \
+              > post-merge-evidence/completed-comment-response.json
+          fi
+
+      - name: Upload immutable post-merge evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governed-post-merge-validation-${{ steps.request.outputs.merge_sha }}
+          path: post-merge-evidence
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Remove temporary exact-merge validation ref
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEMP_BRANCH: ${{ steps.target.outputs.temp_branch }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${TEMP_BRANCH}" ]]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${TEMP_BRANCH}" >/dev/null 2>&1 || true
+          fi

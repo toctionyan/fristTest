@@ -4,12 +4,19 @@ from __future__ import annotations
 """Certify an already-existing Draft PR without granting source write authority.
 
 This controller exists for governed migration/adoption of a candidate that was
-created before the repair control plane became authoritative.  It is deliberately
+created before the repair control plane became authoritative. It is deliberately
 not a repair path: the exact candidate file set and Git blob identities must be
-pre-authorized by a trusted profile already present on ``main``.  The controller
-never edits candidate source, tests, or baseline metadata.  It can only bind the
+pre-authorized by a trusted profile already present on ``main``. The controller
+never edits candidate source, tests, or baseline metadata. It can only bind the
 existing immutable candidate, run fixed profile verification plus Quick quality,
 and emit a governance-pending publication receipt.
+
+Semantic G1-G3 evidence is profile-bound. A profile may name the fixed guards
+that prove each gate, but only trusted profiles already present on ``main`` can
+supply that mapping. The controller verifies that every named gate guard is an
+executed fixed command and that every permanent guard is represented. This keeps
+the adoption controller generic without turning it into a second semantic
+authority.
 """
 
 import argparse
@@ -34,6 +41,18 @@ AUTHORITY_SCHEMA = "governed-existing-candidate-no-write-authority@1"
 VALIDATION_SCHEMA = "governed-existing-candidate-validation@1"
 PUBLICATION_SCHEMA = "github-governed-repair-draft-publication@1"
 MAX_OUTPUT = 40_000
+
+SEMANTIC_GATE_IDS = (
+    "G1_CONTRACT_PROJECTION",
+    "G2_SEMANTIC_INVARIANT",
+    "G3_MUTATION",
+)
+LEGACY_RELEASE56_PROFILE_ID = "release56-dependency-basis"
+LEGACY_RELEASE56_GATE_GUARDS = {
+    "G1_CONTRACT_PROJECTION": ["dependency-basis-contract"],
+    "G2_SEMANTIC_INVARIANT": ["dependency-basis-runtime-regression"],
+    "G3_MUTATION": ["dependency-basis-contract-mutation-proof", "python-test-suites"],
+}
 
 
 class AdoptionError(RuntimeError):
@@ -92,6 +111,60 @@ def _normalize_path(raw: object) -> str:
     return normalized
 
 
+def _command_ids(profile: dict[str, Any]) -> set[str]:
+    commands = profile.get("verification_commands")
+    if not isinstance(commands, list) or not commands:
+        raise AdoptionError("verification_commands are missing")
+    result: set[str] = set()
+    for row in commands:
+        if not isinstance(row, dict):
+            raise AdoptionError("invalid verification command row")
+        command_id = str(row.get("id") or "").strip()
+        if not command_id or command_id in result:
+            raise AdoptionError("verification command ids must be unique and non-empty")
+        argv = row.get("argv")
+        if not isinstance(argv, list) or not argv:
+            raise AdoptionError(f"verification command argv is missing: {command_id}")
+        result.add(command_id)
+    return result
+
+
+def _gate_guard_ids(profile: dict[str, Any]) -> dict[str, list[str]]:
+    raw = profile.get("gate_guard_ids")
+    if raw is None:
+        if str(profile.get("profile_id") or "") != LEGACY_RELEASE56_PROFILE_ID:
+            raise AdoptionError("gate_guard_ids are required for non-legacy adoption profiles")
+        raw = LEGACY_RELEASE56_GATE_GUARDS
+    if not isinstance(raw, dict) or set(raw) != set(SEMANTIC_GATE_IDS):
+        raise AdoptionError("gate_guard_ids must bind exactly G1, G2, and G3")
+
+    command_ids = _command_ids(profile)
+    mapping: dict[str, list[str]] = {}
+    covered: set[str] = set()
+    for gate in SEMANTIC_GATE_IDS:
+        guards = raw.get(gate)
+        if not isinstance(guards, list) or not guards:
+            raise AdoptionError(f"gate_guard_ids must be non-empty: {gate}")
+        normalized = [str(item or "").strip() for item in guards]
+        if any(not item for item in normalized) or len(set(normalized)) != len(normalized):
+            raise AdoptionError(f"gate_guard_ids must be unique and non-empty: {gate}")
+        missing = sorted(set(normalized) - command_ids)
+        if missing:
+            raise AdoptionError(f"gate_guard_ids reference unknown verification commands: {gate}:{','.join(missing)}")
+        mapping[gate] = normalized
+        covered.update(normalized)
+
+    required = {str(item) for item in profile.get("required_guard_ids") or []}
+    missing_required = sorted(required - covered)
+    if missing_required:
+        raise AdoptionError(
+            "permanent guards must be represented by semantic gate evidence: " + ",".join(missing_required)
+        )
+    if "python-test-suites" not in mapping["G3_MUTATION"]:
+        raise AdoptionError("G3_MUTATION must include the permanent python-test-suites guard")
+    return mapping
+
+
 def _validate_profile(profile: dict[str, Any]) -> None:
     if profile.get("schema") != PROFILE_SCHEMA:
         raise AdoptionError("unsupported adoption profile")
@@ -109,12 +182,16 @@ def _validate_profile(profile: dict[str, Any]) -> None:
     guards = profile.get("required_guard_ids")
     if not isinstance(guards, list) or not guards or len(set(map(str, guards))) != len(guards):
         raise AdoptionError("required_guard_ids must be unique and non-empty")
-    commands = profile.get("verification_commands")
-    if not isinstance(commands, list) or not commands:
-        raise AdoptionError("verification_commands are missing")
-    command_ids = {str(row.get("id") or "") for row in commands if isinstance(row, dict)}
+    command_ids = _command_ids(profile)
     if not set(map(str, guards)).issubset(command_ids):
         raise AdoptionError("each required guard must have a fixed verification command")
+    _gate_guard_ids(profile)
+    if not str(profile.get("violated_invariant") or "").strip():
+        raise AdoptionError("violated_invariant is required")
+    if not str(profile.get("authority_owner") or "").strip():
+        raise AdoptionError("authority_owner is required")
+    if not str(profile.get("required_permanent_guard") or "").strip():
+        raise AdoptionError("required_permanent_guard is required")
     if profile.get("production_closed") is not False:
         raise AdoptionError("adoption profile illegally closes production")
 
@@ -169,7 +246,10 @@ def _inspect_candidate(*, workspace: Path, profile: dict[str, Any], pr: dict[str
         )
 
     forbidden_exact = {_normalize_path(item) for item in profile.get("forbidden_changed_exact") or []}
-    forbidden_prefixes = tuple(str(item or "").strip().replace("\\", "/") for item in profile.get("forbidden_changed_prefixes") or [])
+    forbidden_prefixes = tuple(
+        str(item or "").strip().replace("\\", "/")
+        for item in profile.get("forbidden_changed_prefixes") or []
+    )
     for path in actual_paths:
         if path in forbidden_exact or any(path.startswith(prefix) for prefix in forbidden_prefixes if prefix):
             raise AdoptionError(f"adoption profile includes forbidden authority path: {path}")
@@ -209,7 +289,16 @@ def _inspect_candidate(*, workspace: Path, profile: dict[str, Any], pr: dict[str
     }
 
 
-def inspect(*, workspace: Path, profile_path: Path, pr_json_path: Path, output_path: Path, authority_path: Path, task_run_path: Path, repository: str) -> dict[str, Any]:
+def inspect(
+    *,
+    workspace: Path,
+    profile_path: Path,
+    pr_json_path: Path,
+    output_path: Path,
+    authority_path: Path,
+    task_run_path: Path,
+    repository: str,
+) -> dict[str, Any]:
     profile = _load(profile_path)
     pr = _load(pr_json_path)
     evidence = _inspect_candidate(workspace=workspace, profile=profile, pr=pr)
@@ -272,6 +361,7 @@ def inspect(*, workspace: Path, profile_path: Path, pr_json_path: Path, output_p
         "validated_tree_sha": evidence["tree_sha"],
         "changed_paths": evidence["changed_paths"],
         "required_guard_ids": list(profile["required_guard_ids"]),
+        "gate_guard_ids": _gate_guard_ids(profile),
         "candidate_origin": "existing_pr_adoption",
         "write_authority_effect": False,
         "source_writes_allowed": False,
@@ -296,10 +386,13 @@ def run_profile(*, workspace: Path, profile_path: Path, plan_path: Path, output_
     workspace = workspace.resolve()
     profile = _load(profile_path)
     plan = _load(plan_path)
+    _validate_profile(profile)
     if plan.get("schema") != PLAN_SCHEMA or plan.get("status") != "EXISTING_CANDIDATE_BOUND":
         raise AdoptionError("invalid existing-candidate plan")
     if plan.get("profile_sha256") != _fingerprint(profile):
         raise AdoptionError("adoption profile drifted after candidate binding")
+    if plan.get("gate_guard_ids") != _gate_guard_ids(profile):
+        raise AdoptionError("semantic gate guard binding drifted after candidate binding")
     if _git(workspace, "rev-parse", "HEAD") != str(plan.get("published_source_sha") or ""):
         raise AdoptionError("candidate head drifted after binding")
     rows: list[dict[str, Any]] = []
@@ -332,7 +425,10 @@ def run_profile(*, workspace: Path, profile_path: Path, plan_path: Path, output_
             if not isinstance(payload, dict) or payload.get("status") != "PASS":
                 raise AdoptionError(f"{command_id} did not prove PASS")
             if command_id == "dependency-basis-contract":
-                if payload.get("authority_effect") is not False or payload.get("final_dependency_authority") != "deterministic_dependency_proof_reducer":
+                if (
+                    payload.get("authority_effect") is not False
+                    or payload.get("final_dependency_authority") != "deterministic_dependency_proof_reducer"
+                ):
                     raise AdoptionError("dependency contract attempted to gain final dependency authority")
             else:
                 if payload.get("all_mutations_killed") is not True or payload.get("workspace_unchanged") is not True:
@@ -347,6 +443,7 @@ def run_profile(*, workspace: Path, profile_path: Path, plan_path: Path, output_
         "profile_id": profile["profile_id"],
         "profile_sha256": plan["profile_sha256"],
         "candidate_sha": plan["published_source_sha"],
+        "gate_guard_ids": _gate_guard_ids(profile),
         "results": rows,
         "write_authority_effect": False,
         "production_closed": False,
@@ -360,7 +457,11 @@ def run_profile(*, workspace: Path, profile_path: Path, plan_path: Path, output_
 def _validate_quick(summary: dict[str, Any], required_guard_ids: list[str]) -> dict[str, str]:
     if summary.get("mode") != "quick" or summary.get("run_kind") != "verification":
         raise AdoptionError("adoption Quick evidence has the wrong mode/run kind")
-    if summary.get("decision") != "PASS" or summary.get("loop_status") != "CI_VERIFIED" or summary.get("completion_eligible") is not True:
+    if (
+        summary.get("decision") != "PASS"
+        or summary.get("loop_status") != "CI_VERIFIED"
+        or summary.get("completion_eligible") is not True
+    ):
         raise AdoptionError("adoption Quick evidence did not reach CI_VERIFIED PASS")
     statuses = {
         str(row.get("id") or ""): str(row.get("status") or "")
@@ -375,25 +476,87 @@ def _validate_quick(summary: dict[str, Any], required_guard_ids: list[str]) -> d
     return statuses
 
 
-def finalize(*, workspace: Path, profile_path: Path, plan_path: Path, authority_path: Path, profile_validation_path: Path, quick_summary_path: Path, task_run_path: Path, validation_output_path: Path, publication_output_path: Path, workflow_run_id: str) -> dict[str, Any]:
+def _guard_status(
+    guard: str,
+    *,
+    command_status: dict[str, str],
+    quick_statuses: dict[str, str],
+) -> str:
+    if guard == "python-test-suites":
+        return quick_statuses.get(guard, "")
+    return command_status.get(guard, "")
+
+
+def _semantic_gates(
+    profile: dict[str, Any],
+    *,
+    command_status: dict[str, str],
+    quick_statuses: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    mapping = _gate_guard_ids(profile)
+    gates: dict[str, dict[str, Any]] = {}
+    for gate in SEMANTIC_GATE_IDS:
+        guards = mapping[gate]
+        failed = [guard for guard in guards if _guard_status(
+            guard, command_status=command_status, quick_statuses=quick_statuses
+        ) != "PASS"]
+        if failed:
+            raise AdoptionError(f"semantic gate guard not PASS: {gate}:{','.join(failed)}")
+        gates[gate] = {
+            "status": "PASS",
+            "evidence": [f"guard:{guard}" for guard in guards],
+        }
+    gates["G2_SEMANTIC_INVARIANT"]["evidence"].append(f"invariant:{profile['violated_invariant']}")
+    return gates
+
+
+def finalize(
+    *,
+    workspace: Path,
+    profile_path: Path,
+    plan_path: Path,
+    authority_path: Path,
+    profile_validation_path: Path,
+    quick_summary_path: Path,
+    task_run_path: Path,
+    validation_output_path: Path,
+    publication_output_path: Path,
+    workflow_run_id: str,
+) -> dict[str, Any]:
     workspace = workspace.resolve()
     profile = _load(profile_path)
     plan = _load(plan_path)
     authority = _load(authority_path)
     profile_validation = _load(profile_validation_path)
+    _validate_profile(profile)
+    if plan.get("profile_sha256") != _fingerprint(profile):
+        raise AdoptionError("adoption profile drifted before publication")
+    if plan.get("gate_guard_ids") != _gate_guard_ids(profile):
+        raise AdoptionError("semantic gate guard binding drifted before publication")
     if plan.get("plan_sha256") != _fingerprint({k: v for k, v in plan.items() if k != "plan_sha256"}):
         raise AdoptionError("existing-candidate plan fingerprint mismatch")
-    if authority.get("schema") != AUTHORITY_SCHEMA or authority.get("write_authority_effect") is not False or authority.get("source_writes_allowed") is not False:
+    if (
+        authority.get("schema") != AUTHORITY_SCHEMA
+        or authority.get("write_authority_effect") is not False
+        or authority.get("source_writes_allowed") is not False
+    ):
         raise AdoptionError("no-write adoption authority is invalid")
     authority_without_hash = {k: v for k, v in authority.items() if k != "authority_sha256"}
     if authority.get("authority_sha256") != _fingerprint(authority_without_hash):
         raise AdoptionError("no-write adoption authority fingerprint mismatch")
     if authority.get("authority_sha256") != plan.get("authority_sha256"):
         raise AdoptionError("plan/authority binding mismatch")
-    if profile_validation.get("schema") != VALIDATION_SCHEMA or profile_validation.get("status") != "PROFILE_VALIDATION_PASSED":
+    if (
+        profile_validation.get("schema") != VALIDATION_SCHEMA
+        or profile_validation.get("status") != "PROFILE_VALIDATION_PASSED"
+    ):
         raise AdoptionError("profile validation is not PASS")
     if profile_validation.get("candidate_sha") != plan.get("published_source_sha"):
         raise AdoptionError("profile validation candidate SHA mismatch")
+    if profile_validation.get("profile_sha256") != plan.get("profile_sha256"):
+        raise AdoptionError("profile validation/profile binding mismatch")
+    if profile_validation.get("gate_guard_ids") != plan.get("gate_guard_ids"):
+        raise AdoptionError("profile validation/gate binding mismatch")
     if _git(workspace, "rev-parse", "HEAD") != str(plan.get("published_source_sha") or ""):
         raise AdoptionError("candidate head moved before publication")
     if _git(workspace, "rev-parse", "HEAD^{tree}") != str(plan.get("validated_tree_sha") or ""):
@@ -410,12 +573,14 @@ def finalize(*, workspace: Path, profile_path: Path, plan_path: Path, authority_
     }
     for guard in profile["required_guard_ids"]:
         guard = str(guard)
-        if guard == "python-test-suites":
-            if quick_statuses.get(guard) != "PASS":
-                raise AdoptionError(f"permanent guard not reverified: {guard}")
-        elif command_status.get(guard) != "PASS":
+        if _guard_status(guard, command_status=command_status, quick_statuses=quick_statuses) != "PASS":
             raise AdoptionError(f"permanent guard not reverified: {guard}")
 
+    semantic_gates = _semantic_gates(
+        profile,
+        command_status=command_status,
+        quick_statuses=quick_statuses,
+    )
     validation = {
         "schema": VALIDATION_SCHEMA,
         "status": "EXISTING_CANDIDATE_CERTIFIED",
@@ -425,6 +590,7 @@ def finalize(*, workspace: Path, profile_path: Path, plan_path: Path, authority_
         "profile_sha256": plan["profile_sha256"],
         "authority_sha256": plan["authority_sha256"],
         "required_guard_ids": list(profile["required_guard_ids"]),
+        "gate_guard_ids": _gate_guard_ids(profile),
         "profile_validation": profile_validation,
         "quick_required_gate_ids": list(quick.get("required_gate_ids") or []),
         "quick_gate_statuses": quick_statuses,
@@ -438,12 +604,29 @@ def finalize(*, workspace: Path, profile_path: Path, plan_path: Path, authority_
     _write(validation_output_path, validation)
 
     gates = {
-        "G0_SCOPE_AUTHORITY": {"status": "PASS", "evidence": [f"adoption-profile:{profile['profile_id']}", f"authority-sha256:{plan['authority_sha256']}", "source-writes:false"]},
-        "G1_CONTRACT_PROJECTION": {"status": "PASS", "evidence": ["guard:dependency-basis-contract"]},
-        "G2_SEMANTIC_INVARIANT": {"status": "PASS", "evidence": ["guard:dependency-basis-runtime-regression", f"invariant:{profile['violated_invariant']}"]},
-        "G3_MUTATION": {"status": "PASS", "evidence": ["guard:dependency-basis-contract-mutation-proof", "guard:python-test-suites"]},
-        "G4_FINAL_AUTHORITY": {"status": "PASS", "evidence": [f"authority-owner:{profile['authority_owner']}", "candidate-write-authority:false"]},
-        "G5_INTEGRATION_CERTIFICATION": {"status": "PASS", "evidence": ["quick:CI_VERIFIED", f"validation-sha256:{validation['validation_sha256']}"]},
+        "G0_SCOPE_AUTHORITY": {
+            "status": "PASS",
+            "evidence": [
+                f"adoption-profile:{profile['profile_id']}",
+                f"authority-sha256:{plan['authority_sha256']}",
+                "source-writes:false",
+            ],
+        },
+        **semantic_gates,
+        "G4_FINAL_AUTHORITY": {
+            "status": "PASS",
+            "evidence": [
+                f"authority-owner:{profile['authority_owner']}",
+                "candidate-write-authority:false",
+            ],
+        },
+        "G5_INTEGRATION_CERTIFICATION": {
+            "status": "PASS",
+            "evidence": [
+                "quick:CI_VERIFIED",
+                f"validation-sha256:{validation['validation_sha256']}",
+            ],
+        },
         "G6_GOVERNANCE_EXACT_HEAD": {"status": "PENDING", "evidence": []},
     }
     authority_digest = str(plan["authority_sha256"])
@@ -460,6 +643,7 @@ def finalize(*, workspace: Path, profile_path: Path, plan_path: Path, authority_
         "validated_tree_sha": plan["validated_tree_sha"],
         "changed_paths": list(plan["changed_paths"]),
         "required_guard_ids": list(profile["required_guard_ids"]),
+        "gate_guard_ids": _gate_guard_ids(profile),
         "violated_invariant": profile["violated_invariant"],
         "authority_owner": profile["authority_owner"],
         "required_permanent_guard": profile["required_permanent_guard"],
@@ -481,8 +665,14 @@ def finalize(*, workspace: Path, profile_path: Path, plan_path: Path, authority_
     _write(publication_output_path, publication)
 
     task = TaskRunStore(task_run_path.resolve(), _load(task_run_path))
-    task.mark_condition("validation_passed", evidence_refs=[str(validation_output_path), f"validation-sha256:{validation['validation_sha256']}"])
-    task.mark_condition("draft_pr_published", evidence_refs=[str(publication_output_path), str(plan["draft_pr_url"])])
+    task.mark_condition(
+        "validation_passed",
+        evidence_refs=[str(validation_output_path), f"validation-sha256:{validation['validation_sha256']}"],
+    )
+    task.mark_condition(
+        "draft_pr_published",
+        evidence_refs=[str(publication_output_path), str(plan["draft_pr_url"])],
+    )
     task.checkpoint(
         status="WAITING_EXTERNAL_RESULT",
         phase="STAGE4_GOVERNANCE_REQUIRED",
@@ -567,7 +757,20 @@ def main() -> int:
                 workflow_run_id=args.workflow_run_id,
             )
     except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError, AdoptionError) as exc:
-        print(json.dumps({"status": "BLOCKED", "error": str(exc), "write_authority_effect": False, "merge_allowed": False, "deploy_allowed": False, "production_closed": False}, ensure_ascii=False), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED",
+                    "error": str(exc),
+                    "write_authority_effect": False,
+                    "merge_allowed": False,
+                    "deploy_allowed": False,
+                    "production_closed": False,
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
         return 2
     return 0
 
