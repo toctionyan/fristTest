@@ -14,10 +14,8 @@ def test_required_quality_status_is_bound_to_stable_pr_head_after_merge_snapshot
     assert "statuses: write" in text
     assert 'PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}' in text
     assert 'PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}' in text
-    assert 'PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}' in text
     assert 'TEST_MERGE_SHA: ${{ github.sha }}' in text
     assert 'repos/${GITHUB_REPOSITORY}/git/commits/${TEST_MERGE_SHA}' in text
-    assert '.parents[0].sha == $base' in text
     assert '.parents[1].sha == $head' in text
     assert 'repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}' in text
     assert 'repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/status' in text
@@ -32,6 +30,25 @@ def test_required_quality_status_is_bound_to_stable_pr_head_after_merge_snapshot
     assert '.sha == $sha' in text
     assert 'any(' in text
     assert '[[ "${state}" == "success" ]]' in text
+
+
+def test_required_status_uses_tested_merge_parent_not_stale_event_base_sha():
+    text = QUALITY.read_text(encoding="utf-8")
+    status_block = text.split("  quality-quick-required-status:\n", 1)[1].split(
+        "\n  quality-integration:\n", 1
+    )[0]
+
+    # Long-lived pull_request payloads can expose the PR's historical base SHA
+    # while github.sha is a freshly regenerated merge snapshot. The snapshot's
+    # first parent is the base revision that was actually tested; the second
+    # parent must remain the exact PR head before a stable head status is minted.
+    assert 'PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}' not in status_block
+    assert 'PR_BASE_SHA' not in status_block
+    assert '.parents[0].sha == $base' not in status_block
+    assert '(.parents[0].sha | test("^[0-9a-f]{40}$"))' in status_block
+    assert '.parents[1].sha == $head' in status_block
+    assert "TEST_BASE_SHA=$(jq -r '.parents[0].sha' merge-identity.json)" in status_block
+    assert '[[ "${TEST_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]' in status_block
 
 
 def test_required_quality_status_does_not_create_merge_or_release_authority():

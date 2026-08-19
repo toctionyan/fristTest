@@ -1,0 +1,370 @@
+{
+  "id": "task_refund_pause_logistics_resume",
+  "category": "multi_task_interleaving",
+  "turns": [
+    {"role": "user", "text": "帮我申请鼠标退款"},
+    {"role": "assistant", "expected": "refund_draft_awaiting_authorization"},
+    {"role": "user", "text": "先查一下耳机物流"},
+    {"role": "assistant", "expected": "answer_earphone_logistics_while_refund_paused"},
+    {"role": "user", "text": "继续刚才那个"},
+    {"role": "assistant", "expected": "resume_same_refund_draft_without_commit"}
+  ],
+  "expected_runtime_behavior": {
+    "outcome": "pause_refund_for_explicit_logistics_then_resume_same_authorization_gated_draft",
+    "executable_schema": "issue167-a2-real-lifecycle@1"
+  },
+  "forbidden_behavior": [
+    "task_context_leak",
+    "overwrite_active_task_without_pause",
+    "resume_completed_logistics_instead_of_refund",
+    "duplicate_refund_draft",
+    "authorize_or_commit_on_resume_text"
+  ],
+  "execution_contract": {
+    "schema_version": 4,
+    "fixture": {
+      "id": "customer_orders_v1",
+      "state": {
+        "tenant_id": "tenant-a",
+        "user_id": "u001",
+        "role": "customer",
+        "initial_ledger": "fixture_ledger"
+      }
+    },
+    "turn_contracts": [
+      {
+        "user_text": "帮我申请鼠标退款",
+        "goal_oracle": [
+          {
+            "oracle_id": "refund_goal",
+            "goal_type": "action",
+            "evidence_span": "帮我申请鼠标退款",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["prepare_refund"],
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "create",
+              "object_type": "order",
+              "requested_outputs": [
+                {"output_id": "refund.request", "evidence_span": "帮我申请鼠标退款"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "为无线鼠标订单准备退款申请；只创建待授权 Draft，不提交",
+                  "goals": [
+                    {
+                      "goal_id": "refund_goal",
+                      "description": "为无线鼠标订单准备退款申请",
+                      "evidence_span": "帮我申请鼠标退款",
+                      "goal_type": "action",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "refund",
+                        "operation": "create",
+                        "object_type": "order",
+                        "raw_description": "为无线鼠标订单准备退款申请",
+                        "requested_outputs": [
+                          {"output_id": "refund.request", "evidence_span": "帮我申请鼠标退款"}
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "id": "issue167:task-resume:t1:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "prepare_refund",
+                "args": {
+                  "target": {"mode": "entity_match", "attribute_span": "鼠标"},
+                  "reference_span": "鼠标",
+                  "action_span": "帮我申请鼠标退款",
+                  "goal_ids": ["refund_goal"]
+                },
+                "id": "issue167:task-resume:t1:refund"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["prepare_refund"],
+        "required_tools": ["prepare_refund"],
+        "expected": {
+          "terminal_statuses": ["ExecutionDisposition:structured_interaction"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["AWAITING_AUTHORIZATION"],
+          "public_interaction": "transaction_interaction",
+          "trace": {
+            "must_include": ["prepare_refund", "action_gateway"],
+            "must_not_include": ["commit_action", "get_order_logistics"]
+          },
+          "draft": {
+            "count": 1,
+            "states": ["AWAITING_AUTHORIZATION"],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "preview_operation": {"min": 1},
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "先查一下耳机物流",
+        "goal_oracle": [
+          {
+            "oracle_id": "logistics_goal",
+            "goal_type": "query",
+            "evidence_span": "查一下耳机物流",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["get_order_logistics"],
+            "requested_effect": {
+              "domain": "shipment",
+              "operation": "track",
+              "object_type": "shipment",
+              "requested_outputs": [
+                {"output_id": "shipment.tracking", "evidence_span": "耳机物流"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "先暂停仍待授权的鼠标退款 Goal，只完成当前明确的耳机物流查询",
+                  "goals": [
+                    {
+                      "goal_id": "logistics_goal",
+                      "description": "查询蓝牙耳机订单的物流进展",
+                      "evidence_span": "查一下耳机物流",
+                      "goal_type": "query",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "shipment",
+                        "operation": "track",
+                        "object_type": "shipment",
+                        "raw_description": "查询蓝牙耳机订单的物流进展",
+                        "requested_outputs": [
+                          {"output_id": "shipment.tracking", "evidence_span": "耳机物流"}
+                        ]
+                      }
+                    }
+                  ],
+                  "goal_changes": [
+                    {
+                      "operation": "SET_GOAL_LIFECYCLE",
+                      "goal_id": "refund_goal",
+                      "expected_revision": 3,
+                      "from": "BLOCKED",
+                      "to": "PAUSED",
+                      "evidence_span": "先"
+                    }
+                  ]
+                },
+                "id": "issue167:task-resume:t2:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "get_order_logistics",
+                "args": {
+                  "target": {"mode": "entity_match", "attribute_span": "耳机"},
+                  "expected_shape": "one",
+                  "reference_span": "耳机物流",
+                  "goal_ids": ["logistics_goal"]
+                },
+                "id": "issue167:task-resume:t2:logistics"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "respond_to_user",
+                "args": {
+                  "answer": "已先查询蓝牙耳机订单的物流；鼠标退款仍保持待授权，不会自动提交。",
+                  "evidence_handles": ["$last_tool.data.result_handle"],
+                  "goal_ids": ["logistics_goal"]
+                },
+                "id": "issue167:task-resume:t2:respond"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["get_order_logistics", "respond_to_user"],
+        "required_tools": ["get_order_logistics", "respond_to_user"],
+        "expected": {
+          "terminal_statuses": ["GroundedFinalAnswer"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["SUCCEEDED"],
+          "public_interaction": "answer",
+          "trace": {
+            "must_include": ["get_order_logistics"],
+            "must_not_include": ["prepare_refund", "commit_action"]
+          },
+          "draft": {
+            "count": 1,
+            "states": ["AWAITING_AUTHORIZATION"],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "read_resource": {"min": 1},
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      },
+      {
+        "user_text": "继续刚才那个",
+        "goal_oracle": [
+          {
+            "oracle_id": "refund_goal",
+            "goal_type": "action",
+            "evidence_span": "继续刚才那个",
+            "required": true,
+            "depends_on": [],
+            "required_tools": ["prepare_refund"],
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "create",
+              "object_type": "order",
+              "requested_outputs": [
+                {"output_id": "refund.request", "evidence_span": "继续刚才那个"}
+              ]
+            }
+          }
+        ],
+        "model_steps": [
+          {
+            "tool_calls": [
+              {
+                "name": "declare_turn_goals",
+                "args": {
+                  "summary": "恢复被临时耳机物流查询暂停的原鼠标退款 Goal；继续只表示恢复，不是确认提交",
+                  "goals": [
+                    {
+                      "goal_id": "refund_goal",
+                      "description": "恢复原无线鼠标退款申请并重新呈现同一待授权 Draft",
+                      "evidence_span": "继续刚才那个",
+                      "goal_type": "action",
+                      "expected_result_cardinality": "single",
+                      "required": true,
+                      "depends_on": [],
+                      "requested_effect": {
+                        "domain": "refund",
+                        "operation": "create",
+                        "object_type": "order",
+                        "raw_description": "恢复原无线鼠标退款申请并重新呈现同一待授权 Draft",
+                        "requested_outputs": [
+                          {"output_id": "refund.request", "evidence_span": "继续刚才那个"}
+                        ]
+                      }
+                    }
+                  ],
+                  "goal_changes": [
+                    {
+                      "operation": "SET_GOAL_LIFECYCLE",
+                      "goal_id": "refund_goal",
+                      "expected_revision": 4,
+                      "from": "PAUSED",
+                      "to": "ACTIVE",
+                      "evidence_span": "继续"
+                    }
+                  ]
+                },
+                "id": "issue167:task-resume:t3:goals"
+              }
+            ]
+          },
+          {
+            "tool_calls": [
+              {
+                "name": "prepare_refund",
+                "args": {
+                  "target": {"mode": "artifact", "left_handle": "artifact:fixture:order:10003"},
+                  "reference_span": "刚才那个",
+                  "action_span": "继续刚才那个",
+                  "goal_ids": ["refund_goal"]
+                },
+                "id": "issue167:task-resume:t3:refund"
+              }
+            ]
+          }
+        ],
+        "allowed_tools": ["prepare_refund"],
+        "required_tools": [],
+        "expected": {
+          "terminal_statuses": ["PendingInteractionActionRedirect"],
+          "workflow_levels": ["L0_DIRECT"],
+          "workflow_statuses": ["AWAITING_AUTHORIZATION"],
+          "public_interaction": "transaction_interaction",
+          "trace": {
+            "must_include": [],
+            "must_not_include": ["prepare_refund", "action_gateway", "get_order_logistics", "commit_action"]
+          },
+          "draft": {
+            "count": 1,
+            "states": ["AWAITING_AUTHORIZATION"],
+            "target_order_id": "10003"
+          },
+          "port_calls": {
+            "preview_operation": {"max": 0},
+            "execute_command": {"max": 0}
+          },
+          "result_assertions": [],
+          "goal_count": 1
+        }
+      }
+    ],
+    "forbidden_assertions": [
+      {
+        "behavior": "task_context_leak",
+        "kind": "trace_absent",
+        "tool_names": ["commit_action"]
+      },
+      {
+        "behavior": "overwrite_active_task_without_pause",
+        "kind": "no_business_write"
+      },
+      {
+        "behavior": "resume_completed_logistics_instead_of_refund",
+        "kind": "no_business_write"
+      },
+      {
+        "behavior": "duplicate_refund_draft",
+        "kind": "no_business_write"
+      },
+      {
+        "behavior": "authorize_or_commit_on_resume_text",
+        "kind": "trace_absent",
+        "tool_names": ["commit_action"]
+      }
+    ],
+    "preproduction_risk_prototype": true,
+    "preproduction_allowed_tools": ["prepare_refund", "get_order_logistics"],
+    "preproduction_forbidden_tools": ["commit_action"]
+  }
+}

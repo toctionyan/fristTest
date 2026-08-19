@@ -1,0 +1,106 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:visible_subset_then_action_clarify",
+  "case_id": "visible_subset_then_action_clarify",
+  "family": "visible_result_filter",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "visible_subset_then_action_clarify"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "列出已签收订单"
+      },
+      {
+        "turn": 2,
+        "text": "它们里面能退的有哪些？"
+      }
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "variant": "two_signed_orders",
+      "orders": [
+        {
+          "order_id": "10001",
+          "product": "蓝牙耳机",
+          "status": "已签收"
+        },
+        {
+          "order_id": "10002",
+          "product": "机械键盘",
+          "status": "已签收"
+        },
+        {
+          "order_id": "10003",
+          "product": "无线鼠标",
+          "status": "运输中"
+        }
+      ]
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_type": "order_collection_query",
+        "state": "completed",
+        "required_scope": "current_user_orders_filtered_to_signed",
+        "required_members": [
+          "10001",
+          "10002"
+        ],
+        "excluded_members": [
+          "10003"
+        ],
+        "rationale": "M1 explicitly requests only signed orders, so the visible result must be the signed subset rather than the full customer order population."
+      },
+      {
+        "after_turn": 2,
+        "goal_type": "refund_eligibility_consultation",
+        "state": "completed_read_only",
+        "required_scope": "exact_previous_visible_signed_subset",
+        "required_members": [
+          "10001",
+          "10002"
+        ],
+        "reference_semantics": {
+          "kind": "collection_pronoun_from_latest_relevant_visible_result",
+          "source_turn": 1,
+          "must_not_widen": true
+        },
+        "rationale": "M2 says ‘它们里面’, which restricts the refund-eligibility assessment to the visible signed-order subset established by M1. It asks which members are eligible and does not request a refund write."
+      }
+    ],
+    "invariants": [
+      "The first response contains exactly the signed-order subset and excludes non-signed order 10003.",
+      "M2 must assess every member of the visible signed subset and must not widen back to all customer orders.",
+      "M2 must not collapse the collection to an arbitrary single order.",
+      "‘能退的有哪些’ is a read-only refund-eligibility consultation, not an instruction to prepare or commit refunds.",
+      "No Draft, Grant, Attempt, Receipt, or business write is authorized by either turn."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "已签收订单仅包含 10001 和 10002",
+      "只在该可见子集中逐笔核验退款资格"
+    ],
+    "must_not_cover": [
+      "把 10003 扩回退款资格范围",
+      "任意只核验一个已签收订单",
+      "创建或提交退款申请"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}

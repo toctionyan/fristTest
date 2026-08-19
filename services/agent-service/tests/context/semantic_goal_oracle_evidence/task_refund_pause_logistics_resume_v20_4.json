@@ -1,0 +1,99 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:task_refund_pause_logistics_resume",
+  "case_id": "task_refund_pause_logistics_resume",
+  "family": "multi_task_interleaving",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "task_refund_pause_logistics_resume"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context"
+  },
+  "evidence": {
+    "user_turns": [
+      {"turn": 1, "text": "帮我申请鼠标退款"},
+      {"turn": 2, "text": "先查一下耳机物流"},
+      {"turn": 3, "text": "继续刚才那个"}
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "orders": [
+        {"order_id": "10001", "product": "蓝牙耳机"},
+        {"order_id": "10003", "product": "无线鼠标"}
+      ]
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_id": "refund_goal",
+        "goal_type": "refund_request",
+        "state": "awaiting_authorization",
+        "required_slots": {"order_id": "10003", "product": "无线鼠标"},
+        "write_semantics": {
+          "kind": "draft_only_until_explicit_authorization",
+          "business_write_authorized": false
+        },
+        "rationale": "M1 explicitly asks to apply for a refund for the mouse. The Agent may prepare exactly one authorization-gated Draft for order 10003, but M1 alone does not authorize commit."
+      },
+      {
+        "after_turn": 2,
+        "goal_id": "logistics_goal",
+        "goal_type": "order_logistics",
+        "state": "completed_read",
+        "required_slots": {"order_id": "10001", "product": "蓝牙耳机"},
+        "interruption_semantics": {
+          "paused_goal_id": "refund_goal",
+          "pause_evidence_span": "先",
+          "pending_refund_must_remain_uncommitted": true
+        },
+        "rationale": "M2 says ‘先查一下耳机物流’: it temporarily interrupts the still-open refund task and makes earphone logistics the current explicit goal. The refund Draft remains pending and must not steal this turn or execute."
+      },
+      {
+        "after_turn": 3,
+        "goal_id": "refund_goal",
+        "goal_type": "refund_request_resume",
+        "state": "resumed_awaiting_authorization",
+        "required_slots": {"order_id": "10003", "product": "无线鼠标"},
+        "resume_semantics": {
+          "resume_evidence_span": "继续",
+          "must_resume_goal_id": "refund_goal",
+          "must_reuse_existing_draft": true,
+          "business_write_authorized": false
+        },
+        "rationale": "Because M2 was explicitly temporary (‘先’), M3 ‘继续刚才那个’ resumes the interrupted mouse-refund task rather than continuing the completed earphone read. Resumption may re-surface the existing Draft but is not confirmation and grants no commit authority."
+      }
+    ],
+    "invariants": [
+      "The refund task and earphone logistics task remain distinct Goals and distinct targets.",
+      "M2 pauses or isolates the open mouse-refund Goal while completing only the earphone logistics read.",
+      "M3 resumes the same mouse-refund Goal rather than creating a second refund task or treating the earphone read as the resumable write task.",
+      "Resuming a task does not equal transaction authorization: the existing Draft may be re-surfaced but no Grant, Attempt, Receipt, or business write is created by M3.",
+      "The existing mouse refund Draft must be reused rather than duplicated when its action, target and durable inputs are unchanged.",
+      "No commit_action or business execute_command is authorized anywhere in this case."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "鼠标退款先进入待授权 Draft",
+      "临时查询耳机订单 10001 的物流且不被退款任务抢焦点",
+      "第三轮恢复原鼠标退款任务并重新呈现同一个待授权 Draft"
+    ],
+    "must_not_cover": [
+      "把耳机物流任务当成待恢复退款任务",
+      "创建第二个鼠标退款 Draft",
+      "把‘继续刚才那个’当成确认提交",
+      "自动提交退款"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}
