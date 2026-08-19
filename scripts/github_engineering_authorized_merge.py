@@ -197,7 +197,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     try:
-        return int(parser().parse_args().func(parser().parse_args()))
+        args = parser().parse_args()
+        return int(args.func(args))
     except (OSError, json.JSONDecodeError, ValueError, EngineeringMergeGrantError) as exc:
         print(json.dumps({"status": "BLOCKED", "error": str(exc), "merge_allowed": False, "deploy_allowed": False, "production_closed": False}, ensure_ascii=False), file=sys.stderr)
         return 2
