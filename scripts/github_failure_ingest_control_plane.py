@@ -103,68 +103,27 @@ def _control_plane_failures(
     return rows
 
 
-def _protected_baseline_failures(
+def _protected_baseline_count_failures(
     files: list[tuple[Path, str]],
 ) -> list[dict[str, Any]]:
-    """Recognize semantic baseline drift without depending on one test name/format.
+    """Preserve the historical count-only fallback contract exactly.
 
-    Machine failure envelopes remain preferred. This fallback keys on stable policy
-    error codes emitted by the baseline authority itself, while retaining the legacy
-    count assertion parser for historical evidence. Baseline/oracle evidence never
-    invents source write paths; explicit source drift markers remain a separate
-    diagnostic row and cannot be promoted into baseline write authority.
+    An unrelated ``AssertionError: N != M`` is not baseline evidence. The legacy
+    count parser is activated only when the historical baseline test marker is
+    present, and it never invents source paths or write authority.
     """
-
     rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, tuple[str, ...]]] = set()
+    seen: set[tuple[int, int]] = set()
     for path, text in files:
-        low = text.casefold()
-        semantic = [token for token in BASELINE_SEMANTIC_ERRORS if token in low]
-        legacy_counts = list(BASELINE_COUNT_ASSERTION.finditer(text)) if LEGACY_BASELINE_TEST_MARKER in text else []
-        if "protected_baseline_drift" not in semantic and not legacy_counts:
+        if LEGACY_BASELINE_TEST_MARKER not in text:
             continue
-
-        implicated: list[str] = []
-        for line in text.splitlines():
-            marker_index = line.casefold().find(PRODUCT_SOURCE_DRIFT_MARKER)
-            if marker_index < 0:
-                continue
-            marker_text = line[marker_index:]
-            for raw in base.PATH_PATTERN.findall(marker_text):
-                candidate = base._normalize_repo_path(str(raw))
-                if candidate.startswith(PRODUCT_SOURCE_ROOTS) and candidate not in implicated:
-                    implicated.append(candidate)
-
-        if semantic:
-            summary = "Protected product-source baseline binding failed: " + ",".join(semantic)
-            key = (summary, tuple(implicated))
-            if key not in seen:
-                seen.add(key)
-                rows.append(
-                    {
-                        "gate_id": "protected-product-source-baseline",
-                        "status": "FAIL",
-                        "category": "governance",
-                        "owner": "skill-control-plane",
-                        "failure_kind": "protected_baseline_drift",
-                        "summary": summary,
-                        "implicated_paths": [],
-                        "evidence_source": path.name,
-                        "machine_envelope": False,
-                    }
-                )
-
-        for match in legacy_counts:
+        for match in BASELINE_COUNT_ASSERTION.finditer(text):
             recorded = int(match.group(1))
             current = int(match.group(2))
-            summary = (
-                "Protected product-source baseline file count differs from the current "
-                f"tracked protected snapshot: recorded={recorded} current={current}"
-            )
-            key = (summary, tuple(implicated))
-            if key in seen:
+            identity = (recorded, current)
+            if identity in seen:
                 continue
-            seen.add(key)
+            seen.add(identity)
             rows.append(
                 {
                     "gate_id": "protected-product-source-baseline",
@@ -172,12 +131,59 @@ def _protected_baseline_failures(
                     "category": "governance",
                     "owner": "skill-control-plane",
                     "failure_kind": "protected_baseline_drift",
-                    "summary": summary,
+                    "summary": (
+                        "Protected product-source baseline file count differs from the "
+                        f"current tracked protected snapshot: recorded={recorded} current={current}"
+                    ),
                     "implicated_paths": [],
                     "evidence_source": path.name,
                     "machine_envelope": False,
                 }
             )
+    return rows
+
+
+def _protected_baseline_failures(
+    files: list[tuple[Path, str]],
+) -> list[dict[str, Any]]:
+    """Recognize semantic baseline drift without depending on one test name/format.
+
+    Machine failure envelopes remain preferred. This fallback keys on stable policy
+    error codes emitted by the baseline authority itself and then adds the historical
+    count-only fallback. Baseline/oracle evidence never invents source write paths.
+    """
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for path, text in files:
+        low = text.casefold()
+        semantic = [token for token in BASELINE_SEMANTIC_ERRORS if token in low]
+        if "protected_baseline_drift" not in semantic:
+            continue
+        summary = "Protected product-source baseline binding failed: " + ",".join(semantic)
+        identity = (path.name, summary)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        rows.append(
+            {
+                "gate_id": "protected-product-source-baseline",
+                "status": "FAIL",
+                "category": "governance",
+                "owner": "skill-control-plane",
+                "failure_kind": "protected_baseline_drift",
+                "summary": summary,
+                "implicated_paths": [],
+                "evidence_source": path.name,
+                "machine_envelope": False,
+            }
+        )
+
+    for row in _protected_baseline_count_failures(files):
+        identity = (str(row.get("evidence_source") or ""), str(row.get("summary") or ""))
+        if identity not in seen:
+            rows.append(row)
+            seen.add(identity)
     return rows
 
 
