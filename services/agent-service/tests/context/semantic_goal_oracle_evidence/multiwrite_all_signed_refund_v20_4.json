@@ -1,0 +1,95 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:multiwrite_all_signed_refund",
+  "case_id": "multiwrite_all_signed_refund",
+  "family": "multi_target_write_clarify",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "multiwrite_all_signed_refund"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_evidence",
+    "derived_from_runtime_output": false,
+    "capability_availability_is_semantic_input": false,
+    "source_of_truth": "user_turns"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "我买了什么？"
+      },
+      {
+        "turn": 2,
+        "text": "已签收的都申请退款"
+      }
+    ]
+  },
+  "semantic_goal_oracle": {
+    "turns": [
+      {
+        "turn": 1,
+        "goals": [
+          {
+            "goal_type": "order_list",
+            "state": "query",
+            "target_scope": "customer_orders",
+            "expected_cardinality": "collection"
+          }
+        ]
+      },
+      {
+        "turn": 2,
+        "goals": [
+          {
+            "goal_type": "refund_create",
+            "state": "action",
+            "source_scope": "turn_1_visible_order_collection",
+            "predicate": {
+              "field": "delivery_status",
+              "semantic_value": "已签收",
+              "evidence_span": "已签收的"
+            },
+            "requested_effect": {
+              "domain": "refund",
+              "operation": "create",
+              "object_type": "order",
+              "output_id": "refund.request"
+            },
+            "expected_cardinality": "collection",
+            "member_policy": "preserve_every_and_only_signed_member_without_widening_or_single_member_collapse"
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      "Turn 2 first filters the customer-visible Turn 1 order collection to status 已签收; it must not apply the refund request to the entire visible collection.",
+      "Every and only member of the signed subset remains in scope; Runtime must not silently collapse the collection to one arbitrary order.",
+      "The natural-language request asks for refund creation but does not itself mint a Draft Grant, CommitAttempt, Receipt, ExecutionPermit, or transaction authorization.",
+      "If the registered write capability cannot safely represent the multi-member target, Runtime must fail closed by clarifying or by another explicitly authorized per-target protocol rather than widening, collapsing, or committing.",
+      "Any per-target transaction work must preserve separate target identity and structured authorization; a collection reference is not one shared transaction authority."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "Turn 1 可见订单集合中的已签收子集",
+      "多目标退款写操作的授权边界"
+    ],
+    "must_not_cover": [
+      "未签收订单的退款申请",
+      "任意单个订单替代整个已签收集合",
+      "由自然语言直接生成提交授权",
+      "未经结构化 Grant 的退款提交"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_collection_fixture_with_at_least_two_members": true,
+    "collection_fixture_requirement_complete": true,
+    "fixture_variant": "two_signed_orders",
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "first_meaningful_red": null,
+    "runtime_edit_authorized": false
+  }
+}

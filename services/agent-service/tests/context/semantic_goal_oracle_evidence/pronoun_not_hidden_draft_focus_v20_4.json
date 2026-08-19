@@ -1,0 +1,121 @@
+{
+  "schema_version": "v20.4",
+  "oracle_id": "semantic-goal-oracle:pronoun_not_hidden_draft_focus",
+  "case_id": "pronoun_not_hidden_draft_focus",
+  "family": "pronoun_reference",
+  "lifecycle_status": "a2_real_lifecycle_enrolled",
+  "executable_case_ids": [
+    "pronoun_not_hidden_draft_focus"
+  ],
+  "authority": {
+    "kind": "independent_user_utterance_and_declared_fixture_evidence",
+    "derived_from_runtime_output": false,
+    "source_of_truth": "user_turns_plus_declared_fixture_context"
+  },
+  "evidence": {
+    "user_turns": [
+      {
+        "turn": 1,
+        "text": "帮我申请鼠标退款"
+      },
+      {
+        "turn": 2,
+        "text": "查一下耳机物流"
+      },
+      {
+        "turn": 3,
+        "text": "它什么时候到？"
+      }
+    ],
+    "declared_fixture_context": {
+      "fixture_id": "customer_orders_v1",
+      "orders": [
+        {
+          "order_id": "10001",
+          "product": "蓝牙耳机",
+          "status": "已签收"
+        },
+        {
+          "order_id": "10003",
+          "product": "无线鼠标",
+          "status": "运输中"
+        }
+      ]
+    }
+  },
+  "semantic_goal_oracle": {
+    "checks": [
+      {
+        "after_turn": 1,
+        "goal_type": "refund_request",
+        "state": "awaiting_authorization",
+        "required_slots": {
+          "order_id": "10003",
+          "product": "无线鼠标"
+        },
+        "write_semantics": {
+          "kind": "draft_only_until_explicit_authorization",
+          "business_write_authorized": false
+        },
+        "rationale": "M1 explicitly asks to apply for a refund for the mouse. It may create an authorization-gated refund Draft for order 10003, but it does not authorize commit."
+      },
+      {
+        "after_turn": 2,
+        "goal_type": "order_logistics",
+        "state": "completed_read",
+        "required_slots": {
+          "order_id": "10001",
+          "product": "蓝牙耳机"
+        },
+        "focus_semantics": {
+          "kind": "latest_relevant_visible_result",
+          "must_not_be_replaced_by_hidden_draft_target": true
+        },
+        "rationale": "M2 explicitly switches the conversational read focus to the earphone logistics while the older mouse refund Draft remains pending and hidden from pronoun resolution."
+      },
+      {
+        "after_turn": 3,
+        "goal_type": "shipment_eta",
+        "state": "active_read",
+        "required_slots": {
+          "order_id": "10001",
+          "product": "蓝牙耳机"
+        },
+        "reference_semantics": {
+          "kind": "pronoun_to_latest_relevant_visible_result",
+          "source_turn": 2
+        },
+        "forbidden_target": {
+          "order_id": "10003",
+          "product": "无线鼠标"
+        },
+        "rationale": "M3 uses '它' after the explicit earphone logistics result from M2, so the ETA question must stay on order 10001. The pending mouse refund Draft is transaction state, not the latest visible referent."
+      }
+    ],
+    "invariants": [
+      "A pending write Draft must not become the implicit entity focus for a later pronoun merely because it remains active.",
+      "M2 makes order 10001 / 蓝牙耳机 the latest relevant visible result.",
+      "M3 pronoun '它' resolves to the M2 earphone result, never to the hidden mouse refund Draft for order 10003.",
+      "The mouse refund Draft may remain pending, but no Grant, Attempt, Receipt, or business write is authorized by M2 or M3.",
+      "No commit_action may be dispatched in this case."
+    ]
+  },
+  "expected_public_outcome": {
+    "must_cover": [
+      "鼠标退款保持为待授权草稿而非业务提交",
+      "耳机订单 10001 的物流查询",
+      "第三轮继续回答同一耳机订单的预计到达时间"
+    ],
+    "must_not_cover": [
+      "把第三轮的‘它’解析到鼠标退款草稿目标 10003",
+      "因为存在退款草稿而阻止当前耳机物流只读回答",
+      "自动确认或提交退款"
+    ]
+  },
+  "a2_promotion_gate": {
+    "requires_explicit_lifecycle_enrollment": true,
+    "explicit_lifecycle_enrollment_complete": true,
+    "requires_first_meaningful_red_before_runtime_edit": true,
+    "runtime_edit_authorized": false
+  }
+}

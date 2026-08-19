@@ -76,6 +76,27 @@ def _refresh_offer_preflight(
     return {"success": True}, dict(payload.get("data") or {}), additions
 
 
+def _same_turn_prepared_preview(state: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any] | None:
+    """Reuse only the preview that produced this exact gateway-ready Draft.
+
+    ToolExecutionRuntime stamps ``ready_turn`` only after the action-draft tool
+    has produced the Draft. Reusing that preview in the same turn prevents a
+    second mutable-business read from silently changing the command snapshot
+    before structured authority. Older Drafts still cross the refresh path,
+    and commit-time preflight remains mandatory before any business effect.
+    """
+    try:
+        ready_turn = int(offer.get("ready_turn") or -1)
+    except (TypeError, ValueError):
+        return None
+    preview = offer.get("preview") if isinstance(offer.get("preview"), dict) else None
+    if ready_turn != int(state.get("turn_index") or 0) or not isinstance(preview, dict):
+        return None
+    if str(preview.get("decision") or "") not in {"ALLOWED", "NEEDS_REVIEW", "NEEDS_INPUT"}:
+        return None
+    return deepcopy(preview)
+
+
 def _mark_offer_needs_input(state: dict[str, Any], offer: dict[str, Any], ledger: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Move a draft into the generic structured-input interaction state.
 
@@ -206,7 +227,7 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
             "reason": "该办理记录使用的能力合同已不可验证，只能查看或取消，未执行任何业务写操作。",
             "offer_handle": handle,
         }
-        return _gateway_observation_update(state, queue, ledger, result, phase="agent_loop", status="ActionCapabilityReviewRequired")
+        return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionCapabilityReviewRequired")
     target = find_handle(ledger, str(offer.get("target_handle") or ""), scope=scope_for_state(state), allowed_kinds={"artifact"}, allowed_resource_types=allowed_target_resource_types(str(offer.get("action_id") or "")), active_only=False)
     policy = policy_for_action(str(offer.get("action_id") or ""))
     if str(offer.get("draft_state") or "") == "NEEDS_INPUT" and target is not None:
@@ -236,7 +257,11 @@ def advance_transaction_gateway(state: dict[str, Any], *, deps: TransactionExecu
         result = {"decision": "clarify", "reason": readiness_reason, "offer_handle": handle, "action_id": offer.get("action_id"), "risk_level": policy.risk_level}
         return _gateway_observation_update(state, queue, ledger, result, phase="action_gateway" if queue else "agent_loop", status="ActionDraftReadinessInsufficient")
     assert target is not None
-    preflight, preview, additions = _refresh_offer_preflight(state, offer, target, deps=deps)
+    preview = _same_turn_prepared_preview(state, offer)
+    if preview is not None:
+        preflight, additions = {"success": True, "source": "same_turn_prepared_preview"}, []
+    else:
+        preflight, preview, additions = _refresh_offer_preflight(state, offer, target, deps=deps)
     ledger = append_entries(ledger, additions)
     if not preflight.get("success") or preview is None:
         stale = transition_draft(offer, "FAILED_FINAL", reason="latest_preflight_failed")
