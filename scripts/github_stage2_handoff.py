@@ -4,7 +4,9 @@
 The handoff preserves the Stage-1 failure authority and additionally requires the
 read-only RCA, exact write-grant digests, immutable write scope, repair domain,
 and G0 scope proof already recorded by Stage 2. It never broadens or creates
-repair authority.
+repair authority. For the M8.6 control-plane domain, the exact semantic route is
+also carried inside the signed source-authority snapshot so later repair rounds
+can preserve the same route without consulting mutable PR metadata.
 """
 from __future__ import annotations
 
@@ -85,6 +87,11 @@ def _failure_domain(failure: Mapping[str, Any]) -> tuple[str, str]:
             or route.get("automatic_write_allowed") is not True
             or route.get("test_write_allowed") is not False
             or route.get("acceptance_write_allowed") is not False
+            or route.get("oracle_write_allowed") is not False
+            or route.get("scope_expansion_allowed") is not False
+            or route.get("merge_allowed") is not False
+            or route.get("deploy_allowed") is not False
+            or route.get("production_closed") is not False
         ):
             raise HandoffError("control-plane Stage-1 semantic route is invalid")
         digest = str(route.get("route_sha256") or "").strip()
@@ -109,7 +116,7 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
             normalized_paths.append(path)
     domain, route_sha = _failure_domain(failure)
 
-    authority = {
+    authority: dict[str, Any] = {
         "authority_schema": SOURCE_AUTHORITY_SCHEMA,
         "schema": str(failure.get("schema") or ""),
         "status": str(failure.get("status") or ""),
@@ -128,10 +135,13 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         "same_repository": failure.get("same_repository") is True,
         "candidate_paths": normalized_paths,
         "repair_branch": _sanitize_branch(str(failure.get("repair_branch") or "")),
-        "repair_base_branch": _sanitize_branch(
-            str(failure.get("repair_base_branch") or "")
-        ),
+        "repair_base_branch": _sanitize_branch(str(failure.get("repair_base_branch") or "")),
     }
+    if domain == CONTROL_DOMAIN:
+        route = failure.get("repair_route")
+        if not isinstance(route, Mapping) or str(route.get("route_sha256") or "") != route_sha:
+            raise HandoffError("control-plane semantic route cannot be persisted safely")
+        authority["repair_route"] = dict(route)
     if authority["schema"] != "github-failure-ingest@1" or authority["status"] != "INGESTED":
         raise HandoffError("invalid Stage-1 source authority contract")
     if not authority["repository"] or not authority["workflow_run_id"]:
