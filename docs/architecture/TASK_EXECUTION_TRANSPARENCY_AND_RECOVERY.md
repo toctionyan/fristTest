@@ -36,10 +36,11 @@ Every failed attempt remains durable evidence even if a later attempt succeeds. 
 
 - `recovered_failures`: one or more earlier failed attempts followed by a terminal success for the same stage;
 - `unresolved_failures`: the latest attempt remains failed/blocked;
-- `RECOVERING`: an unresolved failure exists but an already-authorized bounded recovery action is active;
+- `RECOVERY_READY`: bounded recovery is authorized, but no durable executor-start evidence exists yet;
+- `RECOVERING`: an executor is actually running and `task-recovery-execution@1` carries durable RUNNING evidence for the same action;
 - `BLOCKED`: a true human-owned boundary prevents further safe automatic continuation.
 
-The user-facing summary must never hide an unresolved failure behind another green stage.
+The user-facing summary must never hide an unresolved failure behind another green stage, and it must never claim an authorized-but-not-started recovery is actively running.
 
 ## Recovery dispositions
 
@@ -52,6 +53,8 @@ The user-facing summary must never hide an unresolved failure behind another gre
 - `HUMAN_REQUIRED`: the next safe step requires a human-owned decision or authority.
 
 Unknown evidence never authorizes source writes. It receives bounded read-only diagnosis first, then becomes `HUMAN_REQUIRED` if no safe route is established within budget.
+
+`AUTO_DIAGNOSE` is a local/read-only continuation. It must not be converted into a GitHub network repair dispatch, Stage-2 write request, test/oracle change, or synthetic execution claim. A network-dispatch compiler must reject an `ANALYZE_FAILURE` decision; the local Patch Owner/harness is responsible for actually performing the diagnosis and recording executor evidence when it starts.
 
 ## Protected boundaries
 
@@ -78,11 +81,12 @@ When asked for progress, the projection must show at least:
 - current stage;
 - recovered failures and failed attempt numbers;
 - unresolved failures;
-- whether automatic recovery is active and the bounded action;
+- whether automatic recovery is only authorized/ready or actually running;
+- durable executor evidence before saying recovery is running;
 - whether user intervention is currently required;
 - the current blocker when human intervention is required.
 
-`run finished` and `task completed successfully` are different statements. A terminal failed workflow makes that workflow finished, but the task remains recovering, failed, or blocked until its completion contract is satisfied.
+`run finished` and `task completed successfully` are different statements. A terminal failed workflow makes that workflow finished, but the task remains recovery-ready, recovering, failed, or blocked until its completion contract is satisfied.
 
 ## Safety invariant
 
