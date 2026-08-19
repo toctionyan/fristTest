@@ -7,6 +7,12 @@ This module is intentionally deterministic. It never calls a model and never
 edits the candidate workspace. It binds a read-only RCA to one immutable failure
 case, then compiles an exact allow-list write grant. Downstream patch and
 verification stages must validate the same digests before acting.
+
+M8.6 adds a domain binding without weakening the historical product boundary.
+Legacy ``code_or_contract`` failures default to ``PRODUCT_CODE``. The separate
+``CONTROL_PLANE_IMPLEMENTATION`` domain is valid only for a failure case already
+semantically classified as ``control_plane_implementation``; its exact paths are
+then checked by the canonical domain-aware path policy.
 """
 
 import hashlib
@@ -21,10 +27,12 @@ from governed_repair_contract import (
 )
 from governed_repair_path_policy import (
     PATH_POLICY_ID,
+    REPAIR_DOMAIN_CONTROL_PLANE,
+    REPAIR_DOMAIN_PRODUCT,
     RepairPathPolicyError,
     normalize_repo_path as policy_normalize_repo_path,
     policy_fingerprint,
-    validate_automatic_repair_paths,
+    validate_repair_paths,
 )
 
 RCA_SCHEMA = "github-governed-repair-rca@1"
@@ -102,9 +110,49 @@ def normalize_paths(paths: Iterable[object]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _require_automatic_path_policy(paths: Iterable[object]) -> tuple[str, ...]:
+def repair_domain(failure_case: Mapping[str, Any]) -> str:
+    classification = str(failure_case.get("classification") or "").strip()
+    supplied = str(failure_case.get("repair_domain") or "").strip()
+    if classification == "code_or_contract":
+        if supplied and supplied != REPAIR_DOMAIN_PRODUCT:
+            raise RepairAuthorityError(
+                "product code/contract failure cannot switch repair domain"
+            )
+        return REPAIR_DOMAIN_PRODUCT
+    if classification == "control_plane_implementation":
+        if supplied != REPAIR_DOMAIN_CONTROL_PLANE:
+            raise RepairAuthorityError(
+                "control-plane implementation failure requires its exact repair domain"
+            )
+        route = failure_case.get("repair_route")
+        if not isinstance(route, Mapping):
+            raise RepairAuthorityError("control-plane repair requires semantic route evidence")
+        if route.get("repair_class") != "CONTROL_PLANE_IMPLEMENTATION_REPAIRABLE":
+            raise RepairAuthorityError("control-plane semantic route class is invalid")
+        if route.get("repair_domain") != REPAIR_DOMAIN_CONTROL_PLANE:
+            raise RepairAuthorityError("control-plane semantic route domain drift")
+        if route.get("automatic_write_allowed") is not True:
+            raise RepairAuthorityError("control-plane semantic route did not allow a write")
+        if route.get("test_write_allowed") is not False or route.get("acceptance_write_allowed") is not False:
+            raise RepairAuthorityError("control-plane route attempted test/acceptance authority")
+        routed = normalize_paths(route.get("allowed_write_paths") or [])
+        candidates = normalize_paths(failure_case.get("candidate_paths") or [])
+        if routed != candidates:
+            raise RepairAuthorityError("control-plane route scope differs from failure-case scope")
+        return REPAIR_DOMAIN_CONTROL_PLANE
+    raise RepairAuthorityError(
+        f"failure classification is outside automatic write authority: {classification!r}"
+    )
+
+
+def _require_automatic_path_policy(
+    paths: Iterable[object],
+    *,
+    failure_case: Mapping[str, Any],
+) -> tuple[str, ...]:
+    domain = repair_domain(failure_case)
     try:
-        return validate_automatic_repair_paths(paths)
+        return validate_repair_paths(paths, repair_domain=domain)
     except RepairPathPolicyError as exc:
         raise RepairAuthorityError(f"automatic repair path policy denied authority: {exc}") from exc
 
@@ -131,7 +179,6 @@ def _require_binding(binding: Mapping[str, Any]) -> None:
 
 def required_guard_ids(failure_case: Mapping[str, Any]) -> tuple[str, ...]:
     """Return the immutable machine guards that originally caught this failure."""
-
     rows = failure_case.get("failed_gates")
     if not isinstance(rows, list):
         return ()
@@ -154,7 +201,6 @@ def validate_rca(
     candidate_paths: Iterable[object],
 ) -> tuple[str, ...]:
     """Validate a model-produced RCA without granting it any authority."""
-
     if rca.get("schema") != RCA_SCHEMA:
         raise RepairAuthorityError("unsupported RCA schema")
     if rca.get("read_only") is not True:
@@ -163,6 +209,10 @@ def validate_rca(
         raise RepairAuthorityError("RCA reports candidate workspace mutation")
     if rca.get("production_closed") is not False:
         raise RepairAuthorityError("RCA cannot close production")
+
+    domain = repair_domain(failure_case)
+    if str(rca.get("repair_domain") or domain) != domain:
+        raise RepairAuthorityError("RCA repair domain drift")
 
     expected_binding = failure_binding(failure_case)
     _require_binding(expected_binding)
@@ -182,7 +232,7 @@ def validate_rca(
         raise RepairAuthorityError("RCA failure-case fingerprint mismatch")
 
     expected_paths = normalize_paths(candidate_paths)
-    if _require_automatic_path_policy(expected_paths) != expected_paths:
+    if _require_automatic_path_policy(expected_paths, failure_case=failure_case) != expected_paths:
         raise RepairAuthorityError("automatic repair path policy normalization drift")
     evidence_paths = normalize_paths(rca.get("candidate_paths") or [])
     if evidence_paths != expected_paths:
@@ -215,7 +265,9 @@ def validate_rca(
         raise RepairAuthorityError("RCA attempted to expand writable scope")
     if decision == "GRANT" and not recommended_paths:
         raise RepairAuthorityError("RCA GRANT recommendation has empty write scope")
-    if decision == "GRANT" and _require_automatic_path_policy(recommended_paths) != recommended_paths:
+    if decision == "GRANT" and _require_automatic_path_policy(
+        recommended_paths, failure_case=failure_case
+    ) != recommended_paths:
         raise RepairAuthorityError("RCA recommended path policy normalization drift")
     if decision == "DENY" and recommended_paths:
         raise RepairAuthorityError("RCA DENY recommendation must not carry write paths")
@@ -232,7 +284,6 @@ def compile_write_grant(
     candidate_paths: Iterable[object],
 ) -> dict[str, Any]:
     """Compile exact deterministic write authority from a validated read-only RCA."""
-
     recommended = validate_rca(
         rca,
         failure_case=failure_case,
@@ -250,6 +301,7 @@ def compile_write_grant(
     binding = failure_binding(failure_case)
     lifecycle_sha = contract_fingerprint()
     path_policy_sha = policy_fingerprint()
+    domain = repair_domain(failure_case)
     grant: dict[str, Any] = {
         "schema": WRITE_GRANT_SCHEMA,
         "state_schema": STATE_SCHEMA,
@@ -259,6 +311,7 @@ def compile_write_grant(
         "lifecycle_contract_sha256": lifecycle_sha,
         "path_policy_id": PATH_POLICY_ID,
         "path_policy_sha256": path_policy_sha,
+        "repair_domain": domain,
         "binding": binding,
         "failure_case_sha256": failure_case_fingerprint(failure_case),
         "rca_sha256": rca_fingerprint(rca),
@@ -282,6 +335,7 @@ def compile_write_grant(
                     f"rca:{rca_fingerprint(rca)}",
                     f"lifecycle-contract:{lifecycle_sha}",
                     f"path-policy:{path_policy_sha}",
+                    f"repair-domain:{domain}",
                 ],
             }
         },
@@ -299,7 +353,6 @@ def validate_write_grant(
     candidate_paths: Iterable[object],
 ) -> tuple[str, ...]:
     """Validate exact write authority and return the immutable allowed path tuple."""
-
     recommended = validate_rca(
         rca,
         failure_case=failure_case,
@@ -319,6 +372,9 @@ def validate_write_grant(
         raise RepairAuthorityError("write-grant path policy id drift")
     if str(grant.get("path_policy_sha256") or "") != policy_fingerprint():
         raise RepairAuthorityError("write-grant path policy fingerprint drift")
+    domain = repair_domain(failure_case)
+    if str(grant.get("repair_domain") or "") != domain:
+        raise RepairAuthorityError("write-grant repair domain drift")
     if grant.get("write_scope_mode") != "exact_allowlist":
         raise RepairAuthorityError("write-grant scope mode is not exact_allowlist")
     if grant.get("production_closed") is not False:
@@ -354,7 +410,7 @@ def validate_write_grant(
         )
 
     granted_paths = normalize_paths(grant.get("allowed_paths") or [])
-    if _require_automatic_path_policy(granted_paths) != granted_paths:
+    if _require_automatic_path_policy(granted_paths, failure_case=failure_case) != granted_paths:
         raise RepairAuthorityError("write-grant path policy normalization drift")
     if granted_paths != recommended:
         raise RepairAuthorityError(
@@ -381,7 +437,6 @@ def revoke_write_grant(
     failure_signature: str,
 ) -> dict[str, Any]:
     """Produce a non-authoritative revocation receipt after repeated failure."""
-
     receipt = {
         "schema": "github-governed-repair-write-revocation@1",
         "state": "RCA_READ_ONLY",
@@ -389,6 +444,7 @@ def revoke_write_grant(
         "lifecycle_contract_sha256": contract_fingerprint(),
         "path_policy_id": PATH_POLICY_ID,
         "path_policy_sha256": policy_fingerprint(),
+        "repair_domain": str(grant.get("repair_domain") or ""),
         "prior_write_grant_sha256": write_grant_fingerprint(grant),
         "failure_signature": str(failure_signature or "").strip(),
         "reason": str(reason or "repeated_failure_signature").strip(),
