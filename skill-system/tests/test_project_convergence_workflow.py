@@ -32,6 +32,14 @@ def test_project_convergence_binds_exact_quality_attempt_head_and_cumulative_art
     assert '--expected-ref "${EXPECTED_REF}"' in text
     assert "source_ref=$(jq -r '.target_identity.change_ref // empty'" not in text
     assert 'actions/runs/${quality_run_id}/attempts/${quality_run_attempt}/jobs' in text
+    assert 'select(.name == "quality-static")' in text
+    assert 'select(.name == "quality-quick-execution")' in text
+    assert 'select(.name == "quality-quick-required-status")' in text
+    assert 'select(.name == "quality-quick")' not in text
+    assert '[[ "${static_conclusion}" == "success" ]]' in text
+    assert '[[ "${quick_execution_conclusion}" == "success" ]]' in text
+    assert '[[ "${required_status_conclusion}" == "success" ]]' in text
+    assert '[[ "${integration_conclusion}" == "success" ]]' in text
     assert 'select(.created_at >= $started)' in text
     assert 'quick_artifact_id=$(select_artifact "quality-quick-evidence")' in text
     assert 'integration_artifact_id=$(select_artifact "quality-integration-evidence")' in text
