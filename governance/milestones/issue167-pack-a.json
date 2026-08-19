@@ -1,0 +1,24 @@
+{
+  "schema": "engineering-milestone-plan@1",
+  "plan_id": "issue167-pack-a",
+  "repository": "toctionyan/fristTest",
+  "issue_number": 167,
+  "source_pr": 1580,
+  "source_branch": "repair/issue167-a1-semantic-goal-oracle-20260817",
+  "required_product_gate": "quality-quick-execution",
+  "required_transport_gate": "quality-quick-required-status",
+  "milestones": [
+    {"id":"correction_earphone_to_keyboard_two_goals","order":1,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/correction_earphone_to_keyboard_two_goals_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_correction_runtime.py","test_name":"test_issue167_correction_rebinds_both_goals_to_keyboard_through_real_lifecycle"},
+    {"id":"correction_refund_to_logistics","order":2,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/correction_refund_to_logistics_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_refund_to_logistics_runtime.py","test_name":"test_issue167_refund_to_logistics_withdraws_write_effect_without_guessing_target"},
+    {"id":"pronoun_them_after_signed_filter","order":3,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/pronoun_them_after_signed_filter_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_pronoun_collection_runtime.py","test_name":"test_issue167_pronoun_preserves_signed_collection_for_refund_consultation"},
+    {"id":"pronoun_second_item_from_visible_list","order":4,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/pronoun_second_item_from_visible_list_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_pronoun_second_item_runtime.py","test_name":"test_issue167_second_visible_order_stays_authoritative_for_pronoun_followup"},
+    {"id":"pronoun_not_hidden_draft_focus","order":5,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/pronoun_not_hidden_draft_focus_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_pronoun_hidden_draft_focus_runtime.py","test_name":"test_issue167_hidden_refund_draft_does_not_steal_pronoun_focus"},
+    {"id":"visible_subset_then_action_clarify","order":6,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/visible_subset_then_action_clarify_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_visible_subset_runtime.py","test_name":"test_issue167_visible_signed_subset_remains_eligibility_scope"},
+    {"id":"task_refund_pause_logistics_resume","order":7,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/task_refund_pause_logistics_resume_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_task_resume_runtime.py","test_name":"test_issue167_refund_task_pauses_for_logistics_and_resumes_same_draft"},
+    {"id":"task_cancelled_then_new_task","order":8,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/task_cancelled_then_new_task_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_task_cancelled_then_new_task_runtime.py","test_name":"test_issue167_cancelled_task_revokes_authority_before_new_logistics_task"},
+    {"id":"similar_courier_phone_not_logistics","order":9,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/similar_courier_phone_not_logistics_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_similar_courier_phone_runtime.py","test_name":"test_issue167_courier_phone_is_exactly_unsupported_not_logistics"},
+    {"id":"multiwrite_all_signed_refund","order":10,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/multiwrite_all_signed_refund_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_multiwrite_all_signed_refund_runtime.py","test_name":"test_issue167_multiwrite_refund_filters_signed_subset_before_write_boundary"},
+    {"id":"unsupported_modify_refund_review_result","order":11,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/unsupported_modify_refund_review_result_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_unsupported_modify_refund_review_result_runtime.py","test_name":"test_issue167_refund_review_override_requires_exact_capability_not_nearby_refund_tool"},
+    {"id":"authority_old_grant_expired","order":12,"oracle_evidence":"services/agent-service/tests/context/semantic_goal_oracle_evidence/authority_old_grant_expired_v20_4.json","runtime_test":"services/agent-service/tests/context/test_issue167_a2_authority_old_grant_expired_runtime.py","test_name":"test_issue167_old_expired_grant_cannot_start_attempt_or_business_write"}
+  ]
+}
