@@ -690,7 +690,7 @@ def run_targeted(*, workspace: Path, plan_path: Path, output_path: Path) -> int:
         "schema": STAGE3_SCHEMA,
         "status": "TARGETED_VALIDATION_PASSED" if passed else "TARGETED_VALIDATION_FAILED",
         "candidate_sha": plan.get("candidate_sha"),
-        "repair_domain": plan.get("repair_domain"),
+        "repair_domain": str(plan.get("repair_domain") or REPAIR_DOMAIN_PRODUCT),
         "repair_route_sha256": plan.get("repair_route_sha256"),
         "rca_sha256": plan.get("rca_sha256"),
         "write_grant_sha256": plan.get("write_grant_sha256"),
@@ -827,13 +827,17 @@ def record_validation(
         raise Stage3Error("targeted validation did not pass")
     if targeted.get("candidate_sha") != plan.get("candidate_sha"):
         raise Stage3Error("targeted evidence candidate SHA mismatch")
-    for field in ("rca_sha256", "write_grant_sha256", "repair_domain"):
+    for field in ("rca_sha256", "write_grant_sha256"):
         if targeted.get(field) != plan.get(field):
             raise Stage3Error(f"targeted evidence {field} mismatch")
-    if str(targeted.get("repair_route_sha256") or "") != str(plan.get("repair_route_sha256") or ""):
-        raise Stage3Error("targeted evidence repair-route digest mismatch")
-    summary = validate_quick_evidence(quick_summary_path)
     domain = str(plan.get("repair_domain") or REPAIR_DOMAIN_PRODUCT)
+    targeted_domain = str(targeted.get("repair_domain") or REPAIR_DOMAIN_PRODUCT)
+    if targeted_domain != domain:
+        raise Stage3Error("targeted evidence repair_domain mismatch")
+    if domain == REPAIR_DOMAIN_CONTROL_PLANE:
+        if str(targeted.get("repair_route_sha256") or "") != str(plan.get("repair_route_sha256") or ""):
+            raise Stage3Error("targeted evidence repair-route digest mismatch")
+    summary = validate_quick_evidence(quick_summary_path)
     guard_proof = _require_permanent_guard_reverified(
         summary,
         plan.get("required_guard_ids") or [],
