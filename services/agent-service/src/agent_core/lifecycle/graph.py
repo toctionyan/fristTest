@@ -49,6 +49,7 @@ def build_lifecycle_graph(runtime_deps: LifecycleRuntimeDeps):
         "agent_loop": lambda state: agent_loop_node(
             state,
             context_bundle_builder=runtime_deps.context_bundle_builder,
+            transactions=runtime_deps.transactions,
             capability_registry=runtime_deps.capability_registry,
             model_resolver=runtime_deps.model_resolver,
             dependency_authority_control_resolver=runtime_deps.dependency_authority_control_resolver,
