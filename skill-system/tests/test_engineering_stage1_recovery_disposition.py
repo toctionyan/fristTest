@@ -41,6 +41,12 @@ class EngineeringStage1RecoveryDispositionTests(unittest.TestCase):
             required_conditions=("classification_complete",),
         )
         store.checkpoint(
+            status="RUNNING",
+            phase="FAILURE_INGESTED",
+            workspace_fingerprint=None,
+            evidence_refs=["failure-case.json"],
+        )
+        store.checkpoint(
             status="WAITING_EXTERNAL_RESULT",
             phase="READ_ONLY_DIAGNOSIS_REQUIRED",
             workspace_fingerprint=None,
