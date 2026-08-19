@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-import sysconfig
+import sys
 from pathlib import Path
 from typing import Mapping
 
@@ -13,23 +13,32 @@ SAFE_BASE_KEYS = (
 
 
 def _trusted_python_library_path() -> str | None:
-    """Return this interpreter's trusted shared-library directory, if one exists.
+    """Return this interpreter's verified adjacent shared-library directory.
 
     GitHub's setup-python action can provide CPython from a mounted toolcache whose
-    executable needs its adjacent libpython directory at runtime.  Fixer processes
-    intentionally do not inherit caller-controlled LD_LIBRARY_PATH, so derive the
-    one loader path we need from the already-running trusted interpreter instead.
+    executable needs its adjacent libpython directory at runtime. Fixer processes
+    intentionally do not inherit caller-controlled LD_LIBRARY_PATH, so resolve the
+    already-running trusted interpreter through any virtual-environment symlink and
+    admit only its own existing libpython directory.
     """
     if os.name != "posix":
         return None
-    raw = str(sysconfig.get_config_var("LIBDIR") or "").strip()
-    if not raw:
-        return None
     try:
-        path = Path(raw).resolve(strict=True)
+        executable = Path(sys.executable).resolve(strict=True)
     except OSError:
         return None
-    return str(path) if path.is_dir() else None
+    if not executable.name.startswith("python") or executable.parent.name != "bin":
+        return None
+    try:
+        library_path = (executable.parent.parent / "lib").resolve(strict=True)
+    except OSError:
+        return None
+    if not library_path.is_dir():
+        return None
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if not any(library_path.glob(f"libpython{version}.so*")):
+        return None
+    return str(library_path)
 
 
 def build_fixer_environment(
