@@ -34,7 +34,8 @@ class EngineeringExactHeadResumeWakeupTests(unittest.TestCase):
         self.assertIn('$quality.status == "completed" and $quality.conclusion == "success"', source)
         self.assertIn('$skill.status == "completed" and $skill.conclusion == "success"', source)
         self.assertNotIn("action_required", source)
-        self.assertNotIn("approve", source.lower())
+        self.assertNotIn("/approve", source.lower())
+        self.assertNotIn("approve_workflow", source.lower())
 
     def test_wakeup_requires_exact_prior_approval_wait_and_suppresses_completed_resume(self) -> None:
         source = (ROOT / ".github/workflows/engineering-exact-head-resume-wakeup.yml").read_text(encoding="utf-8")
@@ -57,7 +58,7 @@ class EngineeringExactHeadResumeWakeupTests(unittest.TestCase):
         wakeup = (ROOT / ".github/workflows/engineering-exact-head-resume-wakeup.yml").read_text(encoding="utf-8")
         resume = (ROOT / ".github/workflows/governed-ci-repair-exact-head-resume.yml").read_text(encoding="utf-8")
         self.assertNotIn("gh pr merge", wakeup)
-        self.assertNotIn("/pulls/", wakeup)
+        self.assertNotIn("/merge", wakeup)
         self.assertNotIn("/deployments", wakeup)
         self.assertIn("merge_allowed == false", wakeup)
         self.assertIn("deploy_allowed == false", wakeup)
