@@ -15,8 +15,11 @@ permissions:
 env:
   GH_REPO: ${{ github.repository }}
 
+# Final landings are serialized repository-wide. This is intentionally broader
+# than one TaskRun so the single-use reservation and main-branch movement cannot
+# race with another autonomous landing.
 concurrency:
-  group: engineering-authorized-merge-${{ github.repository }}-${{ github.event.workflow_run.id }}
+  group: engineering-authorized-merge-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -27,6 +30,7 @@ jobs:
       contents: write
       actions: read
       pull-requests: write
+      statuses: write
     steps:
       - name: Checkout trusted final-merge control plane
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -158,12 +162,47 @@ jobs:
           EXACT_HEAD: ${{ steps.g6.outputs.exact_head }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > evidence/pr-before-ready.json
-          jq -e --arg head "${EXACT_HEAD}" --arg repo "${GITHUB_REPOSITORY}" '
-            .state == "open" and .merged == false and .head.sha == $head
-            and .head.repo.full_name == $repo and .base.ref == "main"
-          ' evidence/pr-before-ready.json >/dev/null
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_HEAD}&per_page=100" > evidence/workflow-runs.json
+          deadline=$((SECONDS + 1800))
+          final_observation_ready=false
+          while (( SECONDS < deadline )); do
+            gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > evidence/pr-before-ready.json
+            jq -e --arg head "${EXACT_HEAD}" --arg repo "${GITHUB_REPOSITORY}" '
+              .state == "open" and .merged == false and .head.sha == $head
+              and .head.repo.full_name == $repo and .base.ref == "main"
+            ' evidence/pr-before-ready.json >/dev/null
+            mergeable=$(jq -r '.mergeable // "unknown"' evidence/pr-before-ready.json)
+            if [[ "${mergeable}" == "false" ]]; then
+              echo "PR is not mergeable; autonomous landing blocked." >&2
+              exit 1
+            fi
+
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_HEAD}&per_page=100" > evidence/workflow-runs.json
+            waiting_push_runs=$(jq -r --arg head "${EXACT_HEAD}" '
+              ["quality", "skill-self-validation"] as $names
+              | [$names[] as $name
+                 | ([.workflow_runs[]
+                       | select(.name == $name)
+                       | select(.head_sha == $head)
+                       | select(.event == "push")]
+                    | sort_by(.run_number, .run_attempt, .id)
+                    | reverse
+                    | .[0] // null)
+                 | select(. != null)
+                 | select(.status != "completed")]
+              | length
+            ' evidence/workflow-runs.json)
+            if [[ "${mergeable}" == "true" && "${waiting_push_runs}" == "0" ]]; then
+              final_observation_ready=true
+              break
+            fi
+            echo "Waiting for GitHub mergeability/current-head push evidence: mergeable=${mergeable}, waiting_push_runs=${waiting_push_runs}"
+            sleep 15
+          done
+          [[ "${final_observation_ready}" == "true" ]] || {
+            echo "timed out waiting for final mergeability/current-head push evidence" >&2
+            exit 1
+          }
+
           gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq -s 'add' > evidence/changed-files.json
           gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" | jq -s 'add' > evidence/reviews.json
           owner="${GITHUB_REPOSITORY%%/*}"; repo="${GITHUB_REPOSITORY#*/}"
@@ -227,9 +266,35 @@ jobs:
             --output evidence/merge-request.json \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Reserve single-use MergeGrant consumption
+        id: reserve
+        if: steps.gate.outputs.merge_allowed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          anchor_sha=$(jq -r '.initial_base_sha' evidence/merge-grant.json)
+          [[ "${anchor_sha}" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${anchor_sha}/status" > evidence/merge-consumption-before.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_merge_consumption.py \
+            --grant evidence/merge-grant.json \
+            --combined-status evidence/merge-consumption-before.json \
+            --output evidence/merge-consumption-state.json \
+            --github-output "$GITHUB_OUTPUT"
+          state=$(jq -r '.status' evidence/merge-consumption-state.json)
+          context=$(jq -r '.context' evidence/merge-consumption-state.json)
+          [[ "${state}" == "RESERVABLE" ]]
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${anchor_sha}" \
+            -f state=pending \
+            -f context="${context}" \
+            -f description="single-use autonomous merge grant reserved" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+          echo "reservation_state=NEW" >> "$GITHUB_OUTPUT"
+          echo "consume_allowed=true" >> "$GITHUB_OUTPUT"
+
       - name: Execute exact-head merge-commit request
         id: merge
-        if: steps.gate.outputs.merge_allowed == 'true'
+        if: steps.reserve.outputs.consume_allowed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -241,6 +306,38 @@ jobs:
           jq '.body' evidence/merge-request.json | gh api -X PUT "${path}" --input - > evidence/merge-result.json
           jq -e '.merged == true and (.sha | test("^[0-9a-f]{40}$"))' evidence/merge-result.json >/dev/null
           echo "merge_sha=$(jq -r '.sha' evidence/merge-result.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize single-use MergeGrant consumption
+        if: always() && steps.reserve.outputs.reservation_state == 'NEW'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+          MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          anchor_sha=$(jq -r '.anchor_sha' evidence/merge-consumption-state.json)
+          context=$(jq -r '.context' evidence/merge-consumption-state.json)
+          if [[ "${MERGE_OUTCOME}" == "success" && "${MERGE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            state=success
+            description="single-use merge grant consumed"
+          else
+            state=failure
+            description="single-use merge grant consumption failed; new authority required"
+          fi
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${anchor_sha}" \
+            -f state="${state}" \
+            -f context="${context}" \
+            -f description="${description}" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+          if [[ "${state}" == "success" ]]; then
+            jq -n --arg schema "engineering-merge-grant-consumption-receipt@1" \
+              --arg grant_sha "$(jq -r '.grant_sha256' evidence/merge-grant.json)" \
+              --arg merge_sha "${MERGE_SHA}" \
+              --arg anchor "${anchor_sha}" \
+              --arg context "${context}" \
+              '{schema:$schema,status:"CONSUMED",grant_sha256:$grant_sha,merge_sha:$merge_sha,anchor_sha:$anchor,context:$context,single_use:true,deploy_allowed:false,production_closed:false}' \
+              > evidence/merge-consumption-receipt.json
+          fi
 
       - name: Upload final merge evidence
         if: always()
@@ -259,6 +356,7 @@ jobs:
             echo "- Terminal G6 ready: \`${{ steps.g6.outputs.terminal_ready || 'false' }}\`"
             echo "- Task merge grant found: \`${{ steps.grant.outputs.grant_ready || 'false' }}\`"
             echo "- Merge gate: \`${{ steps.gate.outputs.status || 'not-evaluated' }}\`"
+            echo "- Grant consumption reservation: \`${{ steps.reserve.outputs.reservation_state || 'not-reserved' }}\`"
             echo "- Merge SHA: \`${{ steps.merge.outputs.merge_sha || 'not-merged' }}\`"
             echo "- Merge method: \`merge\`"
             echo "- Deploy: \`false\`"
