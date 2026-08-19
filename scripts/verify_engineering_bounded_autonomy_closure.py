@@ -27,7 +27,8 @@ WORKFLOWS = {
 REQUIRED: dict[str, tuple[str, ...]] = {
     "authorize": (
         "merge_policy:",
-        "bounded-auto-merge",
+        "options:\n          - disabled\n          - bounded-auto-merge",
+        "inputs.merge_policy == 'bounded-auto-merge'",
         "github.actor == github.repository_owner",
         "Compile independent bounded final merge grant",
         "Upload independent bounded merge grant",
@@ -91,6 +92,14 @@ def _read(root: Path, relative: str, errors: list[str]) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _contains_shell_echo_value(source: str, label: str, value: str) -> bool:
+    """Match the workflow source representation rather than rendered summary text."""
+
+    escaped = f'{label}: \\`{value}\\`'
+    plain = f"{label}: `{value}`"
+    return escaped in source or plain in source
+
+
 def verify(root: Path = ROOT) -> dict[str, Any]:
     root = root.resolve()
     errors: list[str] = []
@@ -111,16 +120,19 @@ def verify(root: Path = ROOT) -> dict[str, Any]:
             errors.append(f"forbidden_human_gate_bypass_or_production_authority:{marker}")
 
     # The final merge authority must be independent from the ordinary
-    # AutonomyGrant and must remain exact-head/single-task scoped.
+    # AutonomyGrant and must remain exact-head/single-task scoped. These checks
+    # inspect workflow source, where Markdown backticks are shell-escaped.
     authorize = sources["authorize"]
     merge = sources["authorized_merge"]
-    if "AutonomyGrant merge_allowed: `false`" not in authorize:
+    if not _contains_shell_echo_value(authorize, "AutonomyGrant merge_allowed", "false"):
         errors.append("ordinary_autonomy_grant_merge_boundary_missing")
     if "Task merge grant found" not in merge:
         errors.append("final_merge_grant_observability_missing")
-    if "Merge method: `merge`" not in merge:
+    if not _contains_shell_echo_value(merge, "Merge method", "merge"):
         errors.append("merge_method_observability_missing")
-    if "Deploy: `false`" not in merge or "Production: `false`" not in merge:
+    if not _contains_shell_echo_value(merge, "Deploy", "false") or not _contains_shell_echo_value(
+        merge, "Production", "false"
+    ):
         errors.append("final_merge_production_boundary_missing")
 
     # A real independent-review policy must stop solo automation rather than be
