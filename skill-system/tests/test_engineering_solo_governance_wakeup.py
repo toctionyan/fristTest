@@ -58,7 +58,9 @@ class EngineeringSoloGovernanceWakeupTests(unittest.TestCase):
         source = (ROOT / ".github/workflows/engineering-solo-governance-wakeup.yml").read_text(encoding="utf-8")
         self.assertNotIn("gh pr merge", source)
         self.assertNotIn("/pulls/", source)
-        self.assertNotIn("deploy", source.lower())
+        self.assertIn(".deploy_allowed == false", source)
+        self.assertNotIn("/deployments", source)
+        self.assertNotIn("environment:\n      name: production", source)
 
 
 if __name__ == "__main__":
