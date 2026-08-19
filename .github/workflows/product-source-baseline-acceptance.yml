@@ -1,0 +1,233 @@
+name: Product Source Baseline Acceptance
+run-name: Accept audited product source at approved main
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - '.github/workflows/product-source-baseline-acceptance.yml'
+      - 'skill-system/registry/product-source-baseline.json'
+
+permissions:
+  contents: write
+
+env:
+  ACCEPTANCE_BRANCH: accept/product-source-baseline-20260819
+  APPROVED_MAIN_SHA: 0ebc1b6a5541a7a1cf6920b8184c93422f0e07e4
+  OLD_GENERATED_FROM: git:13f2430d9d55168a63dd7ee5bc70ca260fbf5c2f
+  NEW_GENERATED_FROM: git:0ebc1b6a5541a7a1cf6920b8184c93422f0e07e4
+  BASELINE_PATH: skill-system/registry/product-source-baseline.json
+
+jobs:
+  accept-baseline:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'accept/product-source-baseline-20260819'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact acceptance branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Set up governed Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Prove approved base and exact audited drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$APPROVED_MAIN_SHA"
+          test "$(git merge-base HEAD origin/main)" = "$APPROVED_MAIN_SHA"
+          python -B - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          sys.path.insert(0, str(root / "skill-system/controller"))
+          from product_source_baseline_policy import (  # noqa: E402
+              SnapshotSource,
+              detect_snapshot_source,
+              load_baseline_document,
+              snapshot_protected_source,
+          )
+
+          approved_main = os.environ["APPROVED_MAIN_SHA"]
+          old_generated_from = os.environ["OLD_GENERATED_FROM"]
+          new_generated_from = os.environ["NEW_GENERATED_FROM"]
+          baseline_path = root / os.environ["BASELINE_PATH"]
+
+          expected_modified = {
+              "services/agent-service/src/agent_core/lifecycle/context_runtime.py",
+              "services/agent-service/src/agent_core/lifecycle/goal_lifecycle.py",
+              "services/agent-service/src/agent_core/lifecycle/graph.py",
+              "services/agent-service/src/agent_core/lifecycle/nodes.py",
+              "services/agent-service/src/agent_core/runtime/capability_gate.py",
+              "services/agent-service/src/agent_core/transaction/gateway_runtime.py",
+              "services/agent-service/src/agent_modules/ecommerce/capabilities/evaluate_refund_eligibility.py",
+              "services/agent-service/src/agent_modules/ecommerce/shared/refund_eligibility.py",
+              "services/agent-service/tests/support/conversation_case_fixtures.py",
+              "services/agent-service/tests/support/conversation_case_runner.py",
+          }
+          expected_added = {
+              "services/agent-service/src/agent_core/lifecycle/transaction_workflow_projection.py",
+              "services/agent-service/tests/context/issue167_cases/authority_old_grant_expired_a2.json",
+              "services/agent-service/tests/context/issue167_cases/correction_earphone_to_keyboard_two_goals_a2.json",
+              "services/agent-service/tests/context/issue167_cases/correction_refund_to_logistics_a2.json",
+              "services/agent-service/tests/context/issue167_cases/multiwrite_all_signed_refund_a2.json",
+              "services/agent-service/tests/context/issue167_cases/pronoun_not_hidden_draft_focus_a2.json",
+              "services/agent-service/tests/context/issue167_cases/pronoun_second_item_from_visible_list_a2.json",
+              "services/agent-service/tests/context/issue167_cases/pronoun_them_after_signed_filter_a2.json",
+              "services/agent-service/tests/context/issue167_cases/similar_courier_phone_not_logistics_a2.json",
+              "services/agent-service/tests/context/issue167_cases/task_cancelled_then_new_task_a2.json",
+              "services/agent-service/tests/context/issue167_cases/task_refund_pause_logistics_resume_a2.json",
+              "services/agent-service/tests/context/issue167_cases/unsupported_modify_refund_review_result_a2.json",
+              "services/agent-service/tests/context/issue167_cases/visible_subset_then_action_clarify_a2.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/authority_old_grant_expired_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/correction_earphone_to_keyboard_two_goals_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/correction_refund_to_logistics_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/multiwrite_all_signed_refund_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/pronoun_not_hidden_draft_focus_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/pronoun_second_item_from_visible_list_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/pronoun_them_after_signed_filter_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/similar_courier_phone_not_logistics_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/task_cancelled_then_new_task_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/task_refund_pause_logistics_resume_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/unsupported_modify_refund_review_result_v20_4.json",
+              "services/agent-service/tests/context/semantic_goal_oracle_evidence/visible_subset_then_action_clarify_v20_4.json",
+              "services/agent-service/tests/context/test_goal_lifecycle_persistence.py",
+              "services/agent-service/tests/context/test_issue167_a2_authority_old_grant_expired_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_correction_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_multiwrite_all_signed_refund_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_pronoun_collection_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_pronoun_hidden_draft_focus_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_pronoun_second_item_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_refund_to_logistics_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_similar_courier_phone_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_task_cancelled_then_new_task_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_task_resume_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_unsupported_modify_refund_review_result_runtime.py",
+              "services/agent-service/tests/context/test_issue167_a2_visible_subset_runtime.py",
+              "services/agent-service/tests/runtime/test_refund_eligibility_collection_schema.py",
+              "services/agent-service/tests/transactions/test_transaction_authority_generalization.py",
+              "services/agent-service/tests/transactions/test_transaction_authority_replay_generalization.py",
+          }
+
+          if len(expected_added) != 41 or len(expected_modified) != 10:
+              raise SystemExit("audited_drift_contract_count_invalid")
+
+          document = load_baseline_document(root)
+          source = detect_snapshot_source(root)
+          if source is not SnapshotSource.GIT_TRACKED:
+              raise SystemExit(f"unexpected_snapshot_source:{source.value}")
+          current = snapshot_protected_source(
+              root,
+              document.protected_roots,
+              source=source,
+          )
+
+          if document.generated_from == new_generated_from:
+              if len(current) != 671 or current != document.files:
+                  raise SystemExit("already_promoted_baseline_not_exact_current_snapshot")
+              print(json.dumps({
+                  "status": "ALREADY_ACCEPTED",
+                  "generated_from": document.generated_from,
+                  "file_count": len(current),
+              }, indent=2, sort_keys=True))
+              raise SystemExit(0)
+
+          if document.generated_from != old_generated_from:
+              raise SystemExit(
+                  "unexpected_accepted_baseline:" + document.generated_from
+              )
+          if len(document.files) != 630:
+              raise SystemExit(f"unexpected_old_file_count:{len(document.files)}")
+          if len(current) != 671:
+              raise SystemExit(f"unexpected_candidate_file_count:{len(current)}")
+
+          added = {path for path in current if path not in document.files}
+          deleted = {path for path in document.files if path not in current}
+          modified = {
+              path
+              for path in set(current) & set(document.files)
+              if current[path] != document.files[path]
+          }
+          if added != expected_added:
+              raise SystemExit(
+                  "unexpected_added_drift:" + json.dumps({
+                      "missing": sorted(expected_added - added),
+                      "extra": sorted(added - expected_added),
+                  }, ensure_ascii=False, sort_keys=True)
+              )
+          if modified != expected_modified:
+              raise SystemExit(
+                  "unexpected_modified_drift:" + json.dumps({
+                      "missing": sorted(expected_modified - modified),
+                      "extra": sorted(modified - expected_modified),
+                  }, ensure_ascii=False, sort_keys=True)
+              )
+          if deleted:
+              raise SystemExit("unexpected_deleted_drift:" + ",".join(sorted(deleted)))
+
+          payload = dict(document.payload)
+          payload["generated_from"] = "git:" + approved_main
+          payload["generated_at"] = (
+              datetime.now(timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          payload["file_count"] = len(current)
+          payload["files"] = dict(sorted(current.items()))
+          baseline_path.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "status": "PROMOTED_IN_WORKTREE",
+              "approved_main_sha": approved_main,
+              "added_count": len(added),
+              "modified_count": len(modified),
+              "deleted_count": len(deleted),
+              "file_count": len(current),
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Validate baseline policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s skill-system/tests -p 'test_product_source_baseline*.py'
+
+      - name: Publish only accepted baseline metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "$BASELINE_PATH"; then
+            echo 'Baseline already exact; no publish needed.'
+            exit 0
+          fi
+          test "$(git rev-parse origin/main)" = "$APPROVED_MAIN_SHA"
+          git diff --name-only | sort > /tmp/actual-paths.txt
+          printf '%s\n' "$BASELINE_PATH" > /tmp/expected-paths.txt
+          diff -u /tmp/expected-paths.txt /tmp/actual-paths.txt
+          git config user.name 'customer-agent-governance[bot]'
+          git config user.email 'customer-agent-governance[bot]@users.noreply.github.com'
+          git add "$BASELINE_PATH"
+          git diff --cached --check
+          git commit -m 'chore(governance): accept audited product-source baseline'
+          git push origin HEAD:"$ACCEPTANCE_BRANCH"
