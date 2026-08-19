@@ -17,6 +17,7 @@ head SHA, failure signature, and narrowed path set.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -35,6 +36,7 @@ class ScopeNormalizationError(RuntimeError):
 
 
 _TEST_PARTS = {"test", "tests", "e2e", "__tests__"}
+_LOOP_FEEDBACK_SCHEMA = "github-governed-repair-feedback@1"
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -60,6 +62,57 @@ def _normalize_path(value: object) -> str:
     while value.startswith("./"):
         value = value[2:]
     return value
+
+
+def _candidate_paths_digest(paths: list[str]) -> str:
+    canonical = json.dumps(
+        paths,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _validate_outer_loop_scope_binding(
+    report: dict[str, Any],
+    candidates: list[str],
+) -> None:
+    feedback = report.get("loop_feedback")
+    if feedback is None:
+        return
+    if not isinstance(feedback, dict) or feedback.get("schema") != _LOOP_FEEDBACK_SCHEMA:
+        raise ScopeNormalizationError("invalid outer-loop feedback contract")
+    if feedback.get("failure_class") != "PRODUCT_SOURCE_FAILURE":
+        raise ScopeNormalizationError("outer-loop feedback is not a product-source repair")
+    if feedback.get("scope_expanded") is not False:
+        raise ScopeNormalizationError("outer-loop feedback asserted scope expansion")
+
+    raw_candidates = report.get("candidate_paths")
+    if not isinstance(raw_candidates, list) or not raw_candidates:
+        raise ScopeNormalizationError("outer-loop feedback has no candidate scope")
+    raw_normalized = [_normalize_path(item) for item in raw_candidates]
+    if (
+        any(not path for path in raw_normalized)
+        or len(set(raw_normalized)) != len(raw_normalized)
+        or raw_normalized != candidates
+    ):
+        raise ScopeNormalizationError("outer-loop candidate scope is invalid")
+
+    try:
+        repair_round = int(feedback.get("repair_round") or 0)
+        next_repair_round = int(feedback.get("next_repair_round") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ScopeNormalizationError("outer-loop repair round binding is invalid") from exc
+    if repair_round < 1 or next_repair_round != repair_round + 1:
+        raise ScopeNormalizationError("outer-loop repair round binding is invalid")
+
+    expected_digest = str(feedback.get("candidate_paths_sha256") or "")
+    if len(expected_digest) != 64 or any(
+        char not in "0123456789abcdef" for char in expected_digest
+    ):
+        raise ScopeNormalizationError("outer-loop candidate scope digest is missing or invalid")
+    if _candidate_paths_digest(candidates) != expected_digest:
+        raise ScopeNormalizationError("outer-loop candidate scope drifted from routed repair paths")
 
 
 def _looks_like_test_oracle(path: str) -> bool:
@@ -102,6 +155,8 @@ def normalize_failure_case(report: dict[str, Any]) -> dict[str, Any]:
         path = _normalize_path(item)
         if path and path not in candidates:
             candidates.append(path)
+
+    _validate_outer_loop_scope_binding(report, candidates)
 
     changed: list[str] = []
     for item in report.get("source_changed_files") or []:

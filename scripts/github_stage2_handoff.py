@@ -11,10 +11,23 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+CONTROL = ROOT / "skill-system" / "controller"
+if str(CONTROL) not in sys.path:
+    sys.path.insert(0, str(CONTROL))
+
+from engineering_autonomy_continuation import (  # type: ignore  # noqa: E402
+    AutonomyContinuationError,
+    build_autonomy_continuation,
+    validate_autonomy_continuation,
+)
+
 SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@2"
+MAX_FAILURE_SIGNATURE_BYTES = 512
 
 
 class HandoffError(RuntimeError):
@@ -40,6 +53,18 @@ def _normalize_path(raw: object) -> str:
     return value
 
 
+def _failure_signature(value: object) -> str:
+    result = str(value or "").strip()
+    if (
+        not result
+        or "\n" in result
+        or "\r" in result
+        or len(result.encode("utf-8")) > MAX_FAILURE_SIGNATURE_BYTES
+    ):
+        raise HandoffError("Stage-1 source authority failure signature is invalid")
+    return result
+
+
 def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
     candidate_paths = failure.get("candidate_paths")
     if not isinstance(candidate_paths, list) or not candidate_paths:
@@ -61,7 +86,7 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         "head_sha": str(failure.get("head_sha") or ""),
         "head_branch": str(failure.get("head_branch") or ""),
         "source_pr_number": int(failure.get("source_pr_number") or 0),
-        "failure_signature": str(failure.get("failure_signature") or ""),
+        "failure_signature": _failure_signature(failure.get("failure_signature")),
         "classification": str(failure.get("classification") or ""),
         "repair_allowed": failure.get("repair_allowed") is True,
         "same_repository": failure.get("same_repository") is True,
@@ -77,8 +102,6 @@ def _source_failure_authority(failure: dict[str, Any]) -> dict[str, Any]:
         raise HandoffError("Stage-1 source authority binding is incomplete")
     if not re.fullmatch(r"[0-9a-f]{40}", authority["head_sha"]):
         raise HandoffError("Stage-1 source authority head SHA is invalid")
-    if not re.fullmatch(r"[0-9a-f]{64}", authority["failure_signature"]):
-        raise HandoffError("Stage-1 source authority failure signature is invalid")
     if authority["classification"] != "code_or_contract":
         raise HandoffError("Stage-1 source authority classification is not repairable")
     if not authority["repair_allowed"] or not authority["same_repository"]:
@@ -153,6 +176,7 @@ def bind_handoff(
     failure_path: Path,
     result_path: Path,
     patch_path: Path,
+    autonomy_continuation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     failure = _load(failure_path)
     result = _load(result_path)
@@ -165,7 +189,16 @@ def bind_handoff(
     for key in ("workflow_run_id", "head_sha", "failure_signature"):
         if str(result.get(key)) != str(failure.get(key)):
             raise HandoffError(f"Stage-1/Stage-2 binding mismatch: {key}")
+
+    source_authority = _source_failure_authority(failure)
     _validate_repair_authority(result)
+    stage1_scope = set(source_authority["candidate_paths"])
+    stage2_scope = [_normalize_path(item) for item in result.get("write_scope") or []]
+    expanded_scope = [path for path in stage2_scope if path not in stage1_scope]
+    if expanded_scope:
+        raise HandoffError(
+            f"Stage-2 write scope exceeds Stage-1 candidate authority: {expanded_scope}"
+        )
 
     if not patch_path.is_file() or patch_path.is_symlink():
         raise HandoffError("repair patch must be a regular file")
@@ -184,7 +217,25 @@ def bind_handoff(
     ):
         raise HandoffError("invalid repair base branch")
 
-    source_authority = _source_failure_authority(failure)
+    validated_continuation: dict[str, Any] | None = None
+    if autonomy_continuation is not None:
+        try:
+            validated_continuation = validate_autonomy_continuation(
+                autonomy_continuation,
+                source_run_id=failure.get("workflow_run_id"),
+                source_run_attempt=failure.get("workflow_run_attempt"),
+                source_head_sha=failure.get("head_sha"),
+                failure_signature=failure.get("failure_signature"),
+            )
+        except AutonomyContinuationError as exc:
+            raise HandoffError(str(exc)) from exc
+        try:
+            repair_round = int(result.get("repair_round") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HandoffError("Stage-2 repair round is invalid") from exc
+        if repair_round < 1 or repair_round > int(validated_continuation["max_repair_rounds"]):
+            raise HandoffError("Stage-2 candidate exceeds the autonomy repair budget")
+
     bound = dict(result)
     bound.update(
         {
@@ -206,6 +257,8 @@ def bind_handoff(
             "production_closed": False,
         }
     )
+    if validated_continuation is not None:
+        bound["autonomy_continuation"] = validated_continuation
     if not bound["repository"]:
         raise HandoffError("repository binding is missing")
     result_path.write_text(
@@ -215,17 +268,62 @@ def bind_handoff(
     return bound
 
 
+def _continuation_from_args(args: argparse.Namespace, failure: dict[str, Any]) -> dict[str, Any] | None:
+    values = {
+        "grant_id": args.autonomy_grant_id,
+        "grant_sha256": args.autonomy_grant_sha256,
+        "authorization_id": args.autonomy_authorization_id,
+        "authorization_sha256": args.autonomy_authorization_sha256,
+        "continuation_sha256": args.autonomy_continuation_sha256,
+        "max_repair_rounds": args.max_repair_rounds,
+        "max_validation_retries": args.max_validation_retries,
+    }
+    present = {key: str(value or "").strip() for key, value in values.items() if str(value or "").strip()}
+    if not present:
+        return None
+    if len(present) != len(values):
+        raise HandoffError("partial autonomy continuation arguments are forbidden")
+    try:
+        continuation = build_autonomy_continuation(
+            grant_id=values["grant_id"],
+            grant_sha256=values["grant_sha256"],
+            authorization_id=values["authorization_id"],
+            authorization_sha256=values["authorization_sha256"],
+            source_run_id=failure.get("workflow_run_id"),
+            source_run_attempt=failure.get("workflow_run_attempt"),
+            source_head_sha=failure.get("head_sha"),
+            failure_signature=failure.get("failure_signature"),
+            max_repair_rounds=values["max_repair_rounds"],
+            max_validation_retries=values["max_validation_retries"],
+        )
+    except AutonomyContinuationError as exc:
+        raise HandoffError(str(exc)) from exc
+    if continuation["continuation_sha256"] != values["continuation_sha256"]:
+        raise HandoffError("reconstructed autonomy continuation digest mismatch")
+    return continuation
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--failure-case", required=True)
     parser.add_argument("--result", required=True)
     parser.add_argument("--patch", required=True)
+    parser.add_argument("--autonomy-grant-id", default="")
+    parser.add_argument("--autonomy-grant-sha256", default="")
+    parser.add_argument("--autonomy-authorization-id", default="")
+    parser.add_argument("--autonomy-authorization-sha256", default="")
+    parser.add_argument("--autonomy-continuation-sha256", default="")
+    parser.add_argument("--max-repair-rounds", default="")
+    parser.add_argument("--max-validation-retries", default="")
     args = parser.parse_args()
     try:
+        failure_path = Path(args.failure_case)
+        continuation = _continuation_from_args(args, _load(failure_path))
         bind_handoff(
-            failure_path=Path(args.failure_case),
+            failure_path=failure_path,
             result_path=Path(args.result),
             patch_path=Path(args.patch),
+            autonomy_continuation=continuation,
         )
     except (OSError, json.JSONDecodeError, HandoffError) as exc:
         print(

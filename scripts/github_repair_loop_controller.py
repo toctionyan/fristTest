@@ -24,6 +24,10 @@ CONTROL = ROOT / "skill-system" / "controller"
 if str(CONTROL) not in sys.path:
     sys.path.insert(0, str(CONTROL))
 
+from engineering_autonomy_continuation import (  # type: ignore  # noqa: E402
+    AutonomyContinuationError,
+    validate_autonomy_continuation,
+)
 from task_run import TaskRunStore  # type: ignore  # noqa: E402
 
 LOOP_SCHEMA = "github-governed-repair-loop@1"
@@ -31,7 +35,7 @@ FEEDBACK_SCHEMA = "github-governed-repair-feedback@1"
 STAGE2_SCHEMA = "github-governed-repair-stage2@1"
 STAGE3_SCHEMA = "github-governed-repair-stage3@1"
 FAILURE_SCHEMA = "github-failure-ingest@1"
-SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@1"
+SOURCE_AUTHORITY_SCHEMA = "github-stage2-source-failure-authority@2"
 MAX_REPAIR_ROUNDS = 8
 STAGNATION_LIMIT = 2
 MAX_VALIDATION_RETRIES_PER_CANDIDATE = 3
@@ -121,6 +125,20 @@ def _unique(values: Iterable[str]) -> list[str]:
         if value and value not in result:
             result.append(value)
     return result
+
+
+def _candidate_paths_digest(paths: Iterable[str]) -> str:
+    normalized = [_normalize_path(value) for value in paths]
+    if any(not path for path in normalized) or normalized != _unique(normalized):
+        raise RepairLoopError("outer-loop repair paths are invalid")
+    if not normalized:
+        raise RepairLoopError("outer-loop repair paths are empty")
+    canonical = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _task(path: Path) -> TaskRunStore:
@@ -383,6 +401,101 @@ def _validate_bindings(
     return binding
 
 
+def _validate_continuation_for_binding(
+    raw: object,
+    *,
+    binding: dict[str, Any],
+    source: str,
+) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise RepairLoopError(f"{source} autonomy continuation must be an object")
+    try:
+        return validate_autonomy_continuation(
+            raw,
+            source_run_id=binding.get("workflow_run_id"),
+            source_run_attempt=binding.get("workflow_run_attempt"),
+            source_head_sha=binding.get("head_sha"),
+            failure_signature=binding.get("failure_signature"),
+        )
+    except AutonomyContinuationError as exc:
+        raise RepairLoopError(str(exc)) from exc
+
+
+def _assert_continuation_budget_binding(
+    state: dict[str, Any],
+    continuation: dict[str, Any],
+    *,
+    source: str,
+) -> None:
+    if _int(state.get("max_repair_rounds"), 0) != int(continuation["max_repair_rounds"]):
+        raise RepairLoopError(f"{source} repair budget drifted from autonomy continuation")
+    if _int(state.get("max_validation_retries_per_candidate"), 0) != int(
+        continuation["max_validation_retries"]
+    ):
+        raise RepairLoopError(f"{source} validation retry budget drifted from autonomy continuation")
+
+
+def _resolve_autonomy_continuation(
+    *,
+    stage2: dict[str, Any],
+    previous: dict[str, Any],
+    binding: dict[str, Any],
+    task_loop: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    task_loop = task_loop or {}
+    raw = stage2.get("autonomy_continuation")
+    artifact_prior_raw = previous.get("autonomy_continuation") if previous else None
+    task_prior_raw = task_loop.get("autonomy_continuation") if task_loop else None
+    prior_started = bool(previous) or bool(task_loop)
+
+    artifact_prior: dict[str, Any] | None = None
+    task_prior: dict[str, Any] | None = None
+    if artifact_prior_raw is not None:
+        artifact_prior = _validate_continuation_for_binding(
+            artifact_prior_raw,
+            binding=binding,
+            source="previous outer-loop artifact",
+        )
+        _assert_continuation_budget_binding(
+            previous,
+            artifact_prior,
+            source="previous outer-loop artifact",
+        )
+    if task_prior_raw is not None:
+        task_prior = _validate_continuation_for_binding(
+            task_prior_raw,
+            binding=binding,
+            source="durable TaskRun metadata",
+        )
+        _assert_continuation_budget_binding(
+            task_loop,
+            task_prior,
+            source="durable TaskRun metadata",
+        )
+    if artifact_prior is not None and task_prior is not None and artifact_prior != task_prior:
+        raise RepairLoopError(
+            "previous outer-loop artifact conflicts with durable TaskRun metadata"
+        )
+
+    prior = task_prior if task_prior is not None else artifact_prior
+    if raw is None:
+        if prior is not None:
+            raise RepairLoopError("autonomy continuation disappeared between repair rounds")
+        return None
+
+    current = _validate_continuation_for_binding(
+        raw,
+        binding=binding,
+        source="Stage-2",
+    )
+    if prior_started:
+        if prior is None:
+            raise RepairLoopError("autonomy continuation appeared after the outer loop already started")
+        if prior != current:
+            raise RepairLoopError("autonomy continuation changed between repair rounds")
+    return current
+
+
 def _existing_loop_metadata(task: TaskRunStore) -> dict[str, Any]:
     metadata = task.payload.get("metadata") if isinstance(task.payload.get("metadata"), dict) else {}
     loop = metadata.get("repair_loop") if isinstance(metadata.get("repair_loop"), dict) else {}
@@ -396,12 +509,15 @@ def _safe_feedback_failure(
     repair_round: int,
     verification_attempt: int,
     failure_fingerprint: str,
+    autonomy_continuation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    routed_paths = list(repair_paths)
+    candidate_paths_sha256 = _candidate_paths_digest(routed_paths)
     feedback = dict(original)
     feedback.pop("authority_schema", None)
     feedback["classification"] = "code_or_contract"
     feedback["repair_allowed"] = True
-    feedback["candidate_paths"] = list(repair_paths)
+    feedback["candidate_paths"] = routed_paths
     feedback["failed_gates"] = [
         {
             "gate_id": "governed-stage3-targeted",
@@ -425,8 +541,13 @@ def _safe_feedback_failure(
         "verification_attempt": verification_attempt,
         "failure_class": "PRODUCT_SOURCE_FAILURE",
         "failure_fingerprint": failure_fingerprint,
+        "candidate_paths_sha256": candidate_paths_sha256,
         "scope_expanded": False,
     }
+    if autonomy_continuation is not None:
+        feedback["loop_feedback"]["autonomy_continuation_sha256"] = str(
+            autonomy_continuation.get("continuation_sha256") or ""
+        )
     return feedback
 
 
@@ -471,6 +592,14 @@ def route_failure(
         if str(previous.get("source_run_id")) != str(binding.get("workflow_run_id")):
             raise RepairLoopError("previous outer-loop state belongs to another source run")
 
+    loop_meta = _existing_loop_metadata(task)
+    autonomy_continuation = _resolve_autonomy_continuation(
+        stage2=stage2,
+        previous=previous,
+        task_loop=loop_meta,
+        binding=binding,
+    )
+
     event_key = f"{stage3_run_id}/{stage3_run_attempt}"
     if previous.get("last_verification_event") == event_key:
         duplicate = dict(previous)
@@ -480,21 +609,27 @@ def route_failure(
         shutil.copyfile(task_run_path, output_dir / "task-run.json")
         return duplicate
 
-    loop_meta = _existing_loop_metadata(task)
     repair_round = max(
         1,
         _int(previous.get("repair_round"), 0),
         _int(loop_meta.get("repair_round"), 0),
         _int(stage2.get("repair_round"), 0),
     )
-    max_rounds = max(
-        1,
-        min(
-            MAX_REPAIR_ROUNDS,
-            _int(previous.get("max_repair_rounds"), MAX_REPAIR_ROUNDS)
-            or MAX_REPAIR_ROUNDS,
-        ),
-    )
+    if autonomy_continuation is not None:
+        max_rounds = int(autonomy_continuation["max_repair_rounds"])
+        max_validation_retries = int(autonomy_continuation["max_validation_retries"])
+        if repair_round > max_rounds:
+            raise RepairLoopError("Stage-2 repair round exceeds the owner-authorized autonomy budget")
+    else:
+        max_rounds = max(
+            1,
+            min(
+                MAX_REPAIR_ROUNDS,
+                _int(previous.get("max_repair_rounds"), MAX_REPAIR_ROUNDS)
+                or MAX_REPAIR_ROUNDS,
+            ),
+        )
+        max_validation_retries = MAX_VALIDATION_RETRIES_PER_CANDIDATE
     prior_verifications = max(
         _int(previous.get("verification_attempt"), 0),
         _int(loop_meta.get("verification_attempt"), 0),
@@ -571,7 +706,7 @@ def route_failure(
         action = "HARNESS_REPAIR_REQUIRED"
         stop_reason = classification_reason
     elif retryable_validation_failure:
-        if same_candidate_retry_count > MAX_VALIDATION_RETRIES_PER_CANDIDATE:
+        if same_candidate_retry_count > max_validation_retries:
             action = "VALIDATION_RETRY_EXHAUSTED"
             stop_reason = "same-candidate transient/environment validation retry budget exhausted"
         else:
@@ -602,13 +737,15 @@ def route_failure(
         "failed_components": _failed_components(targeted, quick_summary),
         "stagnant_rounds": stagnant_rounds,
         "same_candidate_retry_count": same_candidate_retry_count,
-        "max_validation_retries_per_candidate": MAX_VALIDATION_RETRIES_PER_CANDIDATE,
+        "max_validation_retries_per_candidate": max_validation_retries,
         "action": action,
         "stop_reason": stop_reason,
         "repair_budget_consumed": repair_round,
         "repair_budget_remaining": max(0, max_rounds - repair_round),
         "production_closed": False,
     }
+    if autonomy_continuation is not None:
+        state["autonomy_continuation"] = autonomy_continuation
 
     task.set_metadata(repair_loop=state)
     evidence_refs = [str(stage3_plan_path), str(targeted_result_path), f"loop-state:{failure_fp}"]
@@ -659,6 +796,7 @@ def route_failure(
             repair_round=repair_round,
             verification_attempt=verification_attempt,
             failure_fingerprint=failure_fp,
+            autonomy_continuation=autonomy_continuation,
         )
         _write(output_dir / "failure-case.json", feedback)
         shutil.copyfile(seed_patch_path, output_dir / "seed.patch")
