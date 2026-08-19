@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 
 
@@ -93,3 +94,49 @@ def test_completed_job_logs_are_fetched_by_immutable_current_run_id() -> None:
     assert 'select(.status == "completed")' in text
     assert "actions/jobs/${job_id}/logs" in text
     assert "steps.source.outputs.source_pr_number" in text
+
+
+class QualityDirectFailureCommentEscapingTests(unittest.TestCase):
+    def test_stage1_issue_markdown_cannot_execute_backtick_command_substitution(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        job = text[text.index("  governed-failure-stage1:") :]
+
+        # Keep normal shell interpolation for the evidence values, but quote every
+        # Markdown backtick from shell command substitution inside the two heredocs
+        # and the fallback comment. The backslash is consumed by the shell while the
+        # resulting GitHub issue body still receives literal Markdown backticks.
+        self.assertEqual(job.count("BODY=$(cat <<EOF"), 2)
+        required = (
+            "- Stage: \\`QUALITY_RUN_RECEIVED\\`",
+            "- Ingestion trigger: \\`quality-in-run-stage1\\`",
+            "- Source workflow: \\`quality\\`",
+            "- Run ID / attempt: \\`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\\`",
+            "- Head SHA: \\`${SOURCE_SHA}\\`",
+            "- Stage 2 started: \\`false\\`",
+            "- Stage: \\`QUALITY_RUN_INGESTED\\`",
+            "- Classification: \\`${CLASSIFICATION}\\`",
+            "- Failure signature: \\`${FAILURE_SIGNATURE}\\`",
+            "- Structurally eligible for later repair: \\`${REPAIR_ALLOWED}\\`",
+            "- Stage 2 started by this job: \\`false\\`",
+            "- Evidence artifact: \\`governed-ci-quality-stage1-${SOURCE_RUN_ID}\\`",
+            "for run \\`${SOURCE_RUN_ID}\\`.",
+            "and \\`production_closed=false\\`.",
+        )
+        missing = [fragment for fragment in required if fragment not in job]
+        self.assertFalse(missing, f"unsafe or missing Stage-1 Markdown escaping: {missing}")
+
+        forbidden = (
+            "- Stage: `QUALITY_RUN_RECEIVED`",
+            "- Ingestion trigger: `quality-in-run-stage1`",
+            "- Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`",
+            "- Stage: `QUALITY_RUN_INGESTED`",
+            "- Classification: `${CLASSIFICATION}`",
+            "for run `${SOURCE_RUN_ID}`.",
+            "and `production_closed=false`.",
+        )
+        present = [fragment for fragment in forbidden if fragment in job]
+        self.assertFalse(present, f"raw backtick command substitutions remain: {present}")
+
+
+if __name__ == "__main__":
+    unittest.main()

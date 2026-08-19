@@ -384,14 +384,14 @@ jobs:
           BODY=$(cat <<EOF
           The active Quality workflow reached its terminal governed Stage-1 handoff.
 
-          - Stage: `QUALITY_RUN_RECEIVED`
-          - Ingestion trigger: `quality-in-run-stage1`
-          - Source workflow: `quality`
+          - Stage: \`QUALITY_RUN_RECEIVED\`
+          - Ingestion trigger: \`quality-in-run-stage1\`
+          - Source workflow: \`quality\`
           - Source run: ${SOURCE_URL}
-          - Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`
-          - Head SHA: `${SOURCE_SHA}`
+          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Head SHA: \`${SOURCE_SHA}\`
           - Ingestion classification: pending
-          - Stage 2 started: `false`
+          - Stage 2 started: \`false\`
           - Source changes: none
           - production_closed: false
 
@@ -522,13 +522,13 @@ jobs:
           BODY=$(cat <<EOF
           Direct Quality Stage-1 ingestion completed.
 
-          - Stage: `QUALITY_RUN_INGESTED`
-          - Run ID / attempt: `${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}`
-          - Classification: `${CLASSIFICATION}`
-          - Failure signature: `${FAILURE_SIGNATURE}`
-          - Structurally eligible for later repair: `${REPAIR_ALLOWED}`
-          - Stage 2 started by this job: `false`
-          - Evidence artifact: `governed-ci-quality-stage1-${SOURCE_RUN_ID}`
+          - Stage: \`QUALITY_RUN_INGESTED\`
+          - Run ID / attempt: \`${SOURCE_RUN_ID}/${SOURCE_RUN_ATTEMPT}\`
+          - Classification: \`${CLASSIFICATION}\`
+          - Failure signature: \`${FAILURE_SIGNATURE}\`
+          - Structurally eligible for later repair: \`${REPAIR_ALLOWED}\`
+          - Stage 2 started by this job: \`false\`
+          - Evidence artifact: \`governed-ci-quality-stage1-${SOURCE_RUN_ID}\`
           - Source changes: none
           - production_closed: false
 
@@ -546,4 +546,4 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run `${SOURCE_RUN_ID}`. Stage 2 remains disabled, source changes are none, and `production_closed=false`."
+          gh issue comment "${ISSUE_NUMBER}" --body "Direct Quality Stage-1 ingestion stopped after receipt for run \`${SOURCE_RUN_ID}\`. Stage 2 remains disabled, source changes are none, and \`production_closed=false\`."
