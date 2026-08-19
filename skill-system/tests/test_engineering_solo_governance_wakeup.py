@@ -34,6 +34,15 @@ class EngineeringSoloGovernanceWakeupTests(unittest.TestCase):
         self.assertIn("independent_human_gate=true", source)
         self.assertIn("solo preauthorization cannot bypass it", source)
 
+    def test_environment_inspection_failure_is_a_human_gate_not_solo_assumption(self) -> None:
+        source = (ROOT / ".github/workflows/engineering-solo-governance-wakeup.yml").read_text(encoding="utf-8")
+        self.assertIn('if ! gh api "repos/${GITHUB_REPOSITORY}/environments/governed-repair-governance"', source)
+        self.assertIn("environment_inspection_unavailable=true", source)
+        self.assertIn("fail closed to Human Gate", source)
+        failure = source.index("environment_inspection_unavailable=true")
+        solo = source.index("independent_human_gate=false")
+        self.assertLess(failure, solo)
+
     def test_wakeup_requires_exact_same_task_owner_grant(self) -> None:
         source = (ROOT / ".github/workflows/engineering-solo-governance-wakeup.yml").read_text(encoding="utf-8")
         self.assertIn("engineering-merge-grant-${TASK_FP}", source)
