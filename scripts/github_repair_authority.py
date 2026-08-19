@@ -100,12 +100,40 @@ def normalize_paths(paths: Iterable[object]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _legacy_product_failure_shape(failure_case: Mapping[str, Any]) -> bool:
+    """Recognize only pre-M8.6 product evidence that predates repair-domain routing.
+
+    Current trusted Stage-1 always emits ``source_changed_files`` and a semantic
+    classification. Requiring both of those fields to be absent prevents a
+    malformed current failure case from silently falling back to product write
+    authority. The later canonical product path policy still decides whether the
+    exact candidate paths are writable, so tests/workflows/governance remain
+    denied exactly as before.
+    """
+
+    if failure_case.get("schema") != "github-failure-ingest@1":
+        return False
+    if "source_changed_files" in failure_case:
+        return False
+    if failure_case.get("repair_route") is not None:
+        return False
+    if str(failure_case.get("classification") or "").strip():
+        return False
+    if str(failure_case.get("repair_domain") or "").strip():
+        return False
+    if not failure_case.get("candidate_paths"):
+        return False
+    return all(str(failure_case.get(field) or "").strip() for field in _BINDING_FIELDS)
+
+
 def repair_domain(failure_case: Mapping[str, Any]) -> str:
     classification = str(failure_case.get("classification") or "").strip()
     supplied = str(failure_case.get("repair_domain") or "").strip()
     if classification == "code_or_contract":
         if supplied and supplied != REPAIR_DOMAIN_PRODUCT:
             raise RepairAuthorityError("product code/contract failure cannot switch repair domain")
+        return REPAIR_DOMAIN_PRODUCT
+    if not classification and not supplied and _legacy_product_failure_shape(failure_case):
         return REPAIR_DOMAIN_PRODUCT
     if classification != "control_plane_implementation":
         raise RepairAuthorityError(
