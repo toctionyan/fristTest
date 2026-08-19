@@ -1,0 +1,286 @@
+name: engineering-exact-head-resume-wakeup
+
+on:
+  workflow_run:
+    workflows:
+      - quality
+      - skill-self-validation
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: engineering-exact-head-resume-wakeup-${{ github.repository }}-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  wakeup:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Checkout trusted autonomy control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Require both exact-head PR workflows to be genuinely approved and green
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXACT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming evidence
+          [[ "${EXACT_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          pr_number=$(jq -r '.workflow_run.pull_requests[0].number // empty' "$GITHUB_EVENT_PATH")
+          if [[ ! "${pr_number}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "resume_ready=false" >> "$GITHUB_OUTPUT"
+            echo "Completed workflow is not bound to one exact pull request." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" > evidence/pr.json
+          jq -e --arg sha "${EXACT_SHA}" '.state == "open" and .head.sha == $sha and .base.ref == "main"' evidence/pr.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXACT_SHA}&per_page=100" > evidence/exact-head-runs.json
+          quality=$(jq -c '
+            [.workflow_runs[]
+              | select(.name == "quality")
+              | select(.head_sha == $sha)
+              | select(.event == "pull_request")
+              | select(any(.pull_requests[]?; ((.number | tostring) == $pr)))]
+            | sort_by(.run_number, .run_attempt, .id) | reverse | .[0] // empty
+          ' --arg sha "${EXACT_SHA}" --arg pr "${pr_number}" evidence/exact-head-runs.json)
+          skill=$(jq -c '
+            [.workflow_runs[]
+              | select(.name == "skill-self-validation")
+              | select(.head_sha == $sha)
+              | select(.event == "pull_request")
+              | select(any(.pull_requests[]?; ((.number | tostring) == $pr)))]
+            | sort_by(.run_number, .run_attempt, .id) | reverse | .[0] // empty
+          ' --arg sha "${EXACT_SHA}" --arg pr "${pr_number}" evidence/exact-head-runs.json)
+          if [[ -z "${quality}" || -z "${skill}" ]]; then
+            echo "resume_ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          both_green=$(jq -nr --argjson quality "${quality}" --argjson skill "${skill}" '
+            ($quality.status == "completed" and $quality.conclusion == "success")
+            and ($skill.status == "completed" and $skill.conclusion == "success")
+          ')
+          if [[ "${both_green}" != "true" ]]; then
+            echo "resume_ready=false" >> "$GITHUB_OUTPUT"
+            echo "The other mandatory workflow is not yet terminal success; no resume dispatch." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "resume_ready=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "exact_sha=${EXACT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Find exact prior G6 approval-wait evidence
+        id: g6
+        if: steps.ci.outputs.resume_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.ci.outputs.pr_number }}
+          EXACT_SHA: ${{ steps.ci.outputs.exact_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p incoming/g6-candidates
+          : > incoming/g6-runs.ndjson
+          for workflow in governed-ci-repair-governance.yml governed-ci-repair-solo-governance.yml; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?event=workflow_dispatch&status=success&per_page=30" \
+              | jq -c '.workflow_runs[]' >> incoming/g6-runs.ndjson
+          done
+          jq -s 'sort_by(.created_at) | reverse' incoming/g6-runs.ndjson > incoming/g6-runs.json
+          found=false
+          while IFS=$'\t' read -r run_id run_attempt run_name; do
+            [[ "${run_id}" =~ ^[1-9][0-9]*$ && "${run_attempt}" =~ ^[1-9][0-9]*$ ]] || continue
+            work="incoming/g6-candidates/${run_id}-${run_attempt}"
+            mkdir -p "${work}"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" > "${work}/artifacts.json" || continue
+            artifact_id=$(jq -r '[.artifacts[] | select(.expired == false) | select(.name | test("^governed-ci-repair-(solo-)?g6-"))] | sort_by(.created_at) | reverse | .[0].id // empty' "${work}/artifacts.json")
+            [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]] || continue
+            if ! gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${work}/g6.zip"; then
+              continue
+            fi
+            unzip -q "${work}/g6.zip" -d "${work}/g6" || continue
+            state=$(find "${work}/g6" -type f -name exact-head-ci-state.json -print -quit)
+            baseline=$(find "${work}/g6" -type f -name baseline-acceptance.json -print -quit)
+            task=$(find "${work}/g6" -type f -name task-run.json -print -quit)
+            [[ -n "${state}" && -n "${baseline}" && -n "${task}" ]] || continue
+            if jq -e --arg sha "${EXACT_SHA}" --arg pr "${PR_NUMBER}" '
+              .schema == "governed-repair-exact-head-ci-state@1"
+              and .status == "EXACT_HEAD_CI_AWAITING_APPROVAL"
+              and .resume_required == true
+              and .head_sha == $sha
+              and ((.pr_number | tostring) == $pr)
+              and .finalize_allowed == false
+              and .baseline_mutation_allowed == false
+              and .merge_allowed == false
+              and .deploy_allowed == false
+              and .production_closed == false
+            ' "${state}" >/dev/null; then
+              jq -e --arg sha "${EXACT_SHA}" '.schema == "governed-baseline-acceptance@1" and .baseline_commit_sha == $sha and .baseline_accepted == true and .exact_head_certified == false' "${baseline}" >/dev/null
+              cp "${state}" evidence/exact-head-ci-state-awaiting.json
+              cp "${baseline}" evidence/baseline-acceptance.json
+              cp "${task}" evidence/task-run.json
+              echo "g6_run_id=${run_id}" >> "$GITHUB_OUTPUT"
+              echo "g6_run_attempt=${run_attempt}" >> "$GITHUB_OUTPUT"
+              echo "g6_workflow=${run_name}" >> "$GITHUB_OUTPUT"
+              found=true
+              break
+            fi
+          done < <(jq -r '.[] | [.id, .run_attempt, .name] | @tsv' incoming/g6-runs.json)
+          if [[ "${found}" != "true" ]]; then
+            echo "g6_ready=false" >> "$GITHUB_OUTPUT"
+            echo "No matching approval-wait G6 evidence found; no automatic resume." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "g6_ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if exact G6 was already resumed
+        id: prior-resume
+        if: steps.g6.outputs.g6_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          G6_RUN_ID: ${{ steps.g6.outputs.g6_run_id }}
+          G6_RUN_ATTEMPT: ${{ steps.g6.outputs.g6_run_attempt }}
+        run: |
+          set -euo pipefail
+          artifact_name="governed-ci-repair-exact-head-resume-${G6_RUN_ID}-${G6_RUN_ATTEMPT}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" > incoming/prior-resume-artifacts.json
+          count=$(jq '[.artifacts[] | select(.expired == false)] | length' incoming/prior-resume-artifacts.json)
+          if (( count > 0 )); then
+            echo "already_resumed=true" >> "$GITHUB_OUTPUT"
+            echo "Exact G6 already has a resume artifact; replay suppressed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "already_resumed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve same-TaskRun owner preauthorization
+        id: grant
+        if: steps.g6.outputs.g6_ready == 'true' && steps.prior-resume.outputs.already_resumed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          task_fp=$("${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py fingerprint --task evidence/task-run.json)
+          [[ "${task_fp}" =~ ^[0-9a-f]{64}$ ]]
+          artifact_name="engineering-merge-grant-${task_fp}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" > incoming/merge-grants.json
+          artifact_id=$(jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/merge-grants.json)
+          if [[ ! "${artifact_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "preauthorization_ready=false" >> "$GITHUB_OUTPUT"
+            echo "No owner MergeGrant exists; exact-head resume remains a Human Gate." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          authorize_run_id=$(jq -r --argjson id "${artifact_id}" '[.artifacts[] | select(.id == $id)][0].workflow_run.id // empty' incoming/merge-grants.json)
+          [[ "${authorize_run_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${authorize_run_id}" > incoming/authorize-run.json
+          authorize_attempt=$(jq -r '.run_attempt // empty' incoming/authorize-run.json)
+          [[ "${authorize_attempt}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming/grant
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/grant.zip
+          unzip -q incoming/grant.zip -d incoming/grant
+          grant=$(find incoming/grant -type f -name merge-grant.json -print -quit)
+          [[ -n "${grant}" ]]
+          cp "${grant}" evidence/merge-grant.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_solo_governance_preauth.py \
+            --task evidence/task-run.json \
+            --grant evidence/merge-grant.json \
+            --authorize-run incoming/authorize-run.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --repository-owner "${GITHUB_REPOSITORY_OWNER}" \
+            --expected-run-id "${authorize_run_id}" \
+            --expected-run-attempt "${authorize_attempt}" \
+            --output evidence/exact-head-resume-preauthorization.json \
+            --github-output "$GITHUB_OUTPUT"
+          echo "preauthorization_ready=true" >> "$GITHUB_OUTPUT"
+          echo "authorize_run_id=${authorize_run_id}" >> "$GITHUB_OUTPUT"
+          echo "authorize_run_attempt=${authorize_attempt}" >> "$GITHUB_OUTPUT"
+          echo "task_fp=${task_fp}" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve exact resume dispatch
+        id: reserve
+        if: steps.grant.outputs.preauthorization_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXACT_SHA: ${{ steps.ci.outputs.exact_sha }}
+          TASK_FP: ${{ steps.grant.outputs.task_fp }}
+          G6_RUN_ID: ${{ steps.g6.outputs.g6_run_id }}
+          G6_RUN_ATTEMPT: ${{ steps.g6.outputs.g6_run_attempt }}
+        run: |
+          set -euo pipefail
+          context="engineering-exact-head-resume/${G6_RUN_ID}/${G6_RUN_ATTEMPT}/${TASK_FP:0:12}"
+          statuses=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${EXACT_SHA}/status")
+          state=$(jq -r --arg context "${context}" '[.statuses[] | select(.context == $context)][0].state // empty' <<<"${statuses}")
+          case "${state}" in
+            success) reservation_state=DISPATCHED ;;
+            pending) reservation_state=UNCERTAIN ;;
+            failure|error) reservation_state=FAILED ;;
+            "")
+              reservation_state=NEW
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${EXACT_SHA}" \
+                -f state=pending -f context="${context}" \
+                -f description="preauthorized exact-head resume reserved" \
+                -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+              ;;
+            *) echo "unsupported resume reservation state: ${state}" >&2; exit 1 ;;
+          esac
+          echo "reservation_state=${reservation_state}" >> "$GITHUB_OUTPUT"
+          echo "context=${context}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch exact-head resume once
+        id: dispatch
+        if: steps.reserve.outputs.reservation_state == 'NEW'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run governed-ci-repair-exact-head-resume.yml --ref main \
+            -f "g6_run_id=${{ steps.g6.outputs.g6_run_id }}" \
+            -f "g6_run_attempt=${{ steps.g6.outputs.g6_run_attempt }}" \
+            -f "preauthorized_merge_grant_run_id=${{ steps.grant.outputs.authorize_run_id }}" \
+            -f "preauthorized_merge_grant_run_attempt=${{ steps.grant.outputs.authorize_run_attempt }}"
+
+      - name: Finalize resume dispatch reservation
+        if: steps.reserve.outputs.reservation_state == 'NEW'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXACT_SHA: ${{ steps.ci.outputs.exact_sha }}
+          CONTEXT: ${{ steps.reserve.outputs.context }}
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "${DISPATCH_OUTCOME}" == "success" ]]; then
+            state=success; description="preauthorized exact-head resume dispatched"
+          else
+            state=failure; description="preauthorized exact-head resume dispatch failed"
+          fi
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${EXACT_SHA}" \
+            -f state="${state}" -f context="${CONTEXT}" -f description="${description}" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+          [[ "${DISPATCH_OUTCOME}" == "success" ]]
+
+      - name: Upload exact-head resume wakeup evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engineering-exact-head-resume-wakeup-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: evidence
+          retention-days: 90
+          if-no-files-found: warn
