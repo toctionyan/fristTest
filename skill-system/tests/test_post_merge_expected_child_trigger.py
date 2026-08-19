@@ -36,6 +36,15 @@ class PostMergeExpectedChildTriggerTests(unittest.TestCase):
         self.assertIn('pr_number="${MERGED_PR_NUMBER}"', text)
         self.assertIn('authorizing_actor="${MERGED_PR_MERGED_BY}"', text)
 
+        # The trigger consumes only trusted event metadata. The control plane itself
+        # must still come from main, and the untrusted PR head must never be checked
+        # out before the existing independent merge-lineage verifier runs.
+        self.assertIn("Checkout trusted post-merge control plane", text)
+        self.assertIn("          ref: main", text)
+        self.assertIn("          persist-credentials: false", text)
+        self.assertNotIn("ref: ${{ github.event.pull_request.head", text)
+        self.assertIn("github.event.pull_request.merge_commit_sha || inputs.merge_sha", text)
+
         # Keep the workflow_run path because merges produced by GITHUB_TOKEN-backed
         # governed workflows may not emit a second downstream PR event.
         self.assertIn("workflow_run:", text)
