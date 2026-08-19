@@ -505,8 +505,14 @@ def _write_output(path: Path | None, values: dict[str, Any]) -> None:
                 handle.write(f"{key}={text}\n")
 
 
-def _create_task_run(report: dict[str, Any], path: Path) -> None:
-    binding = {
+def _task_identity_binding(report: dict[str, Any]) -> dict[str, Any]:
+    """Return the historical Stage-1 task identity used for stable task IDs.
+
+    The task ID intentionally remains derived from the original six-field source
+    attempt identity. Autonomy-only fields are added to the immutable TaskRun
+    binding without creating a second TaskRun identity.
+    """
+    return {
         "repository": report["repository"],
         "workflow_name": report["workflow_name"],
         "workflow_run_id": report["workflow_run_id"],
@@ -514,9 +520,30 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
         "head_sha": report["head_sha"],
         "failure_signature": report["failure_signature"],
     }
+
+
+def _task_immutable_binding(report: dict[str, Any]) -> dict[str, Any]:
+    """Enrich the one Stage-1 TaskRun with exact M2 autonomy coordinates."""
+    identity = _task_identity_binding(report)
+    branch = str(report.get("repair_branch") or "").strip()
+    base_sha = str(report.get("head_sha") or "").strip().lower()
+    if not branch:
+        raise ValueError("Stage-1 TaskRun requires repair_branch for autonomy binding")
+    if not re.fullmatch(r"[0-9a-f]{40}", base_sha):
+        raise ValueError("Stage-1 TaskRun requires an exact 40-hex head_sha as base_sha")
+    return {
+        **identity,
+        "branch": branch,
+        "base_sha": base_sha,
+    }
+
+
+def _create_task_run(report: dict[str, Any], path: Path) -> None:
+    identity_binding = _task_identity_binding(report)
+    binding = _task_immutable_binding(report)
     task = TaskRunStore.open_or_create(
         path,
-        task_id=stable_task_id("github-repair", binding),
+        task_id=stable_task_id("github-repair", identity_binding),
         task_kind="github-governed-repair",
         binding=binding,
         required_conditions=(
@@ -560,6 +587,25 @@ def _create_task_run(report: dict[str, Any], path: Path) -> None:
             metadata={
                 "governed_repair_state": "EVIDENCE_FROZEN",
                 "next_action": "run mandatory read-only RCA before any write grant",
+                "production_closed": False,
+            },
+        )
+    elif report["classification"] in {
+        "environment",
+        "timeout",
+        "cancelled",
+        "runner_or_platform",
+        "stale",
+    }:
+        task.checkpoint(
+            status="WAITING_EXTERNAL_RESULT",
+            phase="CI_RELIABILITY_RETRY_PENDING",
+            workspace_fingerprint=None,
+            evidence_refs=[str(path.with_name("failure-case.json"))],
+            metadata={
+                "governed_repair_state": "EVIDENCE_FROZEN",
+                "next_action": "retry exact same CI candidate within bounded autonomy retry budget",
+                "source_write_allowed": False,
                 "production_closed": False,
             },
         )
