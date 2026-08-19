@@ -1,0 +1,212 @@
+name: engineering-solo-governance-wakeup
+
+on:
+  workflow_run:
+    workflows:
+      - governed-ci-repair-stage3
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: engineering-solo-governance-wakeup-${{ github.repository }}-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  wakeup:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+      statuses: write
+    steps:
+      - name: Checkout trusted autonomy control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Preserve true independent-review Human Gate
+        id: review-mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence incoming
+          if gh api "repos/${GITHUB_REPOSITORY}/environments/governed-repair-governance" > evidence/governance-environment.json 2>evidence/governance-environment-error.txt; then
+            if jq -e '
+              ([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length) > 0
+              and ([.protection_rules[]? | select(.type == "required_reviewers") | .prevent_self_review] | any(. == true))
+            ' evidence/governance-environment.json >/dev/null; then
+              echo "independent_human_gate=true" >> "$GITHUB_OUTPUT"
+              echo "Protected independent reviewer policy exists; solo preauthorization cannot bypass it." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            printf '%s\n' '{}' > evidence/governance-environment.json
+          fi
+          echo "independent_human_gate=false" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve exact successful Stage-3 TaskRun
+        id: stage3
+        if: steps.review-mode.outputs.independent_human_gate != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE3_RUN_ID: ${{ github.event.workflow_run.id }}
+          STAGE3_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "${STAGE3_RUN_ID}" =~ ^[1-9][0-9]*$ && "${STAGE3_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${STAGE3_RUN_ID}" > incoming/stage3-run.json
+          jq -e --arg attempt "${STAGE3_RUN_ATTEMPT}" '
+            .name == "governed-ci-repair-stage3"
+            and .status == "completed"
+            and .conclusion == "success"
+            and ((.run_attempt | tostring) == $attempt)
+          ' incoming/stage3-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${STAGE3_RUN_ID}/artifacts?per_page=100" > incoming/stage3-artifacts.json
+          artifact_id=$(jq -r '[.artifacts[] | select(.expired == false) | select(.name | startswith("governed-ci-repair-stage3-published-"))] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/stage3-artifacts.json)
+          [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming/stage3
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/stage3.zip
+          unzip -q incoming/stage3.zip -d incoming/stage3
+          task=$(find incoming/stage3 -type f -name task-run.json -print -quit)
+          publication=$(find incoming/stage3 -type f -name publication-result.json -print -quit)
+          [[ -n "${task}" && -n "${publication}" ]]
+          jq -e '
+            .schema == "github-governed-repair-draft-publication@1"
+            and .status == "DRAFT_REPAIR_PR_PUBLISHED_AWAITING_GOVERNANCE"
+            and .governance_closed == false
+            and .merge_allowed == false
+            and .deploy_allowed == false
+            and .production_closed == false
+          ' "${publication}" >/dev/null
+          cp "${task}" evidence/task-run.json
+          cp "${publication}" evidence/publication-result.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_authorized_merge.py fingerprint \
+            --task evidence/task-run.json --github-output "$GITHUB_OUTPUT"
+          echo "stage3_head_sha=$(jq -r '.head_sha' incoming/stage3-run.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve exact owner-issued task MergeGrant
+        id: grant
+        if: steps.stage3.outputs.task_binding_fingerprint != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_FP: ${{ steps.stage3.outputs.task_binding_fingerprint }}
+        run: |
+          set -euo pipefail
+          artifact_name="engineering-merge-grant-${TASK_FP}"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" > incoming/merge-grants.json
+          artifact_id=$(jq -r '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty' incoming/merge-grants.json)
+          if [[ ! "${artifact_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "preauthorization_ready=false" >> "$GITHUB_OUTPUT"
+            echo "No task-level MergeGrant: solo G6 remains a Human Gate." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          authorize_run_id=$(jq -r --argjson id "${artifact_id}" '[.artifacts[] | select(.id == $id)][0].workflow_run.id // empty' incoming/merge-grants.json)
+          [[ "${authorize_run_id}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${authorize_run_id}" > incoming/authorize-run.json
+          authorize_attempt=$(jq -r '.run_attempt // empty' incoming/authorize-run.json)
+          [[ "${authorize_attempt}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming/grant
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > incoming/grant.zip
+          unzip -q incoming/grant.zip -d incoming/grant
+          grant=$(find incoming/grant -type f -name merge-grant.json -print -quit)
+          [[ -n "${grant}" ]]
+          cp "${grant}" evidence/merge-grant.json
+          "${pythonLocation}/bin/python" -B control/scripts/github_engineering_solo_governance_preauth.py \
+            --task evidence/task-run.json \
+            --grant evidence/merge-grant.json \
+            --authorize-run incoming/authorize-run.json \
+            --repository "${GITHUB_REPOSITORY}" \
+            --repository-owner "${GITHUB_REPOSITORY_OWNER}" \
+            --expected-run-id "${authorize_run_id}" \
+            --expected-run-attempt "${authorize_attempt}" \
+            --output evidence/solo-preauthorization.json \
+            --github-output "$GITHUB_OUTPUT"
+          echo "preauthorization_ready=true" >> "$GITHUB_OUTPUT"
+          echo "authorize_run_id=${authorize_run_id}" >> "$GITHUB_OUTPUT"
+          echo "authorize_run_attempt=${authorize_attempt}" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve exact solo G6 dispatch
+        id: reserve
+        if: steps.grant.outputs.preauthorization_ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANCHOR_SHA: ${{ steps.stage3.outputs.stage3_head_sha }}
+          TASK_FP: ${{ steps.stage3.outputs.task_binding_fingerprint }}
+        run: |
+          set -euo pipefail
+          [[ "${ANCHOR_SHA}" =~ ^[0-9a-f]{40}$ && "${TASK_FP}" =~ ^[0-9a-f]{64}$ ]]
+          context="engineering-solo-g6-wakeup/${GITHUB_RUN_ID}/${TASK_FP:0:16}"
+          statuses=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${ANCHOR_SHA}/status")
+          state=$(jq -r --arg context "${context}" '[.statuses[] | select(.context == $context)][0].state // empty' <<<"${statuses}")
+          case "${state}" in
+            success) reservation_state=DISPATCHED ;;
+            pending) reservation_state=UNCERTAIN ;;
+            failure|error) reservation_state=FAILED ;;
+            "")
+              reservation_state=NEW
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${ANCHOR_SHA}" \
+                -f state=pending -f context="${context}" \
+                -f description="task-preauthorized solo G6 dispatch reserved" \
+                -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+              ;;
+            *) echo "unsupported reservation state: ${state}" >&2; exit 1 ;;
+          esac
+          echo "reservation_state=${reservation_state}" >> "$GITHUB_OUTPUT"
+          echo "context=${context}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch preauthorized solo G6 once
+        id: dispatch
+        if: steps.reserve.outputs.reservation_state == 'NEW'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTHORIZE_RUN_ID: ${{ steps.grant.outputs.authorize_run_id }}
+          AUTHORIZE_RUN_ATTEMPT: ${{ steps.grant.outputs.authorize_run_attempt }}
+        run: |
+          set -euo pipefail
+          gh workflow run governed-ci-repair-solo-governance.yml --ref main \
+            -f "stage3_run_id=${{ github.event.workflow_run.id }}" \
+            -f "stage3_run_attempt=${{ github.event.workflow_run.run_attempt }}" \
+            -f "preauthorized_merge_grant_run_id=${AUTHORIZE_RUN_ID}" \
+            -f "preauthorized_merge_grant_run_attempt=${AUTHORIZE_RUN_ATTEMPT}"
+
+      - name: Finalize dispatch reservation
+        if: steps.reserve.outputs.reservation_state == 'NEW'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANCHOR_SHA: ${{ steps.stage3.outputs.stage3_head_sha }}
+          CONTEXT: ${{ steps.reserve.outputs.context }}
+          DISPATCH_OUTCOME: ${{ steps.dispatch.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "${DISPATCH_OUTCOME}" == "success" ]]; then
+            state=success; description="task-preauthorized solo G6 dispatched"
+          else
+            state=failure; description="task-preauthorized solo G6 dispatch failed"
+          fi
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${ANCHOR_SHA}" \
+            -f state="${state}" -f context="${CONTEXT}" -f description="${description}" \
+            -f target_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+          [[ "${DISPATCH_OUTCOME}" == "success" ]]
+
+      - name: Upload wakeup evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: engineering-solo-governance-wakeup-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+          path: evidence
+          retention-days: 90
+          if-no-files-found: warn
