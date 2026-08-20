@@ -2,13 +2,13 @@
 
 ## Goal
 
-The development Harness exposes three explicit execution modes instead of forcing users to memorize internal stage commands:
+The development Harness exposes three explicit execution modes without forcing users to memorize internal stage commands:
 
-1. **OPEN** — no Skill is selected. The host may analyze freely and must not fabricate Skill invocation evidence.
+1. **OPEN** — no Skill or Workflow is selected. The host may analyze freely and must not fabricate Skill invocation evidence.
 2. **SKILL_BOUND** — the caller names one exact active Skill. The Harness resolves that exact registry entry, loads the canonical `SKILL.md`, records invocation evidence, and requires response binding.
-3. **WORKFLOW_BOUND** — the caller names one exact registered Workflow. The Workflow owns only step order/branch/loop/interrupt semantics; each Skill/Executor/Gate keeps its own contract and authority.
+3. **WORKFLOW_BOUND** — the caller names one exact registered Workflow. The Workflow owns only step order, branch, loop, and interrupt semantics; each Skill, Executor, and Gate keeps its own contract and authority.
 
-No natural-language keyword router is introduced. If the caller does not explicitly name a Skill or Workflow, the route is OPEN. Unknown Skill/Workflow names fail closed instead of falling back to a similar plugin.
+The mode is structural, not semantic: `--skill` means SKILL_BOUND, `--workflow` means WORKFLOW_BOUND, and supplying neither means OPEN. No natural-language keyword router is introduced. Unknown Skill or Workflow names fail closed instead of falling back to a similar plugin.
 
 ## Separation of responsibilities
 
@@ -29,23 +29,27 @@ A Workflow must not become a second TaskRun, Quality, Change, merge, deployment,
 
 ## Canonical host gateway
 
-Repository-local hosts use:
+Repository-local hosts use one entrypoint: `skillctl.py invoke`.
+
+Open analysis, with no Skill selected:
 
 ```bash
-python3 -B skillctl.py plugin-route --mode OPEN --target customer-agent --payload "分析当前客服 Agent 的问题"
+python3 -B skillctl.py invoke --target customer-agent --payload "分析当前客服 Agent 的问题"
 ```
 
-or:
+Exact Skill execution:
 
 ```bash
-python3 -B skillctl.py plugin-route --mode SKILL_BOUND --skill architecture-options --target customer-agent --payload "检查当前架构" --invocation-id <unique-id>
+python3 -B skillctl.py invoke --skill architecture-options --target customer-agent --payload "检查当前架构" --invocation-id <unique-id>
 ```
 
-or:
+Exact Workflow execution:
 
 ```bash
-python3 -B skillctl.py plugin-route --mode WORKFLOW_BOUND --workflow repair-and-verify --target customer-agent --payload "根据已确认问题执行修复与验证"
+python3 -B skillctl.py invoke --workflow repair-and-verify --target customer-agent --payload "根据已确认问题执行修复与验证"
 ```
+
+`plugin-route` remains a temporary compatibility alias to the same canonical gateway. Callers should prefer `invoke`.
 
 `SKILL_BOUND` creates the ordinary subject-bound Skill load receipt and still requires `skill-response-bind` before the invocation is complete.
 
@@ -67,7 +71,7 @@ Every Workflow must preserve these invariants:
 }
 ```
 
-Every referenced Skill is resolved exactly through `active-skills.json`. Every destination must exist or be `END`. Unreachable steps and Workflows with no reachable `END` fail validation.
+Every referenced Skill is resolved exactly through `active-skills.json`. Executor steps must bind to an existing deterministic profile with `profile:<profile-id>` instead of inventing a free-form executor name. Every destination must exist or be `END`. Unreachable steps and Workflows with no reachable `END` fail validation.
 
 ## LangGraph boundary
 
@@ -75,7 +79,7 @@ Every referenced Skill is resolved exactly through `active-skills.json`. Every d
 
 The LangGraph state may carry execution-local data such as target, artifacts, per-step outputs, visit counts, and execution history. It does **not** replace the durable TaskRun or Task Ledger.
 
-Handlers are injected by the host/runtime adapter using exact keys such as `skill:red-baseline-repair`, `executor:quality-verify`, and `skill:adversarial-review`. A missing handler, undefined transition, or exhausted visit budget blocks the flow fail-closed.
+Handlers are injected by the host/runtime adapter using exact keys such as `skill:red-baseline-repair`, `executor:profile:product-quality-quick`, and `skill:adversarial-review`. A missing handler, undefined transition, or exhausted visit budget blocks the flow fail-closed.
 
 ## Pilot Workflow
 
@@ -84,7 +88,7 @@ Handlers are injected by the host/runtime adapter using exact keys such as `skil
 ```text
 red-baseline-repair
         ↓ PASS
-quality-verify
+product-quality-quick
    RED ↙     ↘ GREEN
 repair       adversarial-review
                 RED ↙   ↘ GREEN
@@ -97,7 +101,7 @@ This pilot proves the composition boundary before migrating the larger existing 
 
 ## Migration policy
 
-The existing `/diagnose`, `/arch`, `/agent-arch`, `/oracle`, `/repair`, `/review`, `/cert`, `/status`, and `/continue` dispatcher remains temporarily as a compatibility adapter. New integrations should prefer OPEN / explicit Skill / explicit Workflow routing.
+The existing `/diagnose`, `/arch`, `/agent-arch`, `/oracle`, `/repair`, `/review`, `/cert`, `/status`, and `/continue` dispatcher remains temporarily as a compatibility adapter. New integrations should prefer OPEN / explicit Skill / explicit Workflow routing through `skillctl.py invoke`.
 
 Do not create a second implementation chain behind the legacy commands. A later migration may convert them into thin aliases to the canonical plugin/workflow gateway and then remove them after host conformance proves the new path.
 
