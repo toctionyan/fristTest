@@ -9,12 +9,7 @@
       "status_first": true,
       "deterministic_response": true,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["ci.run.status"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["ci.run.status"]}}
     },
     {
       "workflow_id": "continue-project",
@@ -24,12 +19,7 @@
       "status_first": true,
       "deterministic_response": true,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["ci.run.status", "ci.run.wait"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["ci.run.status", "ci.run.wait"]}}
     },
     {
       "workflow_id": "diagnose-product",
@@ -39,12 +29,7 @@
       "status_first": false,
       "deterministic_response": false,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["vcs.diff.read", "code_review.context.read"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["vcs.diff.read", "code_review.context.read"]}}
     },
     {
       "workflow_id": "architecture-review",
@@ -54,12 +39,7 @@
       "status_first": false,
       "deterministic_response": false,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["vcs.diff.read", "code_review.context.read"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["vcs.diff.read", "code_review.context.read"]}}
     },
     {
       "workflow_id": "customer-agent-architecture-review",
@@ -69,12 +49,7 @@
       "status_first": false,
       "deterministic_response": false,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["vcs.diff.read", "code_review.context.read"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["vcs.diff.read", "code_review.context.read"]}}
     },
     {
       "workflow_id": "oracle-review",
@@ -84,12 +59,7 @@
       "status_first": false,
       "deterministic_response": false,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["vcs.diff.read"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["vcs.diff.read"]}}
     },
     {
       "workflow_id": "governed-repair",
@@ -102,12 +72,63 @@
       "requirements": {
         "capabilities": {
           "required": ["workspace.write", "test.run", "quality.evaluate"],
-          "optional": [
-            "vcs.diff.read",
-            "vcs.commit.create",
-            "code_review.pull_request.create",
-            "ci.run.wait"
-          ]
+          "optional": ["vcs.diff.read", "vcs.commit.create", "code_review.pull_request.create", "ci.run.wait"]
+        }
+      }
+    },
+    {
+      "workflow_id": "repair-and-prove",
+      "request_class": "REPAIR",
+      "skills": ["red-baseline-repair", "adversarial-review"],
+      "mode": "WRITE_GOVERNED",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": true,
+      "requirements": {
+        "capabilities": {
+          "required": ["workspace.write", "test.run", "quality.evaluate"],
+          "optional": []
+        }
+      },
+      "graph": {
+        "start": "repair",
+        "max_attempts_per_step": 8,
+        "steps": {
+          "repair": {
+            "type": "skill",
+            "use": "red-baseline-repair",
+            "routes": {
+              "success": "focused-test",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "focused-test": {
+            "type": "executor",
+            "use": "test.run",
+            "routes": {
+              "green": "adversarial",
+              "red": "repair",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "adversarial": {
+            "type": "skill",
+            "use": "adversarial-review",
+            "routes": {
+              "clean": "quality",
+              "findings": "repair",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "quality": {
+            "type": "gate",
+            "use": "quality.evaluate",
+            "routes": {
+              "green": "END",
+              "red": "repair",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          }
         }
       }
     },
@@ -119,12 +140,7 @@
       "status_first": false,
       "deterministic_response": false,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["test.run"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["test.run"]}}
     },
     {
       "workflow_id": "release-certification",
@@ -134,12 +150,7 @@
       "status_first": false,
       "deterministic_response": false,
       "write_governed": false,
-      "requirements": {
-        "capabilities": {
-          "required": [],
-          "optional": ["vcs.diff.read", "code_review.context.read", "ci.run.status"]
-        }
-      }
+      "requirements": {"capabilities": {"required": [], "optional": ["vcs.diff.read", "code_review.context.read", "ci.run.status"]}}
     }
   ]
 }
