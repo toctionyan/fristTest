@@ -31,9 +31,9 @@ class DevWorkflowRegistryTest(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         return root
 
-    def test_registry_loads_all_explicit_workflows(self) -> None:
+    def test_registry_loads_explicit_and_reusable_workflows(self) -> None:
         workflows = load_workflow_registry(self.workspace())
-        self.assertEqual(len(workflows), 9)
+        self.assertEqual(len(workflows), 10)
         self.assertEqual(workflows["architecture-review"].skills, ("architecture-options",))
         self.assertEqual(
             workflows["governed-repair"].skills,
@@ -49,6 +49,13 @@ class DevWorkflowRegistryTest(unittest.TestCase):
         )
         self.assertTrue(workflows["governed-repair"].write_governed)
         self.assertTrue(workflows["status-project"].status_first)
+
+        repair_and_prove = workflows["repair-and-prove"]
+        self.assertIsNotNone(repair_and_prove.graph)
+        self.assertEqual(repair_and_prove.graph.start, "repair")
+        self.assertEqual(repair_and_prove.graph.max_attempts_per_step, 8)
+        self.assertEqual(repair_and_prove.graph.steps["focused-test"].use, "test.run")
+        self.assertEqual(repair_and_prove.graph.steps["quality"].routes["red"], "repair")
 
     def test_registry_rejects_target_binding_fields(self) -> None:
         payload = {
@@ -140,6 +147,38 @@ class DevWorkflowRegistryTest(unittest.TestCase):
         self.assertEqual(workflow.skills, ())
         self.assertEqual(workflow.required_capabilities, ("code_review.pull_request.create",))
         self.assertEqual(workflow.optional_capabilities, ("ci.run.wait",))
+
+    def test_registry_rejects_graph_capability_that_is_only_optional(self) -> None:
+        payload = {
+            "schema": WORKFLOW_REGISTRY_SCHEMA,
+            "workflows": [
+                {
+                    "workflow_id": "bad-graph",
+                    "request_class": "PUBLISH",
+                    "skills": [],
+                    "mode": "WRITE_GOVERNED",
+                    "write_governed": True,
+                    "requirements": {
+                        "capabilities": {
+                            "required": [],
+                            "optional": ["ci.run.wait"],
+                        }
+                    },
+                    "graph": {
+                        "start": "wait",
+                        "steps": {
+                            "wait": {
+                                "type": "external_wait",
+                                "use": "ci.run.wait",
+                                "routes": {"pending": "WAITING_EXTERNAL"},
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowRegistryError, "must be declared required"):
+            load_workflow_registry(self.workspace(payload))
 
     def test_registry_rejects_wrong_schema(self) -> None:
         payload = {"schema": "other@1", "workflows": []}
