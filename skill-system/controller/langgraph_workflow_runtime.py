@@ -37,7 +37,7 @@ class WorkflowRuntimeState(TypedDict, total=False):
     runtime_status: str
     next_action: str
     step_attempts: dict[str, int]
-    step_results: dict[str, dict[str, Any]]
+    step_results: dict[str, list[dict[str, Any]]]
     evidence_refs: list[str]
     problem_ledger_ref: str
     external_wait: dict[str, Any]
@@ -159,7 +159,7 @@ def _make_step_node(
                 state=state,
                 capability_binding=binding,
             )
-        except Exception as exc:  # dispatcher failures are evidence-bearing runtime blockers, never success
+        except Exception as exc:  # dispatcher failures are runtime blockers, never success
             return _blocked_update(
                 state,
                 step=step,
@@ -213,13 +213,18 @@ def _make_step_node(
                 reason=f"workflow step {step.step_id!r} routes to HUMAN_GATE without a gate contract",
             )
 
-        step_results = dict(state.get("step_results") or {})
-        step_results[step.step_id] = {
-            "attempt": attempt,
-            "outcome": outcome,
-            "payload": dict(result.payload or {}),
-            "evidence_refs": list(refs),
+        step_results = {
+            step_id: [dict(item) for item in history]
+            for step_id, history in dict(state.get("step_results") or {}).items()
         }
+        step_results.setdefault(step.step_id, []).append(
+            {
+                "attempt": attempt,
+                "outcome": outcome,
+                "payload": dict(result.payload or {}),
+                "evidence_refs": list(refs),
+            }
+        )
         update: WorkflowRuntimeState = {
             "current_stage": step.step_id,
             "last_outcome": outcome,
