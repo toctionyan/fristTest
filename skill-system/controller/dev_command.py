@@ -26,7 +26,9 @@ from workflow_registry import (  # type: ignore  # noqa: E402
     require_workflow,
 )
 
-DEV_COMMAND_ROUTE_SCHEMA = "dev-command-route@2"
+# Keep the existing route schema stable during this incremental orchestration
+# refactor. New workflow fields are additive.
+DEV_COMMAND_ROUTE_SCHEMA = "dev-command-route@1"
 
 
 @dataclass(frozen=True)
