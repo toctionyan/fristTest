@@ -12,6 +12,9 @@ SKILL_INVOCATION_COMMANDS = {
     "skill-invocation-verify": "verify",
     "task-status-project": "status-project",
 }
+DIRECT_CONTROLLER_COMMANDS = {
+    "dev-command": ROOT / "skill-system" / "controller" / "dev_command.py",
+}
 
 if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else ""
@@ -22,6 +25,18 @@ if __name__ == "__main__":
                 "-B",
                 str(ROOT / "skill-system" / "controller" / "skill_invocation_cli.py"),
                 SKILL_INVOCATION_COMMANDS[command],
+                *sys.argv[2:],
+            ],
+            cwd=ROOT,
+            check=False,
+        )
+        raise SystemExit(completed.returncode)
+    if command in DIRECT_CONTROLLER_COMMANDS:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(DIRECT_CONTROLLER_COMMANDS[command]),
                 *sys.argv[2:],
             ],
             cwd=ROOT,
