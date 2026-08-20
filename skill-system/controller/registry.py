@@ -31,6 +31,7 @@ def verify() -> list[str]:
     required = [
         "active-rules.json",
         "active-skills.json",
+        "active-workflows.json",
         "active-policies.json",
         "active-targets.json",
         "active-claims.json",
@@ -78,6 +79,36 @@ def verify() -> list[str]:
         skill_names.add(name)
         if not path.is_file():
             errors.append(f"active_skill_path_missing:{name}:{path.relative_to(ROOT)}")
+
+    workflows_payload = loaded.get("active-workflows.json") or {}
+    workflow_names: set[str] = set()
+    for row in workflows_payload.get("workflows") or []:
+        if not isinstance(row, dict):
+            errors.append("invalid_workflow_row")
+            continue
+        name = str(row.get("name") or "")
+        raw_path = str(row.get("path") or "")
+        path = ROOT / raw_path
+        expected = f"skill-system/workflows/{name}.json" if name else ""
+        if not name or name in workflow_names:
+            errors.append(f"missing_or_duplicate_workflow:{name}")
+        workflow_names.add(name)
+        if raw_path != expected:
+            errors.append(f"active_workflow_path_not_canonical:{name}:{raw_path}")
+        if not path.is_file():
+            errors.append(f"active_workflow_path_missing:{name}:{raw_path}")
+            continue
+        try:
+            workflow = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            errors.append(f"active_workflow_invalid_json:{name}:{raw_path}")
+            continue
+        if (
+            not isinstance(workflow, dict)
+            or workflow.get("schema_version") != 1
+            or workflow.get("id") != name
+        ):
+            errors.append(f"active_workflow_identity_mismatch:{name}:{raw_path}")
 
     policies_payload = loaded.get("active-policies.json") or {}
     for raw in policies_payload.get("policies") or []:
