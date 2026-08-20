@@ -94,6 +94,16 @@ def verify(strict: bool = False) -> list[str]:
         if not (ROOT / relative).is_file():
             errors.append(f"missing_skill_invocation_control:{relative}")
 
+    for relative in (
+        "skill-system/controller/plugin_gateway.py",
+        "skill-system/controller/plugin_registry.py",
+        "skill-system/controller/workflow_spec.py",
+        "skill-system/controller/workflow_runtime.py",
+        "skill-system/registry/active-workflows.json",
+    ):
+        if not (ROOT / relative).is_file():
+            errors.append(f"missing_pluggable_workflow_control:{relative}")
+
     dev_command = ROOT / "skill-system" / "controller" / "dev_command.py"
     if dev_command.is_file():
         dev_text = dev_command.read_text(encoding="utf-8")
@@ -108,6 +118,23 @@ def verify(strict: bool = False) -> list[str]:
         if "skill-response-bind" not in command_doc_text or "--require-response-bound" not in command_doc_text:
             errors.append("minimal_dev_harness_doc_missing_response_binding")
 
+    plugin_doc = ROOT / "docs" / "architecture" / "PLUGGABLE_SKILL_WORKFLOW.md"
+    if not plugin_doc.is_file():
+        errors.append("missing_pluggable_skill_workflow_contract")
+    else:
+        plugin_text = plugin_doc.read_text(encoding="utf-8")
+        for required in (
+            "OPEN",
+            "SKILL_BOUND",
+            "WORKFLOW_BOUND",
+            "skillctl.py invoke",
+            "TaskRun",
+            "LangGraph",
+            "max_visits_are_not_success",
+        ):
+            if required not in plugin_text:
+                errors.append(f"pluggable_skill_workflow_doc_missing:{required}")
+
     skillctl = ROOT / "skillctl.py"
     if not skillctl.is_file():
         errors.append("missing_skillctl")
@@ -119,6 +146,8 @@ def verify(strict: bool = False) -> list[str]:
             "skill-invocation-verify",
             "task-status-project",
             "dev-command",
+            "invoke",
+            "workflow-validate",
         ):
             if command not in skillctl_text:
                 errors.append(f"missing_skillctl_invocation_command:{command}")
