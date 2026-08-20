@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 CONTROLLER = Path(__file__).resolve().parents[1] / "controller"
 if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
+import skill_invocation_cli as invocation_cli  # type: ignore
 from host_conformance import verify as verify_host_conformance  # type: ignore
 from scope_guard import bootstrap_command_allowed  # type: ignore
 from skill_invocation import (  # type: ignore
@@ -30,7 +35,12 @@ ROOT = Path(__file__).resolve().parents[2]
 class SkillInvocationIntegrityTest(unittest.TestCase):
     def workspace(self) -> Path:
         root = Path(tempfile.mkdtemp(prefix="skill-invocation-"))
-        for name in ("change-scope", "adversarial-review", "task-execution-status"):
+        for name in (
+            "change-scope",
+            "adversarial-review",
+            "task-execution-status",
+            "product-code-governance",
+        ):
             skill = root / f"skill-system/skills/{name}/SKILL.md"
             skill.parent.mkdir(parents=True, exist_ok=True)
             skill.write_text(f"---\nname: {name}\ndescription: test\n---\n\n# {name}\n", encoding="utf-8")
@@ -97,6 +107,49 @@ class SkillInvocationIntegrityTest(unittest.TestCase):
         bound = self.receipt(workspace, invocation_id="change-123-response", response_bound=True)
         self.assertTrue(validate_receipt(workspace, bound, require_response_bound=True)["output"]["response_bound"])
 
+    def test_response_bind_command_promotes_loaded_skill_to_response_bound_receipt(self) -> None:
+        workspace = self.workspace()
+        source = self.receipt(
+            workspace,
+            invocation_id="diagnosis-load-1",
+            request_class="DIAGNOSIS",
+            required_skill="product-code-governance",
+            selected_skill="product-code-governance",
+            entrypoint="skill-system/skills/product-code-governance/SKILL.md",
+            output_content="diagnosis governance context",
+            change_id=None,
+        )
+        write_receipt(workspace, source)
+        args = argparse.Namespace(
+            receipt=None,
+            request_class="DIAGNOSIS",
+            skill="product-code-governance",
+            change_id=None,
+            task_id=None,
+            invocation_id="diagnosis-response-1",
+            response="final diagnosis based on the loaded Skill",
+            response_file=None,
+            evidence_ref=None,
+        )
+        with mock.patch.object(invocation_cli, "ROOT", workspace):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(invocation_cli.cmd_bind_response(args), 0)
+        bound = require_invocation(
+            workspace,
+            request_class="DIAGNOSIS",
+            skill="product-code-governance",
+            require_response_bound=True,
+        )
+        self.assertEqual(bound["invocation_id"], "diagnosis-response-1")
+        self.assertEqual(bound["output"]["schema"], "host-response@1")
+        self.assertIn(source["receipt_fingerprint_sha256"], bound["output"]["evidence_ref"])
+
+    def test_response_bind_rejects_workspace_escape_for_response_file(self) -> None:
+        workspace = self.workspace()
+        with mock.patch.object(invocation_cli, "ROOT", workspace):
+            with self.assertRaisesRegex(SkillInvocationError, "inside the workspace"):
+                invocation_cli._workspace_path("../outside-response.txt")
+
     def test_loading_another_skill_does_not_evict_change_scope_receipt(self) -> None:
         workspace = self.workspace()
         write_receipt(workspace, self.receipt(workspace))
@@ -155,6 +208,7 @@ class SkillInvocationIntegrityTest(unittest.TestCase):
     def test_skill_invocation_commands_are_bootstrap_safe(self) -> None:
         for command in (
             "python3 -B skillctl.py skill-load --skill change-scope --request-class CHANGE_SCOPE --invocation-id x --change-id x",
+            "python3 -B skillctl.py skill-response-bind --request-class CHANGE_SCOPE --skill change-scope --change-id x --invocation-id y --response done",
             "python3 -B skillctl.py skill-invocation-verify --request-class CHANGE_SCOPE --skill change-scope --change-id x",
             "python3 -B skillctl.py task-status-project --task-run task.json --invocation-id x",
         ):
@@ -165,6 +219,7 @@ class SkillInvocationIntegrityTest(unittest.TestCase):
         canonical = (ROOT / "skill-system/skills/task-execution-status/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("task-status-project", canonical)
         self.assertIn("execution-progress@1", canonical)
+        self.assertIn("skill-response-bind", (ROOT / "skillctl.py").read_text(encoding="utf-8"))
         for adapter in (
             ROOT / ".agents/skills/task-execution-status/SKILL.md",
             ROOT / ".claude/skills/task-execution-status/SKILL.md",

@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SKILL_INVOCATION_COMMANDS = {
     "skill-load": "load",
+    "skill-response-bind": "bind-response",
     "skill-invocation-verify": "verify",
     "task-status-project": "status-project",
 }

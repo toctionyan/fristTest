@@ -94,16 +94,32 @@ def verify(strict: bool = False) -> list[str]:
         if not (ROOT / relative).is_file():
             errors.append(f"missing_skill_invocation_control:{relative}")
 
+    dev_command = ROOT / "skill-system" / "controller" / "dev_command.py"
+    if dev_command.is_file():
+        dev_text = dev_command.read_text(encoding="utf-8")
+        if "response_binding_required" not in dev_text or "skill-response-bind" not in dev_text:
+            errors.append("dev_command_missing_response_binding_contract")
+
     command_doc = ROOT / "docs" / "architecture" / "MINIMAL_DEV_HARNESS_COMMANDS.md"
     if not command_doc.is_file():
         errors.append("missing_minimal_dev_harness_command_contract")
+    else:
+        command_doc_text = command_doc.read_text(encoding="utf-8")
+        if "skill-response-bind" not in command_doc_text or "--require-response-bound" not in command_doc_text:
+            errors.append("minimal_dev_harness_doc_missing_response_binding")
 
     skillctl = ROOT / "skillctl.py"
     if not skillctl.is_file():
         errors.append("missing_skillctl")
     else:
         skillctl_text = skillctl.read_text(encoding="utf-8")
-        for command in ("skill-load", "skill-invocation-verify", "task-status-project", "dev-command"):
+        for command in (
+            "skill-load",
+            "skill-response-bind",
+            "skill-invocation-verify",
+            "task-status-project",
+            "dev-command",
+        ):
             if command not in skillctl_text:
                 errors.append(f"missing_skillctl_invocation_command:{command}")
 
