@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 CONTROLLER = Path(__file__).resolve().parents[1] / "controller"
+REGISTRY = Path(__file__).resolve().parents[1] / "registry" / "dev-workflows.json"
 if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
@@ -24,6 +25,9 @@ from skill_invocation import require_invocation  # type: ignore
 class DevCommandDispatchTest(unittest.TestCase):
     def workspace(self) -> Path:
         root = Path(tempfile.mkdtemp(prefix="dev-command-"))
+        registry = root / "skill-system/registry/dev-workflows.json"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text(REGISTRY.read_text(encoding="utf-8"), encoding="utf-8")
         for spec in COMMANDS.values():
             for name in spec.skills:
                 skill = root / f"skill-system/skills/{name}/SKILL.md"
@@ -36,7 +40,7 @@ class DevCommandDispatchTest(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
         return root
 
-    def test_arch_command_preserves_free_form_payload_and_routes_exact_skill(self) -> None:
+    def test_arch_command_preserves_free_form_payload_and_routes_exact_workflow_and_skill(self) -> None:
         workspace = self.workspace()
         payload = "ContextStore 职责太重。\n不要增加第二个 Owner。\n请比较三种方案。"
         route = build_route(
@@ -47,9 +51,13 @@ class DevCommandDispatchTest(unittest.TestCase):
         )
         self.assertEqual(route["schema"], DEV_COMMAND_ROUTE_SCHEMA)
         self.assertEqual(route["command"], "/arch")
+        self.assertEqual(route["workflow_id"], "architecture-review")
         self.assertEqual(route["request_class"], "DESIGN")
         self.assertEqual(route["required_skills"], ["architecture-options"])
         self.assertEqual(route["user_payload"], payload)
+        self.assertTrue(route["policy"]["command_selects_workflow_not_skill"])
+        self.assertTrue(route["policy"]["workflow_selects_required_skills"])
+        self.assertFalse(route["policy"]["workflow_target_binding_allowed"])
         self.assertFalse(route["policy"]["natural_language_keyword_rerouting_allowed"])
         self.assertFalse(route["policy"]["fallback_without_required_skill_allowed"])
         self.assertTrue(route["policy"]["response_binding_required"])
@@ -71,6 +79,7 @@ class DevCommandDispatchTest(unittest.TestCase):
             payload="检查多意图规划和上下文 Owner。",
             invocation_prefix="agent-arch-1",
         )
+        self.assertEqual(route["workflow_id"], "customer-agent-architecture-review")
         self.assertEqual(
             route["required_skills"],
             ["architecture-options", "customer-agent-architecture"],
@@ -87,7 +96,7 @@ class DevCommandDispatchTest(unittest.TestCase):
                 any(f"--skill {skill}" in command for command in route["completion"]["binding_commands"])
             )
 
-    def test_repair_routes_governance_and_red_baseline_but_keeps_change_scope_as_write_gate(self) -> None:
+    def test_repair_routes_workflow_to_governance_and_red_baseline_but_keeps_change_scope_as_write_gate(self) -> None:
         workspace = self.workspace()
         route = build_route(
             workspace,
@@ -96,6 +105,7 @@ class DevCommandDispatchTest(unittest.TestCase):
             invocation_prefix="repair-1",
             change_id="change-123",
         )
+        self.assertEqual(route["workflow_id"], "governed-repair")
         self.assertEqual(
             route["required_skills"],
             ["product-code-governance", "red-baseline-repair"],
@@ -115,6 +125,10 @@ class DevCommandDispatchTest(unittest.TestCase):
 
     def test_status_and_continue_both_force_authoritative_status_first(self) -> None:
         workspace = self.workspace()
+        expected_workflows = {
+            "/status": "status-project",
+            "/continue": "continue-project",
+        }
         for index, command in enumerate(("/status", "/continue"), start=1):
             with self.subTest(command=command):
                 route = build_route(
@@ -124,6 +138,7 @@ class DevCommandDispatchTest(unittest.TestCase):
                     invocation_prefix=f"status-{index}",
                     task_id="task-123",
                 )
+                self.assertEqual(route["workflow_id"], expected_workflows[command])
                 self.assertEqual(route["required_skills"], ["task-execution-status"])
                 self.assertTrue(route["policy"]["status_first"])
                 self.assertTrue(route["policy"]["deterministic_response_required"])
@@ -137,6 +152,22 @@ class DevCommandDispatchTest(unittest.TestCase):
                     skill="task-execution-status",
                     task_id="task-123",
                 )
+
+    def test_orchestration_refactor_does_not_claim_existing_authorities_changed(self) -> None:
+        workspace = self.workspace()
+        route = build_route(
+            workspace,
+            command="/review",
+            payload="只做反例审查。",
+            invocation_prefix="review-1",
+        )
+        for key in (
+            "taskrun_authority_changed",
+            "skill_invocation_authority_changed",
+            "quality_authority_changed",
+            "github_authority_changed",
+        ):
+            self.assertFalse(route["policy"][key])
 
     def test_parse_command_text_treats_only_first_token_as_route(self) -> None:
         command, payload = parse_command_text(
