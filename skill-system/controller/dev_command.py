@@ -130,19 +130,12 @@ def parse_command_text(text: str) -> tuple[str, str]:
     user payload; it is not reclassified by keyword rules.
     """
 
-    raw = str(text or "")
-    stripped = raw.lstrip()
+    stripped = str(text or "").lstrip()
     if not stripped:
         raise DevCommandError("development command input is empty")
-    first_line, separator, remainder = stripped.partition("\n")
-    token, spacing, inline_payload = first_line.partition(" ")
-    command = normalize_command(token)
-    payload_parts: list[str] = []
-    if spacing and inline_payload:
-        payload_parts.append(inline_payload)
-    if separator:
-        payload_parts.append(remainder)
-    payload = "\n".join(payload_parts).strip()
+    parts = stripped.split(None, 1)
+    command = normalize_command(parts[0])
+    payload = parts[1].strip() if len(parts) == 2 else ""
     return command, payload
 
 
@@ -163,6 +156,30 @@ def _load_skill_context(workspace: Path, skill: str) -> tuple[str, str]:
     if not path.is_file():
         raise DevCommandError(f"canonical Skill is missing: {relative.as_posix()}")
     return relative.as_posix(), path.read_text(encoding="utf-8")
+
+
+def _response_binding_commands(
+    spec: CommandSpec,
+    *,
+    task_id: str | None,
+    change_id: str | None,
+) -> list[str]:
+    if spec.status_first:
+        return []
+    subject_flags: list[str] = []
+    if change_id:
+        subject_flags.extend(["--change-id", change_id])
+    if task_id:
+        subject_flags.extend(["--task-id", task_id])
+    suffix = " " + " ".join(subject_flags) if subject_flags else ""
+    return [
+        (
+            "python3 -B skillctl.py skill-response-bind "
+            f"--request-class {spec.request_class} --skill {skill}{suffix} "
+            "--invocation-id <unique-id> --response-file <response-file>"
+        )
+        for skill in spec.skills
+    ]
 
 
 def build_route(
@@ -215,6 +232,11 @@ def build_route(
             path = write_receipt(workspace, receipt)
             receipt_paths[skill] = path.relative_to(workspace).as_posix()
 
+    binding_commands = _response_binding_commands(
+        spec,
+        task_id=task_id,
+        change_id=change_id,
+    )
     return {
         "schema": DEV_COMMAND_ROUTE_SCHEMA,
         "status": "PASS",
@@ -234,19 +256,31 @@ def build_route(
             "fallback_without_required_skill_allowed": False,
             "host_must_consume_user_payload": True,
             "host_must_consume_skill_contexts": True,
+            "response_binding_required": True,
+            "response_binding_entrypoint": (
+                "task-status-project" if spec.status_first else "skill-response-bind"
+            ),
             "status_first": spec.status_first,
             "deterministic_response_required": spec.deterministic_response,
             "write_requires_change_scope": spec.write_governed,
         },
+        "completion": {
+            "response_binding_required": True,
+            "binding_commands": binding_commands,
+            "verify_requirement": "skill-invocation-verify --require-response-bound",
+        },
         "next": (
             "Run `python3 -B skillctl.py task-status-project ...` against the authoritative TaskRun; "
-            "do not synthesize whole-task status from GitHub objects."
+            "do not synthesize whole-task status from GitHub objects. The projector itself must create "
+            "the response-bound receipt."
             if spec.status_first
             else (
                 "Use the loaded Skill contexts and user_payload. Before any repository write, the existing "
-                "change-scope Hook must pass."
+                "change-scope Hook must pass. Before the final user-facing response, bind that exact response "
+                "to every required Skill with `skill-response-bind`."
                 if spec.write_governed
-                else "Use the loaded Skill contexts and user_payload; remain read-only."
+                else "Use the loaded Skill contexts and user_payload; remain read-only. Before the final "
+                "user-facing response, bind that exact response to every required Skill with `skill-response-bind`."
             )
         ),
     }
