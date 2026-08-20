@@ -51,25 +51,28 @@ def checkpoint_workflow_resume(
     evidence_refs: Iterable[str] = (),
     correlation_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Move a durable TaskRun back to RUNNING for one authorized resume event.
+    """Move a Workflow-owned wait/gate TaskRun back to RUNNING for one resume event.
 
-    This bridge does not decide whether an external event or human decision is
-    semantically acceptable. The caller supplies the evidence that authorized the
-    resume; the TaskRun only records the lifecycle transition.
+    Status alone is insufficient. The phase must prove that this bridge created
+    the wait/gate being resumed, so an unrelated BLOCKED or WAITING TaskRun cannot
+    be reinterpreted as a Workflow continuation.
     """
 
-    current = str(store.payload.get("status") or "")
+    current_status = str(store.payload.get("status") or "")
+    current_phase = str(store.payload.get("phase") or "")
     kind = str(resume_kind or "").strip().upper()
     allowed = {
-        "EXTERNAL_EVENT": "WAITING_EXTERNAL_RESULT",
-        "HUMAN_DECISION": "BLOCKED",
+        "EXTERNAL_EVENT": ("WAITING_EXTERNAL_RESULT", "WORKFLOW_WAITING_EXTERNAL"),
+        "HUMAN_DECISION": ("BLOCKED", "WORKFLOW_HUMAN_GATE"),
     }
     expected = allowed.get(kind)
     if expected is None:
         raise WorkflowTaskRunBridgeError(f"unsupported workflow resume_kind: {resume_kind!r}")
-    if current != expected:
+    expected_status, expected_phase = expected
+    if current_status != expected_status or current_phase != expected_phase:
         raise WorkflowTaskRunBridgeError(
-            f"workflow resume {kind} requires TaskRun status {expected}, got {current}"
+            f"workflow resume {kind} requires TaskRun {expected_status}/{expected_phase}, "
+            f"got {current_status}/{current_phase}"
         )
     refs = _refs(evidence_refs)
     if not refs:
