@@ -15,6 +15,7 @@ SKILL_INVOCATION_COMMANDS = {
 }
 DIRECT_CONTROLLER_COMMANDS = {
     "dev-command": ROOT / "skill-system" / "controller" / "dev_command.py",
+    "workflow-preflight": ROOT / "skill-system" / "controller" / "workflow_preflight_cli.py",
 }
 
 if __name__ == "__main__":
