@@ -1,0 +1,26 @@
+{
+  "schema": "workflow-registry@1",
+  "workflows": [
+    {
+      "id": "repair-and-verify",
+      "version": "1",
+      "steps": [
+        {
+          "id": "repair",
+          "type": "skill",
+          "use": "repair"
+        },
+        {
+          "id": "verify",
+          "type": "executor",
+          "use": "quality.verify"
+        },
+        {
+          "id": "adversarial",
+          "type": "skill",
+          "use": "adversarial-test"
+        }
+      ]
+    }
+  ]
+}
