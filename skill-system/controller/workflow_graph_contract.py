@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 STEP_TYPES = frozenset({"skill", "executor", "gate", "external_wait", "human_gate"})
 TERMINAL_TARGETS = frozenset({"END", "WAITING_EXTERNAL", "HUMAN_GATE", "BLOCKED_UNRECOVERABLE"})
+_RESERVED_STEP_PREFIX = "__workflow_"
 
 
 class WorkflowGraphContractError(ValueError):
@@ -53,6 +54,13 @@ def _stable_id(value: object, *, field: str) -> str:
     if not text or any(char.isspace() for char in text):
         raise WorkflowGraphContractError(f"{field} must be a non-empty stable identifier")
     return text
+
+
+def _step_id(value: object) -> str:
+    step_id = _stable_id(value, field="workflow step_id")
+    if step_id in TERMINAL_TARGETS or step_id.startswith(_RESERVED_STEP_PREFIX):
+        raise WorkflowGraphContractError(f"workflow step_id {step_id!r} is reserved by the runtime")
+    return step_id
 
 
 def _positive_int(value: object, *, field: str, default: int) -> int:
@@ -108,6 +116,8 @@ def parse_workflow_graph(
             f"workflow {workflow_id!r} graph contains unsupported keys: {unexpected}"
         )
     start = _stable_id(raw.get("start"), field=f"workflow {workflow_id!r} graph start")
+    if start in TERMINAL_TARGETS or start.startswith(_RESERVED_STEP_PREFIX):
+        raise WorkflowGraphContractError(f"workflow {workflow_id!r} graph start {start!r} is reserved")
     default_max_attempts = _positive_int(
         raw.get("max_attempts_per_step"),
         field=f"workflow {workflow_id!r} max_attempts_per_step",
@@ -119,7 +129,7 @@ def parse_workflow_graph(
 
     steps: dict[str, WorkflowStepSpec] = {}
     for raw_step_id, raw_step in raw_steps.items():
-        step_id = _stable_id(raw_step_id, field="workflow step_id")
+        step_id = _step_id(raw_step_id)
         if not isinstance(raw_step, Mapping):
             raise WorkflowGraphContractError(f"workflow step {step_id!r} must be an object")
         unexpected = sorted(set(raw_step) - {"type", "use", "routes", "max_attempts"})
