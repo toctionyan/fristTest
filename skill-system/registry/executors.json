@@ -1,0 +1,26 @@
+{
+  "schema": "executor-registry@1",
+  "providers": [
+    {
+      "provider_id": "local.workspace",
+      "provider_type": "executor",
+      "priority": 100,
+      "activation_key": "local.workspace",
+      "capabilities": ["workspace.read", "workspace.write"]
+    },
+    {
+      "provider_id": "local.process",
+      "provider_type": "executor",
+      "priority": 100,
+      "activation_key": "local.process",
+      "capabilities": ["process.execute", "test.run", "quality.evaluate"]
+    },
+    {
+      "provider_id": "local.git",
+      "provider_type": "executor",
+      "priority": 100,
+      "activation_key": "local.git",
+      "capabilities": ["vcs.diff.read", "vcs.commit.create"]
+    }
+  ]
+}
