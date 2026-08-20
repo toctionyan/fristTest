@@ -42,11 +42,13 @@ def _print(payload: dict[str, Any]) -> None:
 
 
 def _workspace_path(value: str) -> Path:
+    root = ROOT.resolve()
     path = Path(value)
     if not path.is_absolute():
-        path = ROOT / path
+        path = root / path
+    path = path.resolve()
     try:
-        path.relative_to(ROOT)
+        path.relative_to(root)
     except ValueError as exc:
         raise SkillInvocationError(f"path must stay inside the workspace: {path}") from exc
     return path
@@ -61,7 +63,7 @@ def _read_response(args: argparse.Namespace) -> tuple[str, str]:
             response = path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:
             raise SkillInvocationError(f"response file is missing: {path}") from exc
-        evidence_ref = args.evidence_ref or f"file:{path.relative_to(ROOT).as_posix()}"
+        evidence_ref = args.evidence_ref or f"file:{path.relative_to(ROOT.resolve()).as_posix()}"
     else:
         response = str(args.response or "")
         evidence_ref = args.evidence_ref or "arg:response"
@@ -239,7 +241,7 @@ def cmd_bind_response(args: argparse.Namespace) -> int:
     )
     _print({
         "status": "PASS",
-        "source_receipt_path": source_path.relative_to(ROOT).as_posix(),
+        "source_receipt_path": source_path.relative_to(ROOT.resolve()).as_posix(),
         "receipt_path": path.relative_to(ROOT).as_posix(),
         "receipt": receipt,
     })
