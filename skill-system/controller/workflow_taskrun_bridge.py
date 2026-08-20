@@ -8,7 +8,6 @@ from langgraph_workflow_runtime import (
     RUNTIME_STATUS_HUMAN_GATE,
     RUNTIME_STATUS_RUNNING,
     RUNTIME_STATUS_WAITING_EXTERNAL,
-    WorkflowRuntimeState,
 )
 from task_run import TaskRunStore
 
@@ -39,6 +38,54 @@ def checkpoint_workflow_start(
             "workflow_id": str(workflow_id),
             "authority_effect": False,
             "completion_authority": "TaskRun",
+        },
+    )
+
+
+def checkpoint_workflow_resume(
+    store: TaskRunStore,
+    *,
+    workflow_id: str,
+    resume_kind: str,
+    workspace_fingerprint: str | None,
+    evidence_refs: Iterable[str] = (),
+    correlation_ref: str | None = None,
+) -> dict[str, Any]:
+    """Move a durable TaskRun back to RUNNING for one authorized resume event.
+
+    This bridge does not decide whether an external event or human decision is
+    semantically acceptable. The caller supplies the evidence that authorized the
+    resume; the TaskRun only records the lifecycle transition.
+    """
+
+    current = str(store.payload.get("status") or "")
+    kind = str(resume_kind or "").strip().upper()
+    allowed = {
+        "EXTERNAL_EVENT": "WAITING_EXTERNAL_RESULT",
+        "HUMAN_DECISION": "BLOCKED",
+    }
+    expected = allowed.get(kind)
+    if expected is None:
+        raise WorkflowTaskRunBridgeError(f"unsupported workflow resume_kind: {resume_kind!r}")
+    if current != expected:
+        raise WorkflowTaskRunBridgeError(
+            f"workflow resume {kind} requires TaskRun status {expected}, got {current}"
+        )
+    refs = _refs(evidence_refs)
+    if not refs:
+        raise WorkflowTaskRunBridgeError("workflow resume requires durable evidence_refs")
+    return store.checkpoint(
+        status="RUNNING",
+        phase="WORKFLOW_RUNTIME_RESUMED",
+        workspace_fingerprint=workspace_fingerprint,
+        evidence_refs=refs,
+        metadata={
+            "workflow_id": str(workflow_id),
+            "resume_kind": kind,
+            "correlation_ref": str(correlation_ref or "") or None,
+            "authority_effect": False,
+            "graph_can_complete_task": False,
+            "completion_authority_changed": False,
         },
     )
 
@@ -82,6 +129,7 @@ def checkpoint_workflow_state(
         status = "WAITING_EXTERNAL_RESULT"
         phase = "WORKFLOW_WAITING_EXTERNAL"
         metadata["external_wait"] = dict(wait_handle)
+        metadata["resume_stage"] = str(state.get("resume_stage") or "") or None
     elif runtime_status == RUNTIME_STATUS_HUMAN_GATE:
         gate = state.get("human_gate")
         if not isinstance(gate, Mapping) or not gate:
@@ -90,6 +138,7 @@ def checkpoint_workflow_state(
         phase = "WORKFLOW_HUMAN_GATE"
         metadata["human_required"] = True
         metadata["human_gate"] = dict(gate)
+        metadata["resume_stage"] = str(state.get("resume_stage") or "") or None
     elif runtime_status == RUNTIME_STATUS_BLOCKED:
         status = "BLOCKED"
         phase = "WORKFLOW_BLOCKED_UNRECOVERABLE"
@@ -115,6 +164,7 @@ def checkpoint_workflow_state(
 
 __all__ = [
     "WorkflowTaskRunBridgeError",
+    "checkpoint_workflow_resume",
     "checkpoint_workflow_start",
     "checkpoint_workflow_state",
 ]
