@@ -16,6 +16,8 @@ from langgraph_workflow_runtime import (  # type: ignore
 )
 from task_run import TaskRunStore  # type: ignore
 from workflow_taskrun_bridge import (  # type: ignore
+    WorkflowTaskRunBridgeError,
+    checkpoint_workflow_resume,
     checkpoint_workflow_start,
     checkpoint_workflow_state,
 )
@@ -64,7 +66,7 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
         self.assertFalse(latest["metadata"]["graph_can_complete_task"])
         self.assertFalse(latest["metadata"]["completion_authority_changed"])
 
-    def test_external_wait_maps_to_durable_waiting_external_result(self) -> None:
+    def test_external_wait_maps_to_taskrun_wait_then_one_event_resume_back_to_running(self) -> None:
         store = self.store("wait")
         checkpoint_workflow_start(
             store,
@@ -77,6 +79,7 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
                 "workflow_id": "ci-workflow",
                 "runtime_status": RUNTIME_STATUS_WAITING_EXTERNAL,
                 "current_stage": "wait-ci",
+                "resume_stage": "wait-ci",
                 "next_action": "RESUME_ON_EXTERNAL_EVENT",
                 "evidence_refs": ["ci:run-123"],
                 "external_wait": {
@@ -92,8 +95,23 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
         self.assertEqual(store.payload["phase"], "WORKFLOW_WAITING_EXTERNAL")
         latest = store.payload["checkpoints"][-1]
         self.assertEqual(latest["metadata"]["external_wait"]["correlation_ref"], "run-123")
+        self.assertEqual(latest["metadata"]["resume_stage"], "wait-ci")
 
-    def test_human_gate_maps_to_blocked_with_explicit_human_required_contract(self) -> None:
+        checkpoint_workflow_resume(
+            store,
+            workflow_id="ci-workflow",
+            resume_kind="EXTERNAL_EVENT",
+            workspace_fingerprint="fp-1",
+            evidence_refs=["event:ci.completed:run-123"],
+            correlation_ref="run-123",
+        )
+        self.assertEqual(store.payload["status"], "RUNNING")
+        self.assertEqual(store.payload["phase"], "WORKFLOW_RUNTIME_RESUMED")
+        latest = store.payload["checkpoints"][-1]
+        self.assertEqual(latest["metadata"]["resume_kind"], "EXTERNAL_EVENT")
+        self.assertFalse(latest["metadata"]["graph_can_complete_task"])
+
+    def test_human_gate_maps_to_blocked_then_explicit_decision_can_resume(self) -> None:
         store = self.store("human")
         checkpoint_workflow_start(
             store,
@@ -106,6 +124,7 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
                 "workflow_id": "policy-decision",
                 "runtime_status": RUNTIME_STATUS_HUMAN_GATE,
                 "current_stage": "policy-choice",
+                "resume_stage": "policy-choice",
                 "next_action": "AWAIT_HUMAN_DECISION",
                 "evidence_refs": ["decision:conflict"],
                 "human_gate": {
@@ -121,6 +140,45 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
         latest = store.payload["checkpoints"][-1]
         self.assertTrue(latest["metadata"]["human_required"])
         self.assertEqual(latest["metadata"]["human_gate"]["options"], ["7-days", "15-days"])
+
+        checkpoint_workflow_resume(
+            store,
+            workflow_id="policy-decision",
+            resume_kind="HUMAN_DECISION",
+            workspace_fingerprint="fp-1",
+            evidence_refs=["decision:user:15-days"],
+        )
+        self.assertEqual(store.payload["status"], "RUNNING")
+        self.assertEqual(store.payload["phase"], "WORKFLOW_RUNTIME_RESUMED")
+
+    def test_resume_fails_closed_without_durable_event_evidence(self) -> None:
+        store = self.store("missing-resume-evidence")
+        checkpoint_workflow_start(
+            store,
+            workflow_id="ci-workflow",
+            workspace_fingerprint="fp-1",
+        )
+        checkpoint_workflow_state(
+            store,
+            state={
+                "workflow_id": "ci-workflow",
+                "runtime_status": RUNTIME_STATUS_WAITING_EXTERNAL,
+                "current_stage": "wait-ci",
+                "resume_stage": "wait-ci",
+                "next_action": "RESUME_ON_EXTERNAL_EVENT",
+                "evidence_refs": ["ci:run-123"],
+                "external_wait": {"correlation_ref": "run-123"},
+            },
+            workspace_fingerprint="fp-1",
+        )
+        with self.assertRaisesRegex(WorkflowTaskRunBridgeError, "durable evidence_refs"):
+            checkpoint_workflow_resume(
+                store,
+                workflow_id="ci-workflow",
+                resume_kind="EXTERNAL_EVENT",
+                workspace_fingerprint="fp-1",
+                evidence_refs=[],
+            )
 
 
 if __name__ == "__main__":
