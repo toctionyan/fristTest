@@ -15,7 +15,7 @@
     },
     "verify": {
       "type": "executor",
-      "use": "quality-verify",
+      "use": "profile:product-quality-quick",
       "max_visits": 8,
       "transitions": {
         "GREEN": "adversarial",
