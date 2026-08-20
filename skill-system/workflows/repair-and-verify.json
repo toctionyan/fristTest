@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "repair-and-verify",
+  "description": "Pilot governed repair loop: repair, deterministic verification, adversarial review, then stop as FLOW_COMPLETE without claiming TaskRun completion.",
+  "start": "repair",
+  "steps": {
+    "repair": {
+      "type": "skill",
+      "use": "red-baseline-repair",
+      "max_visits": 8,
+      "transitions": {
+        "PASS": "verify",
+        "BLOCKED": "END"
+      }
+    },
+    "verify": {
+      "type": "executor",
+      "use": "quality-verify",
+      "max_visits": 8,
+      "transitions": {
+        "GREEN": "adversarial",
+        "RED": "repair",
+        "BLOCKED": "END"
+      }
+    },
+    "adversarial": {
+      "type": "skill",
+      "use": "adversarial-review",
+      "max_visits": 8,
+      "transitions": {
+        "GREEN": "END",
+        "RED": "repair",
+        "BLOCKED": "END"
+      }
+    }
+  },
+  "policy": {
+    "taskrun_is_lifecycle_authority": true,
+    "workflow_runtime_authority_effect": false,
+    "max_visits_are_not_success": true
+  }
+}
