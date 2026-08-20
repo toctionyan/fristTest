@@ -17,6 +17,16 @@ SKILLS = (
     "product-code-governance",
     "task-execution-status",
 )
+DEV_COMMAND_HOST_BINDINGS = {
+    "architecture-options": ("/arch", "/agent-arch"),
+    "customer-agent-architecture": ("/agent-arch",),
+    "oracle-review": ("/oracle",),
+    "product-code-governance": ("/diagnose", "/repair"),
+    "red-baseline-repair": ("/repair",),
+    "adversarial-review": ("/review",),
+    "release-certification": ("/cert",),
+    "task-execution-status": ("/status", "/continue"),
+}
 ROLES = (
     "scope-planner",
     "skill-implementer",
@@ -52,11 +62,21 @@ def verify(strict: bool = False) -> list[str]:
             if not path.is_file():
                 errors.append(f"missing_host_skill:{path.relative_to(ROOT)}")
                 continue
+            text = path.read_text(encoding="utf-8")
             fm = _frontmatter(path)
             if fm.get("name") != name or not fm.get("description"):
                 errors.append(f"invalid_host_skill_frontmatter:{path.relative_to(ROOT)}")
-            if f"skill-system/skills/{name}/SKILL.md" not in path.read_text(encoding="utf-8"):
+            if f"skill-system/skills/{name}/SKILL.md" not in text:
                 errors.append(f"host_skill_not_thin_adapter:{path.relative_to(ROOT)}")
+            commands = DEV_COMMAND_HOST_BINDINGS.get(name, ())
+            if commands:
+                if "skillctl.py dev-command" not in text:
+                    errors.append(f"host_skill_missing_dev_command_dispatch:{path.relative_to(ROOT)}")
+                for command in commands:
+                    if command not in text:
+                        errors.append(
+                            f"host_skill_missing_explicit_command:{path.relative_to(ROOT)}:{command}"
+                        )
 
     status_skill = ROOT / "skill-system" / "skills" / "task-execution-status" / "SKILL.md"
     if not status_skill.is_file():
@@ -69,16 +89,21 @@ def verify(strict: bool = False) -> list[str]:
     for relative in (
         "skill-system/controller/skill_invocation.py",
         "skill-system/controller/skill_invocation_cli.py",
+        "skill-system/controller/dev_command.py",
     ):
         if not (ROOT / relative).is_file():
             errors.append(f"missing_skill_invocation_control:{relative}")
+
+    command_doc = ROOT / "docs" / "architecture" / "MINIMAL_DEV_HARNESS_COMMANDS.md"
+    if not command_doc.is_file():
+        errors.append("missing_minimal_dev_harness_command_contract")
 
     skillctl = ROOT / "skillctl.py"
     if not skillctl.is_file():
         errors.append("missing_skillctl")
     else:
         skillctl_text = skillctl.read_text(encoding="utf-8")
-        for command in ("skill-load", "skill-invocation-verify", "task-status-project"):
+        for command in ("skill-load", "skill-invocation-verify", "task-status-project", "dev-command"):
             if command not in skillctl_text:
                 errors.append(f"missing_skillctl_invocation_command:{command}")
 
