@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from workflow_graph_contract import (
+    WorkflowGraphContractError,
+    WorkflowGraphSpec,
+    parse_workflow_graph,
+)
+
 WORKFLOW_REGISTRY_SCHEMA = "dev-workflow-registry@1"
 WORKFLOW_REGISTRY_PATH = Path("skill-system/registry/dev-workflows.json")
 
@@ -24,9 +30,10 @@ class WorkflowSpec:
     write_governed: bool = False
     required_capabilities: tuple[str, ...] = ()
     optional_capabilities: tuple[str, ...] = ()
+    graph: WorkflowGraphSpec | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "workflow_id": self.workflow_id,
             "request_class": self.request_class,
             "skills": list(self.skills),
@@ -41,6 +48,9 @@ class WorkflowSpec:
                 }
             },
         }
+        if self.graph is not None:
+            payload["graph"] = self.graph.as_dict()
+        return payload
 
 
 def _text(value: object) -> str:
@@ -148,6 +158,16 @@ def _parse_workflow(row: dict[str, Any]) -> WorkflowSpec:
         )
 
     _validate_no_target_binding(row, workflow_id)
+    try:
+        graph = parse_workflow_graph(
+            row.get("graph"),
+            workflow_id=workflow_id,
+            skills=skills,
+            required_capabilities=required_capabilities,
+        )
+    except WorkflowGraphContractError as exc:
+        raise WorkflowRegistryError(str(exc)) from exc
+
     return WorkflowSpec(
         workflow_id=workflow_id,
         request_class=request_class,
@@ -158,16 +178,18 @@ def _parse_workflow(row: dict[str, Any]) -> WorkflowSpec:
         write_governed=_bool(row, "write_governed"),
         required_capabilities=required_capabilities,
         optional_capabilities=optional_capabilities,
+        graph=graph,
     )
 
 
 def load_workflow_registry(workspace: Path) -> dict[str, WorkflowSpec]:
     """Load target-independent, provider-neutral development Workflow specs.
 
-    Workflow rows may declare canonical Skills plus required/optional capability
-    contracts. They deliberately cannot bind targets, repositories or concrete
-    providers such as GitHub/GitLab/Jenkins. Provider resolution happens later at
-    activation time and cannot acquire TaskRun, Quality or completion authority.
+    Workflow rows may declare canonical Skills, capability requirements and a
+    declarative graph. Graph structure is version-controlled and validated; the
+    model cannot invent arbitrary runtime topology. Provider resolution happens
+    later at activation time and cannot acquire TaskRun, Quality or completion
+    authority.
     """
 
     path = workspace.resolve() / WORKFLOW_REGISTRY_PATH
