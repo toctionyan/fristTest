@@ -2,7 +2,7 @@
 
 ## Purpose
 
-LangGraph is the Workflow runtime for sequence, branch, bounded loop and interruption. It is deliberately **not** a new lifecycle, Quality, business or completion authority.
+LangGraph is the Workflow runtime for sequence, branch, bounded loop, yield and resume. It is deliberately **not** a new lifecycle, Quality, business or completion authority.
 
 ```text
 Workflow Definition
@@ -46,6 +46,8 @@ WAITING_EXTERNAL
 HUMAN_GATE
 BLOCKED_UNRECOVERABLE
 ```
+
+Internal `__workflow_*` node identifiers and terminal target names are reserved and cannot be used as user step IDs.
 
 `END` means the graph has no more orchestration steps. It does **not** mean the TaskRun is completed.
 
@@ -102,7 +104,7 @@ LangGraph state can carry only `problem_ledger_ref`. The Problem Ledger remains 
 
 A graph stage can say "currently adversarial testing" while the Problem Ledger independently says how many required findings remain open. The runtime must not convert graph position into problem closure.
 
-## External wait
+## External wait and resume
 
 `external_wait` is a yield boundary, not a polling loop.
 
@@ -116,13 +118,28 @@ A dispatcher returns a durable wait handle such as:
 }
 ```
 
-The runtime transitions to `WAITING_EXTERNAL` and exits the current graph invocation. The TaskRun bridge persists `WAITING_EXTERNAL_RESULT`. A scheduler/event adapter can later resume from durable state.
+The runtime transitions to `WAITING_EXTERNAL`, records the exact `resume_stage`, and exits the current graph invocation. The TaskRun bridge persists `WAITING_EXTERNAL_RESULT`.
 
-The runtime does not contain `while True + sleep + poll` behavior.
+When the scheduler/event adapter receives one matching external event, it records durable event evidence, transitions TaskRun back to `RUNNING`, and resumes the same declarative step with the event payload. That step can then return an already-declared outcome such as `green` or `red`.
 
-## Human Gate
+```text
+wait-ci
+  -> pending -> WAITING_EXTERNAL
+                  |
+             ci.completed event
+                  |
+             resume wait-ci
+                  |
+          green / red / blocked
+```
 
-A Human Gate must return an explicit durable gate contract. The TaskRun bridge maps it to `BLOCKED` with `human_required=true`.
+This is event-driven re-entry, not `while True + sleep + poll`. One event causes one resume invocation. Resume cannot invent a new step or route.
+
+## Human Gate and resume
+
+A Human Gate must return an explicit durable gate contract. The TaskRun bridge maps it to `BLOCKED` with `human_required=true` and records the exact resume stage.
+
+A human decision must itself have durable evidence before TaskRun can transition back to `RUNNING`. The same gate step is then re-entered with the decision payload and must return one of its declared outcomes.
 
 Ordinary RED test results, recoverable CI failures, or missing optional providers are not Human Gates.
 
@@ -131,11 +148,13 @@ Ordinary RED test results, recoverable CI failures, or missing optional provider
 Runtime state is projected into TaskRun lifecycle checkpoints:
 
 ```text
-RUNNING              -> TaskRun RUNNING
-WAITING_EXTERNAL     -> TaskRun WAITING_EXTERNAL_RESULT
-HUMAN_GATE           -> TaskRun BLOCKED / human_required
-BLOCKED_UNRECOVERABLE-> TaskRun BLOCKED
-WORKFLOW_END          -> TaskRun VALIDATING
+RUNNING               -> TaskRun RUNNING
+WAITING_EXTERNAL      -> TaskRun WAITING_EXTERNAL_RESULT
+external event resume -> TaskRun RUNNING
+HUMAN_GATE            -> TaskRun BLOCKED / human_required
+human decision resume -> TaskRun RUNNING
+BLOCKED_UNRECOVERABLE -> TaskRun BLOCKED
+WORKFLOW_END           -> TaskRun VALIDATING
 ```
 
 The bridge never marks a TaskRun `COMPLETED` and never marks completion conditions.
@@ -152,6 +171,8 @@ PR merged              != TaskRun COMPLETED
 Skill success          != TaskRun COMPLETED
 Capability binding     != write permit
 Workflow state         != ProblemLedger authority
+External event         != completion authority
+Human decision         != completion authority
 ```
 
 Completion remains a separate decision based on TaskRun required conditions and durable evidence.
@@ -163,6 +184,6 @@ The runtime intentionally does not fake an external ChatGPT host or fabricate Sk
 - Skill dispatcher backed by the canonical Skill Invocation contract
 - local deterministic Executor dispatcher
 - Integration adapters for GitHub/GitLab/Jenkins
-- durable checkpoint/resume wiring
+- durable checkpointer storage and scheduler/event wake-up adapters
 
 Those adapters must preserve the same authority boundaries.
