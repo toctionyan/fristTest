@@ -41,6 +41,35 @@ def _print(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _workspace_path(value: str) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        path = ROOT / path
+    try:
+        path.relative_to(ROOT)
+    except ValueError as exc:
+        raise SkillInvocationError(f"path must stay inside the workspace: {path}") from exc
+    return path
+
+
+def _read_response(args: argparse.Namespace) -> tuple[str, str]:
+    if args.response and args.response_file:
+        raise SkillInvocationError("use only one of --response or --response-file")
+    if args.response_file:
+        path = _workspace_path(args.response_file)
+        try:
+            response = path.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            raise SkillInvocationError(f"response file is missing: {path}") from exc
+        evidence_ref = args.evidence_ref or f"file:{path.relative_to(ROOT).as_posix()}"
+    else:
+        response = str(args.response or "")
+        evidence_ref = args.evidence_ref or "arg:response"
+    if not response.strip():
+        raise SkillInvocationError("response payload must not be empty")
+    return response, evidence_ref
+
+
 def cmd_load(args: argparse.Namespace) -> int:
     skill_path = canonical_skill_path(args.skill)
     absolute = ROOT / skill_path
@@ -152,6 +181,71 @@ def cmd_status_project(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bind_response(args: argparse.Namespace) -> int:
+    if args.receipt:
+        source_path = _workspace_path(args.receipt)
+        source = load_receipt(source_path)
+    else:
+        if not args.request_class or not args.skill:
+            raise SkillInvocationError(
+                "active response binding requires --request-class and --skill when --receipt is omitted"
+            )
+        source_path, source = find_active_receipt(
+            ROOT,
+            request_class=args.request_class,
+            skill=args.skill,
+            change_id=args.change_id,
+            task_id=args.task_id,
+        )
+
+    source = validate_receipt(
+        ROOT,
+        source,
+        expected_request_class=args.request_class,
+        expected_skill=args.skill,
+        expected_change_id=args.change_id,
+        expected_task_id=args.task_id,
+    )
+    if source.get("output", {}).get("response_bound") is True:
+        raise SkillInvocationError("source Skill invocation is already response-bound")
+
+    response, evidence_ref = _read_response(args)
+    subject = source.get("subject") if isinstance(source.get("subject"), dict) else {}
+    source_fingerprint = str(source.get("receipt_fingerprint_sha256") or "")
+    lineage_ref = f"{evidence_ref};source_receipt_sha256={source_fingerprint}"
+    receipt = build_receipt(
+        ROOT,
+        invocation_id=args.invocation_id,
+        request_class=str(source["request_class"]),
+        required_skill=str(source["required_skill"]),
+        selected_skill=str(source["selected_skill"]),
+        entrypoint=str(source["canonical_skill_path"]),
+        output_schema="host-response@1",
+        output_content=response,
+        output_evidence_ref=lineage_ref,
+        change_id=str(subject.get("change_id") or "") or None,
+        task_id=str(subject.get("task_id") or "") or None,
+        response_bound=True,
+    )
+    path = write_receipt(ROOT, receipt)
+    validate_receipt(
+        ROOT,
+        receipt,
+        expected_request_class=str(source["request_class"]),
+        expected_skill=str(source["selected_skill"]),
+        expected_change_id=str(subject.get("change_id") or "") or None,
+        expected_task_id=str(subject.get("task_id") or "") or None,
+        require_response_bound=True,
+    )
+    _print({
+        "status": "PASS",
+        "source_receipt_path": source_path.relative_to(ROOT).as_posix(),
+        "receipt_path": path.relative_to(ROOT).as_posix(),
+        "receipt": receipt,
+    })
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     if args.receipt:
         path = Path(args.receipt)
@@ -206,6 +300,18 @@ def main() -> int:
     status.add_argument("--task-id")
     status.add_argument("--invocation-id", required=True)
     status.set_defaults(func=cmd_status_project)
+
+    bind = sub.add_parser("bind-response")
+    bind.add_argument("--receipt")
+    bind.add_argument("--request-class")
+    bind.add_argument("--skill")
+    bind.add_argument("--change-id")
+    bind.add_argument("--task-id")
+    bind.add_argument("--invocation-id", required=True)
+    bind.add_argument("--response")
+    bind.add_argument("--response-file")
+    bind.add_argument("--evidence-ref")
+    bind.set_defaults(func=cmd_bind_response)
 
     verify = sub.add_parser("verify")
     verify.add_argument("--receipt")
