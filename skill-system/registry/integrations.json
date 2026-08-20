@@ -1,0 +1,48 @@
+{
+  "schema": "integration-registry@1",
+  "providers": [
+    {
+      "provider_id": "github.code_review",
+      "provider_type": "integration",
+      "priority": 100,
+      "activation_key": "github.code_review",
+      "capabilities": [
+        "code_review.context.read",
+        "code_review.pull_request.create",
+        "code_review.pull_request.merge"
+      ]
+    },
+    {
+      "provider_id": "github.actions",
+      "provider_type": "integration",
+      "priority": 100,
+      "activation_key": "github.actions",
+      "capabilities": ["ci.run.status", "ci.run.wait"]
+    },
+    {
+      "provider_id": "gitlab.code_review",
+      "provider_type": "integration",
+      "priority": 200,
+      "activation_key": "gitlab.code_review",
+      "capabilities": [
+        "code_review.context.read",
+        "code_review.pull_request.create",
+        "code_review.pull_request.merge"
+      ]
+    },
+    {
+      "provider_id": "gitlab.ci",
+      "provider_type": "integration",
+      "priority": 200,
+      "activation_key": "gitlab.ci",
+      "capabilities": ["ci.run.status", "ci.run.wait"]
+    },
+    {
+      "provider_id": "jenkins.ci",
+      "provider_type": "integration",
+      "priority": 300,
+      "activation_key": "jenkins.ci",
+      "capabilities": ["ci.run.status", "ci.run.wait"]
+    }
+  ]
+}
