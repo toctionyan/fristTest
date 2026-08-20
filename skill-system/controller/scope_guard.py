@@ -121,7 +121,7 @@ def bootstrap_command_allowed(command: str) -> bool:
     if not any(value in command for value in CONTRACT_BOOTSTRAP_COMMANDS):
         return False
     return re.search(
-        r"\b(init|product-init|product-baseline|product-verify|contract-validate|contract-show|contract-approve|contract-configure|contract-begin|attest-review|contract-verify|contract-close|repair-permit|repair-governance-validate|repair-diff-review|repair-closure-record|repair-governance-status|skill-load|skill-invocation-verify|task-status-project|dev-command|issue-permit|diff-review|closure-record|validate|show|approve|configure|begin|verify|close|status|profiles)\b",
+        r"\b(init|product-init|product-baseline|product-verify|contract-validate|contract-show|contract-approve|contract-configure|contract-begin|attest-review|contract-verify|contract-close|repair-permit|repair-governance-validate|repair-diff-review|repair-closure-record|repair-governance-status|skill-load|skill-response-bind|skill-invocation-verify|task-status-project|dev-command|issue-permit|diff-review|closure-record|validate|show|approve|configure|begin|verify|close|status|profiles)\b",
         command,
     ) is not None
 
