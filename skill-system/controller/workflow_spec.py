@@ -17,6 +17,7 @@ from plugin_registry import PluginRegistryError, resolve_skill_plugin, resolve_w
 WORKFLOW_SCHEMA_VERSION = 1
 WORKFLOW_TYPES = {"skill", "executor", "gate", "human_gate"}
 WORKFLOW_END = "END"
+EXECUTOR_PROFILE_PREFIX = "profile:"
 
 
 class WorkflowSpecError(ValueError):
@@ -37,6 +38,31 @@ def _positive_int(value: object, *, label: str) -> int:
     if parsed < 1:
         raise WorkflowSpecError(f"{label} must be a positive integer")
     return parsed
+
+
+def _validate_executor(workspace: Path, *, step_id: str, use: str) -> None:
+    if not use.startswith(EXECUTOR_PROFILE_PREFIX):
+        raise WorkflowSpecError(
+            f"workflow executor step {step_id} must reference {EXECUTOR_PROFILE_PREFIX}<profile>"
+        )
+    profile_id = use[len(EXECUTOR_PROFILE_PREFIX):].strip()
+    if not profile_id:
+        raise WorkflowSpecError(f"workflow executor step {step_id} has empty profile id")
+    path = workspace / "skill-system" / "profiles" / f"{profile_id}.json"
+    if not path.is_file():
+        raise WorkflowSpecError(
+            f"workflow executor step {step_id} references unknown profile: {profile_id}"
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise WorkflowSpecError(
+            f"workflow executor profile is invalid JSON: {profile_id}"
+        ) from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1 or payload.get("id") != profile_id:
+        raise WorkflowSpecError(
+            f"workflow executor profile identity is invalid: {profile_id}"
+        )
 
 
 def validate_workflow_spec(workspace: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -69,6 +95,8 @@ def validate_workflow_spec(workspace: Path, payload: Mapping[str, Any]) -> dict[
                 resolve_skill_plugin(workspace, use)
             except PluginRegistryError as exc:
                 raise WorkflowSpecError(f"workflow step {step_id} references invalid Skill: {use}") from exc
+        elif step_type == "executor":
+            _validate_executor(workspace, step_id=step_id, use=use)
         raw_transitions = raw_step.get("transitions")
         if not isinstance(raw_transitions, Mapping) or not raw_transitions:
             raise WorkflowSpecError(f"workflow step {step_id} requires transitions")
