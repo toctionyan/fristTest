@@ -16,6 +16,7 @@ RUNTIME_STATUS_WAITING_EXTERNAL = "WAITING_EXTERNAL"
 RUNTIME_STATUS_HUMAN_GATE = "HUMAN_GATE"
 RUNTIME_STATUS_BLOCKED = "BLOCKED_UNRECOVERABLE"
 
+_ENTRY_NODE = "__workflow_entry__"
 _TERMINAL_NODE = {
     "END": "__workflow_end__",
     "WAITING_EXTERNAL": "__waiting_external__",
@@ -36,6 +37,9 @@ class WorkflowRuntimeState(TypedDict, total=False):
     last_outcome: str
     runtime_status: str
     next_action: str
+    resume_stage: str
+    external_event: dict[str, Any]
+    human_decision: dict[str, Any]
     step_attempts: dict[str, int]
     step_results: dict[str, list[dict[str, Any]]]
     evidence_refs: list[str]
@@ -79,6 +83,7 @@ def initial_workflow_state(
         "target_ref": dict(target_ref),
         "runtime_status": RUNTIME_STATUS_RUNNING,
         "next_action": "START",
+        "resume_stage": "",
         "step_attempts": {},
         "step_results": {},
         "evidence_refs": [],
@@ -86,6 +91,44 @@ def initial_workflow_state(
     if problem_ledger_ref:
         state["problem_ledger_ref"] = str(problem_ledger_ref)
     return state
+
+
+def resume_workflow_state(
+    state: Mapping[str, Any],
+    *,
+    external_event: Mapping[str, Any] | None = None,
+    human_decision: Mapping[str, Any] | None = None,
+) -> WorkflowRuntimeState:
+    """Prepare one durable workflow state for exactly one event-driven resume.
+
+    The resumed invocation re-enters the step that produced the wait/gate. That
+    step must interpret the supplied external event or human decision and return
+    one of its already-declared outcomes. No new topology is created at resume.
+    """
+
+    runtime_status = str(state.get("runtime_status") or "").strip()
+    current_stage = str(state.get("current_stage") or "").strip()
+    if runtime_status not in {RUNTIME_STATUS_WAITING_EXTERNAL, RUNTIME_STATUS_HUMAN_GATE}:
+        raise WorkflowRuntimeError(
+            f"workflow can resume only from WAITING_EXTERNAL or HUMAN_GATE, got {runtime_status!r}"
+        )
+    if not current_stage:
+        raise WorkflowRuntimeError("workflow resume requires current_stage")
+    if runtime_status == RUNTIME_STATUS_WAITING_EXTERNAL and not external_event:
+        raise WorkflowRuntimeError("WAITING_EXTERNAL resume requires external_event")
+    if runtime_status == RUNTIME_STATUS_HUMAN_GATE and not human_decision:
+        raise WorkflowRuntimeError("HUMAN_GATE resume requires human_decision")
+
+    resumed: WorkflowRuntimeState = dict(state)  # type: ignore[assignment]
+    resumed["runtime_status"] = RUNTIME_STATUS_RUNNING
+    resumed["resume_stage"] = current_stage
+    resumed["next_action"] = current_stage
+    resumed.pop("runtime_error", None)
+    if external_event is not None:
+        resumed["external_event"] = dict(external_event)
+    if human_decision is not None:
+        resumed["human_decision"] = dict(human_decision)
+    return resumed
 
 
 def _binding_index(activation: WorkflowActivation) -> dict[str, CapabilityBinding]:
@@ -116,6 +159,7 @@ def _blocked_update(
         "current_stage": step.step_id,
         "runtime_status": RUNTIME_STATUS_BLOCKED,
         "next_action": "INSPECT_BLOCKER",
+        "resume_stage": "",
         "runtime_error": reason,
         "step_attempts": attempts or dict(state.get("step_attempts") or {}),
     }
@@ -184,26 +228,12 @@ def _make_step_node(
                 reason=f"workflow step {step.step_id!r} returned no durable evidence_refs",
             )
         target = step.routes[outcome]
-        if step.step_type == "external_wait" and not result.external_wait:
-            return _blocked_update(
-                state,
-                step=step,
-                attempts=attempts,
-                reason=f"external_wait step {step.step_id!r} returned no external_wait handle",
-            )
         if target == "WAITING_EXTERNAL" and not result.external_wait:
             return _blocked_update(
                 state,
                 step=step,
                 attempts=attempts,
                 reason=f"workflow step {step.step_id!r} routes to WAITING_EXTERNAL without a wait handle",
-            )
-        if step.step_type == "human_gate" and not result.human_gate:
-            return _blocked_update(
-                state,
-                step=step,
-                attempts=attempts,
-                reason=f"human_gate step {step.step_id!r} returned no human_gate contract",
             )
         if target == "HUMAN_GATE" and not result.human_gate:
             return _blocked_update(
@@ -230,6 +260,7 @@ def _make_step_node(
             "last_outcome": outcome,
             "runtime_status": RUNTIME_STATUS_RUNNING,
             "next_action": target,
+            "resume_stage": "",
             "step_attempts": attempts,
             "step_results": step_results,
             "evidence_refs": _append_unique(list(state.get("evidence_refs") or []), refs),
@@ -258,10 +289,27 @@ def _make_route(step: WorkflowStepSpec):
     return route
 
 
+def _entry_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
+    return {"runtime_status": RUNTIME_STATUS_RUNNING}
+
+
+def _make_entry_route(workflow: WorkflowSpec):
+    assert workflow.graph is not None
+
+    def route(state: WorkflowRuntimeState) -> str:
+        resume_stage = str(state.get("resume_stage") or "").strip()
+        if resume_stage:
+            return resume_stage if resume_stage in workflow.graph.steps else "__BLOCKED__"
+        return workflow.graph.start
+
+    return route
+
+
 def _workflow_end_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
     return {
         "runtime_status": RUNTIME_STATUS_END,
         "next_action": "EVALUATE_COMPLETION_POLICY",
+        "resume_stage": "",
     }
 
 
@@ -270,11 +318,14 @@ def _waiting_external_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
         return {
             "runtime_status": RUNTIME_STATUS_BLOCKED,
             "next_action": "INSPECT_BLOCKER",
+            "resume_stage": "",
             "runtime_error": "WAITING_EXTERNAL requires a durable external_wait handle",
         }
+    current_stage = str(state.get("current_stage") or "").strip()
     return {
         "runtime_status": RUNTIME_STATUS_WAITING_EXTERNAL,
         "next_action": "RESUME_ON_EXTERNAL_EVENT",
+        "resume_stage": current_stage,
     }
 
 
@@ -283,11 +334,14 @@ def _human_gate_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
         return {
             "runtime_status": RUNTIME_STATUS_BLOCKED,
             "next_action": "INSPECT_BLOCKER",
+            "resume_stage": "",
             "runtime_error": "HUMAN_GATE requires a durable human_gate contract",
         }
+    current_stage = str(state.get("current_stage") or "").strip()
     return {
         "runtime_status": RUNTIME_STATUS_HUMAN_GATE,
         "next_action": "AWAIT_HUMAN_DECISION",
+        "resume_stage": current_stage,
     }
 
 
@@ -295,6 +349,7 @@ def _blocked_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
     return {
         "runtime_status": RUNTIME_STATUS_BLOCKED,
         "next_action": "INSPECT_BLOCKER",
+        "resume_stage": "",
     }
 
 
@@ -307,9 +362,9 @@ def build_langgraph_workflow(
 ):
     """Compile a validated Workflow spec into a LangGraph runtime.
 
-    LangGraph owns only sequence/branch/loop execution. The dispatcher owns step
-    execution, CapabilityResolver owns provider binding, and TaskRun remains the
-    lifecycle/completion authority outside this graph.
+    LangGraph owns only sequence/branch/loop/yield/resume routing. The dispatcher
+    owns step execution, CapabilityResolver owns provider binding, and TaskRun
+    remains lifecycle/completion authority outside this graph.
     """
 
     if activation.workflow.workflow_id != workflow.workflow_id:
@@ -321,6 +376,7 @@ def build_langgraph_workflow(
 
     bindings = _binding_index(activation)
     builder = StateGraph(WorkflowRuntimeState)
+    builder.add_node(_ENTRY_NODE, _entry_node)
     for step_id, step in workflow.graph.steps.items():
         builder.add_node(
             step_id,
@@ -332,7 +388,11 @@ def build_langgraph_workflow(
     builder.add_node(_TERMINAL_NODE["HUMAN_GATE"], _human_gate_node)
     builder.add_node(_TERMINAL_NODE["BLOCKED_UNRECOVERABLE"], _blocked_node)
 
-    builder.add_edge(START, workflow.graph.start)
+    builder.add_edge(START, _ENTRY_NODE)
+    entry_paths = {step_id: step_id for step_id in workflow.graph.steps}
+    entry_paths["__BLOCKED__"] = _TERMINAL_NODE["BLOCKED_UNRECOVERABLE"]
+    builder.add_conditional_edges(_ENTRY_NODE, _make_entry_route(workflow), entry_paths)
+
     for step_id, step in workflow.graph.steps.items():
         path_map: dict[str, str] = {"__BLOCKED__": _TERMINAL_NODE["BLOCKED_UNRECOVERABLE"]}
         for target in set(step.routes.values()):
@@ -356,4 +416,5 @@ __all__ = [
     "WorkflowStepDispatcher",
     "build_langgraph_workflow",
     "initial_workflow_state",
+    "resume_workflow_state",
 ]
