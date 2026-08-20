@@ -15,6 +15,7 @@ SKILL_INVOCATION_COMMANDS = {
 }
 DIRECT_CONTROLLER_COMMANDS = {
     "dev-command": ROOT / "skill-system" / "controller" / "dev_command.py",
+    "invoke": ROOT / "skill-system" / "controller" / "plugin_gateway.py",
     "plugin-route": ROOT / "skill-system" / "controller" / "plugin_gateway.py",
     "workflow-validate": ROOT / "skill-system" / "controller" / "workflow_spec.py",
 }
