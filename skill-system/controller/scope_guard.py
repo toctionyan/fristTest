@@ -27,9 +27,6 @@ DESTRUCTIVE_COMMANDS = (
     r"\bsudo\b",
 )
 
-# Repository writes must use the host's structured Write/Edit/apply_patch tools,
-# where the Hook can check exact paths. Shell mutation is intentionally denied
-# because redirects, here-docs and inline interpreters can bypass path guards.
 SHELL_MUTATION_PATTERNS = (
     r"(^|[;&|]\s*)(touch|mkdir|cp|mv|rm|install|chmod|chown)\b",
     r"\bsed\s+[^\n;]*-[^\s]*i\b",
@@ -121,7 +118,7 @@ def bootstrap_command_allowed(command: str) -> bool:
     if not any(value in command for value in CONTRACT_BOOTSTRAP_COMMANDS):
         return False
     return re.search(
-        r"\b(init|product-init|product-baseline|product-verify|contract-validate|contract-show|contract-approve|contract-configure|contract-begin|attest-review|contract-verify|contract-close|repair-permit|repair-governance-validate|repair-diff-review|repair-closure-record|repair-governance-status|skill-load|skill-response-bind|skill-invocation-verify|task-status-project|dev-command|issue-permit|diff-review|closure-record|validate|show|approve|configure|begin|verify|close|status|profiles)\b",
+        r"\b(init|product-init|product-baseline|product-verify|contract-validate|contract-show|contract-approve|contract-configure|contract-begin|attest-review|contract-verify|contract-close|repair-permit|repair-governance-validate|repair-diff-review|repair-closure-record|repair-governance-status|skill-load|skill-response-bind|skill-invocation-verify|task-status-project|dev-command|plugin-route|workflow-validate|issue-permit|diff-review|closure-record|validate|show|approve|configure|begin|verify|close|status|profiles)\b",
         command,
     ) is not None
 
