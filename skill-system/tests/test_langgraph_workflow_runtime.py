@@ -19,6 +19,7 @@ from langgraph_workflow_runtime import (  # type: ignore
     StepDispatchResult,
     build_langgraph_workflow,
     initial_workflow_state,
+    resume_workflow_state,
 )
 from workflow_activation import activate_workflow  # type: ignore
 from workflow_registry import require_workflow  # type: ignore
@@ -57,15 +58,24 @@ class ScriptedDispatcher:
 class ExternalWaitDispatcher:
     def __init__(self) -> None:
         self.calls = 0
+        self.provider_ids: list[str | None] = []
 
     def run(self, *, step, state, capability_binding):
         self.calls += 1
-        self.provider_id = capability_binding.provider_id if capability_binding else None
+        provider_id = capability_binding.provider_id if capability_binding else None
+        self.provider_ids.append(provider_id)
+        external_event = state.get("external_event") or {}
+        if external_event.get("status") == "success":
+            return StepDispatchResult(
+                outcome="green",
+                evidence_refs=("evidence:ci-run-123:green",),
+                payload={"external_event": dict(external_event)},
+            )
         return StepDispatchResult(
             outcome="pending",
-            evidence_refs=("evidence:ci-run-123",),
+            evidence_refs=("evidence:ci-run-123:pending",),
             external_wait={
-                "provider": self.provider_id,
+                "provider": provider_id,
                 "correlation_ref": "run-123",
                 "resume_event": "ci.completed",
             },
@@ -136,7 +146,7 @@ class LangGraphWorkflowRuntimeTest(unittest.TestCase):
         self.assertIn(("repair", None), bound)
         self.assertIn(("adversarial", None), bound)
 
-    def test_external_wait_yields_once_instead_of_polling(self) -> None:
+    def test_external_wait_yields_then_resumes_same_step_on_one_external_event(self) -> None:
         workspace = self.workspace()
         registry_path = workspace / "skill-system/registry/dev-workflows.json"
         payload = json.loads(registry_path.read_text(encoding="utf-8"))
@@ -161,6 +171,7 @@ class LangGraphWorkflowRuntimeTest(unittest.TestCase):
                             "use": "ci.run.wait",
                             "routes": {
                                 "pending": "WAITING_EXTERNAL",
+                                "green": "END",
                                 "blocked": "BLOCKED_UNRECOVERABLE",
                             },
                         }
@@ -182,7 +193,7 @@ class LangGraphWorkflowRuntimeTest(unittest.TestCase):
             activation=activation,
             dispatcher=dispatcher,
         )
-        result = graph.invoke(
+        waiting = graph.invoke(
             initial_workflow_state(
                 workflow_id="ci-wait-test",
                 task_id="task-ci",
@@ -191,10 +202,33 @@ class LangGraphWorkflowRuntimeTest(unittest.TestCase):
         )
 
         self.assertEqual(dispatcher.calls, 1)
-        self.assertEqual(dispatcher.provider_id, "github.actions")
-        self.assertEqual(result["runtime_status"], RUNTIME_STATUS_WAITING_EXTERNAL)
-        self.assertEqual(result["next_action"], "RESUME_ON_EXTERNAL_EVENT")
-        self.assertEqual(result["external_wait"]["correlation_ref"], "run-123")
+        self.assertEqual(dispatcher.provider_ids, ["github.actions"])
+        self.assertEqual(waiting["runtime_status"], RUNTIME_STATUS_WAITING_EXTERNAL)
+        self.assertEqual(waiting["next_action"], "RESUME_ON_EXTERNAL_EVENT")
+        self.assertEqual(waiting["resume_stage"], "wait-ci")
+        self.assertEqual(waiting["external_wait"]["correlation_ref"], "run-123")
+
+        resumed_input = resume_workflow_state(
+            waiting,
+            external_event={"status": "success", "correlation_ref": "run-123"},
+        )
+        finished = graph.invoke(resumed_input)
+        self.assertEqual(dispatcher.calls, 2)
+        self.assertEqual(dispatcher.provider_ids, ["github.actions", "github.actions"])
+        self.assertEqual(finished["runtime_status"], RUNTIME_STATUS_END)
+        self.assertEqual(finished["next_action"], "EVALUATE_COMPLETION_POLICY")
+        self.assertEqual(finished["step_attempts"]["wait-ci"], 2)
+        self.assertEqual(len(finished["step_results"]["wait-ci"]), 2)
+
+    def test_wait_resume_requires_real_external_event(self) -> None:
+        with self.assertRaisesRegex(Exception, "requires external_event"):
+            resume_workflow_state(
+                {
+                    "workflow_id": "ci-wait-test",
+                    "runtime_status": RUNTIME_STATUS_WAITING_EXTERNAL,
+                    "current_stage": "wait-ci",
+                }
+            )
 
     def test_repair_loop_has_hard_attempt_budget_and_blocks_instead_of_running_forever(self) -> None:
         workspace = self.workspace()
