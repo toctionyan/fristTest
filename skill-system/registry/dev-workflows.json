@@ -1,0 +1,86 @@
+{
+  "schema": "dev-workflow-registry@1",
+  "workflows": [
+    {
+      "workflow_id": "status-project",
+      "request_class": "STATUS_QUERY",
+      "skills": ["task-execution-status"],
+      "mode": "STATUS",
+      "status_first": true,
+      "deterministic_response": true,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "continue-project",
+      "request_class": "STATUS_QUERY",
+      "skills": ["task-execution-status"],
+      "mode": "CONTINUE_AFTER_STATUS",
+      "status_first": true,
+      "deterministic_response": true,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "diagnose-product",
+      "request_class": "DIAGNOSIS",
+      "skills": ["product-code-governance"],
+      "mode": "READ_ONLY",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "architecture-review",
+      "request_class": "DESIGN",
+      "skills": ["architecture-options"],
+      "mode": "READ_ONLY",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "customer-agent-architecture-review",
+      "request_class": "DESIGN",
+      "skills": ["architecture-options", "customer-agent-architecture"],
+      "mode": "READ_ONLY",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "oracle-review",
+      "request_class": "ORACLE_REVIEW",
+      "skills": ["oracle-review"],
+      "mode": "READ_ONLY",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "governed-repair",
+      "request_class": "REPAIR",
+      "skills": ["product-code-governance", "red-baseline-repair"],
+      "mode": "WRITE_GOVERNED",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": true
+    },
+    {
+      "workflow_id": "adversarial-review",
+      "request_class": "ADVERSARIAL_REVIEW",
+      "skills": ["adversarial-review"],
+      "mode": "READ_ONLY",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": false
+    },
+    {
+      "workflow_id": "release-certification",
+      "request_class": "CERTIFICATION",
+      "skills": ["release-certification"],
+      "mode": "READ_ONLY",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": false
+    }
+  ]
+}
