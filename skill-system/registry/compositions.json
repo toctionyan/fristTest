@@ -1,0 +1,16 @@
+{
+  "schema": "harness-composition-registry@1",
+  "compositions": [
+    {
+      "composition_id": "repair-and-prove-local",
+      "workflow_id": "repair-and-prove",
+      "providers": {
+        "executor": "local.process",
+        "integration": "event.ci"
+      },
+      "allowed_profiles": ["unit", "quality-quick", "quality-static"],
+      "write_authority_required": true,
+      "completion_authority": "TaskRun"
+    }
+  ]
+}
