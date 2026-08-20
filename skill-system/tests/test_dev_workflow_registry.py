@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+CONTROLLER = Path(__file__).resolve().parents[1] / "controller"
+REGISTRY = Path(__file__).resolve().parents[1] / "registry" / "dev-workflows.json"
+if str(CONTROLLER) not in sys.path:
+    sys.path.insert(0, str(CONTROLLER))
+
+from workflow_registry import (  # type: ignore
+    WORKFLOW_REGISTRY_SCHEMA,
+    WorkflowRegistryError,
+    load_workflow_registry,
+)
+
+
+class DevWorkflowRegistryTest(unittest.TestCase):
+    def workspace(self, payload: dict | None = None) -> Path:
+        root = Path(tempfile.mkdtemp(prefix="workflow-registry-"))
+        path = root / "skill-system/registry/dev-workflows.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if payload is None:
+            path.write_text(REGISTRY.read_text(encoding="utf-8"), encoding="utf-8")
+        else:
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        return root
+
+    def test_registry_loads_all_explicit_workflows(self) -> None:
+        workflows = load_workflow_registry(self.workspace())
+        self.assertEqual(len(workflows), 9)
+        self.assertEqual(workflows["architecture-review"].skills, ("architecture-options",))
+        self.assertEqual(
+            workflows["governed-repair"].skills,
+            ("product-code-governance", "red-baseline-repair"),
+        )
+        self.assertTrue(workflows["governed-repair"].write_governed)
+        self.assertTrue(workflows["status-project"].status_first)
+
+    def test_registry_rejects_target_binding_fields(self) -> None:
+        payload = {
+            "schema": WORKFLOW_REGISTRY_SCHEMA,
+            "workflows": [
+                {
+                    "workflow_id": "bad",
+                    "request_class": "DESIGN",
+                    "skills": ["architecture-options"],
+                    "mode": "READ_ONLY",
+                    "target_id": "repo:hard-coded",
+                }
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowRegistryError, "target-independent"):
+            load_workflow_registry(self.workspace(payload))
+
+    def test_registry_rejects_duplicate_skill_authority(self) -> None:
+        payload = {
+            "schema": WORKFLOW_REGISTRY_SCHEMA,
+            "workflows": [
+                {
+                    "workflow_id": "bad",
+                    "request_class": "DESIGN",
+                    "skills": ["architecture-options", "architecture-options"],
+                    "mode": "READ_ONLY",
+                }
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowRegistryError, "duplicate Skills"):
+            load_workflow_registry(self.workspace(payload))
+
+    def test_registry_rejects_wrong_schema(self) -> None:
+        payload = {"schema": "other@1", "workflows": []}
+        with self.assertRaisesRegex(WorkflowRegistryError, "schema"):
+            load_workflow_registry(self.workspace(payload))
+
+
+if __name__ == "__main__":
+    unittest.main()

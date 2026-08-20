@@ -19,89 +19,99 @@ from skill_invocation import (  # type: ignore  # noqa: E402
     canonical_skill_path,
     write_receipt,
 )
+from workflow_registry import (  # type: ignore  # noqa: E402
+    WORKFLOW_REGISTRY_SCHEMA,
+    WorkflowRegistryError,
+    WorkflowSpec,
+    require_workflow,
+)
 
+# Keep the existing route schema stable during this incremental orchestration
+# refactor. New workflow fields are additive.
 DEV_COMMAND_ROUTE_SCHEMA = "dev-command-route@1"
 
 
 @dataclass(frozen=True)
 class CommandSpec:
     command: str
-    request_class: str
-    skills: tuple[str, ...]
-    mode: str
+    workflow_id: str
     description: str
-    status_first: bool = False
-    deterministic_response: bool = False
-    write_governed: bool = False
+
+    # Compatibility accessors keep existing callers/tests readable while the
+    # authoritative route is now command -> Workflow -> Skill(s).
+    @property
+    def workflow(self) -> WorkflowSpec:
+        return require_workflow(ROOT, self.workflow_id)
+
+    @property
+    def request_class(self) -> str:
+        return self.workflow.request_class
+
+    @property
+    def skills(self) -> tuple[str, ...]:
+        return self.workflow.skills
+
+    @property
+    def mode(self) -> str:
+        return self.workflow.mode
+
+    @property
+    def status_first(self) -> bool:
+        return self.workflow.status_first
+
+    @property
+    def deterministic_response(self) -> bool:
+        return self.workflow.deterministic_response
+
+    @property
+    def write_governed(self) -> bool:
+        return self.workflow.write_governed
 
 
 COMMANDS: dict[str, CommandSpec] = {
     "/status": CommandSpec(
         command="/status",
-        request_class="STATUS_QUERY",
-        skills=("task-execution-status",),
-        mode="STATUS",
+        workflow_id="status-project",
         description="Show the authoritative whole-task execution status.",
-        status_first=True,
-        deterministic_response=True,
     ),
     "/continue": CommandSpec(
         command="/continue",
-        request_class="STATUS_QUERY",
-        skills=("task-execution-status",),
-        mode="CONTINUE_AFTER_STATUS",
+        workflow_id="continue-project",
         description="Check authoritative status first, then continue only if the TaskRun allows it.",
-        status_first=True,
-        deterministic_response=True,
     ),
     "/diagnose": CommandSpec(
         command="/diagnose",
-        request_class="DIAGNOSIS",
-        skills=("product-code-governance",),
-        mode="READ_ONLY",
+        workflow_id="diagnose-product",
         description="Perform read-only product diagnosis before deciding whether to design or repair.",
     ),
     "/arch": CommandSpec(
         command="/arch",
-        request_class="DESIGN",
-        skills=("architecture-options",),
-        mode="READ_ONLY",
+        workflow_id="architecture-review",
         description="Compare architecture options without modifying code.",
     ),
     "/agent-arch": CommandSpec(
         command="/agent-arch",
-        request_class="DESIGN",
-        skills=("architecture-options", "customer-agent-architecture"),
-        mode="READ_ONLY",
+        workflow_id="customer-agent-architecture-review",
         description="Review customer-agent architecture with the generic architecture comparison Skill.",
     ),
     "/oracle": CommandSpec(
         command="/oracle",
-        request_class="ORACLE_REVIEW",
-        skills=("oracle-review",),
-        mode="READ_ONLY",
+        workflow_id="oracle-review",
         description="Review Claim, Requirement, test, or Oracle correctness without modifying code.",
     ),
     "/repair": CommandSpec(
         command="/repair",
-        request_class="REPAIR",
-        skills=("product-code-governance", "red-baseline-repair"),
-        mode="WRITE_GOVERNED",
+        workflow_id="governed-repair",
         description="Enter the governed repair flow; every actual write still requires change-scope.",
-        write_governed=True,
     ),
     "/review": CommandSpec(
         command="/review",
-        request_class="ADVERSARIAL_REVIEW",
-        skills=("adversarial-review",),
-        mode="READ_ONLY",
+        workflow_id="adversarial-review",
         description="Run read-only adversarial review after a candidate repair.",
     ),
     "/cert": CommandSpec(
         command="/cert",
-        request_class="CERTIFICATION",
-        skills=("release-certification",),
-        mode="READ_ONLY",
+        workflow_id="release-certification",
         description="Certify an immutable candidate without repairing it.",
     ),
 }
@@ -159,12 +169,12 @@ def _load_skill_context(workspace: Path, skill: str) -> tuple[str, str]:
 
 
 def _response_binding_commands(
-    spec: CommandSpec,
+    workflow: WorkflowSpec,
     *,
     task_id: str | None,
     change_id: str | None,
 ) -> list[str]:
-    if spec.status_first:
+    if workflow.status_first:
         return []
     subject_flags: list[str] = []
     if change_id:
@@ -175,10 +185,10 @@ def _response_binding_commands(
     return [
         (
             "python3 -B skillctl.py skill-response-bind "
-            f"--request-class {spec.request_class} --skill {skill}{suffix} "
+            f"--request-class {workflow.request_class} --skill {skill}{suffix} "
             "--invocation-id <unique-id> --response-file <response-file>"
         )
-        for skill in spec.skills
+        for skill in workflow.skills
     ]
 
 
@@ -193,30 +203,35 @@ def build_route(
     context_refs: Iterable[str] = (),
     persist_receipts: bool = True,
 ) -> dict[str, Any]:
-    """Resolve one explicit command to a fixed Skill set.
+    """Resolve one explicit command through a fixed Workflow to canonical Skills.
 
     This is intentionally not a natural-language router. The caller chooses the
-    command; the dispatcher only validates the command, loads the exact canonical
-    Skills, and records selection/load evidence. The free-form payload is carried
-    through unchanged for the host to consume with those Skill contexts.
+    command; the command selects one explicit Workflow; the Workflow selects the
+    required canonical Skills. Free-form payload is carried through unchanged.
+
+    Workflow definitions are target-independent. task_id/change_id remain
+    invocation subject evidence and are not embedded into Workflow definitions.
+    Existing Skill Invocation, TaskRun, Quality, change-scope and completion
+    authorities are preserved unchanged.
     """
 
     workspace = workspace.resolve()
     canonical = normalize_command(command)
-    spec = COMMANDS[canonical]
+    command_spec = COMMANDS[canonical]
+    workflow = require_workflow(workspace, command_spec.workflow_id)
     prefix = _safe_invocation_prefix(invocation_prefix)
     refs = [str(item).strip() for item in context_refs if str(item).strip()]
 
     skill_contexts: dict[str, str] = {}
     receipt_paths: dict[str, str] = {}
     receipts: dict[str, dict[str, Any]] = {}
-    for index, skill in enumerate(spec.skills, start=1):
+    for index, skill in enumerate(workflow.skills, start=1):
         skill_path, context = _load_skill_context(workspace, skill)
         skill_contexts[skill] = context
         receipt = build_receipt(
             workspace,
             invocation_id=f"{prefix}-{index}",
-            request_class=spec.request_class,
+            request_class=workflow.request_class,
             required_skill=skill,
             selected_skill=skill,
             entrypoint=skill_path,
@@ -233,7 +248,7 @@ def build_route(
             receipt_paths[skill] = path.relative_to(workspace).as_posix()
 
     binding_commands = _response_binding_commands(
-        spec,
+        workflow,
         task_id=task_id,
         change_id=change_id,
     )
@@ -241,28 +256,38 @@ def build_route(
         "schema": DEV_COMMAND_ROUTE_SCHEMA,
         "status": "PASS",
         "command": canonical,
-        "request_class": spec.request_class,
-        "mode": spec.mode,
-        "description": spec.description,
+        "workflow_registry_schema": WORKFLOW_REGISTRY_SCHEMA,
+        "workflow_id": workflow.workflow_id,
+        "workflow": workflow.as_dict(),
+        "request_class": workflow.request_class,
+        "mode": workflow.mode,
+        "description": command_spec.description,
         "user_payload": str(payload or ""),
         "context_refs": refs,
-        "required_skills": list(spec.skills),
+        "required_skills": list(workflow.skills),
         "skill_contexts": skill_contexts,
         "receipt_paths": receipt_paths,
         "receipts": receipts,
         "policy": {
             "explicit_command_is_authoritative_route": True,
+            "command_selects_workflow_not_skill": True,
+            "workflow_selects_required_skills": True,
+            "workflow_target_binding_allowed": False,
             "natural_language_keyword_rerouting_allowed": False,
             "fallback_without_required_skill_allowed": False,
             "host_must_consume_user_payload": True,
             "host_must_consume_skill_contexts": True,
             "response_binding_required": True,
             "response_binding_entrypoint": (
-                "task-status-project" if spec.status_first else "skill-response-bind"
+                "task-status-project" if workflow.status_first else "skill-response-bind"
             ),
-            "status_first": spec.status_first,
-            "deterministic_response_required": spec.deterministic_response,
-            "write_requires_change_scope": spec.write_governed,
+            "status_first": workflow.status_first,
+            "deterministic_response_required": workflow.deterministic_response,
+            "write_requires_change_scope": workflow.write_governed,
+            "taskrun_authority_changed": False,
+            "skill_invocation_authority_changed": False,
+            "quality_authority_changed": False,
+            "github_authority_changed": False,
         },
         "completion": {
             "response_binding_required": True,
@@ -273,13 +298,13 @@ def build_route(
             "Run `python3 -B skillctl.py task-status-project ...` against the authoritative TaskRun; "
             "do not synthesize whole-task status from GitHub objects. The projector itself must create "
             "the response-bound receipt."
-            if spec.status_first
+            if workflow.status_first
             else (
-                "Use the loaded Skill contexts and user_payload. Before any repository write, the existing "
+                "Use the Workflow-selected Skill contexts and user_payload. Before any repository write, the existing "
                 "change-scope Hook must pass. Before the final user-facing response, bind that exact response "
                 "to every required Skill with `skill-response-bind`."
-                if spec.write_governed
-                else "Use the loaded Skill contexts and user_payload; remain read-only. Before the final "
+                if workflow.write_governed
+                else "Use the Workflow-selected Skill contexts and user_payload; remain read-only. Before the final "
                 "user-facing response, bind that exact response to every required Skill with `skill-response-bind`."
             )
         ),
@@ -304,7 +329,7 @@ def _read_payload_file(path: str | None) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Route explicit low-complexity development commands to fixed canonical Skills"
+        description="Route explicit low-complexity development commands through fixed Workflows to canonical Skills"
     )
     parser.add_argument("--list", action="store_true", help="List supported explicit commands")
     parser.add_argument("--command")
@@ -321,10 +346,12 @@ def main() -> int:
         if args.list:
             _print({
                 "schema": DEV_COMMAND_ROUTE_SCHEMA,
+                "workflow_registry_schema": WORKFLOW_REGISTRY_SCHEMA,
                 "status": "PASS",
                 "commands": [
                     {
                         "command": spec.command,
+                        "workflow_id": spec.workflow_id,
                         "request_class": spec.request_class,
                         "skills": list(spec.skills),
                         "mode": spec.mode,
@@ -361,7 +388,7 @@ def main() -> int:
         )
         _print(route)
         return 0
-    except (DevCommandError, SkillInvocationError) as exc:
+    except (DevCommandError, SkillInvocationError, WorkflowRegistryError) as exc:
         _print({"schema": DEV_COMMAND_ROUTE_SCHEMA, "status": "FAIL", "error": str(exc)})
         return 1
 
