@@ -34,8 +34,19 @@ def _refs(values: Iterable[str]) -> list[str]:
     return [str(value).strip() for value in values if str(value).strip()]
 
 
+def infer_structural_mode(*, skill: str | None = None, workflow: str | None = None) -> str:
+    """Infer only from explicit structured selectors, never from request language."""
+    if skill and workflow:
+        raise PluginGatewayError("choose at most one explicit Skill or Workflow")
+    if skill:
+        return SKILL_MODE
+    if workflow:
+        return WORKFLOW_MODE
+    return OPEN_MODE
+
+
 def build_open_route(*, payload: str, target: str | None = None, context_refs: Iterable[str] = ()) -> dict[str, Any]:
-    return {"schema": PLUGIN_ROUTE_SCHEMA, "status": "PASS", "mode": OPEN_MODE, "target": _text(target), "user_payload": str(payload or ""), "context_refs": _refs(context_refs), "selected_skill": None, "selected_workflow": None, "policy": {"automatic_skill_selection_allowed": False, "automatic_workflow_selection_allowed": False, "open_mode_is_explicit": True, "authority_effect": False}, "next": "Perform open analysis without fabricating Skill invocation evidence. If the user later names a Skill or Workflow, create a new explicit route."}
+    return {"schema": PLUGIN_ROUTE_SCHEMA, "status": "PASS", "mode": OPEN_MODE, "target": _text(target), "user_payload": str(payload or ""), "context_refs": _refs(context_refs), "selected_skill": None, "selected_workflow": None, "policy": {"automatic_skill_selection_allowed": False, "automatic_workflow_selection_allowed": False, "open_mode_when_unspecified": True, "authority_effect": False}, "next": "Perform open analysis without fabricating Skill invocation evidence. If the user later names a Skill or Workflow, create a new explicit route."}
 
 
 def build_skill_route(workspace: Path, *, skill: str, payload: str, invocation_id: str, target: str | None = None, task_id: str | None = None, change_id: str | None = None, context_refs: Iterable[str] = (), persist_receipt: bool = True) -> dict[str, Any]:
@@ -73,11 +84,24 @@ def build_route(workspace: Path, *, mode: str, payload: str, target: str | None 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Route OPEN, explicit Skill, or explicit Workflow requests without semantic guessing")
-    parser.add_argument("--mode", required=True, choices=[OPEN_MODE, SKILL_MODE, WORKFLOW_MODE]); parser.add_argument("--skill"); parser.add_argument("--workflow"); parser.add_argument("--payload", default=""); parser.add_argument("--target"); parser.add_argument("--task-id"); parser.add_argument("--change-id"); parser.add_argument("--context-ref", action="append", default=[]); parser.add_argument("--invocation-id")
+    parser = argparse.ArgumentParser(description="Invoke OPEN mode, one exact Skill, or one exact Workflow without semantic guessing")
+    selector = parser.add_mutually_exclusive_group()
+    selector.add_argument("--skill")
+    selector.add_argument("--workflow")
+    parser.add_argument("--mode", choices=[OPEN_MODE, SKILL_MODE, WORKFLOW_MODE], help="Compatibility override; normally omit it and let explicit --skill/--workflow select the structural mode.")
+    parser.add_argument("--payload", default="")
+    parser.add_argument("--target")
+    parser.add_argument("--task-id")
+    parser.add_argument("--change-id")
+    parser.add_argument("--context-ref", action="append", default=[])
+    parser.add_argument("--invocation-id")
     args = parser.parse_args()
     try:
-        route = build_route(ROOT, mode=args.mode, payload=args.payload, target=args.target, skill=args.skill, workflow=args.workflow, invocation_id=args.invocation_id, task_id=args.task_id, change_id=args.change_id, context_refs=args.context_ref, persist_receipt=True)
+        inferred = infer_structural_mode(skill=args.skill, workflow=args.workflow)
+        mode = args.mode or inferred
+        if args.mode and mode != inferred:
+            raise PluginGatewayError(f"explicit --mode {args.mode} conflicts with supplied selector; expected {inferred}")
+        route = build_route(ROOT, mode=mode, payload=args.payload, target=args.target, skill=args.skill, workflow=args.workflow, invocation_id=args.invocation_id, task_id=args.task_id, change_id=args.change_id, context_refs=args.context_ref, persist_receipt=True)
     except (PluginGatewayError, PluginRegistryError, SkillInvocationError, WorkflowSpecError) as exc:
         print(json.dumps({"schema": PLUGIN_ROUTE_SCHEMA, "status": "FAIL", "error": str(exc)}, ensure_ascii=False, indent=2)); return 1
     print(json.dumps(route, ensure_ascii=False, indent=2, sort_keys=True)); return 0
