@@ -69,6 +69,7 @@ def verify(strict: bool = False) -> list[str]:
     for relative in (
         "skill-system/controller/skill_invocation.py",
         "skill-system/controller/skill_invocation_cli.py",
+        "skill-system/controller/dev_command.py",
     ):
         if not (ROOT / relative).is_file():
             errors.append(f"missing_skill_invocation_control:{relative}")
@@ -78,7 +79,7 @@ def verify(strict: bool = False) -> list[str]:
         errors.append("missing_skillctl")
     else:
         skillctl_text = skillctl.read_text(encoding="utf-8")
-        for command in ("skill-load", "skill-invocation-verify", "task-status-project"):
+        for command in ("skill-load", "skill-invocation-verify", "task-status-project", "dev-command"):
             if command not in skillctl_text:
                 errors.append(f"missing_skillctl_invocation_command:{command}")
 
