@@ -4,10 +4,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from capability_registry import CapabilityPreflight, preflight_capabilities
+from capability_registry import (
+    CapabilityPreflight,
+    load_capability_contracts,
+    preflight_capabilities,
+)
 from workflow_registry import WorkflowSpec, require_workflow
 
 WORKFLOW_ACTIVATION_SCHEMA = "workflow-activation@1"
+
+
+class WorkflowActivationError(ValueError):
+    """Raised when a Workflow cannot be activated without violating authority boundaries."""
 
 
 @dataclass(frozen=True)
@@ -29,12 +37,26 @@ class WorkflowActivation:
             "policy": {
                 "workflow_is_provider_neutral": True,
                 "provider_binding_occurs_at_activation": True,
+                "capability_resolution_grants_write_authority": False,
                 "taskrun_authority_changed": False,
                 "quality_authority_changed": False,
                 "completion_authority_changed": False,
                 "write_authority_changed": False,
             },
         }
+
+
+def _assert_mutation_boundary(workspace: Path, workflow: WorkflowSpec) -> None:
+    contracts = load_capability_contracts(workspace)
+    mutating = sorted(
+        capability_id
+        for capability_id in (*workflow.required_capabilities, *workflow.optional_capabilities)
+        if contracts.get(capability_id) is not None and contracts[capability_id].mutates
+    )
+    if mutating and not workflow.write_governed:
+        raise WorkflowActivationError(
+            f"workflow {workflow.workflow_id!r} requests mutating capabilities without write_governed=true: {mutating}"
+        )
 
 
 def activate_workflow(
@@ -45,6 +67,7 @@ def activate_workflow(
     provider_preferences: Mapping[str, str] | None = None,
 ) -> WorkflowActivation:
     workflow = require_workflow(workspace, workflow_id)
+    _assert_mutation_boundary(workspace, workflow)
     preflight = preflight_capabilities(
         workspace,
         required=workflow.required_capabilities,
@@ -58,5 +81,6 @@ def activate_workflow(
 __all__ = [
     "WORKFLOW_ACTIVATION_SCHEMA",
     "WorkflowActivation",
+    "WorkflowActivationError",
     "activate_workflow",
 ]
