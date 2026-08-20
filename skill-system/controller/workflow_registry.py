@@ -22,6 +22,8 @@ class WorkflowSpec:
     status_first: bool = False
     deterministic_response: bool = False
     write_governed: bool = False
+    required_capabilities: tuple[str, ...] = ()
+    optional_capabilities: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +34,12 @@ class WorkflowSpec:
             "status_first": self.status_first,
             "deterministic_response": self.deterministic_response,
             "write_governed": self.write_governed,
+            "requirements": {
+                "capabilities": {
+                    "required": list(self.required_capabilities),
+                    "optional": list(self.optional_capabilities),
+                }
+            },
         }
 
 
@@ -44,6 +52,19 @@ def _bool(row: dict[str, Any], key: str) -> bool:
     if not isinstance(value, bool):
         raise WorkflowRegistryError(f"workflow field {key!r} must be boolean")
     return value
+
+
+def _unique_strings(values: object, *, field: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise WorkflowRegistryError(f"{field} must be an array")
+    normalized = tuple(_text(value) for value in values)
+    if any(not value for value in normalized):
+        raise WorkflowRegistryError(f"{field} cannot contain empty values")
+    if len(set(normalized)) != len(normalized):
+        raise WorkflowRegistryError(f"{field} must contain unique values")
+    return normalized
 
 
 def _validate_no_target_binding(row: dict[str, Any], workflow_id: str) -> None:
@@ -65,6 +86,48 @@ def _validate_no_target_binding(row: dict[str, Any], workflow_id: str) -> None:
         )
 
 
+def _parse_capability_requirements(row: dict[str, Any], workflow_id: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    requirements = row.get("requirements")
+    if requirements is None:
+        return (), ()
+    if not isinstance(requirements, dict):
+        raise WorkflowRegistryError(f"workflow {workflow_id!r} requirements must be an object")
+    unexpected = sorted(set(requirements) - {"capabilities"})
+    if unexpected:
+        raise WorkflowRegistryError(
+            f"workflow {workflow_id!r} requirements must be provider-neutral; unsupported keys: {unexpected}"
+        )
+    capabilities = requirements.get("capabilities", {})
+    if not isinstance(capabilities, dict):
+        raise WorkflowRegistryError(f"workflow {workflow_id!r} capabilities requirements must be an object")
+    unexpected = sorted(set(capabilities) - {"required", "optional"})
+    if unexpected:
+        raise WorkflowRegistryError(
+            f"workflow {workflow_id!r} capabilities requirements contain unsupported keys: {unexpected}"
+        )
+    required = _unique_strings(
+        capabilities.get("required", []),
+        field=f"workflow {workflow_id!r} required capabilities",
+    )
+    optional = _unique_strings(
+        capabilities.get("optional", []),
+        field=f"workflow {workflow_id!r} optional capabilities",
+    )
+    overlap = sorted(set(required) & set(optional))
+    if overlap:
+        raise WorkflowRegistryError(
+            f"workflow {workflow_id!r} capabilities cannot be both required and optional: {overlap}"
+        )
+    provider_tokens = ("github", "gitlab", "jenkins", "provider:", "executor:", "integration:")
+    for capability in (*required, *optional):
+        lowered = capability.casefold()
+        if any(token in lowered for token in provider_tokens):
+            raise WorkflowRegistryError(
+                f"workflow {workflow_id!r} must request provider-neutral capabilities, not {capability!r}"
+            )
+    return required, optional
+
+
 def _parse_workflow(row: dict[str, Any]) -> WorkflowSpec:
     workflow_id = _text(row.get("workflow_id"))
     if not workflow_id:
@@ -76,14 +139,13 @@ def _parse_workflow(row: dict[str, Any]) -> WorkflowSpec:
     if not mode:
         raise WorkflowRegistryError(f"workflow {workflow_id!r} mode is required")
 
-    raw_skills = row.get("skills")
-    if not isinstance(raw_skills, list) or not raw_skills:
-        raise WorkflowRegistryError(f"workflow {workflow_id!r} requires a non-empty skills list")
-    skills = tuple(_text(value) for value in raw_skills)
-    if any(not value for value in skills):
-        raise WorkflowRegistryError(f"workflow {workflow_id!r} contains an empty Skill name")
-    if len(set(skills)) != len(skills):
-        raise WorkflowRegistryError(f"workflow {workflow_id!r} contains duplicate Skills")
+    raw_skills = row.get("skills", [])
+    skills = _unique_strings(raw_skills, field=f"workflow {workflow_id!r} skills")
+    required_capabilities, optional_capabilities = _parse_capability_requirements(row, workflow_id)
+    if not skills and not required_capabilities and not optional_capabilities:
+        raise WorkflowRegistryError(
+            f"workflow {workflow_id!r} requires at least one Skill or capability requirement"
+        )
 
     _validate_no_target_binding(row, workflow_id)
     return WorkflowSpec(
@@ -94,15 +156,18 @@ def _parse_workflow(row: dict[str, Any]) -> WorkflowSpec:
         status_first=_bool(row, "status_first"),
         deterministic_response=_bool(row, "deterministic_response"),
         write_governed=_bool(row, "write_governed"),
+        required_capabilities=required_capabilities,
+        optional_capabilities=optional_capabilities,
     )
 
 
 def load_workflow_registry(workspace: Path) -> dict[str, WorkflowSpec]:
-    """Load the explicit, target-independent development Workflow registry.
+    """Load target-independent, provider-neutral development Workflow specs.
 
-    The registry only describes orchestration policy: request class, required
-    Skills and execution mode. It deliberately contains no TaskRun, target,
-    repository, GitHub, Quality or completion authority.
+    Workflow rows may declare canonical Skills plus required/optional capability
+    contracts. They deliberately cannot bind targets, repositories or concrete
+    providers such as GitHub/GitLab/Jenkins. Provider resolution happens later at
+    activation time and cannot acquire TaskRun, Quality or completion authority.
     """
 
     path = workspace.resolve() / WORKFLOW_REGISTRY_PATH

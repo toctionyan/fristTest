@@ -39,6 +39,14 @@ class DevWorkflowRegistryTest(unittest.TestCase):
             workflows["governed-repair"].skills,
             ("product-code-governance", "red-baseline-repair"),
         )
+        self.assertEqual(
+            workflows["governed-repair"].required_capabilities,
+            ("workspace.write", "test.run", "quality.evaluate"),
+        )
+        self.assertIn(
+            "code_review.pull_request.create",
+            workflows["governed-repair"].optional_capabilities,
+        )
         self.assertTrue(workflows["governed-repair"].write_governed)
         self.assertTrue(workflows["status-project"].status_first)
 
@@ -70,8 +78,68 @@ class DevWorkflowRegistryTest(unittest.TestCase):
                 }
             ],
         }
-        with self.assertRaisesRegex(WorkflowRegistryError, "duplicate Skills"):
+        with self.assertRaisesRegex(WorkflowRegistryError, "must contain unique values"):
             load_workflow_registry(self.workspace(payload))
+
+    def test_registry_rejects_direct_provider_requirements(self) -> None:
+        payload = {
+            "schema": WORKFLOW_REGISTRY_SCHEMA,
+            "workflows": [
+                {
+                    "workflow_id": "bad",
+                    "request_class": "DESIGN",
+                    "skills": ["architecture-options"],
+                    "mode": "READ_ONLY",
+                    "requirements": {"integrations": ["github.actions"]},
+                }
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowRegistryError, "provider-neutral"):
+            load_workflow_registry(self.workspace(payload))
+
+    def test_registry_rejects_provider_named_capabilities(self) -> None:
+        payload = {
+            "schema": WORKFLOW_REGISTRY_SCHEMA,
+            "workflows": [
+                {
+                    "workflow_id": "bad",
+                    "request_class": "DESIGN",
+                    "skills": ["architecture-options"],
+                    "mode": "READ_ONLY",
+                    "requirements": {
+                        "capabilities": {
+                            "required": ["github.actions.wait"],
+                            "optional": [],
+                        }
+                    },
+                }
+            ],
+        }
+        with self.assertRaisesRegex(WorkflowRegistryError, "provider-neutral capabilities"):
+            load_workflow_registry(self.workspace(payload))
+
+    def test_registry_allows_capability_only_workflow_contract(self) -> None:
+        payload = {
+            "schema": WORKFLOW_REGISTRY_SCHEMA,
+            "workflows": [
+                {
+                    "workflow_id": "publish-only",
+                    "request_class": "PUBLISH",
+                    "skills": [],
+                    "mode": "WRITE_GOVERNED",
+                    "requirements": {
+                        "capabilities": {
+                            "required": ["code_review.pull_request.create"],
+                            "optional": ["ci.run.wait"],
+                        }
+                    },
+                }
+            ],
+        }
+        workflow = load_workflow_registry(self.workspace(payload))["publish-only"]
+        self.assertEqual(workflow.skills, ())
+        self.assertEqual(workflow.required_capabilities, ("code_review.pull_request.create",))
+        self.assertEqual(workflow.optional_capabilities, ("ci.run.wait",))
 
     def test_registry_rejects_wrong_schema(self) -> None:
         payload = {"schema": "other@1", "workflows": []}

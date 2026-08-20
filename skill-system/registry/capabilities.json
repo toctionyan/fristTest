@@ -1,0 +1,89 @@
+{
+  "schema": "capability-registry@1",
+  "capabilities": [
+    {
+      "capability_id": "workspace.read",
+      "provider_type": "executor",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Read files and metadata from the active workspace."
+    },
+    {
+      "capability_id": "workspace.write",
+      "provider_type": "executor",
+      "mutates": true,
+      "external_wait": false,
+      "description": "Write governed workspace content; write authorization remains external to the capability resolver."
+    },
+    {
+      "capability_id": "process.execute",
+      "provider_type": "executor",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Run a deterministic local process."
+    },
+    {
+      "capability_id": "test.run",
+      "provider_type": "executor",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Run deterministic test commands and return evidence."
+    },
+    {
+      "capability_id": "quality.evaluate",
+      "provider_type": "executor",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Run deterministic Quality gates; Quality remains the acceptance authority."
+    },
+    {
+      "capability_id": "vcs.diff.read",
+      "provider_type": "executor",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Read version-control diffs without binding to a hosting provider."
+    },
+    {
+      "capability_id": "vcs.commit.create",
+      "provider_type": "executor",
+      "mutates": true,
+      "external_wait": false,
+      "description": "Create a local VCS commit; write authorization remains external."
+    },
+    {
+      "capability_id": "code_review.context.read",
+      "provider_type": "integration",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Read hosted code-review context without naming a provider."
+    },
+    {
+      "capability_id": "code_review.pull_request.create",
+      "provider_type": "integration",
+      "mutates": true,
+      "external_wait": false,
+      "description": "Create a hosted code-review request through the active integration provider."
+    },
+    {
+      "capability_id": "code_review.pull_request.merge",
+      "provider_type": "integration",
+      "mutates": true,
+      "external_wait": false,
+      "description": "Merge an approved hosted code-review request through the active provider."
+    },
+    {
+      "capability_id": "ci.run.status",
+      "provider_type": "integration",
+      "mutates": false,
+      "external_wait": false,
+      "description": "Read CI run status from an external CI provider."
+    },
+    {
+      "capability_id": "ci.run.wait",
+      "provider_type": "integration",
+      "mutates": false,
+      "external_wait": true,
+      "description": "Create an external-wait contract for CI completion; the workflow process must not poll indefinitely."
+    }
+  ]
+}

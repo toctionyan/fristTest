@@ -8,7 +8,13 @@
       "mode": "STATUS",
       "status_first": true,
       "deterministic_response": true,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["ci.run.status"]
+        }
+      }
     },
     {
       "workflow_id": "continue-project",
@@ -17,7 +23,13 @@
       "mode": "CONTINUE_AFTER_STATUS",
       "status_first": true,
       "deterministic_response": true,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["ci.run.status", "ci.run.wait"]
+        }
+      }
     },
     {
       "workflow_id": "diagnose-product",
@@ -26,7 +38,13 @@
       "mode": "READ_ONLY",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["vcs.diff.read", "code_review.context.read"]
+        }
+      }
     },
     {
       "workflow_id": "architecture-review",
@@ -35,7 +53,13 @@
       "mode": "READ_ONLY",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["vcs.diff.read", "code_review.context.read"]
+        }
+      }
     },
     {
       "workflow_id": "customer-agent-architecture-review",
@@ -44,7 +68,13 @@
       "mode": "READ_ONLY",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["vcs.diff.read", "code_review.context.read"]
+        }
+      }
     },
     {
       "workflow_id": "oracle-review",
@@ -53,7 +83,13 @@
       "mode": "READ_ONLY",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["vcs.diff.read"]
+        }
+      }
     },
     {
       "workflow_id": "governed-repair",
@@ -62,7 +98,18 @@
       "mode": "WRITE_GOVERNED",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": true
+      "write_governed": true,
+      "requirements": {
+        "capabilities": {
+          "required": ["workspace.write", "test.run", "quality.evaluate"],
+          "optional": [
+            "vcs.diff.read",
+            "vcs.commit.create",
+            "code_review.pull_request.create",
+            "ci.run.wait"
+          ]
+        }
+      }
     },
     {
       "workflow_id": "adversarial-review",
@@ -71,7 +118,13 @@
       "mode": "READ_ONLY",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["test.run"]
+        }
+      }
     },
     {
       "workflow_id": "release-certification",
@@ -80,7 +133,13 @@
       "mode": "READ_ONLY",
       "status_first": false,
       "deterministic_response": false,
-      "write_governed": false
+      "write_governed": false,
+      "requirements": {
+        "capabilities": {
+          "required": [],
+          "optional": ["vcs.diff.read", "code_review.context.read", "ci.run.status"]
+        }
+      }
     }
   ]
 }
