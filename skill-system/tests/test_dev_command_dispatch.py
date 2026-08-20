@@ -52,6 +52,11 @@ class DevCommandDispatchTest(unittest.TestCase):
         self.assertEqual(route["user_payload"], payload)
         self.assertFalse(route["policy"]["natural_language_keyword_rerouting_allowed"])
         self.assertFalse(route["policy"]["fallback_without_required_skill_allowed"])
+        self.assertTrue(route["policy"]["response_binding_required"])
+        self.assertEqual(route["policy"]["response_binding_entrypoint"], "skill-response-bind")
+        self.assertEqual(len(route["completion"]["binding_commands"]), 1)
+        self.assertIn("skill-response-bind", route["completion"]["binding_commands"][0])
+        self.assertIn("--skill architecture-options", route["completion"]["binding_commands"][0])
         require_invocation(
             workspace,
             request_class="DESIGN",
@@ -70,6 +75,7 @@ class DevCommandDispatchTest(unittest.TestCase):
             route["required_skills"],
             ["architecture-options", "customer-agent-architecture"],
         )
+        self.assertEqual(len(route["completion"]["binding_commands"]), 2)
         for skill in route["required_skills"]:
             receipt = require_invocation(
                 workspace,
@@ -77,6 +83,9 @@ class DevCommandDispatchTest(unittest.TestCase):
                 skill=skill,
             )
             self.assertEqual(receipt["selected_skill"], skill)
+            self.assertTrue(
+                any(f"--skill {skill}" in command for command in route["completion"]["binding_commands"])
+            )
 
     def test_repair_routes_governance_and_red_baseline_but_keeps_change_scope_as_write_gate(self) -> None:
         workspace = self.workspace()
@@ -92,7 +101,10 @@ class DevCommandDispatchTest(unittest.TestCase):
             ["product-code-governance", "red-baseline-repair"],
         )
         self.assertTrue(route["policy"]["write_requires_change_scope"])
+        self.assertTrue(route["policy"]["response_binding_required"])
         self.assertNotIn("change-scope", route["required_skills"])
+        for command in route["completion"]["binding_commands"]:
+            self.assertIn("--change-id change-123", command)
         for skill in route["required_skills"]:
             require_invocation(
                 workspace,
@@ -115,6 +127,9 @@ class DevCommandDispatchTest(unittest.TestCase):
                 self.assertEqual(route["required_skills"], ["task-execution-status"])
                 self.assertTrue(route["policy"]["status_first"])
                 self.assertTrue(route["policy"]["deterministic_response_required"])
+                self.assertTrue(route["policy"]["response_binding_required"])
+                self.assertEqual(route["policy"]["response_binding_entrypoint"], "task-status-project")
+                self.assertEqual(route["completion"]["binding_commands"], [])
                 self.assertIn("task-status-project", route["next"])
                 require_invocation(
                     workspace,
@@ -133,16 +148,22 @@ class DevCommandDispatchTest(unittest.TestCase):
             "先看 ContextStore\n再比较保守、演进、重构方案\n暂时不要改代码",
         )
 
+    def test_parse_command_text_accepts_any_whitespace_separator(self) -> None:
+        command, payload = parse_command_text("\t/diagnose\t检查 Skill 选择\n不要修改代码")
+        self.assertEqual(command, "/diagnose")
+        self.assertEqual(payload, "检查 Skill 选择\n不要修改代码")
+
     def test_unknown_command_fails_closed_instead_of_falling_back(self) -> None:
         with self.assertRaisesRegex(DevCommandError, "unsupported development command"):
             parse_command_text("/something-else do work")
 
-    def test_dev_command_is_bootstrap_safe_for_supported_repository_hosts(self) -> None:
-        self.assertTrue(
-            bootstrap_command_allowed(
-                "python3 -B skillctl.py dev-command --command /arch --payload x --invocation-prefix x"
-            )
-        )
+    def test_dev_command_and_response_binding_are_bootstrap_safe(self) -> None:
+        for command in (
+            "python3 -B skillctl.py dev-command --command /arch --payload x --invocation-prefix x",
+            "python3 -B skillctl.py skill-response-bind --request-class DESIGN --skill architecture-options --invocation-id x --response x",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(bootstrap_command_allowed(command))
 
 
 if __name__ == "__main__":
