@@ -1,0 +1,30 @@
+{
+  "schema": "harness-composition-registry@1",
+  "compositions": [
+    {
+      "composition_id": "repair-and-prove-local",
+      "workflow_id": "repair-and-prove",
+      "available_provider_ids": [
+        "local.workspace",
+        "local.process"
+      ],
+      "provider_preferences": {
+        "workspace.write": "local.workspace",
+        "test.run": "local.process",
+        "quality.evaluate": "local.process"
+      },
+      "allowed_profiles": {
+        "test.run": [
+          "skill-unit",
+          "product-quality-quick"
+        ],
+        "quality.evaluate": [
+          "product-quality-quick",
+          "product-quality-static"
+        ]
+      },
+      "write_authority_required": true,
+      "completion_authority": "TaskRun"
+    }
+  ]
+}
