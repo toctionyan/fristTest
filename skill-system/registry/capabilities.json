@@ -84,6 +84,20 @@
       "mutates": false,
       "external_wait": true,
       "description": "Create an external-wait contract for CI completion; the workflow process must not poll indefinitely."
+    },
+    {
+      "capability_id": "publication.post_merge.validation.request",
+      "provider_type": "integration",
+      "mutates": true,
+      "external_wait": false,
+      "description": "Request the repository-owned governed post-merge validation workflow without reproducing its Quality or convergence authority."
+    },
+    {
+      "capability_id": "publication.post_merge.validation.wait",
+      "provider_type": "integration",
+      "mutates": false,
+      "external_wait": true,
+      "description": "Wait event-first for an exact-SHA governed post-merge validation receipt and its durable evidence."
     }
   ]
 }
