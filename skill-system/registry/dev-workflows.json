@@ -133,6 +133,45 @@
       }
     },
     {
+      "workflow_id": "governed-merge",
+      "request_class": "PUBLICATION",
+      "skills": [],
+      "mode": "WRITE_GOVERNED",
+      "status_first": false,
+      "deterministic_response": true,
+      "write_governed": true,
+      "requirements": {
+        "capabilities": {
+          "required": ["ci.run.wait", "code_review.pull_request.merge"],
+          "optional": []
+        }
+      },
+      "graph": {
+        "start": "wait-ci",
+        "max_attempts_per_step": 4,
+        "steps": {
+          "wait-ci": {
+            "type": "external_wait",
+            "use": "ci.run.wait",
+            "routes": {
+              "pending": "WAITING_EXTERNAL",
+              "green": "merge",
+              "red": "BLOCKED_UNRECOVERABLE",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "merge": {
+            "type": "executor",
+            "use": "code_review.pull_request.merge",
+            "routes": {
+              "green": "END",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          }
+        }
+      }
+    },
+    {
       "workflow_id": "adversarial-review",
       "request_class": "ADVERSARIAL_REVIEW",
       "skills": ["adversarial-review"],
