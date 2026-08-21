@@ -22,6 +22,8 @@ _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 _REQUEST = "publication.post_merge.validation.request"
 _WAIT = "publication.post_merge.validation.wait"
 _FINAL_RECEIPT_SCHEMA = "governed-post-merge-validation@1"
+_CHILD_DISCOVERED_EVENT = "post_merge.validation.child_discovered"
+_DEFAULT_COMPLETION_EVENT = "post_merge.validation.completed"
 
 
 def _text(value: object) -> str:
@@ -56,6 +58,12 @@ def _positive_int(value: object, *, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise PostMergeValidationProviderError(f"{field} must be a positive integer")
     return value
+
+
+def _optional_positive_int(value: object, *, field: str) -> int | None:
+    if value is None or value == "":
+        return None
+    return _positive_int(value, field=field)
 
 
 def _refs(values: Iterable[object]) -> tuple[str, ...]:
@@ -110,7 +118,10 @@ class PostMergeValidationHost(Protocol):
     """Thin host boundary that requests the repository-owned validation workflow.
 
     The host must delegate to the existing governed post-merge workflow. It is not
-    allowed to reproduce Quality, project-convergence, or completion policy.
+    allowed to reproduce Quality, project-convergence, or completion policy. A host
+    may return the exact child workflow_run_id immediately when bounded discovery
+    succeeds; otherwise the wait adapter stays in WAITING_FOR_EXPECTED_CHILD until
+    an event supplies the exact child identity.
     """
 
     def request_validation(
@@ -194,6 +205,10 @@ class GovernedPostMergeValidationProviderAdapter:
         correlation_ref = _text(receipt.get("correlation_ref"))
         if not correlation_ref:
             raise PostMergeValidationProviderError("post-merge request receipt requires correlation_ref")
+        workflow_run_id = _optional_positive_int(
+            receipt.get("workflow_run_id"),
+            field="receipt workflow_run_id",
+        )
 
         path = _summary_path(self.workspace, state, step)
         payload = {
@@ -214,6 +229,8 @@ class GovernedPostMergeValidationProviderAdapter:
             "deploy_allowed": False,
             "production_closed": False,
         }
+        if workflow_run_id is not None:
+            payload["workflow_run_id"] = workflow_run_id
         _write_json(path, payload)
         summary_ref = f"file:{path.relative_to(self.workspace).as_posix()}"
         return StepDispatchResult(
@@ -233,27 +250,144 @@ class GovernedPostMergeValidationProviderAdapter:
         source_pr = _positive_int(request.get("source_pr_number"), field="source_pr_number")
         merge_sha = _sha(request.get("merge_sha"), field="merge_sha")
         correlation_ref = _text(request.get("correlation_ref"))
-        resume_event = _text(request.get("resume_event")) or "post_merge.validation.completed"
+        completion_event = _text(request.get("resume_event")) or _DEFAULT_COMPLETION_EVENT
+        requested_run_id = _optional_positive_int(
+            request.get("workflow_run_id"),
+            field="workflow_run_id",
+        )
         if not correlation_ref:
             raise PostMergeValidationProviderError("post-merge wait requires correlation_ref")
-        handle = {
-            "provider": self.provider_id,
-            "correlation_ref": correlation_ref,
-            "resume_event": resume_event,
-            "source_pr_number": source_pr,
-            "merge_sha": merge_sha,
-        }
         path = _summary_path(self.workspace, state, step)
 
-        # An external event from an earlier wait may still exist in graph state while
-        # this step is reached in the same invocation. Only consume an event when
-        # this exact step is the durable resume stage.
         is_resume = _text(state.get("resume_stage")) == step.step_id
         event = state.get("external_event") if is_resume and isinstance(state.get("external_event"), Mapping) else None
+        durable_handle = state.get("external_wait") if is_resume and isinstance(state.get("external_wait"), Mapping) else None
+
         if event is None:
+            if requested_run_id is None:
+                handle = {
+                    "provider": self.provider_id,
+                    "correlation_ref": correlation_ref,
+                    "resume_event": _CHILD_DISCOVERED_EVENT,
+                    "source_pr_number": source_pr,
+                    "merge_sha": merge_sha,
+                    "wait_status": "WAITING_FOR_EXPECTED_CHILD",
+                }
+                payload = {
+                    "schema": "workflow-post-merge-validation-wait@1",
+                    "status": "WAITING_FOR_EXPECTED_CHILD",
+                    **handle,
+                    "authority_effect": False,
+                    "completion_authority_changed": False,
+                    "quality_authority_changed": False,
+                    "merge_allowed": False,
+                    "deploy_allowed": False,
+                    "production_closed": False,
+                }
+            else:
+                handle = {
+                    "provider": self.provider_id,
+                    "correlation_ref": correlation_ref,
+                    "resume_event": completion_event,
+                    "source_pr_number": source_pr,
+                    "merge_sha": merge_sha,
+                    "workflow_run_id": requested_run_id,
+                    "wait_status": "RUNNING",
+                }
+                payload = {
+                    "schema": "workflow-post-merge-validation-wait@1",
+                    "status": "RUNNING",
+                    **handle,
+                    "authority_effect": False,
+                    "completion_authority_changed": False,
+                    "quality_authority_changed": False,
+                    "merge_allowed": False,
+                    "deploy_allowed": False,
+                    "production_closed": False,
+                }
+            _write_json(path, payload)
+            return StepDispatchResult(
+                outcome="pending",
+                evidence_refs=(f"file:{path.relative_to(self.workspace).as_posix()}",),
+                payload=payload,
+                external_wait=handle,
+            )
+
+        if durable_handle is None:
+            raise PostMergeValidationProviderError("post-merge resume requires the durable external_wait handle")
+        if _text(durable_handle.get("provider")) != self.provider_id:
+            raise PostMergeValidationProviderError("post-merge durable wait provider mismatch")
+        if _text(durable_handle.get("correlation_ref")) != correlation_ref:
+            raise PostMergeValidationProviderError("post-merge durable wait correlation_ref mismatch")
+        if _positive_int(durable_handle.get("source_pr_number"), field="durable source_pr_number") != source_pr:
+            raise PostMergeValidationProviderError("post-merge durable wait source_pr_number mismatch")
+        if _sha(durable_handle.get("merge_sha"), field="durable merge_sha") != merge_sha:
+            raise PostMergeValidationProviderError("post-merge durable wait merge_sha mismatch")
+        expected_event = _text(durable_handle.get("resume_event"))
+        if not expected_event:
+            raise PostMergeValidationProviderError("post-merge durable wait requires resume_event")
+
+        if _text(event.get("provider") or event.get("provider_id")) != self.provider_id:
+            raise PostMergeValidationProviderError("post-merge resume provider does not match durable wait handle")
+        if _text(event.get("correlation_ref")) != correlation_ref:
+            raise PostMergeValidationProviderError("post-merge resume correlation_ref mismatch")
+        if _text(event.get("event") or event.get("event_name")) != expected_event:
+            raise PostMergeValidationProviderError("post-merge resume event name mismatch")
+        event_refs = _refs(event.get("evidence_refs") if isinstance(event.get("evidence_refs"), list) else ())
+        if not event_refs:
+            raise PostMergeValidationProviderError("post-merge resume event requires durable evidence_refs")
+
+        durable_run_id = _optional_positive_int(
+            durable_handle.get("workflow_run_id"),
+            field="durable workflow_run_id",
+        )
+        conclusion = _text(event.get("conclusion")).upper()
+
+        if durable_run_id is None:
+            if expected_event != _CHILD_DISCOVERED_EVENT:
+                raise PostMergeValidationProviderError("post-merge child discovery wait has unexpected resume_event")
+            if conclusion not in {"SUCCESS", "PASS", "PASSED", "GREEN"}:
+                outcome = "red" if conclusion in {"FAILURE", "FAIL", "FAILED", "RED", "CANCELLED", "TIMED_OUT"} else "blocked"
+                payload = {
+                    "schema": "workflow-post-merge-validation-event-result@1",
+                    "provider_id": self.provider_id,
+                    "status": conclusion or "STATUS_UNKNOWN",
+                    "outcome": outcome,
+                    "source_pr_number": source_pr,
+                    "merge_sha": merge_sha,
+                    "correlation_ref": correlation_ref,
+                    "authority_effect": False,
+                    "completion_authority_changed": False,
+                    "quality_authority_changed": False,
+                    "merge_allowed": False,
+                    "deploy_allowed": False,
+                    "production_closed": False,
+                }
+                _write_json(path, payload)
+                return StepDispatchResult(
+                    outcome=outcome,
+                    evidence_refs=_refs((*event_refs, f"file:{path.relative_to(self.workspace).as_posix()}")),
+                    payload=payload,
+                )
+
+            discovered_run_id = _positive_int(
+                event.get("workflow_run_id") if event.get("workflow_run_id") is not None else event.get("run_id"),
+                field="discovered workflow_run_id",
+            )
+            if requested_run_id is not None and discovered_run_id != requested_run_id:
+                raise PostMergeValidationProviderError("discovered workflow_run_id conflicts with requested workflow_run_id")
+            handle = {
+                "provider": self.provider_id,
+                "correlation_ref": correlation_ref,
+                "resume_event": completion_event,
+                "source_pr_number": source_pr,
+                "merge_sha": merge_sha,
+                "workflow_run_id": discovered_run_id,
+                "wait_status": "RUNNING",
+            }
             payload = {
                 "schema": "workflow-post-merge-validation-wait@1",
-                "status": "WAITING_EXTERNAL",
+                "status": "RUNNING",
                 **handle,
                 "authority_effect": False,
                 "completion_authority_changed": False,
@@ -265,32 +399,31 @@ class GovernedPostMergeValidationProviderAdapter:
             _write_json(path, payload)
             return StepDispatchResult(
                 outcome="pending",
-                evidence_refs=(f"file:{path.relative_to(self.workspace).as_posix()}",),
+                evidence_refs=_refs((*event_refs, f"file:{path.relative_to(self.workspace).as_posix()}")),
                 payload=payload,
                 external_wait=handle,
             )
 
-        if _text(event.get("provider") or event.get("provider_id")) != self.provider_id:
-            raise PostMergeValidationProviderError("post-merge resume provider does not match durable wait handle")
-        if _text(event.get("correlation_ref")) != correlation_ref:
-            raise PostMergeValidationProviderError("post-merge resume correlation_ref mismatch")
-        if _text(event.get("event") or event.get("event_name")) != resume_event:
-            raise PostMergeValidationProviderError("post-merge resume event name mismatch")
-        event_refs = _refs(event.get("evidence_refs") if isinstance(event.get("evidence_refs"), list) else ())
-        if not event_refs:
-            raise PostMergeValidationProviderError("post-merge resume event requires durable evidence_refs")
+        if requested_run_id is not None and requested_run_id != durable_run_id:
+            raise PostMergeValidationProviderError("post-merge requested workflow_run_id conflicts with durable wait handle")
+        event_run_id = _positive_int(
+            event.get("workflow_run_id") if event.get("workflow_run_id") is not None else event.get("run_id"),
+            field="resume workflow_run_id",
+        )
+        if event_run_id != durable_run_id:
+            raise PostMergeValidationProviderError("post-merge resume workflow_run_id mismatch")
 
-        conclusion = _text(event.get("conclusion")).upper()
         if conclusion not in {"SUCCESS", "PASS", "PASSED", "GREEN"}:
             outcome = "red" if conclusion in {"FAILURE", "FAIL", "FAILED", "RED", "CANCELLED", "TIMED_OUT"} else "blocked"
             payload = {
                 "schema": "workflow-post-merge-validation-event-result@1",
                 "provider_id": self.provider_id,
-                "status": conclusion or "UNKNOWN",
+                "status": conclusion or "STATUS_UNKNOWN",
                 "outcome": outcome,
                 "source_pr_number": source_pr,
                 "merge_sha": merge_sha,
                 "correlation_ref": correlation_ref,
+                "workflow_run_id": durable_run_id,
                 "authority_effect": False,
                 "completion_authority_changed": False,
                 "quality_authority_changed": False,
@@ -346,6 +479,7 @@ class GovernedPostMergeValidationProviderAdapter:
             "source_pr_number": source_pr,
             "merge_sha": merge_sha,
             "correlation_ref": correlation_ref,
+            "workflow_run_id": durable_run_id,
             "quality_run_id": quality_run_id,
             "quality_run_attempt": quality_attempt,
             "project_convergence_run_id": convergence_run_id,
