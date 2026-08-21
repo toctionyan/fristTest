@@ -15,11 +15,12 @@
       },
       "allowed_profiles": {
         "test.run": [
-          "unit"
+          "skill-unit",
+          "product-quality-quick"
         ],
         "quality.evaluate": [
-          "quality-quick",
-          "quality-static"
+          "product-quality-quick",
+          "product-quality-static"
         ]
       },
       "write_authority_required": true,
