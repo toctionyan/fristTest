@@ -35,6 +35,7 @@ from workflow_dispatcher import ProviderAdapterRegistry, WorkflowAdapterDispatch
 BASE_SHA = "1" * 40
 COMMIT_SHA = "2" * 40
 MERGE_SHA = "3" * 40
+POST_MERGE_DIGEST = "a" * 64
 PR_NUMBER = 2067
 
 
@@ -329,21 +330,21 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
         self.assertEqual(correlation, f"post-merge:{PR_NUMBER}:{MERGE_SHA}")
 
         final_receipt = {
-            "schema": "governed-repair-post-merge-validation@1",
+            "schema": "governed-post-merge-validation@1",
             "status": "POST_MERGE_VALIDATED",
             "source_pr_number": PR_NUMBER,
             "merge_sha": MERGE_SHA,
+            "merge_base_sha": "4" * 40,
+            "merge_head_sha": COMMIT_SHA,
             "quality_run_id": 88001,
-            "convergence_run_id": 88002,
-            "evidence": [
-                "quality-run:88001",
-                "project-convergence-run:88002",
-                f"post-merge-receipt:{MERGE_SHA}",
-            ],
+            "quality_run_attempt": 1,
+            "project_convergence_run_id": 88002,
+            "project_convergence_run_attempt": 1,
             "authority_effect": False,
             "merge_allowed": False,
             "deploy_allowed": False,
             "production_closed": False,
+            "post_merge_receipt_sha256": POST_MERGE_DIGEST,
         }
         final = graph.invoke(
             resume_workflow_state(
@@ -367,7 +368,6 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
         self.assertIn("ci-run:publication-e2e", final["evidence_refs"])
         self.assertIn(f"merge:{PR_NUMBER}", final["evidence_refs"])
         self.assertIn(f"post-merge-artifact:{MERGE_SHA}", final["evidence_refs"])
-        self.assertIn(f"post-merge-receipt:{MERGE_SHA}", final["evidence_refs"])
         self.assertEqual(
             write_guard.calls,
             [
@@ -391,6 +391,8 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
         )
         final_payload = final["step_results"]["wait-post-merge"][-1]["payload"]
         self.assertEqual(final_payload["status"], "POST_MERGE_VALIDATED")
+        self.assertEqual(final_payload["post_merge_receipt_sha256"], POST_MERGE_DIGEST)
+        self.assertEqual(final_payload["project_convergence_run_id"], 88002)
         self.assertFalse(final_payload["authority_effect"])
         self.assertFalse(final_payload["completion_authority_changed"])
         self.assertFalse(final_payload["production_closed"])
