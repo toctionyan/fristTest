@@ -17,9 +17,11 @@ class PostMergeValidationProviderError(RuntimeError):
 
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 _REQUEST = "publication.post_merge.validation.request"
 _WAIT = "publication.post_merge.validation.wait"
+_FINAL_RECEIPT_SCHEMA = "governed-post-merge-validation@1"
 
 
 def _text(value: object) -> str:
@@ -40,6 +42,13 @@ def _sha(value: object, *, field: str) -> str:
     text = _text(value)
     if not _SHA.fullmatch(text):
         raise PostMergeValidationProviderError(f"{field} must be an exact lowercase 40-character SHA")
+    return text
+
+
+def _sha256(value: object, *, field: str) -> str:
+    text = _text(value)
+    if not _SHA256.fullmatch(text):
+        raise PostMergeValidationProviderError(f"{field} must be an exact lowercase 64-character sha256")
     return text
 
 
@@ -299,7 +308,7 @@ class GovernedPostMergeValidationProviderAdapter:
         receipt = event.get("receipt")
         if not isinstance(receipt, Mapping):
             raise PostMergeValidationProviderError("successful post-merge resume requires final validation receipt")
-        if _text(receipt.get("schema")) != "governed-repair-post-merge-validation@1":
+        if _text(receipt.get("schema")) != _FINAL_RECEIPT_SCHEMA:
             raise PostMergeValidationProviderError("post-merge final receipt schema mismatch")
         if _text(receipt.get("status")) != "POST_MERGE_VALIDATED":
             raise PostMergeValidationProviderError("post-merge final receipt is not validated")
@@ -307,11 +316,17 @@ class GovernedPostMergeValidationProviderAdapter:
             raise PostMergeValidationProviderError("post-merge final receipt source_pr_number mismatch")
         if _sha(receipt.get("merge_sha"), field="final merge_sha") != merge_sha:
             raise PostMergeValidationProviderError("post-merge final receipt merge_sha mismatch")
-        _positive_int(receipt.get("quality_run_id"), field="quality_run_id")
-        _positive_int(receipt.get("convergence_run_id"), field="convergence_run_id")
-        final_evidence = receipt.get("evidence")
-        if not isinstance(final_evidence, list) or not final_evidence:
-            raise PostMergeValidationProviderError("post-merge final receipt requires durable evidence list")
+        quality_run_id = _positive_int(receipt.get("quality_run_id"), field="quality_run_id")
+        quality_attempt = _positive_int(receipt.get("quality_run_attempt"), field="quality_run_attempt")
+        convergence_run_id = _positive_int(
+            receipt.get("project_convergence_run_id"), field="project_convergence_run_id"
+        )
+        convergence_attempt = _positive_int(
+            receipt.get("project_convergence_run_attempt"), field="project_convergence_run_attempt"
+        )
+        receipt_digest = _sha256(
+            receipt.get("post_merge_receipt_sha256"), field="post_merge_receipt_sha256"
+        )
         for field in (
             "authority_effect",
             "merge_allowed",
@@ -331,8 +346,11 @@ class GovernedPostMergeValidationProviderAdapter:
             "source_pr_number": source_pr,
             "merge_sha": merge_sha,
             "correlation_ref": correlation_ref,
-            "quality_run_id": receipt["quality_run_id"],
-            "convergence_run_id": receipt["convergence_run_id"],
+            "quality_run_id": quality_run_id,
+            "quality_run_attempt": quality_attempt,
+            "project_convergence_run_id": convergence_run_id,
+            "project_convergence_run_attempt": convergence_attempt,
+            "post_merge_receipt_sha256": receipt_digest,
             "authority_effect": False,
             "completion_authority_changed": False,
             "quality_authority_changed": False,
@@ -343,7 +361,7 @@ class GovernedPostMergeValidationProviderAdapter:
         _write_json(path, payload)
         return StepDispatchResult(
             outcome="green",
-            evidence_refs=_refs((*event_refs, *final_evidence, f"file:{path.relative_to(self.workspace).as_posix()}")),
+            evidence_refs=_refs((*event_refs, f"file:{path.relative_to(self.workspace).as_posix()}")),
             payload=payload,
         )
 
