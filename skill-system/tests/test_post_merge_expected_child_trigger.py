@@ -50,6 +50,23 @@ class PostMergeExpectedChildTriggerTests(unittest.TestCase):
         self.assertIn("workflow_run:", text)
         self.assertIn("- governed-ci-repair-merge", text)
 
+    def test_validator_announces_exact_child_run_identity_before_long_child_work(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("Record post-merge validation start", text)
+        self.assertIn("Post-merge validation started for exact merge", text)
+        self.assertIn('in workflow run \\`${GITHUB_RUN_ID}\\`', text)
+        self.assertLess(
+            text.index("Record post-merge validation start"),
+            text.index("Dispatch Quality on the exact merge ref"),
+        )
+
+        # This comment is discovery transport only. Existing governance keeps the
+        # immutable validation receipt as the authority and tolerates comment write
+        # failure without converting it into validation success.
+        self.assertIn("COMMENT_WRITE_FAILED_NON_AUTHORITATIVE", text)
+        self.assertIn("non-authoritative start comment could not be written; validation continues", text)
+
     def test_missing_expected_child_evidence_is_pending_not_running(self) -> None:
         progress = execution_progress.build_execution_progress(
             planned_stages=[
