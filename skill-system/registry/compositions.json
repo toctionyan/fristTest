@@ -4,11 +4,24 @@
     {
       "composition_id": "repair-and-prove-local",
       "workflow_id": "repair-and-prove",
-      "providers": {
-        "executor": "local.process",
-        "integration": "event.ci"
+      "available_provider_ids": [
+        "local.workspace",
+        "local.process"
+      ],
+      "provider_preferences": {
+        "workspace.write": "local.workspace",
+        "test.run": "local.process",
+        "quality.evaluate": "local.process"
       },
-      "allowed_profiles": ["unit", "quality-quick", "quality-static"],
+      "allowed_profiles": {
+        "test.run": [
+          "unit"
+        ],
+        "quality.evaluate": [
+          "quality-quick",
+          "quality-static"
+        ]
+      },
       "write_authority_required": true,
       "completion_authority": "TaskRun"
     }
