@@ -67,6 +67,21 @@ class PostMergeExpectedChildTriggerTests(unittest.TestCase):
         self.assertIn("COMMENT_WRITE_FAILED_NON_AUTHORITATIVE", text)
         self.assertIn("non-authoritative start comment could not be written; validation continues", text)
 
+    def test_live_validation_ref_contains_exact_merge_prefix_and_child_run_id(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'temp_branch="governed-post-merge-validation/${MERGE_SHA:0:12}-${GITHUB_RUN_ID}"',
+            text,
+        )
+        self.assertIn('jq -n --arg ref "refs/heads/${TEMP_BRANCH}" --arg sha "${MERGE_SHA}"', text)
+        self.assertIn('gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs"', text)
+        self.assertIn('gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${TEMP_BRANCH}"', text)
+        self.assertLess(
+            text.index("Create temporary exact-merge validation ref"),
+            text.index("Dispatch Quality on the exact merge ref"),
+        )
+
     def test_missing_expected_child_evidence_is_pending_not_running(self) -> None:
         progress = execution_progress.build_execution_progress(
             planned_stages=[
