@@ -37,6 +37,7 @@ COMMIT_SHA = "2" * 40
 MERGE_SHA = "3" * 40
 POST_MERGE_DIGEST = "a" * 64
 PR_NUMBER = 2067
+POST_MERGE_RUN_ID = 88000
 
 
 class AllowWriteGuard:
@@ -123,6 +124,7 @@ class FakePostMergeHost:
                 "source_pr_number": source_pr_number,
                 "merge_sha": merge_sha,
                 "correlation_ref": f"post-merge:{source_pr_number}:{merge_sha}",
+                "workflow_run_id": POST_MERGE_RUN_ID,
             },
             evidence_refs=(f"post-merge-request:{source_pr_number}",),
         )
@@ -205,6 +207,10 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
                         "correlation_ref": {
                             "step_id": "request-post-merge",
                             "path": "correlation_ref",
+                        },
+                        "workflow_run_id": {
+                            "step_id": "request-post-merge",
+                            "path": "workflow_run_id",
                         },
                     },
                 },
@@ -323,6 +329,8 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
         self.assertEqual(after_ci["runtime_status"], RUNTIME_STATUS_WAITING_EXTERNAL)
         self.assertEqual(after_ci["current_stage"], "wait-post-merge")
         self.assertEqual(after_ci["external_wait"]["provider"], "github.governed_validation")
+        self.assertEqual(after_ci["external_wait"]["status"] if "status" in after_ci["external_wait"] else after_ci["external_wait"]["wait_status"], "RUNNING")
+        self.assertEqual(after_ci["external_wait"]["workflow_run_id"], POST_MERGE_RUN_ID)
         self.assertEqual(code_review_host.merge_calls[0]["pull_request_number"], PR_NUMBER)
         self.assertEqual(code_review_host.merge_calls[0]["head_sha"], COMMIT_SHA)
         self.assertEqual(post_merge_host.calls, [(PR_NUMBER, MERGE_SHA)])
@@ -353,6 +361,7 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
                     "provider": "github.governed_validation",
                     "correlation_ref": correlation,
                     "event": "post_merge.validation.completed",
+                    "workflow_run_id": POST_MERGE_RUN_ID,
                     "conclusion": "success",
                     "evidence_refs": [f"post-merge-artifact:{MERGE_SHA}"],
                     "receipt": final_receipt,
@@ -391,6 +400,7 @@ class PublicationE2EWorkflowTest(unittest.TestCase):
         )
         final_payload = final["step_results"]["wait-post-merge"][-1]["payload"]
         self.assertEqual(final_payload["status"], "POST_MERGE_VALIDATED")
+        self.assertEqual(final_payload["workflow_run_id"], POST_MERGE_RUN_ID)
         self.assertEqual(final_payload["post_merge_receipt_sha256"], POST_MERGE_DIGEST)
         self.assertEqual(final_payload["project_convergence_run_id"], 88002)
         self.assertFalse(final_payload["authority_effect"])

@@ -23,6 +23,7 @@ PR_NUMBER = 2067
 MERGE_SHA = "3" * 40
 OTHER_SHA = "4" * 40
 DIGEST = "a" * 64
+POST_MERGE_RUN_ID = 88000
 
 
 class FakePostMergeHost:
@@ -82,6 +83,18 @@ class PublicationFailClosedTest(unittest.TestCase):
                     "resume_event": "post_merge.validation.completed",
                 }
             }
+        }
+
+    @staticmethod
+    def running_wait_handle() -> dict:
+        return {
+            "provider": "github.governed_validation",
+            "correlation_ref": f"post-merge:{PR_NUMBER}:{MERGE_SHA}",
+            "resume_event": "post_merge.validation.completed",
+            "source_pr_number": PR_NUMBER,
+            "merge_sha": MERGE_SHA,
+            "workflow_run_id": POST_MERGE_RUN_ID,
+            "wait_status": "RUNNING",
         }
 
     @staticmethod
@@ -164,6 +177,7 @@ class PublicationFailClosedTest(unittest.TestCase):
         self.assertEqual(result.outcome, "pending")
         self.assertIsNotNone(result.external_wait)
         self.assertEqual(result.external_wait["merge_sha"], MERGE_SHA)
+        self.assertEqual(result.payload["status"], "WAITING_FOR_EXPECTED_CHILD")
 
     def test_post_merge_success_without_durable_evidence_fails_closed(self) -> None:
         result = self.adapter().invoke(
@@ -173,10 +187,12 @@ class PublicationFailClosedTest(unittest.TestCase):
                 "task_id": "task-publication",
                 "resume_stage": "wait-post-merge",
                 "target_ref": self.target_ref(),
+                "external_wait": self.running_wait_handle(),
                 "external_event": {
                     "provider": "github.governed_validation",
                     "correlation_ref": f"post-merge:{PR_NUMBER}:{MERGE_SHA}",
                     "event": "post_merge.validation.completed",
+                    "workflow_run_id": POST_MERGE_RUN_ID,
                     "conclusion": "success",
                     "evidence_refs": [],
                     "receipt": self.valid_receipt(),
@@ -198,10 +214,12 @@ class PublicationFailClosedTest(unittest.TestCase):
                 "task_id": "task-publication",
                 "resume_stage": "wait-post-merge",
                 "target_ref": self.target_ref(),
+                "external_wait": self.running_wait_handle(),
                 "external_event": {
                     "provider": "github.governed_validation",
                     "correlation_ref": f"post-merge:{PR_NUMBER}:{MERGE_SHA}",
                     "event": "post_merge.validation.completed",
+                    "workflow_run_id": POST_MERGE_RUN_ID,
                     "conclusion": "success",
                     "evidence_refs": ["post-merge:artifact"],
                     "receipt": receipt,
@@ -221,10 +239,12 @@ class PublicationFailClosedTest(unittest.TestCase):
                 "task_id": "task-publication",
                 "resume_stage": "wait-post-merge",
                 "target_ref": self.target_ref(),
+                "external_wait": self.running_wait_handle(),
                 "external_event": {
                     "provider": "github.governed_validation",
                     "correlation_ref": f"post-merge:{PR_NUMBER}:{MERGE_SHA}",
                     "event": "post_merge.validation.completed",
+                    "workflow_run_id": POST_MERGE_RUN_ID,
                     "conclusion": "success",
                     "evidence_refs": ["post-merge:artifact"],
                     "receipt": receipt,
