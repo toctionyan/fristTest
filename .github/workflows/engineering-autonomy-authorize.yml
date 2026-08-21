@@ -8,9 +8,9 @@ on:
         required: true
         type: string
       merge_policy:
-        description: Optional independent bounded final-merge authority for the same TaskRun
+        description: Independent bounded final-merge authority for the same TaskRun; disable explicitly when no landing is desired
         required: false
-        default: disabled
+        default: bounded-auto-merge
         type: choice
         options:
           - disabled
