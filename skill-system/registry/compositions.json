@@ -40,6 +40,27 @@
       "allowed_profiles": {},
       "write_authority_required": true,
       "completion_authority": "TaskRun"
+    },
+    {
+      "composition_id": "publication-e2e-github",
+      "workflow_id": "publication-e2e",
+      "available_provider_ids": [
+        "local.git",
+        "github.code_review",
+        "github.actions",
+        "github.governed_validation"
+      ],
+      "provider_preferences": {
+        "vcs.commit.create": "local.git",
+        "code_review.pull_request.create": "github.code_review",
+        "ci.run.wait": "github.actions",
+        "code_review.pull_request.merge": "github.code_review",
+        "publication.post_merge.validation.request": "github.governed_validation",
+        "publication.post_merge.validation.wait": "github.governed_validation"
+      },
+      "allowed_profiles": {},
+      "write_authority_required": true,
+      "completion_authority": "TaskRun"
     }
   ]
 }
