@@ -20,6 +20,16 @@
       "capabilities": ["ci.run.status", "ci.run.wait"]
     },
     {
+      "provider_id": "github.governed_validation",
+      "provider_type": "integration",
+      "priority": 100,
+      "activation_key": "github.governed_validation",
+      "capabilities": [
+        "publication.post_merge.validation.request",
+        "publication.post_merge.validation.wait"
+      ]
+    },
+    {
       "provider_id": "gitlab.code_review",
       "provider_type": "integration",
       "priority": 200,
