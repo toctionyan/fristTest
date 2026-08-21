@@ -33,7 +33,7 @@ class DevWorkflowRegistryTest(unittest.TestCase):
 
     def test_registry_loads_explicit_and_reusable_workflows(self) -> None:
         workflows = load_workflow_registry(self.workspace())
-        self.assertEqual(len(workflows), 11)
+        self.assertEqual(len(workflows), 12)
         self.assertEqual(workflows["architecture-review"].skills, ("architecture-options",))
         self.assertEqual(
             workflows["governed-repair"].skills,
@@ -76,6 +76,42 @@ class DevWorkflowRegistryTest(unittest.TestCase):
         self.assertEqual(governed_merge.graph.steps["wait-ci"].routes["green"], "merge")
         self.assertEqual(governed_merge.graph.steps["merge"].use, "code_review.pull_request.merge")
         self.assertEqual(governed_merge.graph.steps["merge"].routes["green"], "END")
+
+        publication = workflows["publication-e2e"]
+        self.assertEqual(publication.skills, ())
+        self.assertTrue(publication.write_governed)
+        self.assertEqual(
+            publication.required_capabilities,
+            (
+                "vcs.commit.create",
+                "code_review.pull_request.create",
+                "ci.run.wait",
+                "code_review.pull_request.merge",
+                "publication.post_merge.validation.request",
+                "publication.post_merge.validation.wait",
+            ),
+        )
+        self.assertIsNotNone(publication.graph)
+        self.assertEqual(publication.graph.start, "commit")
+        self.assertEqual(publication.graph.steps["commit"].routes["green"], "create-pr")
+        self.assertEqual(publication.graph.steps["create-pr"].routes["green"], "wait-ci")
+        self.assertEqual(publication.graph.steps["wait-ci"].step_type, "external_wait")
+        self.assertEqual(publication.graph.steps["wait-ci"].routes["green"], "merge")
+        self.assertEqual(publication.graph.steps["merge"].routes["green"], "request-post-merge")
+        self.assertEqual(
+            publication.graph.steps["request-post-merge"].use,
+            "publication.post_merge.validation.request",
+        )
+        self.assertEqual(
+            publication.graph.steps["request-post-merge"].routes["green"],
+            "wait-post-merge",
+        )
+        self.assertEqual(publication.graph.steps["wait-post-merge"].step_type, "external_wait")
+        self.assertEqual(
+            publication.graph.steps["wait-post-merge"].use,
+            "publication.post_merge.validation.wait",
+        )
+        self.assertEqual(publication.graph.steps["wait-post-merge"].routes["green"], "END")
 
     def test_registry_rejects_target_binding_fields(self) -> None:
         payload = {
