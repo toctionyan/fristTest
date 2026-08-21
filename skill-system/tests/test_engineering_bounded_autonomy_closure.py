@@ -42,12 +42,12 @@ class EngineeringBoundedAutonomyClosureTests(unittest.TestCase):
         self.assertIn("independent_review_policy", result["true_human_gates"])
         self.assertIn("real_github_workflow_approval", result["true_human_gates"])
 
-    def test_missing_initial_bounded_merge_choice_reopens_manual_landing(self) -> None:
+    def test_default_bounded_merge_policy_cannot_drift_back_to_manual_landing(self) -> None:
         root = self._copy_contract_root()
-        self._mutate(root, "authorize", "bounded-auto-merge", "manual-merge-only")
+        self._mutate(root, "authorize", "default: bounded-auto-merge", "default: disabled")
         result = MODULE.verify(root)
         self.assertEqual(result["status"], "FAIL")
-        self.assertTrue(any("bounded-auto-merge" in error for error in result["errors"]))
+        self.assertTrue(any("default: bounded-auto-merge" in error for error in result["errors"]))
 
     def test_solo_automation_cannot_drop_independent_review_guard(self) -> None:
         root = self._copy_contract_root()
