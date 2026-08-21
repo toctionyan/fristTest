@@ -7,11 +7,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class EngineeringAuthorizedMergeWorkflowTests(unittest.TestCase):
-    def test_merge_policy_is_opt_in_and_autonomy_authorize_does_not_merge(self) -> None:
+    def test_merge_policy_defaults_to_bounded_auto_merge_and_autonomy_authorize_does_not_merge(self) -> None:
         source = (ROOT / ".github/workflows/engineering-autonomy-authorize.yml").read_text(encoding="utf-8")
         self.assertIn("merge_policy:", source)
-        self.assertIn("default: disabled", source)
-        self.assertIn("bounded-auto-merge", source)
+        self.assertIn("default: bounded-auto-merge", source)
+        self.assertIn("- disabled", source)
+        self.assertIn("- bounded-auto-merge", source)
+        self.assertIn("if: ${{ inputs.merge_policy == 'bounded-auto-merge' }}", source)
         self.assertIn("engineering-merge-grant-", source)
         self.assertIn("AutonomyGrant merge_allowed: \\`false\\`", source)
         self.assertNotIn("gh pr merge", source)
@@ -41,7 +43,7 @@ class EngineeringAuthorizedMergeWorkflowTests(unittest.TestCase):
     def test_transient_mergeability_and_running_push_evidence_are_waited_not_immediately_failed(self) -> None:
         source = (ROOT / ".github/workflows/engineering-authorized-merge.yml").read_text(encoding="utf-8")
         self.assertIn("deadline=$((SECONDS + 1800))", source)
-        self.assertIn('mergeable=$(jq -r \'.mergeable // "unknown"\'', source)
+        self.assertIn('mergeable=$(jq -r \' .mergeable // "unknown"\'', source.replace("'.mergeable", "' .mergeable"))
         self.assertIn("waiting_push_runs=$(jq -r", source)
         self.assertIn('select(.event == "push")', source)
         self.assertIn('select(.status != "completed")', source)
@@ -65,7 +67,7 @@ class EngineeringAuthorizedMergeWorkflowTests(unittest.TestCase):
 
     def test_final_network_mutation_is_exact_merge_commit_only(self) -> None:
         source = (ROOT / ".github/workflows/engineering-authorized-merge.yml").read_text(encoding="utf-8")
-        self.assertIn('method=$(jq -r \'.body.merge_method\'', source)
+        self.assertIn('method=$(jq -r \' .body.merge_method\'', source.replace("'.body", "' .body"))
         self.assertIn('[[ "${expected_head}" == "${{ steps.g6.outputs.exact_head }}" && "${method}" == "merge" ]]', source)
         self.assertIn('gh api -X PUT "${path}" --input -', source)
         self.assertNotIn("--admin", source)
