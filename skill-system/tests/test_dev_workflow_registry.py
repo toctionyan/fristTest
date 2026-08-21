@@ -33,7 +33,7 @@ class DevWorkflowRegistryTest(unittest.TestCase):
 
     def test_registry_loads_explicit_and_reusable_workflows(self) -> None:
         workflows = load_workflow_registry(self.workspace())
-        self.assertEqual(len(workflows), 10)
+        self.assertEqual(len(workflows), 11)
         self.assertEqual(workflows["architecture-review"].skills, ("architecture-options",))
         self.assertEqual(
             workflows["governed-repair"].skills,
@@ -56,6 +56,26 @@ class DevWorkflowRegistryTest(unittest.TestCase):
         self.assertEqual(repair_and_prove.graph.max_attempts_per_step, 8)
         self.assertEqual(repair_and_prove.graph.steps["focused-test"].use, "test.run")
         self.assertEqual(repair_and_prove.graph.steps["quality"].routes["red"], "repair")
+
+        governed_merge = workflows["governed-merge"]
+        self.assertEqual(governed_merge.skills, ())
+        self.assertTrue(governed_merge.write_governed)
+        self.assertEqual(
+            governed_merge.required_capabilities,
+            ("ci.run.wait", "code_review.pull_request.merge"),
+        )
+        self.assertEqual(governed_merge.optional_capabilities, ())
+        self.assertIsNotNone(governed_merge.graph)
+        self.assertEqual(governed_merge.graph.start, "wait-ci")
+        self.assertEqual(governed_merge.graph.steps["wait-ci"].step_type, "external_wait")
+        self.assertEqual(governed_merge.graph.steps["wait-ci"].use, "ci.run.wait")
+        self.assertEqual(
+            governed_merge.graph.steps["wait-ci"].routes["pending"],
+            "WAITING_EXTERNAL",
+        )
+        self.assertEqual(governed_merge.graph.steps["wait-ci"].routes["green"], "merge")
+        self.assertEqual(governed_merge.graph.steps["merge"].use, "code_review.pull_request.merge")
+        self.assertEqual(governed_merge.graph.steps["merge"].routes["green"], "END")
 
     def test_registry_rejects_target_binding_fields(self) -> None:
         payload = {
