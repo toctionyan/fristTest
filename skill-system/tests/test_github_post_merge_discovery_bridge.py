@@ -39,6 +39,10 @@ def _comment(run_id: int, *, merge_sha: str = MERGE_SHA) -> dict:
     }
 
 
+def _branch(run_id: int, *, merge_sha: str = MERGE_SHA) -> str:
+    return f"governed-post-merge-validation/{merge_sha[:12]}-{run_id}"
+
+
 def _run(run_id: int = RUN_ID) -> dict:
     return {
         "id": run_id,
@@ -108,10 +112,11 @@ class GithubPostMergeDiscoveryBridgeTest(unittest.TestCase):
             host=FakePostMergeHost(),
         )
 
-    def test_no_announced_child_remains_undiscovered(self) -> None:
+    def test_no_locator_for_exact_merge_remains_undiscovered(self) -> None:
         self.assertIsNone(
             select_expected_child_run_id(
                 comments=[{"body": "unrelated"}, _comment(RUN_ID, merge_sha="a" * 40)],
+                branch_names=[_branch(RUN_ID, merge_sha="b" * 40)],
                 merge_sha=MERGE_SHA,
             )
         )
@@ -125,10 +130,31 @@ class GithubPostMergeDiscoveryBridgeTest(unittest.TestCase):
             RUN_ID,
         )
 
-    def test_multiple_announced_child_runs_fail_closed(self) -> None:
+    def test_live_exact_merge_branch_locates_child_when_comment_transport_is_missing(self) -> None:
+        self.assertEqual(
+            select_expected_child_run_id(
+                comments=[],
+                branch_names=[_branch(RUN_ID)],
+                merge_sha=MERGE_SHA,
+            ),
+            RUN_ID,
+        )
+
+    def test_comment_and_live_ref_may_agree_on_same_child(self) -> None:
+        self.assertEqual(
+            select_expected_child_run_id(
+                comments=[_comment(RUN_ID)],
+                branch_names=[_branch(RUN_ID)],
+                merge_sha=MERGE_SHA,
+            ),
+            RUN_ID,
+        )
+
+    def test_multiple_located_child_runs_fail_closed(self) -> None:
         with self.assertRaisesRegex(GithubPostMergeDiscoveryError, "multiple post-merge child"):
             select_expected_child_run_id(
-                comments=[_comment(RUN_ID), _comment(OTHER_RUN_ID)],
+                comments=[_comment(RUN_ID)],
+                branch_names=[_branch(OTHER_RUN_ID)],
                 merge_sha=MERGE_SHA,
             )
 
@@ -140,7 +166,7 @@ class GithubPostMergeDiscoveryBridgeTest(unittest.TestCase):
             source_pr_number=PR_NUMBER,
             merge_sha=MERGE_SHA,
             correlation_ref=CORRELATION,
-            evidence_refs=["github-comment:post-merge-start"],
+            evidence_refs=["github-ref:post-merge-live-child"],
         )
 
         self.assertEqual(event["event"], "post_merge.validation.child_discovered")
@@ -158,8 +184,8 @@ class GithubPostMergeDiscoveryBridgeTest(unittest.TestCase):
         self.assertFalse(event["completion_authority_changed"])
         self.assertFalse(event["production_closed"])
 
-    def test_fetched_run_must_match_announced_run_and_repository(self) -> None:
-        with self.assertRaisesRegex(GithubPostMergeDiscoveryError, "announced expected child"):
+    def test_fetched_run_must_match_located_run_and_repository(self) -> None:
+        with self.assertRaisesRegex(GithubPostMergeDiscoveryError, "located expected child"):
             build_child_discovered_event(
                 run=_run(OTHER_RUN_ID),
                 expected_run_id=RUN_ID,
@@ -181,7 +207,7 @@ class GithubPostMergeDiscoveryBridgeTest(unittest.TestCase):
                 correlation_ref=CORRELATION,
             )
 
-    def test_bridge_event_moves_adapter_from_expected_child_to_exact_running_child(self) -> None:
+    def test_live_ref_bridge_event_moves_adapter_to_exact_running_child(self) -> None:
         adapter = self.adapter()
         waiting = adapter.invoke(
             binding=self.binding(),
@@ -194,7 +220,8 @@ class GithubPostMergeDiscoveryBridgeTest(unittest.TestCase):
         self.assertEqual(waiting.payload["status"], "WAITING_FOR_EXPECTED_CHILD")
 
         expected_run_id = select_expected_child_run_id(
-            comments=[_comment(RUN_ID)],
+            comments=[],
+            branch_names=[_branch(RUN_ID)],
             merge_sha=MERGE_SHA,
         )
         self.assertEqual(expected_run_id, RUN_ID)

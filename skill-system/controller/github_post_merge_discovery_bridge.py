@@ -2,11 +2,13 @@ from __future__ import annotations
 
 """Normalize an observed GitHub post-merge workflow run into a Harness resume event.
 
-The PR comment is transport/locator data only. It may identify the candidate
-``workflow_run_id`` emitted by the repository-owned post-merge workflow, but it
-never authorizes progress. The bridge accepts progress only after the caller has
-fetched that exact GitHub Actions run and this module verifies its repository,
-workflow identity, run id, and request correlation.
+GitHub-side locator surfaces are never authority. The repository-owned workflow
+normally announces ``workflow_run_id`` in a non-authoritative PR comment and,
+while validation is live, creates an exact-merge temporary branch whose name also
+contains ``GITHUB_RUN_ID``. Either surface may locate the candidate child, but the
+bridge accepts progress only after the caller fetches that exact GitHub Actions
+run and this module verifies its repository, workflow identity, run id, and
+request correlation.
 
 This module performs no polling, no dispatch, no completion decision, and no
 Quality/merge/release authority. Missing child evidence remains a pending
@@ -29,6 +31,9 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 _START_COMMENT = re.compile(
     r"^Post-merge validation started for exact merge `([0-9a-f]{40})` "
     r"in workflow run `([1-9][0-9]*)`\."
+)
+_TEMP_BRANCH = re.compile(
+    r"^governed-post-merge-validation/([0-9a-f]{12})-([1-9][0-9]*)$"
 )
 _KNOWN_RUN_STATUSES = frozenset(
     {
@@ -78,17 +83,24 @@ def _canonical_correlation(*, source_pr_number: int, merge_sha: str) -> str:
 
 def select_expected_child_run_id(
     *,
-    comments: Iterable[Mapping[str, Any]],
+    comments: Iterable[Mapping[str, Any]] = (),
+    branch_names: Iterable[object] = (),
     merge_sha: str,
 ) -> int | None:
-    """Return the unique child run id announced for ``merge_sha``.
+    """Return the unique child run id located for ``merge_sha``.
 
-    The comment is deliberately only a locator. Zero matches means discovery has
-    not happened yet; multiple different run ids are ambiguous and fail closed.
+    Comments are best-effort transport. The temporary exact-merge validation ref
+    is a live-run fallback when comment delivery fails. Neither locator is trusted
+    as execution authority; the returned id must still be fetched and verified by
+    :func:`build_child_discovered_event`.
+
+    Zero matches means discovery has not happened yet. Multiple different run ids
+    across either locator surface are ambiguous and fail closed.
     """
 
     expected_sha = _merge_sha(merge_sha)
     run_ids: set[int] = set()
+
     for comment in comments:
         body = _text(comment.get("body"))
         match = _START_COMMENT.match(body)
@@ -96,11 +108,19 @@ def select_expected_child_run_id(
             continue
         run_ids.add(_positive_int(match.group(2), field="comment workflow_run_id"))
 
+    expected_prefix = expected_sha[:12]
+    for value in branch_names:
+        branch_name = _text(value)
+        match = _TEMP_BRANCH.fullmatch(branch_name)
+        if match is None or match.group(1) != expected_prefix:
+            continue
+        run_ids.add(_positive_int(match.group(2), field="branch workflow_run_id"))
+
     if not run_ids:
         return None
     if len(run_ids) != 1:
         raise GithubPostMergeDiscoveryError(
-            "multiple post-merge child workflow runs were announced for the same merge SHA"
+            "multiple post-merge child workflow runs were located for the same merge SHA"
         )
     return next(iter(run_ids))
 
@@ -133,7 +153,7 @@ def build_child_discovered_event(
     actual_run_id = _positive_int(run.get("id"), field="workflow run id")
     if actual_run_id != expected_id:
         raise GithubPostMergeDiscoveryError(
-            "fetched workflow run id does not match the announced expected child run id"
+            "fetched workflow run id does not match the located expected child run id"
         )
     run_attempt = _positive_int(run.get("run_attempt"), field="workflow run attempt")
     if _text(run.get("name")) != WORKFLOW_NAME:
