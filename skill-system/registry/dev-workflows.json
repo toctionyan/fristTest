@@ -172,6 +172,86 @@
       }
     },
     {
+      "workflow_id": "publication-e2e",
+      "request_class": "PUBLICATION",
+      "skills": [],
+      "mode": "WRITE_GOVERNED",
+      "status_first": false,
+      "deterministic_response": true,
+      "write_governed": true,
+      "requirements": {
+        "capabilities": {
+          "required": [
+            "vcs.commit.create",
+            "code_review.pull_request.create",
+            "ci.run.wait",
+            "code_review.pull_request.merge",
+            "publication.post_merge.validation.request",
+            "publication.post_merge.validation.wait"
+          ],
+          "optional": []
+        }
+      },
+      "graph": {
+        "start": "commit",
+        "max_attempts_per_step": 4,
+        "steps": {
+          "commit": {
+            "type": "executor",
+            "use": "vcs.commit.create",
+            "routes": {
+              "green": "create-pr",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "create-pr": {
+            "type": "executor",
+            "use": "code_review.pull_request.create",
+            "routes": {
+              "green": "wait-ci",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "wait-ci": {
+            "type": "external_wait",
+            "use": "ci.run.wait",
+            "routes": {
+              "pending": "WAITING_EXTERNAL",
+              "green": "merge",
+              "red": "BLOCKED_UNRECOVERABLE",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "merge": {
+            "type": "executor",
+            "use": "code_review.pull_request.merge",
+            "routes": {
+              "green": "request-post-merge",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "request-post-merge": {
+            "type": "executor",
+            "use": "publication.post_merge.validation.request",
+            "routes": {
+              "green": "wait-post-merge",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          },
+          "wait-post-merge": {
+            "type": "external_wait",
+            "use": "publication.post_merge.validation.wait",
+            "routes": {
+              "pending": "WAITING_EXTERNAL",
+              "green": "END",
+              "red": "BLOCKED_UNRECOVERABLE",
+              "blocked": "BLOCKED_UNRECOVERABLE"
+            }
+          }
+        }
+      }
+    },
+    {
       "workflow_id": "adversarial-review",
       "request_class": "ADVERSARIAL_REVIEW",
       "skills": ["adversarial-review"],
