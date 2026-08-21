@@ -7,11 +7,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class EngineeringAuthorizedMergeWorkflowTests(unittest.TestCase):
-    def test_merge_policy_is_opt_in_and_autonomy_authorize_does_not_merge(self) -> None:
+    def test_merge_policy_defaults_to_bounded_auto_merge_and_autonomy_authorize_does_not_merge(self) -> None:
         source = (ROOT / ".github/workflows/engineering-autonomy-authorize.yml").read_text(encoding="utf-8")
         self.assertIn("merge_policy:", source)
-        self.assertIn("default: disabled", source)
-        self.assertIn("bounded-auto-merge", source)
+        self.assertIn("default: bounded-auto-merge", source)
+        self.assertIn("- disabled", source)
+        self.assertIn("- bounded-auto-merge", source)
+        self.assertIn("if: ${{ inputs.merge_policy == 'bounded-auto-merge' }}", source)
         self.assertIn("engineering-merge-grant-", source)
         self.assertIn("AutonomyGrant merge_allowed: \\`false\\`", source)
         self.assertNotIn("gh pr merge", source)

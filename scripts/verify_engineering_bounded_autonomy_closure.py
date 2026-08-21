@@ -27,6 +27,7 @@ WORKFLOWS = {
 REQUIRED: dict[str, tuple[str, ...]] = {
     "authorize": (
         "merge_policy:",
+        "default: bounded-auto-merge",
         "options:\n          - disabled\n          - bounded-auto-merge",
         "inputs.merge_policy == 'bounded-auto-merge'",
         "github.actor == github.repository_owner",
