@@ -25,6 +25,21 @@
       },
       "write_authority_required": true,
       "completion_authority": "TaskRun"
+    },
+    {
+      "composition_id": "governed-merge-github",
+      "workflow_id": "governed-merge",
+      "available_provider_ids": [
+        "github.actions",
+        "github.code_review"
+      ],
+      "provider_preferences": {
+        "ci.run.wait": "github.actions",
+        "code_review.pull_request.merge": "github.code_review"
+      },
+      "allowed_profiles": {},
+      "write_authority_required": true,
+      "completion_authority": "TaskRun"
     }
   ]
 }
