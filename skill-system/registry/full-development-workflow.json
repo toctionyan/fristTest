@@ -1,6 +1,6 @@
 {
   "schema": "full-development-workflow@1",
-  "workflow_id": "full-development",
+  "workflow_id": "harness-full-dev",
   "request_class": "DEVELOPMENT",
   "mode": "WRITE_GOVERNED",
   "write_governed": true,
@@ -24,11 +24,6 @@
     "publication-e2e": {
       "type": "workflow",
       "use": "publication-e2e",
-      "next": "post-merge-validation"
-    },
-    "post-merge-validation": {
-      "type": "external_validation",
-      "use": "publication.post_merge.validation.wait",
       "next": "END"
     }
   }

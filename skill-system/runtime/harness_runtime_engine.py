@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from .harness_runtime_state import HarnessRuntimeState, HarnessTaskStatus
-
-
-@dataclass(frozen=True)
-class WorkflowExecutionResult:
-    state: HarnessRuntimeState
-    next_action: str
+from .harness_runtime_state import HarnessRuntimeState, HarnessRuntimeStatus
 
 
 class HarnessRuntimeEngine:
@@ -22,22 +14,44 @@ class HarnessRuntimeEngine:
         return HarnessRuntimeState(
             task_id=task_id,
             workflow_id=workflow_id,
-            status=HarnessTaskStatus.RUNNING,
+            status=HarnessRuntimeStatus.RUNNING,
         )
 
     def move(self, state: HarnessRuntimeState, *, step: str) -> HarnessRuntimeState:
-        state.current_step = step
-        return state
+        return state.model_copy(update={"current_step": step})
 
     def wait_external(self, state: HarnessRuntimeState, *, evidence_ref: str) -> HarnessRuntimeState:
-        state.status = HarnessTaskStatus.WAITING_EXTERNAL
-        state.evidence_refs.append(evidence_ref)
-        return state
+        return state.model_copy(
+            update={
+                "status": HarnessRuntimeStatus.WAITING_EXTERNAL,
+                "evidence_refs": _append_unique(state.evidence_refs, evidence_ref),
+            }
+        )
 
     def block(self, state: HarnessRuntimeState, *, receipt: str) -> HarnessRuntimeState:
-        state.status = HarnessTaskStatus.BLOCKED
-        state.receipts.append(receipt)
-        return state
+        return state.model_copy(
+            update={
+                "status": HarnessRuntimeStatus.BLOCKED,
+                "receipts": _append_unique(state.receipts, receipt),
+            }
+        )
+
+    def end_flow(self, state: HarnessRuntimeState, *, evidence_ref: str) -> HarnessRuntimeState:
+        """End orchestration only; TaskRun still evaluates whole-task completion."""
+
+        return state.model_copy(
+            update={
+                "status": HarnessRuntimeStatus.FLOW_ENDED,
+                "evidence_refs": _append_unique(state.evidence_refs, evidence_ref),
+            }
+        )
 
 
-__all__ = ["HarnessRuntimeEngine", "WorkflowExecutionResult"]
+def _append_unique(existing: tuple[str, ...], value: str) -> tuple[str, ...]:
+    ref = str(value or "").strip()
+    if not ref or ref in existing:
+        return existing
+    return (*existing, ref)
+
+
+__all__ = ["HarnessRuntimeEngine"]

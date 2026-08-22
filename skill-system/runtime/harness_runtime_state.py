@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class HarnessTaskStatus(str, Enum):
+class HarnessRuntimeStatus(str, Enum):
     CREATED = "CREATED"
     RUNNING = "RUNNING"
     WAITING_EXTERNAL = "WAITING_EXTERNAL"
     BLOCKED = "BLOCKED"
-    COMPLETED = "COMPLETED"
+    FLOW_ENDED = "FLOW_ENDED"
 
 
 class HarnessRuntimeState(BaseModel):
@@ -21,13 +21,17 @@ class HarnessRuntimeState(BaseModel):
     TaskRun remains the lifecycle and completion authority.
     """
 
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     task_id: str
     workflow_id: str
     current_step: str | None = None
-    status: HarnessTaskStatus = HarnessTaskStatus.CREATED
-    evidence_refs: list[str] = Field(default_factory=list)
-    receipts: list[str] = Field(default_factory=list)
+    status: HarnessRuntimeStatus = HarnessRuntimeStatus.CREATED
+    evidence_refs: tuple[str, ...] = Field(default_factory=tuple)
+    receipts: tuple[str, ...] = Field(default_factory=tuple)
     context: dict[str, Any] = Field(default_factory=dict)
+    completion_authority: Literal["TaskRun"] = "TaskRun"
+    authority_effect: Literal[False] = False
 
 
-__all__ = ["HarnessRuntimeState", "HarnessTaskStatus"]
+__all__ = ["HarnessRuntimeState", "HarnessRuntimeStatus"]
