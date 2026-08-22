@@ -252,6 +252,31 @@
       }
     },
     {
+      "workflow_id": "harness-full-dev",
+      "request_class": "DEVELOPMENT",
+      "skills": ["product-code-governance", "architecture-options"],
+      "mode": "WRITE_GOVERNED",
+      "status_first": false,
+      "deterministic_response": false,
+      "write_governed": true,
+      "requirements": {
+        "capabilities": {
+          "required": [
+            "workspace.write",
+            "test.run",
+            "quality.evaluate",
+            "vcs.commit.create",
+            "code_review.pull_request.create",
+            "ci.run.wait",
+            "code_review.pull_request.merge",
+            "publication.post_merge.validation.request",
+            "publication.post_merge.validation.wait"
+          ],
+          "optional": []
+        }
+      }
+    },
+    {
       "workflow_id": "adversarial-review",
       "request_class": "ADVERSARIAL_REVIEW",
       "skills": ["adversarial-review"],

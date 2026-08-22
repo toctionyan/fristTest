@@ -15,6 +15,7 @@ SKILL_INVOCATION_COMMANDS = {
 }
 DIRECT_CONTROLLER_COMMANDS = {
     "dev-command": ROOT / "skill-system" / "controller" / "dev_command.py",
+    "invoke": ROOT / "skill-system" / "controller" / "harness_invocation.py",
     "workflow-preflight": ROOT / "skill-system" / "controller" / "workflow_preflight_cli.py",
 }
 

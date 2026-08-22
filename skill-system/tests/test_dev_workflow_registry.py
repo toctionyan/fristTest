@@ -33,7 +33,7 @@ class DevWorkflowRegistryTest(unittest.TestCase):
 
     def test_registry_loads_explicit_and_reusable_workflows(self) -> None:
         workflows = load_workflow_registry(self.workspace())
-        self.assertEqual(len(workflows), 12)
+        self.assertEqual(len(workflows), 13)
         self.assertEqual(workflows["architecture-review"].skills, ("architecture-options",))
         self.assertEqual(
             workflows["governed-repair"].skills,
@@ -112,6 +112,19 @@ class DevWorkflowRegistryTest(unittest.TestCase):
             "publication.post_merge.validation.wait",
         )
         self.assertEqual(publication.graph.steps["wait-post-merge"].routes["green"], "END")
+
+        full_development = workflows["harness-full-dev"]
+        self.assertEqual(
+            full_development.skills,
+            ("product-code-governance", "architecture-options"),
+        )
+        self.assertTrue(full_development.write_governed)
+        self.assertIsNone(full_development.graph)
+        self.assertIn("workspace.write", full_development.required_capabilities)
+        self.assertIn(
+            "publication.post_merge.validation.wait",
+            full_development.required_capabilities,
+        )
 
     def test_registry_rejects_target_binding_fields(self) -> None:
         payload = {
