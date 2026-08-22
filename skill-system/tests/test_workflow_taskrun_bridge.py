@@ -66,6 +66,35 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
         self.assertFalse(latest["metadata"]["graph_can_complete_task"])
         self.assertFalse(latest["metadata"]["completion_authority_changed"])
 
+    def test_nested_graph_end_keeps_taskrun_running_until_parent_ends(self) -> None:
+        store = self.store("nested-end")
+        checkpoint_workflow_start(
+            store,
+            workflow_id="repair-and-prove",
+            workspace_fingerprint="fp-1",
+        )
+        checkpoint_workflow_state(
+            store,
+            state={
+                "workflow_id": "repair-and-prove",
+                "runtime_status": RUNTIME_STATUS_END,
+                "current_stage": "quality",
+                "next_action": "EVALUATE_COMPLETION_POLICY",
+                "evidence_refs": ["quality:green"],
+            },
+            workspace_fingerprint="fp-1",
+            parent_workflow_id="harness-full-dev",
+            parent_step_id="repair-and-prove",
+            parent_next_action="publication-e2e",
+        )
+
+        self.assertEqual(store.payload["status"], "RUNNING")
+        self.assertEqual(store.payload["phase"], "CHILD_WORKFLOW_ENDED")
+        latest = store.payload["checkpoints"][-1]
+        self.assertTrue(latest["metadata"]["nested_workflow"])
+        self.assertEqual(latest["metadata"]["parent_next_action"], "publication-e2e")
+        self.assertFalse(store.completion_decision().eligible)
+
     def test_external_wait_maps_to_taskrun_wait_then_one_event_resume_back_to_running(self) -> None:
         store = self.store("wait")
         checkpoint_workflow_start(
