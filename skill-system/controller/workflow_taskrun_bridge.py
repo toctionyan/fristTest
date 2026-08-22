@@ -98,6 +98,9 @@ def checkpoint_workflow_state(
     *,
     state: Mapping[str, Any],
     workspace_fingerprint: str | None,
+    parent_workflow_id: str | None = None,
+    parent_step_id: str | None = None,
+    parent_next_action: str | None = None,
 ) -> dict[str, Any]:
     """Persist a LangGraph runtime checkpoint into TaskRun lifecycle evidence.
 
@@ -121,6 +124,25 @@ def checkpoint_workflow_state(
         "quality_authority_changed": False,
         "completion_authority_changed": False,
     }
+    parent_id = str(parent_workflow_id or "").strip()
+    parent_step = str(parent_step_id or "").strip()
+    parent_next = str(parent_next_action or "").strip()
+    nested_values = (parent_id, parent_step, parent_next)
+    if any(nested_values) and not all(nested_values):
+        raise WorkflowTaskRunBridgeError(
+            "nested workflow checkpoint requires parent_workflow_id, parent_step_id, and parent_next_action"
+        )
+    if parent_id:
+        if parent_id == workflow_id:
+            raise WorkflowTaskRunBridgeError("nested workflow cannot name itself as parent")
+        metadata.update(
+            {
+                "nested_workflow": True,
+                "parent_workflow_id": parent_id,
+                "parent_step_id": parent_step,
+                "parent_next_action": parent_next,
+            }
+        )
 
     if runtime_status == RUNTIME_STATUS_RUNNING:
         status = "RUNNING"
@@ -147,9 +169,14 @@ def checkpoint_workflow_state(
         phase = "WORKFLOW_BLOCKED_UNRECOVERABLE"
         metadata["runtime_error"] = str(state.get("runtime_error") or "") or None
     elif runtime_status == RUNTIME_STATUS_END:
-        status = "VALIDATING"
-        phase = "WORKFLOW_GRAPH_ENDED_AWAITING_COMPLETION_POLICY"
-        metadata["next_action"] = "EVALUATE_COMPLETION_POLICY"
+        if parent_id:
+            status = "RUNNING"
+            phase = "CHILD_WORKFLOW_ENDED"
+            metadata["next_action"] = parent_next
+        else:
+            status = "VALIDATING"
+            phase = "WORKFLOW_GRAPH_ENDED_AWAITING_COMPLETION_POLICY"
+            metadata["next_action"] = "EVALUATE_COMPLETION_POLICY"
     else:
         raise WorkflowTaskRunBridgeError(f"unsupported workflow runtime_status: {runtime_status!r}")
 

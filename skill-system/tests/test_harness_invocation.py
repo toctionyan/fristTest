@@ -87,6 +87,7 @@ class HarnessInvocationTest(unittest.TestCase):
         self.assertEqual(route["selected_workflow"], "harness-full-dev")
         self.assertEqual(route["next_action"], "diagnose")
         self.assertEqual(route["runtime_state"]["status"], "RUNNING")
+        self.assertEqual(route["runtime_state"]["current_step"], "diagnose")
         self.assertEqual(route["runtime_state"]["completion_authority"], "TaskRun")
         self.assertFalse(route["runtime_state"]["authority_effect"])
         self.assertFalse(route["composition_activation"]["write_authority_granted"])

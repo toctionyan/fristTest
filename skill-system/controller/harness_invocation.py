@@ -172,6 +172,7 @@ def build_workflow_route(
         state = HarnessRuntimeEngine().start(
             task_id=_identifier(task_id, field="task_id"),
             workflow_id=workflow_id,
+            start_step=plan.start,
         )
         route["full_development"] = plan.as_dict()
         route["runtime_state"] = state.model_dump(mode="json")

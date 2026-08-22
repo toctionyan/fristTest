@@ -51,4 +51,4 @@ product-code-governance
 
 ## Current boundary
 
-This stage makes invocation and activation executable and testable. It does not yet run nested child Workflows. The next stage must delegate each child Workflow to the existing `langgraph_workflow_runtime`, `WorkflowAdapterDispatcher`, durable checkpointer, and `workflow_taskrun_bridge`; it must not create a parallel runner or completion state machine.
+Invocation and activation remain selection-only boundaries. Nested child execution is provided separately by `full_development_child_runtime`: it delegates to the existing `langgraph_workflow_runtime`, injected `WorkflowAdapterDispatcher`, durable checkpointer, and `workflow_taskrun_bridge`. Direct parent Skill steps still require real Host execution and canonical receipts; selection alone cannot advance them.
