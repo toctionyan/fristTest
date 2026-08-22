@@ -5,6 +5,7 @@
   "mode": "WRITE_GOVERNED",
   "write_governed": true,
   "completion_authority": "TaskRun",
+  "start": "diagnose",
   "steps": {
     "diagnose": {
       "type": "skill",

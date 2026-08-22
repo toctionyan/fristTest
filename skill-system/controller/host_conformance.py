@@ -119,6 +119,7 @@ def verify(strict: bool = False) -> list[str]:
             "skill-invocation-verify",
             "task-status-project",
             "dev-command",
+            "invoke",
         ):
             if command not in skillctl_text:
                 errors.append(f"missing_skillctl_invocation_command:{command}")
