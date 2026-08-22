@@ -1,0 +1,30 @@
+{
+  "schema": "full-development-workflow@1",
+  "workflow_id": "harness-full-dev",
+  "request_class": "DEVELOPMENT",
+  "mode": "WRITE_GOVERNED",
+  "write_governed": true,
+  "completion_authority": "TaskRun",
+  "steps": {
+    "diagnose": {
+      "type": "skill",
+      "use": "product-code-governance",
+      "next": "architecture-review"
+    },
+    "architecture-review": {
+      "type": "skill",
+      "use": "architecture-options",
+      "next": "repair-and-prove"
+    },
+    "repair-and-prove": {
+      "type": "workflow",
+      "use": "repair-and-prove",
+      "next": "publication-e2e"
+    },
+    "publication-e2e": {
+      "type": "workflow",
+      "use": "publication-e2e",
+      "next": "END"
+    }
+  }
+}
