@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "root_cause_proof_sha256": "ebf4f73ec791acac95802b82cffd1b34ac0b15a8b6b1b9e9fc7a56149d520bbc",
+  "status": "APPROVED",
+  "strategy": "Write and fsync the complete JSON artifact to a same-directory temporary inode, then publish it with an atomic hard link to the immutable final pathname. The link fails with FileExistsError when another process won; the loser re-reads and accepts only byte-equivalent semantic content. Add a synchronized concurrent conflicting-submission regression.",
+  "changes": [
+    {
+      "path": "skill-system/controller/host_skill_bridge.py",
+      "responsibility": "replace check-then-os.replace with atomic create-if-absent publication",
+      "reason": "immutable Host evidence needs cross-process first-writer semantics"
+    },
+    {
+      "path": "skill-system/tests/test_host_skill_bridge.py",
+      "responsibility": "force concurrent conflicting submissions and prove exactly one winner with no overwrite",
+      "reason": "sequential resubmission coverage cannot expose the TOCTOU race"
+    }
+  ],
+  "unchanged_boundaries": [
+    "Host request/result schemas and fingerprints remain unchanged",
+    "CanonicalSkillInvocationAdapter remains the canonical Skill receipt writer",
+    "TaskRun, Workflow, write, Quality, merge and completion authorities remain unchanged",
+    "all #2095 Host selection and pause/resume semantics remain unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not use a process-local-only lock as the integrity boundary.",
+    "Do not overwrite or delete an already-published request or result.",
+    "Do not weaken conflicting resubmission validation.",
+    "Do not modify Host schemas, Workflow topology or authority behavior."
+  ],
+  "required_invariants": [
+    "publication exposes only fully-written bytes",
+    "final path creation is atomic and non-overwriting",
+    "identical retries remain idempotent",
+    "conflicting concurrent retries produce one winner and one rejection"
+  ],
+  "required_tests": {
+    "focused": [
+      "Host bridge focused suite passes",
+      "concurrent conflicting submission has exactly one winner"
+    ],
+    "counterexamples": [
+      "second publisher cannot replace the first result",
+      "identical retry remains accepted"
+    ],
+    "regression": [
+      "all #2095 focused tests and complete Skill unit profile remain green"
+    ],
+    "negative_path": [
+      "no result deletion, overwrite, authority change or receipt fabrication"
+    ]
+  },
+  "risks": [
+    "Hard links must be supported within the execution directory filesystem; the temporary and final path intentionally share one directory and filesystem.",
+    "A failed publisher must always remove its temporary file without touching the winner."
+  ],
+  "rollback_plan": "Restore the previous replace-based helper and remove the concurrency test, which reopens the documented immutable-publication race."
+}

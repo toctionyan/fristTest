@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "classification": "skill-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A ChatGPT or Codex Host can select one exact Starter Workflow, load the verified canonical SKILL.md, execute structured tools, persist digest-bound output/tool evidence, and resume the same TaskRun and LangGraph step without acquiring write or completion authority.",
+    "actual": "The runtime accepts only an injected synchronous SkillHostAdapter. It has no durable Host execution request/result contract, no WAITING_HOST checkpoint/resume state, and no validated natural-language Host selection proposal with exact confirmation for mutating routes.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/red-baseline.md",
+      "skill-system/controller/workflow_dispatcher.py",
+      "skill-system/controller/langgraph_workflow_runtime.py",
+      "skill-system/controller/starter_runtime.py"
+    ]
+  },
+  "violated_invariants": [
+    "Reaching a Skill node must never be treated as proof that ChatGPT or Codex loaded and executed the Skill.",
+    "A Host handoff must resume the same TaskRun, Workflow, step, canonical Skill digest, and durable checkpoint.",
+    "Mutating natural-language requests must resolve to one exact reviewed entrypoint and effect preview before execution.",
+    "Host output or tool claims without digest-bound durable evidence must fail closed."
+  ],
+  "affected_boundaries": [
+    "ChatGPT/Codex Skill execution",
+    "Host request/result evidence",
+    "Skill-step pause and resume",
+    "natural-language to exact Workflow selection"
+  ]
+}

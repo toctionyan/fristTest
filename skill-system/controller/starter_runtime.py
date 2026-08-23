@@ -14,6 +14,7 @@ from harness_starter import StarterVerification, verify_starter
 from langgraph_workflow_runtime import (
     RUNTIME_STATUS_HUMAN_GATE,
     RUNTIME_STATUS_WAITING_EXTERNAL,
+    RUNTIME_STATUS_WAITING_HOST,
     WorkflowRuntimeState,
     build_langgraph_workflow,
     initial_workflow_state,
@@ -40,6 +41,10 @@ from workflow_taskrun_bridge import (
 STARTER_RUNTIME_REGISTRATION_SCHEMA = "harness-starter-runtime-registration@1"
 STARTER_RUNTIME_ROUTE_SCHEMA = "harness-starter-runtime-route@1"
 STARTER_RUNTIME_EXECUTION_SCHEMA = "harness-starter-runtime-execution@1"
+STARTER_HOST_SELECTION_REQUEST_SCHEMA = "starter-host-selection-request@1"
+STARTER_HOST_SELECTION_SCHEMA = "starter-host-selection@1"
+STARTER_HOST_CONFIRMATION_SCHEMA = "starter-host-selection-confirmation@1"
+STARTER_HOST_SELECTION_RESOLUTION_SCHEMA = "starter-host-selection-resolution@1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ENTRYPOINT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -437,6 +442,185 @@ def resolve_starter_entrypoint(
     )
 
 
+@dataclass(frozen=True)
+class HostStarterSelectionResolution:
+    """Validated Host selection; `resolved` is absent until mutation is confirmed."""
+
+    resolved: ResolvedStarterEntrypoint | None
+    record: dict[str, Any]
+
+
+def _selection_fields(
+    payload: Mapping[str, Any], *, required: set[str]
+) -> None:
+    missing = sorted(required - set(payload))
+    unexpected = sorted(set(payload) - required)
+    if missing or unexpected:
+        raise StarterRuntimeError(
+            f"invalid Host selection fields: missing={missing} unexpected={unexpected}"
+        )
+
+
+def build_starter_host_selection_request(
+    loaded: LoadedStarterRegistration,
+    *,
+    registry_workspace: Path,
+    host_id: str,
+    user_request: str,
+) -> dict[str, Any]:
+    """Expose only verified candidates for ChatGPT/Codex semantic selection.
+
+    Repository code does not interpret natural language.  The Host chooses one
+    candidate, after which `resolve_starter_host_selection` validates exact
+    identity and requires explicit confirmation for a mutating effect preview.
+    """
+
+    host = str(host_id or "").strip().lower()
+    if host not in {"chatgpt", "codex"}:
+        raise StarterRuntimeError(f"unsupported Starter Host: {host!r}")
+    text = str(user_request or "").strip()
+    if not text:
+        raise StarterRuntimeError("Host selection requires a non-empty user_request")
+    candidates: list[dict[str, Any]] = []
+    for entrypoint in sorted(loaded.payload["entrypoints"]):
+        resolved = resolve_starter_entrypoint(
+            loaded,
+            registry_workspace=registry_workspace,
+            entrypoint=entrypoint,
+            user_payload=text,
+        )
+        candidates.append(
+            {
+                "entrypoint": entrypoint,
+                "workflow_id": resolved.workflow.workflow_id,
+                "mode": resolved.workflow.mode,
+                "effect_preview": resolved.effect_preview(
+                    registry_workspace=registry_workspace
+                ),
+            }
+        )
+    request: dict[str, Any] = {
+        "schema": STARTER_HOST_SELECTION_REQUEST_SCHEMA,
+        "host_id": host,
+        "registration_ref": loaded.registration_ref,
+        "registration_sha256": loaded.payload["registration_sha256"],
+        "user_request": text,
+        "candidates": candidates,
+        "policy": {
+            "host_interprets_language": True,
+            "repository_keyword_router": False,
+            "exact_entrypoint_required": True,
+            "mutating_confirmation_required": True,
+            "selection_grants_write_authority": False,
+            "automatic_merge": False,
+            "completion_authority": "TaskRun",
+            "authority_effect": False,
+        },
+    }
+    request["request_fingerprint_sha256"] = _digest(request)
+    return request
+
+
+def resolve_starter_host_selection(
+    loaded: LoadedStarterRegistration,
+    *,
+    registry_workspace: Path,
+    request: Mapping[str, Any],
+    selection: Mapping[str, Any],
+    confirmation: Mapping[str, Any] | None = None,
+) -> HostStarterSelectionResolution:
+    """Reduce one Host model choice to an exact safe Starter route."""
+
+    expected = build_starter_host_selection_request(
+        loaded,
+        registry_workspace=registry_workspace,
+        host_id=str(request.get("host_id") or ""),
+        user_request=str(request.get("user_request") or ""),
+    )
+    if dict(request) != expected:
+        raise StarterRuntimeError("Host selection request is stale or was modified")
+    _selection_fields(
+        selection,
+        required={
+            "schema", "host_id", "request_fingerprint_sha256",
+            "selected_entrypoint", "authority_effect",
+        },
+    )
+    if selection.get("schema") != STARTER_HOST_SELECTION_SCHEMA:
+        raise StarterRuntimeError("unsupported Host selection schema")
+    if selection.get("host_id") != request.get("host_id"):
+        raise StarterRuntimeError("Host selection host_id mismatch")
+    if selection.get("request_fingerprint_sha256") != request.get(
+        "request_fingerprint_sha256"
+    ):
+        raise StarterRuntimeError("Host selection request fingerprint mismatch")
+    if selection.get("authority_effect") is not False:
+        raise StarterRuntimeError("Host selection cannot change authority")
+    entrypoint = str(selection.get("selected_entrypoint") or "").strip()
+    candidate_names = {
+        str(row.get("entrypoint") or "")
+        for row in request["candidates"]
+        if isinstance(row, Mapping)
+    }
+    if entrypoint not in candidate_names:
+        raise StarterRuntimeError("Host selected an entrypoint outside the verified candidates")
+    resolved = resolve_starter_entrypoint(
+        loaded,
+        registry_workspace=registry_workspace,
+        entrypoint=entrypoint,
+        user_payload=str(request["user_request"]),
+    )
+    preview = resolved.effect_preview(registry_workspace=registry_workspace)
+    preview_sha = _digest(preview)
+    mutating = bool(preview["mutating_capabilities"])
+
+    if confirmation is not None:
+        _selection_fields(
+            confirmation,
+            required={
+                "schema", "request_fingerprint_sha256", "selected_entrypoint",
+                "effect_preview_sha256", "confirmed", "authority_effect",
+            },
+        )
+        if confirmation.get("schema") != STARTER_HOST_CONFIRMATION_SCHEMA:
+            raise StarterRuntimeError("unsupported Host selection confirmation schema")
+        if (
+            confirmation.get("request_fingerprint_sha256")
+            != request.get("request_fingerprint_sha256")
+            or confirmation.get("selected_entrypoint") != entrypoint
+            or confirmation.get("effect_preview_sha256") != preview_sha
+            or confirmation.get("confirmed") is not True
+            or confirmation.get("authority_effect") is not False
+        ):
+            raise StarterRuntimeError("Host selection confirmation does not bind the exact preview")
+
+    awaiting = mutating and confirmation is None
+    record = {
+        "schema": STARTER_HOST_SELECTION_RESOLUTION_SCHEMA,
+        "status": "AWAITING_CONFIRMATION" if awaiting else "PASS",
+        "host_id": request["host_id"],
+        "request_fingerprint_sha256": request["request_fingerprint_sha256"],
+        "selected_entrypoint": entrypoint,
+        "selected_workflow": resolved.workflow.workflow_id,
+        "effect_preview": preview,
+        "effect_preview_sha256": preview_sha,
+        "confirmation_required": mutating,
+        "confirmed": bool(confirmation is not None),
+        "next_action": "CONFIRM_EXACT_EFFECT_PREVIEW" if awaiting else "START_TASKRUN",
+        "policy": {
+            "selection_is_execution": False,
+            "selection_grants_write_authority": False,
+            "automatic_merge": False,
+            "completion_authority": "TaskRun",
+            "authority_effect": False,
+        },
+    }
+    return HostStarterSelectionResolution(
+        resolved=None if awaiting else resolved,
+        record=record,
+    )
+
+
 def _skill_bindings(
     resolved: ResolvedStarterEntrypoint,
 ) -> dict[str, tuple[CapabilityBinding, ...]]:
@@ -590,11 +774,19 @@ class StarterWorkflowRuntime:
         state: Mapping[str, Any],
         external_event: Mapping[str, Any] | None = None,
         human_decision: Mapping[str, Any] | None = None,
+        host_execution_result: Mapping[str, Any] | None = None,
         evidence_refs: Iterable[str],
         correlation_ref: str | None = None,
     ) -> dict[str, Any]:
         self._assert_task(state)
         status = str(state.get("runtime_status") or "")
+        supplied = sum(
+            value is not None
+            for value in (external_event, human_decision, host_execution_result)
+        )
+        if supplied != 1:
+            raise StarterRuntimeError("Workflow resume requires exactly one resume input")
+        resume_correlation = correlation_ref
         if status == RUNTIME_STATUS_WAITING_EXTERNAL:
             resume_kind = "EXTERNAL_EVENT"
             wait = state.get("external_wait")
@@ -619,11 +811,31 @@ class StarterWorkflowRuntime:
                 raise StarterRuntimeError(
                     "external resume event or correlation does not match the durable wait handle"
                 )
+        elif status == RUNTIME_STATUS_WAITING_HOST:
+            wait = state.get("host_wait")
+            if not isinstance(wait, Mapping) or not wait:
+                raise StarterRuntimeError("WAITING_HOST state requires a host_wait handle")
+            pointer = host_execution_result or {}
+            if (
+                pointer.get("schema") != "host-skill-execution-resume@1"
+                or pointer.get("event") != wait.get("resume_event")
+                or pointer.get("execution_id") != wait.get("execution_id")
+                or pointer.get("authority_effect") is not False
+                or not str(pointer.get("result_ref") or "").strip()
+                or not _SHA256.fullmatch(str(pointer.get("result_sha256") or ""))
+            ):
+                raise StarterRuntimeError(
+                    "Host execution result does not match the durable host_wait handle"
+                )
+            resume_kind = "HOST_EXECUTION"
+            resume_correlation = str(wait["execution_id"])
         elif status == RUNTIME_STATUS_HUMAN_GATE:
+            if not human_decision:
+                raise StarterRuntimeError("HUMAN_GATE resume requires human_decision")
             resume_kind = "HUMAN_DECISION"
         else:
             raise StarterRuntimeError(
-                "Starter Workflow can resume only from WAITING_EXTERNAL or HUMAN_GATE"
+                "Starter Workflow can resume only from WAITING_EXTERNAL, WAITING_HOST, or HUMAN_GATE"
             )
         refs = tuple(str(ref).strip() for ref in evidence_refs if str(ref).strip())
         checkpoints = self.store.payload.get("checkpoints") or []
@@ -642,12 +854,13 @@ class StarterWorkflowRuntime:
             resume_kind=resume_kind,
             workspace_fingerprint=self.workspace_fingerprint,
             evidence_refs=refs,
-            correlation_ref=correlation_ref,
+            correlation_ref=resume_correlation,
         )
         resumed: WorkflowRuntimeState = resume_workflow_state(
             state,
             external_event=external_event,
             human_decision=human_decision,
+            host_execution_result=host_execution_result,
         )
         result = self._graph().invoke(resumed, config=self._config())
         checkpoint_workflow_state(
@@ -660,6 +873,11 @@ class StarterWorkflowRuntime:
 
 __all__ = [
     "LoadedStarterRegistration",
+    "HostStarterSelectionResolution",
+    "STARTER_HOST_CONFIRMATION_SCHEMA",
+    "STARTER_HOST_SELECTION_REQUEST_SCHEMA",
+    "STARTER_HOST_SELECTION_RESOLUTION_SCHEMA",
+    "STARTER_HOST_SELECTION_SCHEMA",
     "ResolvedStarterEntrypoint",
     "STARTER_RUNTIME_EXECUTION_SCHEMA",
     "STARTER_RUNTIME_REGISTRATION_SCHEMA",
@@ -667,7 +885,9 @@ __all__ = [
     "StarterRuntimeError",
     "StarterWorkflowRuntime",
     "load_starter_registration",
+    "build_starter_host_selection_request",
     "parse_starter_command",
     "register_starter_runtime",
     "resolve_starter_entrypoint",
+    "resolve_starter_host_selection",
 ]

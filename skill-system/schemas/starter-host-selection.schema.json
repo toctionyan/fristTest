@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "starter-host-selection.schema.json",
+  "title": "Starter Host Selection Contracts v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "host_id", "request_fingerprint_sha256", "selected_entrypoint", "authority_effect"],
+      "properties": {
+        "schema": {"const": "starter-host-selection@1"},
+        "host_id": {"enum": ["chatgpt", "codex"]},
+        "request_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "selected_entrypoint": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "authority_effect": {"const": false}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema", "request_fingerprint_sha256", "selected_entrypoint",
+        "effect_preview_sha256", "confirmed", "authority_effect"
+      ],
+      "properties": {
+        "schema": {"const": "starter-host-selection-confirmation@1"},
+        "request_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "selected_entrypoint": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "effect_preview_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "confirmed": {"const": true},
+        "authority_effect": {"const": false}
+      }
+    }
+  ]
+}

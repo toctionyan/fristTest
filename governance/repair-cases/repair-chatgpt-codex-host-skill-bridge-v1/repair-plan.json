@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "root_cause_proof_sha256": "263569c6f0566beb0278ffc6a09418055cc88b5aa7bfb9d6d19723880d0fff34",
+  "status": "APPROVED",
+  "strategy": "Add a host-independent durable Skill execution bridge that emits one exact ChatGPT/Codex request, suspends the current Skill step as WAITING_HOST, accepts only a matching digest-bound Host result with structured tool receipts, then resumes the same TaskRun/checkpoint and lets the existing CanonicalSkillInvocationAdapter create the canonical Skill receipt. Add a separate bounded Starter Host selection request/proposal/confirmation protocol so natural language remains model-interpreted while repository code validates one exact entrypoint and requires an exact effect-preview confirmation for mutating routes.",
+  "changes": [
+    {
+      "path": "skill-system/controller/host_skill_bridge.py",
+      "responsibility": "persist and validate canonical Host Skill execution requests/results and structured tool receipts without executing arbitrary commands",
+      "reason": "ChatGPT/Codex execution crosses the existing synchronous SkillHostAdapter boundary"
+    },
+    {
+      "path": "skill-system/controller/langgraph_workflow_runtime.py",
+      "responsibility": "add WAITING_HOST suspension and same-step resume as runtime plumbing rather than a new declarative Workflow route",
+      "reason": "the real Host may complete after the current graph invocation returns"
+    },
+    {
+      "path": "skill-system/controller/workflow_taskrun_bridge.py",
+      "responsibility": "project Host waits/resumes into the existing TaskRun lifecycle with no completion effect",
+      "reason": "Host handoff must remain under the authoritative TaskRun"
+    },
+    {
+      "path": "skill-system/controller/starter_runtime.py",
+      "responsibility": "validate Host natural-language selection and confirmation and expose exact Host execution resume on the installed Starter runtime",
+      "reason": "ChatGPT/Codex needs one safe embedding API for language/command selection and durable continuation"
+    },
+    {
+      "path": "skill-system/schemas/host-skill-execution-request.schema.json",
+      "responsibility": "publish the closed Host execution request shape",
+      "reason": "Host integrations require a reviewable versioned contract"
+    },
+    {
+      "path": "skill-system/schemas/host-skill-execution-result.schema.json",
+      "responsibility": "publish the closed Host result and structured tool receipt shape",
+      "reason": "Skill receipts must be derived only from validated durable Host evidence"
+    },
+    {
+      "path": "skill-system/schemas/starter-host-selection.schema.json",
+      "responsibility": "publish exact Host proposal and mutating-route confirmation shapes",
+      "reason": "natural language must not become an unbounded repository keyword router"
+    },
+    {
+      "path": "skill-system/tests/test_host_skill_bridge.py",
+      "responsibility": "prove request, result, tool-receipt, tamper, stale-Skill, and duplicate-submission behavior",
+      "reason": "the new Host evidence boundary must fail closed"
+    },
+    {
+      "path": "skill-system/tests/test_langgraph_workflow_runtime.py",
+      "responsibility": "prove WAITING_HOST and same-step resume without consuming attempt budget or changing declared topology",
+      "reason": "Host handoff is a durable runtime suspension"
+    },
+    {
+      "path": "skill-system/tests/test_workflow_taskrun_bridge.py",
+      "responsibility": "prove Host wait/resume TaskRun phases and Graph END to VALIDATING",
+      "reason": "TaskRun remains lifecycle and completion authority"
+    },
+    {
+      "path": "skill-system/tests/test_starter_runtime.py",
+      "responsibility": "prove installed Customer Agent Host handoff resumes the same TaskRun and produces a real canonical Skill receipt",
+      "reason": "the complete embedding path needs end-to-end evidence"
+    },
+    {
+      "path": "skill-system/tests/test_starter_host_selection.py",
+      "responsibility": "prove exact natural-language Host proposals, read-only routing, mutating confirmation, and ambiguity/tamper rejection",
+      "reason": "language convenience must reduce to an exact reviewed route"
+    },
+    {
+      "path": "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+      "responsibility": "document interaction, extension, evidence, pause/resume, and standalone project boundaries",
+      "reason": "operators need a concrete embedding contract"
+    },
+    {
+      "path": "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+      "responsibility": "replace the remaining Host boundary with the implemented bridge and state truthful limits",
+      "reason": "the architecture record must match executable coverage"
+    }
+  ],
+  "unchanged_boundaries": [
+    "Skill contracts remain the canonical methodology and are loaded from their verified SKILL.md path",
+    "Workflow Registry, graph parser, Capability Resolver, and WorkflowAdapterDispatcher retain their existing single-owner responsibilities",
+    "the existing WriteAuthorityGuard runs before a mutating Skill Host request is exposed",
+    "Host identity and tool access do not grant ChangePermit, write, Quality, merge, release, or completion authority",
+    "CanonicalSkillInvocationAdapter remains the only producer of skill-invocation-receipt@1 for Workflow Skill steps",
+    "TaskRun remains lifecycle and completion authority and Graph END still projects only to VALIDATING",
+    "Customer Agent Workflows contain no merge step and automatic_merge remains false",
+    "generated customer projects remain runnable without Harness"
+  ],
+  "forbidden_repairs": [
+    "Do not fabricate a Skill receipt when a Host request is merely created or a Skill node is reached.",
+    "Do not accept free-form commands, executable names, shell strings, or unstructured tool success claims from Host output.",
+    "Do not let Host selection add an entrypoint, Workflow, Skill, capability, provider, or route absent from the verified Starter.",
+    "Do not let a mutating natural-language route execute before an exact entrypoint and effect-preview digest are confirmed.",
+    "Do not create a second TaskRun, graph, write guard, Quality verdict, merge path, or completion controller.",
+    "Do not automatically merge #2095 or any later pull request."
+  ],
+  "required_invariants": [
+    "Host request identity binds TaskRun, Workflow, step, Skill path, Skill digest, request class, and user payload digest",
+    "Host result identity binds the exact request fingerprint and output digest",
+    "every structured tool receipt binds tool name, arguments digest, result digest, evidence reference, mutation flag, and write-authority check flag",
+    "Host result submission is immutable and conflicting resubmission fails closed",
+    "WAITING_HOST resumes only the same step through the same durable checkpointer and TaskRun",
+    "natural-language Host selection can choose only one declared entrypoint and mutating selection requires exact preview confirmation",
+    "no Host artifact changes completion, Quality, write, or merge authority"
+  ],
+  "required_tests": {
+    "focused": [
+      "ChatGPT/Codex request persists exact canonical Skill identity and yields WAITING_HOST",
+      "matching Host result resumes the same Skill step and creates skill-invocation-receipt@1",
+      "structured tool receipts are digest-bound and mutating receipts require write-authority-checked evidence",
+      "natural-language Host proposal resolves one exact read route and requires exact confirmation for a mutating route"
+    ],
+    "counterexamples": [
+      "wrong TaskRun, Workflow, step, Host, Skill digest, request digest, result digest, tool digest, or result reference is rejected",
+      "missing output evidence, missing mutation guard evidence, conflicting result resubmission, and stale Skill are rejected",
+      "unknown or ambiguous entrypoint, fabricated candidate, stale selection request, and wrong preview confirmation are rejected",
+      "Host wait cannot resume from an unrelated TaskRun phase or without durable evidence"
+    ],
+    "regression": [
+      "Dispatcher, LangGraph, TaskRun bridge, Starter runtime, invocation receipt, Provider, publication, and control-plane suites remain green",
+      "complete skill-control-plane and Skill unit profiles remain green"
+    ],
+    "negative_path": [
+      "no arbitrary shell or tool command from Host data is executed",
+      "Host request creation alone produces no skill-invocation-receipt@1",
+      "Host selection and Host credentials grant no write authority",
+      "Graph END remains VALIDATING and Customer Agent Workflows still contain no merge capability",
+      "customer application source and runtime dependencies remain unchanged"
+    ]
+  },
+  "risks": [
+    "A Host may crash after tool execution but before result submission; immutable request identity allows explicit reconciliation without blind replay.",
+    "A Host can truthfully attest only tools it actually invoked; repository validation proves binding and integrity, not the model provider's internal reasoning.",
+    "Natural-language interpretation remains Host-owned; exact candidate validation prevents it from silently expanding executable topology.",
+    "Additional hosts may need transport-specific wrappers, but they must implement the same request/result contract rather than fork runtime authority."
+  ],
+  "rollback_plan": "Remove the Host bridge, WAITING_HOST plumbing, selection protocol, schemas, tests, and architecture record. The existing synchronous SkillHostAdapter and strict slash-command Starter routing remain intact and continue to fail closed without a real injected Host."
+}

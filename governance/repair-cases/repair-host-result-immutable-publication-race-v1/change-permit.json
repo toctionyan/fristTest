@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "repair_plan_sha256": "db0dcb012195fac5cf7d4c9a1aba6e890e6a386f96158a317f33645d38c2c145",
+  "plan_review_sha256": "df9cde8f51c64341239164f19e8f4a6cfbc93e65df7eb126cb6e68a5b0557f4a",
+  "baseline_manifest_sha256": "200ae915f64ef622f1676879f450535048a212c49666d2a4c9f122649642da9d",
+  "allowed_paths": [
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/tests/test_host_skill_bridge.py"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "Host bridge focused suite passes",
+      "concurrent conflicting submission has exactly one winner"
+    ],
+    "counterexamples": [
+      "second publisher cannot replace the first result",
+      "identical retry remains accepted"
+    ],
+    "regression": [
+      "all #2095 focused tests and complete Skill unit profile remain green"
+    ],
+    "negative_path": [
+      "no result deletion, overwrite, authority change or receipt fabrication"
+    ]
+  },
+  "baseline_source_fingerprint": "b4fe0a63dff249daf9bddd1f6e04b88b0aa648f00970613500a0824e3681b8d2",
+  "baseline_workspace_fingerprint": "d53062f643359decc36e14e28d59908c27755d169864c4a22c5b896bf0ff5633",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "565707bcb488d3e5754e79c57c7f5945085730a06c50d3e9a5f750dfecf170cb"
+}

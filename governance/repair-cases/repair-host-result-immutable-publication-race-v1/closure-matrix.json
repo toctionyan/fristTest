@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "permit_digest": "565707bcb488d3e5754e79c57c7f5945085730a06c50d3e9a5f750dfecf170cb",
+  "diff_review_sha256": "d05fb04c03e500c73f77296b9732a8a31d7addee91737776eb600ef579a54969",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "4f5f49f5df88525c6d676a6f471c1cd350d665947259bc65d0e8757025e90a83",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "cd2b231b3cba2b9254ea3d93b68b7e118cdd7aba7b5ea27c703b003967be0d02"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/counterexamples.md",
+      "evidence_sha256": "18813cd1f337c8e0003c7e619001ff957016c9bb5983669eda0a30b3f026ddaf"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/diff-review.json",
+      "evidence_sha256": "d05fb04c03e500c73f77296b9732a8a31d7addee91737776eb600ef579a54969"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/focused-tests.md",
+      "evidence_sha256": "c53c7132878fd6ecde522d7d269a06260105a90ea6938a05da6bb0718cf69fc4"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/negative-paths.md",
+      "evidence_sha256": "8428da57974e206134711a6d832675fdd5f4e26720b42fc1f596e9641ec9fe07"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/red-baseline.md",
+      "evidence_sha256": "1ddbefe01ee2269df3b946f91e6a67b14c796a7d5fb3be42af8a72bd787ad784"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/regression.md",
+      "evidence_sha256": "ea9b199dd68e2a31b881fb8ae0232dfd559f3fb59037911d58094c225206ab9a"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "06475da97e29921a10331f84c4e18209388c9f78884fa4378ec22359efac464a"
+    }
+  ],
+  "residual_risks": []
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "permit_digest": "a8b22f1a3a8b6025dfdcfed72b55236a319cebb117e20c0dfec2f3ddc699f518",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "8841152db102ce28f70de606df5d47d1c9c156010ee4c32fdb90266e5077faac",
+  "candidate_source_fingerprint": "0e10ad8f2f22b7269b42bfffd326278bb2ca17b7bca134429078e26737627742",
+  "changed_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py",
+    "skill-system/schemas/host-skill-execution-request.schema.json",
+    "skill-system/schemas/host-skill-execution-result.schema.json",
+    "skill-system/schemas/starter-host-selection.schema.json",
+    "skill-system/tests/test_host_skill_bridge.py",
+    "skill-system/tests/test_langgraph_workflow_runtime.py",
+    "skill-system/tests/test_starter_host_selection.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_workflow_taskrun_bridge.py"
+  ],
+  "added_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/schemas/host-skill-execution-request.schema.json",
+    "skill-system/schemas/host-skill-execution-result.schema.json",
+    "skill-system/schemas/starter-host-selection.schema.json",
+    "skill-system/tests/test_host_skill_bridge.py",
+    "skill-system/tests/test_starter_host_selection.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py",
+    "skill-system/tests/test_langgraph_workflow_runtime.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_workflow_taskrun_bridge.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

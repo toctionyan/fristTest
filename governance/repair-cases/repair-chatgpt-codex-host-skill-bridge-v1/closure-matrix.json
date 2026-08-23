@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "permit_digest": "a8b22f1a3a8b6025dfdcfed72b55236a319cebb117e20c0dfec2f3ddc699f518",
+  "diff_review_sha256": "d940ae2e0c25a94716f04a52e4482292d3e0914650f18aef614f4017f5c10a4a",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "0e10ad8f2f22b7269b42bfffd326278bb2ca17b7bca134429078e26737627742",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "0848525d4bc10c5a3fba46b990093257965b932d70f201fc8689653509130037"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/counterexamples.md",
+      "evidence_sha256": "9bffcf46e0216a7d25247eea8967ff546e0ad477b11ea6d0778f6936fd8e1f0e"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/diff-review.json",
+      "evidence_sha256": "d940ae2e0c25a94716f04a52e4482292d3e0914650f18aef614f4017f5c10a4a"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/focused-tests.md",
+      "evidence_sha256": "4610c6bec47a932cd32e8308cc9323ae1c507e88731417174a2c8fe1e1be8492"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/negative-paths.md",
+      "evidence_sha256": "9d0a2d9dce9767d8bfbe29338d3eda843a2731e8e330f1e6a44b20f7043e761c"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/red-baseline.md",
+      "evidence_sha256": "3c36b3e9d5bd14e54273d8e10fff0a54f1da1b79932210dd1e9c2fcbb1be2e69"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/regression.md",
+      "evidence_sha256": "ca28c29c3b4557bed2f1511e3d3ef91edb6d93f79017ded6459078216e76b293"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "394eaf1ab2d6dad75c3ba261da7c85e7dd5c38407e0b0900f7c77ce5c1585584"
+    }
+  ],
+  "residual_risks": []
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "failure_case_sha256": "9ca08d552b95294455e3dcc0acebc786e524886010c38000d489431b33e91c92",
+  "decision": "PROVEN",
+  "root_cause": "The existing Dispatcher correctly refuses to fabricate Skill execution, but its SkillHostAdapter contract is synchronous and transient. ChatGPT/Codex model work happens outside that Python call boundary, so there is no durable request identity, canonical Skill load proof, structured tool receipt set, result submission boundary, or Workflow suspension state that can bridge the two execution contexts. The existing command router also deliberately rejects fuzzy language and provides no bounded Host proposal/confirmation protocol.",
+  "causal_chain": [
+    "StarterWorkflowRuntime constructs CanonicalSkillInvocationAdapter around an injected SkillHostAdapter.",
+    "CanonicalSkillInvocationAdapter can write skill-invocation-receipt@1 only after SkillHostAdapter.execute returns a complete SkillHostResult.",
+    "A real ChatGPT/Codex Host cannot synchronously return through repository Python when execution crosses a conversation/tool boundary.",
+    "The LangGraph runtime recognizes external Provider waits and Human Gates but has no Host Skill wait state or same-step Host resume input.",
+    "Therefore embeddings must either use in-process fakes, block the graph, or invent host-specific state outside TaskRun/checkpointer authority.",
+    "Natural-language selection similarly has no digest-bound candidate/preview protocol, so safe code currently supports only exact entrypoints and strict slash commands."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-chatgpt-codex-host-skill-bridge-v1/evidence/red-baseline.md",
+    "docs/architecture/HOST_SKILL_INVOCATION_INTEGRITY.md",
+    "skill-system/controller/workflow_dispatcher.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py",
+    "skill-system/controller/starter_runtime.py"
+  ],
+  "rejected_hypotheses": [
+    "Treat arrival at a Skill node as execution; this fabricates discovery, load, tool, and output evidence.",
+    "Run arbitrary Host-generated shell commands; this bypasses structured tools, write scope, and the existing WriteAuthorityGuard.",
+    "Make ChatGPT/Codex a Provider capability; the Host executes Skills and tools but must not become capability-binding or write authority.",
+    "Add a keyword router for natural language; semantic selection belongs to the Host model and must be reduced to an exact validated entrypoint.",
+    "Use a second Host task ledger; TaskRun and the durable LangGraph checkpointer already own lifecycle and resume identity."
+  ],
+  "affected_boundaries": [
+    "SkillHostAdapter lifecycle",
+    "LangGraph suspension and resume",
+    "TaskRun wait projection",
+    "Host tool evidence validation",
+    "Starter Host selection"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "repair_plan_sha256": "db0dcb012195fac5cf7d4c9a1aba6e890e6a386f96158a317f33645d38c2c145",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/tests/test_host_skill_bridge.py"
+  ],
+  "review_findings": [
+    "Same-directory temporary write plus hard-link publication is atomic and non-overwriting across processes on the supported local filesystem.",
+    "FileExistsError preserves first-writer ownership and still permits idempotent equivalent retries.",
+    "The patch is limited to storage integrity and does not alter Host, Workflow, TaskRun or write authority semantics."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Durable evidence integrity",
+      "assessment": "immutable result identity becomes atomic first-writer-wins instead of last-replace-wins",
+      "evidence": "skill-system/controller/host_skill_bridge.py"
+    },
+    {
+      "rule": "Counterexample coverage",
+      "assessment": "a synchronized concurrent conflict proves the losing publisher cannot overwrite",
+      "evidence": "skill-system/tests/test_host_skill_bridge.py"
+    }
+  ]
+}

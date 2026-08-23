@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
   "target_kind": "repair",
-  "goal": "Add exact, fail-closed workspace mutation, real local Git commit, GitHub pull-request creation, and installed Starter Provider bootstrap without creating new write, merge, quality, or completion authority.",
+  "goal": "Make #2095 Host request/result publication atomically immutable under concurrent submitters without changing Host or workflow authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -23,11 +23,6 @@
     "B18_STAGE_SUMMARY.json",
     "Makefile",
     "skillctl.py",
-    "docs/architecture/HARNESS_AUTHORING_CORE_V1.md",
-    "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
-    "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
-    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
-    "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -36,19 +31,9 @@
     "contracts/**"
   ],
   "invariants": [
-    "customer product source remains unchanged",
-    "trusted Judge inputs and completion authority remain unchanged",
-    "Capability Registry and Resolver remain the sole Provider binding authorities",
-    "WorkflowAdapterDispatcher remains the sole graph-step dispatch owner",
-    "existing WriteAuthorityGuard remains mandatory before every mutating Provider or Skill effect",
-    "workspace writes use a closed structured operation contract with exact paths and digest preconditions",
-    "Git commits require exact parent SHA and exact changed paths",
-    "GitHub pull requests require an exact-head verification read and never expose credentials",
-    "customer-agent publication Workflows stop after CI evidence and never merge automatically",
-    "TaskRun remains the only completion authority and Graph END transitions only to VALIDATING",
-    "missing Provider configuration, credentials, or remote identity blocks instead of simulating success",
-    "authoring validation and explanation require no model or network",
-    "declaration parsing is safe and unknown fields fail closed"
+    "customer-agent product source remains unchanged",
+    "trusted Judge inputs are not modified by the implementer",
+    "current evidence is required for completion"
   ],
   "required_profiles": [
     "skill-static",
@@ -67,23 +52,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/diff-review.json",
-      "evidence_sha256": "fce8d43ce160519fc3ad41adbfd8be51423afc1dc569336fbdd4264b52d96760",
-      "recorded_at": "2026-08-23T11:43:28.865181+00:00"
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/diff-review.json",
+      "evidence_sha256": "d05fb04c03e500c73f77296b9732a8a31d7addee91737776eb600ef579a54969",
+      "recorded_at": "2026-08-23T12:38:42.817510+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/counterexamples.md",
-      "evidence_sha256": "c71a9eab7da0f0f76badd51da5297f1545464f4adb54dfa6536f9a7a703d92b0",
-      "recorded_at": "2026-08-23T11:43:28.943637+00:00"
+      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/counterexamples.md",
+      "evidence_sha256": "18813cd1f337c8e0003c7e619001ff957016c9bb5983669eda0a30b3f026ddaf",
+      "recorded_at": "2026-08-23T12:38:42.901769+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-customer-agent-concrete-provider-bridge-v1/verification.json",
-      "evidence_sha256": "04a6df30c9162f25cd56bd07586988d14c55c9d7392d7bea3c7f069ba26542ee",
-      "recorded_at": "2026-08-23T11:43:57.909844+00:00"
+      "evidence": ".quality/skill-control-plane/repair-host-result-immutable-publication-race-v1/verification.json",
+      "evidence_sha256": "380725141bcb71d0d995945567dd7f0dd05b9afc574e27c255db7954a4fc5aa0",
+      "recorded_at": "2026-08-23T12:39:18.997457+00:00"
     }
   ],
   "decision_record": null,
@@ -91,17 +76,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-customer-agent-concrete-provider-bridge-v1/verification.json",
-    "sha256": "04a6df30c9162f25cd56bd07586988d14c55c9d7392d7bea3c7f069ba26542ee",
-    "source_fingerprint": "f722f6c072251f8ed8014730469db258cd32eb9cd1541d30702bacc900c031f3",
-    "source_file_count": 1066,
-    "verified_at": "2026-08-23T11:43:57.909087+00:00"
+    "path": ".quality/skill-control-plane/repair-host-result-immutable-publication-race-v1/verification.json",
+    "sha256": "380725141bcb71d0d995945567dd7f0dd05b9afc574e27c255db7954a4fc5aa0",
+    "source_fingerprint": "118129cb8ff2c04d8fb55cc1e7010d7af80c7a6332a5aaf5abacb5ab591ccd12",
+    "source_file_count": 1097,
+    "verified_at": "2026-08-23T12:39:18.996862+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1",
-  "created_at": "2026-08-23T21:00:00+00:00",
+  "repair_governance": "governance/repair-cases/repair-host-result-immutable-publication-race-v1",
+  "repair_governance_consumed_at": "2026-08-23T12:39:25.133311+00:00",
+  "created_at": "2026-08-23T12:35:35.532045+00:00",
   "status": "closed",
-  "repair_governance_permit_digest": "195caa43eaab4089b19d30180e79e133ab32c0b35ee84fac17cf82b15e87373b",
   "result": "CONVERGED",
-  "repair_governance_consumed_at": "2026-08-23T11:44:03.897641+00:00",
-  "closed_at": "2026-08-23T11:44:03.897658+00:00"
+  "repair_governance_permit_digest": "565707bcb488d3e5754e79c57c7f5945085730a06c50d3e9a5f750dfecf170cb",
+  "closed_at": "2026-08-23T12:39:25.133328+00:00"
 }

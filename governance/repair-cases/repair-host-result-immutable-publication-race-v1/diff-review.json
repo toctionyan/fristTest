@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "permit_digest": "565707bcb488d3e5754e79c57c7f5945085730a06c50d3e9a5f750dfecf170cb",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "b4fe0a63dff249daf9bddd1f6e04b88b0aa648f00970613500a0824e3681b8d2",
+  "candidate_source_fingerprint": "4f5f49f5df88525c6d676a6f471c1cd350d665947259bc65d0e8757025e90a83",
+  "changed_paths": [
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/tests/test_host_skill_bridge.py"
+  ],
+  "added_paths": [],
+  "modified_paths": [
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/tests/test_host_skill_bridge.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

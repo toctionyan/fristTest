@@ -8,6 +8,7 @@ from langgraph_workflow_runtime import (
     RUNTIME_STATUS_HUMAN_GATE,
     RUNTIME_STATUS_RUNNING,
     RUNTIME_STATUS_WAITING_EXTERNAL,
+    RUNTIME_STATUS_WAITING_HOST,
 )
 from task_run import TaskRunStore
 
@@ -63,6 +64,7 @@ def checkpoint_workflow_resume(
     kind = str(resume_kind or "").strip().upper()
     allowed = {
         "EXTERNAL_EVENT": ("WAITING_EXTERNAL_RESULT", "WORKFLOW_WAITING_EXTERNAL"),
+        "HOST_EXECUTION": ("WAITING_EXTERNAL_RESULT", "WORKFLOW_WAITING_HOST"),
         "HUMAN_DECISION": ("BLOCKED", "WORKFLOW_HUMAN_GATE"),
     }
     expected = allowed.get(kind)
@@ -154,6 +156,14 @@ def checkpoint_workflow_state(
         status = "WAITING_EXTERNAL_RESULT"
         phase = "WORKFLOW_WAITING_EXTERNAL"
         metadata["external_wait"] = dict(wait_handle)
+        metadata["resume_stage"] = str(state.get("resume_stage") or "") or None
+    elif runtime_status == RUNTIME_STATUS_WAITING_HOST:
+        host_wait = state.get("host_wait")
+        if not isinstance(host_wait, Mapping) or not host_wait:
+            raise WorkflowTaskRunBridgeError("WAITING_HOST runtime state requires host_wait handle")
+        status = "WAITING_EXTERNAL_RESULT"
+        phase = "WORKFLOW_WAITING_HOST"
+        metadata["host_wait"] = dict(host_wait)
         metadata["resume_stage"] = str(state.get("resume_stage") or "") or None
     elif runtime_status == RUNTIME_STATUS_HUMAN_GATE:
         gate = state.get("human_gate")

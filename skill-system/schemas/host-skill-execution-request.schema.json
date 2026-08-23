@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "host-skill-execution-request.schema.json",
+  "title": "Host Skill Execution Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "execution_id", "host_id", "task_id", "workflow_id", "step_id",
+    "request_class", "skill", "user_payload_sha256", "allowed_outcomes",
+    "required_result_schema", "policy", "request_fingerprint_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "host-skill-execution-request@1"},
+    "execution_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+    "host_id": {"enum": ["chatgpt", "codex"]},
+    "task_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+    "workflow_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+    "step_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+    "request_class": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "sha256"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9._:-]+$"},
+        "path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+/SKILL\\.md$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "user_payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "allowed_outcomes": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "required_result_schema": {"const": "host-skill-execution-result@1"},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "structured_tools_only", "receipt_before_execution_forbidden",
+        "authority_effect", "completion_authority"
+      ],
+      "properties": {
+        "structured_tools_only": {"const": true},
+        "receipt_before_execution_forbidden": {"const": true},
+        "authority_effect": {"const": false},
+        "completion_authority": {"const": "TaskRun"}
+      }
+    },
+    "request_fingerprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "failure_case_sha256": "cf303299f033c2c652e98b13fb5eeb2535d5a07ad1b9835dcda45edc6d992e9e",
+  "decision": "PROVEN",
+  "root_cause": "The bridge atomically replaces bytes but does not atomically claim the immutable final pathname. The path.exists check is a time-of-check/time-of-use gap, and os.replace deliberately overwrites an existing destination.",
+  "causal_chain": [
+    "Two Host submitters validate different results for the same execution ID.",
+    "Both can observe that result.json does not exist.",
+    "Both fully write temporary files.",
+    "Each calls os.replace against result.json; the second overwrites the first.",
+    "The durable result no longer proves first-writer single assignment."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/red-baseline.md",
+    "skill-system/controller/host_skill_bridge.py"
+  ],
+  "rejected_hypotheses": [
+    "A sequential exists check is sufficient; it does not serialize concurrent publishers.",
+    "os.replace fails when the target exists; by design it replaces the target.",
+    "A process-local lock is sufficient; different Host wrapper processes would not share it."
+  ],
+  "affected_boundaries": [
+    "filesystem publication primitive",
+    "immutable Host request/result storage",
+    "conflicting concurrent submission detection"
+  ]
+}

@@ -13,6 +13,7 @@ from langgraph_workflow_runtime import (  # type: ignore
     RUNTIME_STATUS_END,
     RUNTIME_STATUS_HUMAN_GATE,
     RUNTIME_STATUS_WAITING_EXTERNAL,
+    RUNTIME_STATUS_WAITING_HOST,
 )
 from task_run import TaskRunStore  # type: ignore
 from workflow_taskrun_bridge import (  # type: ignore
@@ -179,6 +180,54 @@ class WorkflowTaskRunBridgeTest(unittest.TestCase):
         )
         self.assertEqual(store.payload["status"], "RUNNING")
         self.assertEqual(store.payload["phase"], "WORKFLOW_RUNTIME_RESUMED")
+
+    def test_host_wait_maps_to_existing_wait_status_and_resumes_same_taskrun(self) -> None:
+        store = self.store("host-wait")
+        checkpoint_workflow_start(
+            store,
+            workflow_id="customer-agent-audit",
+            workspace_fingerprint="fp-1",
+        )
+        checkpoint_workflow_state(
+            store,
+            state={
+                "workflow_id": "customer-agent-audit",
+                "runtime_status": RUNTIME_STATUS_WAITING_HOST,
+                "current_stage": "audit",
+                "resume_stage": "audit",
+                "next_action": "RESUME_ON_HOST_RESULT",
+                "evidence_refs": ["file:.harness/host-executions/host-1/request.json"],
+                "host_wait": {
+                    "schema": "host-skill-execution-wait@1",
+                    "host_id": "chatgpt",
+                    "execution_id": "host-1",
+                    "request_ref": "file:.harness/host-executions/host-1/request.json",
+                    "resume_event": "host.skill.completed",
+                    "authority_effect": False,
+                },
+            },
+            workspace_fingerprint="fp-1",
+        )
+        self.assertEqual(store.payload["status"], "WAITING_EXTERNAL_RESULT")
+        self.assertEqual(store.payload["phase"], "WORKFLOW_WAITING_HOST")
+        self.assertEqual(
+            store.payload["checkpoints"][-1]["metadata"]["host_wait"]["execution_id"],
+            "host-1",
+        )
+
+        checkpoint_workflow_resume(
+            store,
+            workflow_id="customer-agent-audit",
+            resume_kind="HOST_EXECUTION",
+            workspace_fingerprint="fp-1",
+            evidence_refs=["file:.harness/host-executions/host-1/result.json"],
+            correlation_ref="host-1",
+        )
+        self.assertEqual(store.payload["status"], "RUNNING")
+        self.assertEqual(store.payload["phase"], "WORKFLOW_RUNTIME_RESUMED")
+        latest = store.payload["checkpoints"][-1]
+        self.assertEqual(latest["metadata"]["resume_kind"], "HOST_EXECUTION")
+        self.assertFalse(latest["metadata"]["completion_authority_changed"])
 
     def test_resume_fails_closed_without_durable_event_evidence(self) -> None:
         store = self.store("missing-resume-evidence")

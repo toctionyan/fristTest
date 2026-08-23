@@ -13,9 +13,11 @@ if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
 from langgraph_workflow_runtime import (  # type: ignore
+    HostExecutionPending,
     RUNTIME_STATUS_BLOCKED,
     RUNTIME_STATUS_END,
     RUNTIME_STATUS_WAITING_EXTERNAL,
+    RUNTIME_STATUS_WAITING_HOST,
     StepDispatchResult,
     build_langgraph_workflow,
     initial_workflow_state,
@@ -88,6 +90,35 @@ class AlwaysRedDispatcher:
         return StepDispatchResult(
             outcome=outcome,
             evidence_refs=(f"evidence:{step.step_id}:{outcome}",),
+        )
+
+
+class HostWaitDispatcher:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, *, step, state, capability_binding):
+        self.calls += 1
+        pointer = state.get("host_execution_result") or {}
+        if pointer.get("execution_id") == "host-request-1":
+            return StepDispatchResult(
+                outcome="success",
+                evidence_refs=("file:.harness/host-executions/host-request-1/result.json",),
+            )
+        raise HostExecutionPending(
+            host_wait={
+                "schema": "host-skill-execution-wait@1",
+                "host_id": "codex",
+                "execution_id": "host-request-1",
+                "task_id": state["task_id"],
+                "workflow_id": state["workflow_id"],
+                "step_id": step.step_id,
+                "skill_name": step.use,
+                "request_ref": "file:.harness/host-executions/host-request-1/request.json",
+                "resume_event": "host.skill.completed",
+                "authority_effect": False,
+            },
+            evidence_refs=("file:.harness/host-executions/host-request-1/request.json",),
         )
 
 
@@ -229,6 +260,72 @@ class LangGraphWorkflowRuntimeTest(unittest.TestCase):
                     "current_stage": "wait-ci",
                 }
             )
+
+    def test_host_skill_wait_resumes_same_step_without_consuming_pending_attempt(self) -> None:
+        workspace = self.workspace()
+        registry_path = workspace / "skill-system/registry/dev-workflows.json"
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
+        payload["workflows"].append(
+            {
+                "workflow_id": "host-skill-wait-test",
+                "request_class": "AUDIT",
+                "skills": ["test-skill"],
+                "mode": "SEQUENTIAL",
+                "write_governed": False,
+                "requirements": {"capabilities": {"required": [], "optional": []}},
+                "graph": {
+                    "start": "host-audit",
+                    "steps": {
+                        "host-audit": {
+                            "type": "skill",
+                            "use": "test-skill",
+                            "routes": {"success": "END", "blocked": "BLOCKED_UNRECOVERABLE"},
+                        }
+                    },
+                },
+            }
+        )
+        registry_path.write_text(json.dumps(payload), encoding="utf-8")
+        workflow = require_workflow(workspace, "host-skill-wait-test")
+        activation = activate_workflow(
+            workspace,
+            workflow_id="host-skill-wait-test",
+            available_provider_ids=[],
+        )
+        dispatcher = HostWaitDispatcher()
+        graph = build_langgraph_workflow(
+            workflow=workflow,
+            activation=activation,
+            dispatcher=dispatcher,
+        )
+        waiting = graph.invoke(
+            initial_workflow_state(
+                workflow_id="host-skill-wait-test",
+                task_id="task-host",
+                target_ref={"kind": "audit", "ref": "project"},
+            )
+        )
+        self.assertEqual(waiting["runtime_status"], RUNTIME_STATUS_WAITING_HOST)
+        self.assertEqual(waiting["current_stage"], "host-audit")
+        self.assertEqual(waiting["step_attempts"], {})
+        self.assertEqual(waiting["host_wait"]["execution_id"], "host-request-1")
+
+        resumed = resume_workflow_state(
+            waiting,
+            host_execution_result={
+                "schema": "host-skill-execution-resume@1",
+                "event": "host.skill.completed",
+                "execution_id": "host-request-1",
+                "result_ref": "file:.harness/host-executions/host-request-1/result.json",
+                "result_sha256": "a" * 64,
+                "authority_effect": False,
+            },
+        )
+        finished = graph.invoke(resumed)
+        self.assertEqual(dispatcher.calls, 2)
+        self.assertEqual(finished["runtime_status"], RUNTIME_STATUS_END)
+        self.assertEqual(finished["step_attempts"]["host-audit"], 1)
+        self.assertEqual(len(finished["step_results"]["host-audit"]), 1)
 
     def test_repair_loop_has_hard_attempt_budget_and_blocks_instead_of_running_forever(self) -> None:
         workspace = self.workspace()
