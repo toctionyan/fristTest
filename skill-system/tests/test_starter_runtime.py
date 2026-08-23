@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import sqlite3
 import subprocess
@@ -24,7 +25,13 @@ from langgraph_workflow_runtime import (  # type: ignore  # noqa: E402
     RUNTIME_STATUS_BLOCKED,
     RUNTIME_STATUS_END,
     RUNTIME_STATUS_WAITING_EXTERNAL,
+    RUNTIME_STATUS_WAITING_HOST,
     StepDispatchResult,
+)
+from host_skill_bridge import (  # type: ignore  # noqa: E402
+    DurableHostSkillBridge,
+    HOST_RESULT_SCHEMA,
+    HOST_TOOL_RECEIPT_SCHEMA,
 )
 from starter_runtime import (  # type: ignore  # noqa: E402
     StarterRuntimeError,
@@ -192,6 +199,45 @@ class StarterRuntimeTest(unittest.TestCase):
             current_workspace_fingerprint="fp-1",
         )
 
+    def submit_host_result(self, host, wait, *, outcome):
+        request_path = self.project / wait["request_ref"].removeprefix("file:")
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        content = json.dumps({"skill": request["skill"]["name"], "outcome": outcome})
+        return host.submit_result(
+            execution_id=wait["execution_id"],
+            result={
+                "schema": HOST_RESULT_SCHEMA,
+                "execution_id": wait["execution_id"],
+                "request_fingerprint_sha256": request["request_fingerprint_sha256"],
+                "host_id": "codex",
+                "status": "PASS",
+                "loaded_skill": dict(request["skill"]),
+                "outcome": outcome,
+                "output": {
+                    "schema": "starter-skill-output@1",
+                    "content": content,
+                    "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "evidence_ref": f"host:output:{wait['execution_id']}",
+                },
+                "tool_receipts": [
+                    {
+                        "schema": HOST_TOOL_RECEIPT_SCHEMA,
+                        "tool_call_id": f"tool-{wait['execution_id']}",
+                        "tool_name": "workspace.read",
+                        "arguments_sha256": hashlib.sha256(b"args").hexdigest(),
+                        "result_sha256": hashlib.sha256(b"result").hexdigest(),
+                        "evidence_ref": f"host:tool:{wait['execution_id']}",
+                        "mutates": False,
+                        "write_authority_checked": False,
+                    }
+                ],
+                "evidence_refs": [f"host:execution:{wait['execution_id']}"],
+                "payload": {"skill": request["skill"]["name"]},
+                "problem_ledger_ref": None,
+                "authority_effect": False,
+            },
+        )
+
     def test_registration_seals_exact_workflows_skills_and_has_no_authority(self) -> None:
         loaded = self.load()
         self.assertEqual(set(loaded.payload["entrypoints"]), {
@@ -347,6 +393,73 @@ class StarterRuntimeTest(unittest.TestCase):
             (self.project / ".quality/skill-invocations/active.json").is_file()
         )
         self.assertFalse(result["policy"]["graph_end_completes_taskrun"])
+
+    def test_durable_codex_host_bridge_waits_and_resumes_same_taskrun_for_each_skill(self) -> None:
+        loaded = self.load()
+        resolved = resolve_starter_entrypoint(
+            loaded, registry_workspace=ROOT, entrypoint="overall_audit"
+        )
+        host = DurableHostSkillBridge(
+            workspace=self.project,
+            host_id="codex",
+            canonical_skill_paths=loaded.skill_paths,
+        )
+        connection = sqlite3.connect(
+            self.project / ".harness/host-checkpoints.sqlite",
+            check_same_thread=False,
+        )
+        self.addCleanup(connection.close)
+        store = self.store("durable-host")
+        runtime = StarterWorkflowRuntime(
+            registry_workspace=ROOT,
+            resolved=resolved,
+            skill_host=host,
+            provider_adapters=ProviderAdapterRegistry([GreenLocalProcessAdapter()]),
+            checkpointer=SqliteSaver(connection),
+            taskrun_store=store,
+            workspace_fingerprint="fp-1",
+        )
+
+        first = runtime.start(target_ref={"kind": "project", "ref": "customer-agent"})
+        first_state = first["runtime_state"]
+        self.assertEqual(first_state["runtime_status"], RUNTIME_STATUS_WAITING_HOST)
+        self.assertEqual(store.payload["status"], "WAITING_EXTERNAL_RESULT")
+        self.assertEqual(store.payload["phase"], "WORKFLOW_WAITING_HOST")
+        self.assertFalse((self.project / ".quality/skill-invocations").exists())
+
+        first_pointer = self.submit_host_result(
+            host, first_state["host_wait"], outcome="findings"
+        )
+        second = runtime.resume(
+            state=first_state,
+            host_execution_result=first_pointer,
+            evidence_refs=(first_pointer["result_ref"],),
+        )
+        second_state = second["runtime_state"]
+        self.assertEqual(second_state["runtime_status"], RUNTIME_STATUS_WAITING_HOST)
+        self.assertNotEqual(
+            first_state["host_wait"]["execution_id"],
+            second_state["host_wait"]["execution_id"],
+        )
+        receipt_dir = self.project / ".quality/skill-invocations"
+        self.assertEqual(len(list(receipt_dir.glob("wf-*.json"))), 1)
+
+        second_pointer = self.submit_host_result(
+            host, second_state["host_wait"], outcome="continue"
+        )
+        finished = runtime.resume(
+            state=second_state,
+            host_execution_result=second_pointer,
+            evidence_refs=(second_pointer["result_ref"],),
+        )
+        self.assertEqual(finished["runtime_state"]["runtime_status"], RUNTIME_STATUS_END)
+        self.assertEqual(store.payload["status"], "VALIDATING")
+        self.assertEqual(
+            store.payload["phase"],
+            "WORKFLOW_GRAPH_ENDED_AWAITING_COMPLETION_POLICY",
+        )
+        self.assertEqual(len(list(receipt_dir.glob("wf-*.json"))), 2)
+        self.assertNotEqual(store.payload["status"], "COMPLETED")
 
     def test_mutating_skill_fails_closed_without_existing_write_guard(self) -> None:
         loaded = self.load()

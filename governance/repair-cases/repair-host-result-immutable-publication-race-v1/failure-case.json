@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "classification": "implementation-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A Host execution request and result identity is published exactly once; concurrent conflicting publishers cannot overwrite the winner.",
+    "actual": "The existence check and os.replace publication are separate operations, so two absent-path observations can both replace the same final result path.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/red-baseline.md",
+      "skill-system/controller/host_skill_bridge.py"
+    ]
+  },
+  "violated_invariants": [
+    "Host result submission is immutable and conflicting resubmission fails closed.",
+    "A concurrent publisher cannot replace evidence already bound to a Host execution identity."
+  ],
+  "affected_boundaries": [
+    "Host request publication",
+    "Host result single assignment",
+    "concurrent resume evidence integrity"
+  ]
+}

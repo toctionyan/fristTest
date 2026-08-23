@@ -13,6 +13,7 @@ from workflow_registry import WorkflowSpec
 RUNTIME_STATUS_RUNNING = "RUNNING"
 RUNTIME_STATUS_END = "WORKFLOW_END"
 RUNTIME_STATUS_WAITING_EXTERNAL = "WAITING_EXTERNAL"
+RUNTIME_STATUS_WAITING_HOST = "WAITING_HOST"
 RUNTIME_STATUS_HUMAN_GATE = "HUMAN_GATE"
 RUNTIME_STATUS_BLOCKED = "BLOCKED_UNRECOVERABLE"
 
@@ -20,6 +21,7 @@ _ENTRY_NODE = "__workflow_entry__"
 _TERMINAL_NODE = {
     "END": "__workflow_end__",
     "WAITING_EXTERNAL": "__waiting_external__",
+    "WAITING_HOST": "__waiting_host__",
     "HUMAN_GATE": "__human_gate__",
     "BLOCKED_UNRECOVERABLE": "__blocked_unrecoverable__",
 }
@@ -27,6 +29,22 @@ _TERMINAL_NODE = {
 
 class WorkflowRuntimeError(RuntimeError):
     """Raised when a declarative Workflow cannot be executed safely."""
+
+
+class HostExecutionPending(RuntimeError):
+    """Signal that one Skill step yielded to a real external Host execution.
+
+    This is runtime suspension, not a declared Skill outcome.  A canonical Skill
+    receipt cannot exist until the matching Host result is submitted and the same
+    step resumes.
+    """
+
+    def __init__(self, *, host_wait: Mapping[str, Any], evidence_refs: tuple[str, ...]) -> None:
+        super().__init__("Skill execution is waiting for the configured Host")
+        self.host_wait = dict(host_wait)
+        self.evidence_refs = tuple(str(ref).strip() for ref in evidence_refs if str(ref).strip())
+        if not self.host_wait or not self.evidence_refs:
+            raise WorkflowRuntimeError("Host execution suspension requires wait identity and evidence")
 
 
 def is_durable_checkpointer(checkpointer: Any) -> bool:
@@ -65,6 +83,8 @@ class WorkflowRuntimeState(TypedDict, total=False):
     evidence_refs: list[str]
     problem_ledger_ref: str
     external_wait: dict[str, Any]
+    host_wait: dict[str, Any]
+    host_execution_result: dict[str, Any]
     human_gate: dict[str, Any]
     runtime_error: str
 
@@ -118,6 +138,7 @@ def resume_workflow_state(
     *,
     external_event: Mapping[str, Any] | None = None,
     human_decision: Mapping[str, Any] | None = None,
+    host_execution_result: Mapping[str, Any] | None = None,
 ) -> WorkflowRuntimeState:
     """Prepare one durable workflow state for exactly one event-driven resume.
 
@@ -128,9 +149,14 @@ def resume_workflow_state(
 
     runtime_status = str(state.get("runtime_status") or "").strip()
     current_stage = str(state.get("current_stage") or "").strip()
-    if runtime_status not in {RUNTIME_STATUS_WAITING_EXTERNAL, RUNTIME_STATUS_HUMAN_GATE}:
+    if runtime_status not in {
+        RUNTIME_STATUS_WAITING_EXTERNAL,
+        RUNTIME_STATUS_WAITING_HOST,
+        RUNTIME_STATUS_HUMAN_GATE,
+    }:
         raise WorkflowRuntimeError(
-            f"workflow can resume only from WAITING_EXTERNAL or HUMAN_GATE, got {runtime_status!r}"
+            "workflow can resume only from WAITING_EXTERNAL, WAITING_HOST, or "
+            f"HUMAN_GATE, got {runtime_status!r}"
         )
     if not current_stage:
         raise WorkflowRuntimeError("workflow resume requires current_stage")
@@ -138,6 +164,24 @@ def resume_workflow_state(
         raise WorkflowRuntimeError("WAITING_EXTERNAL resume requires external_event")
     if runtime_status == RUNTIME_STATUS_HUMAN_GATE and not human_decision:
         raise WorkflowRuntimeError("HUMAN_GATE resume requires human_decision")
+    if runtime_status == RUNTIME_STATUS_WAITING_HOST and not host_execution_result:
+        raise WorkflowRuntimeError("WAITING_HOST resume requires host_execution_result")
+    if runtime_status == RUNTIME_STATUS_WAITING_HOST:
+        wait = state.get("host_wait")
+        if not isinstance(wait, Mapping) or not wait:
+            raise WorkflowRuntimeError("WAITING_HOST resume requires host_wait identity")
+        if (
+            host_execution_result.get("execution_id") != wait.get("execution_id")
+            or host_execution_result.get("event") != wait.get("resume_event")
+            or host_execution_result.get("authority_effect") is not False
+        ):
+            raise WorkflowRuntimeError("host execution result does not match host_wait identity")
+    supplied = sum(
+        value is not None
+        for value in (external_event, human_decision, host_execution_result)
+    )
+    if supplied != 1:
+        raise WorkflowRuntimeError("workflow resume requires exactly one resume input")
 
     resumed: WorkflowRuntimeState = dict(state)  # type: ignore[assignment]
     resumed["runtime_status"] = RUNTIME_STATUS_RUNNING
@@ -148,6 +192,8 @@ def resume_workflow_state(
         resumed["external_event"] = dict(external_event)
     if human_decision is not None:
         resumed["human_decision"] = dict(human_decision)
+    if host_execution_result is not None:
+        resumed["host_execution_result"] = dict(host_execution_result)
     return resumed
 
 
@@ -223,6 +269,38 @@ def _make_step_node(
                 state=state,
                 capability_binding=binding,
             )
+        except HostExecutionPending as pending:
+            wait = pending.host_wait
+            valid_wait = (
+                step.step_type == "skill"
+                and wait.get("task_id") == state.get("task_id")
+                and wait.get("workflow_id") == state.get("workflow_id")
+                and wait.get("step_id") == step.step_id
+                and wait.get("skill_name") == step.use
+                and wait.get("resume_event") == "host.skill.completed"
+                and wait.get("authority_effect") is False
+                and bool(str(wait.get("execution_id") or "").strip())
+                and bool(str(wait.get("request_ref") or "").strip())
+            )
+            if not valid_wait:
+                return _blocked_update(
+                    state,
+                    step=step,
+                    reason="Host execution suspension identity does not match the Skill step",
+                )
+            return {
+                "current_stage": step.step_id,
+                "runtime_status": RUNTIME_STATUS_WAITING_HOST,
+                "next_action": "RESUME_ON_HOST_RESULT",
+                "resume_stage": step.step_id,
+                # Creating a Host request is not a Skill attempt.  The attempt is
+                # consumed only after a matching result re-enters this step.
+                "step_attempts": dict(state.get("step_attempts") or {}),
+                "host_wait": dict(pending.host_wait),
+                "evidence_refs": _append_unique(
+                    list(state.get("evidence_refs") or []), pending.evidence_refs
+                ),
+            }
         except Exception as exc:  # dispatcher failures are runtime blockers, never success
             return _blocked_update(
                 state,
@@ -284,6 +362,8 @@ def _make_step_node(
             "step_attempts": attempts,
             "step_results": step_results,
             "evidence_refs": _append_unique(list(state.get("evidence_refs") or []), refs),
+            "host_wait": {},
+            "host_execution_result": {},
         }
         if result.problem_ledger_ref:
             update["problem_ledger_ref"] = str(result.problem_ledger_ref)
@@ -300,6 +380,8 @@ def _make_route(step: WorkflowStepSpec):
     def route(state: WorkflowRuntimeState) -> str:
         if state.get("runtime_status") == RUNTIME_STATUS_BLOCKED:
             return "__BLOCKED__"
+        if state.get("runtime_status") == RUNTIME_STATUS_WAITING_HOST:
+            return "__WAITING_HOST__"
         outcome = str(state.get("last_outcome") or "")
         target = step.routes.get(outcome)
         if target is None:
@@ -345,6 +427,22 @@ def _waiting_external_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
     return {
         "runtime_status": RUNTIME_STATUS_WAITING_EXTERNAL,
         "next_action": "RESUME_ON_EXTERNAL_EVENT",
+        "resume_stage": current_stage,
+    }
+
+
+def _waiting_host_node(state: WorkflowRuntimeState) -> WorkflowRuntimeState:
+    if not isinstance(state.get("host_wait"), dict) or not state.get("host_wait"):
+        return {
+            "runtime_status": RUNTIME_STATUS_BLOCKED,
+            "next_action": "INSPECT_BLOCKER",
+            "resume_stage": "",
+            "runtime_error": "WAITING_HOST requires a durable host_wait handle",
+        }
+    current_stage = str(state.get("current_stage") or "").strip()
+    return {
+        "runtime_status": RUNTIME_STATUS_WAITING_HOST,
+        "next_action": "RESUME_ON_HOST_RESULT",
         "resume_stage": current_stage,
     }
 
@@ -405,6 +503,7 @@ def build_langgraph_workflow(
 
     builder.add_node(_TERMINAL_NODE["END"], _workflow_end_node)
     builder.add_node(_TERMINAL_NODE["WAITING_EXTERNAL"], _waiting_external_node)
+    builder.add_node(_TERMINAL_NODE["WAITING_HOST"], _waiting_host_node)
     builder.add_node(_TERMINAL_NODE["HUMAN_GATE"], _human_gate_node)
     builder.add_node(_TERMINAL_NODE["BLOCKED_UNRECOVERABLE"], _blocked_node)
 
@@ -414,7 +513,10 @@ def build_langgraph_workflow(
     builder.add_conditional_edges(_ENTRY_NODE, _make_entry_route(workflow), entry_paths)
 
     for step_id, step in workflow.graph.steps.items():
-        path_map: dict[str, str] = {"__BLOCKED__": _TERMINAL_NODE["BLOCKED_UNRECOVERABLE"]}
+        path_map: dict[str, str] = {
+            "__BLOCKED__": _TERMINAL_NODE["BLOCKED_UNRECOVERABLE"],
+            "__WAITING_HOST__": _TERMINAL_NODE["WAITING_HOST"],
+        }
         for target in set(step.routes.values()):
             path_map[target] = _TERMINAL_NODE[target] if target in TERMINAL_TARGETS else target
         builder.add_conditional_edges(step_id, _make_route(step), path_map)
@@ -430,6 +532,8 @@ __all__ = [
     "RUNTIME_STATUS_HUMAN_GATE",
     "RUNTIME_STATUS_RUNNING",
     "RUNTIME_STATUS_WAITING_EXTERNAL",
+    "RUNTIME_STATUS_WAITING_HOST",
+    "HostExecutionPending",
     "StepDispatchResult",
     "WorkflowRuntimeError",
     "WorkflowRuntimeState",

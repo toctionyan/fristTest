@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "repair_plan_sha256": "36125ade05c84a83b43a9c38d8ac0f53501da7350c942b2fd5a55986b1444043",
+  "plan_review_sha256": "d25bd573778c047b5901844705344a400152ae42f2f883f879246c835a729b0f",
+  "baseline_manifest_sha256": "bde7a64326e07fc23d96112e73718f33448743ea79731204bbdadd274e251fa5",
+  "allowed_paths": [
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/schemas/host-skill-execution-request.schema.json",
+    "skill-system/schemas/host-skill-execution-result.schema.json",
+    "skill-system/schemas/starter-host-selection.schema.json",
+    "skill-system/tests/test_host_skill_bridge.py",
+    "skill-system/tests/test_langgraph_workflow_runtime.py",
+    "skill-system/tests/test_workflow_taskrun_bridge.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_starter_host_selection.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "ChatGPT/Codex request persists exact canonical Skill identity and yields WAITING_HOST",
+      "matching Host result resumes the same Skill step and creates skill-invocation-receipt@1",
+      "structured tool receipts are digest-bound and mutating receipts require write-authority-checked evidence",
+      "natural-language Host proposal resolves one exact read route and requires exact confirmation for a mutating route"
+    ],
+    "counterexamples": [
+      "wrong TaskRun, Workflow, step, Host, Skill digest, request digest, result digest, tool digest, or result reference is rejected",
+      "missing output evidence, missing mutation guard evidence, conflicting result resubmission, and stale Skill are rejected",
+      "unknown or ambiguous entrypoint, fabricated candidate, stale selection request, and wrong preview confirmation are rejected",
+      "Host wait cannot resume from an unrelated TaskRun phase or without durable evidence"
+    ],
+    "regression": [
+      "Dispatcher, LangGraph, TaskRun bridge, Starter runtime, invocation receipt, Provider, publication, and control-plane suites remain green",
+      "complete skill-control-plane and Skill unit profiles remain green"
+    ],
+    "negative_path": [
+      "no arbitrary shell or tool command from Host data is executed",
+      "Host request creation alone produces no skill-invocation-receipt@1",
+      "Host selection and Host credentials grant no write authority",
+      "Graph END remains VALIDATING and Customer Agent Workflows still contain no merge capability",
+      "customer application source and runtime dependencies remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "8841152db102ce28f70de606df5d47d1c9c156010ee4c32fdb90266e5077faac",
+  "baseline_workspace_fingerprint": "3d8fc65b9db489ab7f827d962ae45200c6bb51da11abcaef9467566e6745c743",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "a8b22f1a3a8b6025dfdcfed72b55236a319cebb117e20c0dfec2f3ddc699f518"
+}

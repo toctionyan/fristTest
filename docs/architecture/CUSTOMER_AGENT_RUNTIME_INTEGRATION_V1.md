@@ -111,9 +111,21 @@ mutation, allow-listed `local.process` test/Quality, exact-scope `local.git`
 commit, exact-head `github.code_review` PR creation, and event-driven
 `github.actions` CI wait. See
 `CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md` for the operation contracts and
-counterexamples. The remaining Host-specific boundary is real model-driven
-Skill execution through ChatGPT/Codex structured tools; repository Python does
-not impersonate that Host or fabricate its Skill output.
+counterexamples.
+
+Real model-driven Skill execution now uses `DurableHostSkillBridge`. It persists
+an exact ChatGPT/Codex request, yields the Skill step as `WAITING_HOST`, validates
+digest-bound output and structured tool receipts, and resumes the same TaskRun
+and checkpointer stage. Only then may `CanonicalSkillInvocationAdapter` create
+`skill-invocation-receipt@1`. Natural language is interpreted by the Host against
+the verified Starter candidate set; repository code validates the exact selected
+entrypoint and requires an exact effect-preview confirmation for mutating routes.
+See `CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md`.
+
+This closes the repository-owned embedding contract, not the model provider's
+internal reasoning. A Host wrapper must still actually load the requested Skill
+and perform the structured tools; request creation alone remains unverified and
+cannot advance the Workflow.
 
 ## Standalone product boundary
 

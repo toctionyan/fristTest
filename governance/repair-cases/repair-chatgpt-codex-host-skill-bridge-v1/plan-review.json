@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-chatgpt-codex-host-skill-bridge-v1",
+  "repair_plan_sha256": "36125ade05c84a83b43a9c38d8ac0f53501da7350c942b2fd5a55986b1444043",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/schemas/host-skill-execution-request.schema.json",
+    "skill-system/schemas/host-skill-execution-result.schema.json",
+    "skill-system/schemas/starter-host-selection.schema.json",
+    "skill-system/tests/test_host_skill_bridge.py",
+    "skill-system/tests/test_langgraph_workflow_runtime.py",
+    "skill-system/tests/test_workflow_taskrun_bridge.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_starter_host_selection.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md"
+  ],
+  "review_findings": [
+    "The bridge is a durable execution transport under CanonicalSkillInvocationAdapter, not a second Skill registry or receipt authority.",
+    "WAITING_HOST is a runtime suspension before a Skill outcome exists; it does not add or reinterpret a declarative Workflow outcome.",
+    "The same TaskRun, Workflow, step, request digest, canonical Skill digest, and checkpointer thread are verified at resume.",
+    "Mutating Skill bindings still pass the existing WriteAuthorityGuard before the Host request is exposed, and mutating tool receipts must record that guard boundary.",
+    "Natural-language semantics remain in ChatGPT/Codex; repository code validates only an exact candidate and confirmation digest, avoiding a second keyword router.",
+    "No merge, Quality, release, or completion authority is added, and standalone customer application code remains untouched."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "No fabricated Skill execution",
+      "assessment": "request creation yields WAITING_HOST; only a validated Host result lets CanonicalSkillInvocationAdapter write skill-invocation-receipt@1",
+      "evidence": "skill-system/controller/host_skill_bridge.py"
+    },
+    {
+      "rule": "Single lifecycle authority",
+      "assessment": "Host waits and resumes are projected through workflow_taskrun_bridge into the existing TaskRun",
+      "evidence": "skill-system/controller/workflow_taskrun_bridge.py"
+    },
+    {
+      "rule": "Exact selection before mutation",
+      "assessment": "Host proposals select only verified Starter entrypoints and mutating previews require digest-bound explicit confirmation",
+      "evidence": "skill-system/controller/starter_runtime.py"
+    },
+    {
+      "rule": "Standalone product boundary",
+      "assessment": "all artifacts live in Harness control paths and no customer application source or dependency changes",
+      "evidence": "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md"
+    }
+  ]
+}
