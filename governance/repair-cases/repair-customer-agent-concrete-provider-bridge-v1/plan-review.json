@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "repair_plan_sha256": "6b93dcbabfc1015e8bd3349dcfb5cc024a291b00d8827edfe88a544ac88247ae",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/workspace_provider_adapter.py",
+    "skill-system/controller/concrete_publication_hosts.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/schemas/workflow-workspace-mutation-request.schema.json",
+    "skill-system/tests/test_workspace_provider_adapter.py",
+    "skill-system/tests/test_concrete_publication_hosts.py",
+    "skill-system/tests/test_starter_provider_bootstrap.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md"
+  ],
+  "review_findings": [
+    "The plan fills Provider effect implementations below the existing Resolver, Dispatcher, and WriteAuthorityGuard rather than adding peer authorities.",
+    "Workspace state transitions use a closed operation list with path and digest preconditions; no runtime shell string is accepted.",
+    "Git commit identity is bound to exact parent and paths, while GitHub PR identity is bound to repository, branches, and a verification read of exact head SHA.",
+    "GitHub credentials are an effect prerequisite only and never become repository write, merge, quality, or completion authority.",
+    "The bootstrap deliberately omits automatic merge and preserves TaskRun VALIDATING at Graph END.",
+    "The real model-driven Skill Host remains injected because repository Python cannot impersonate ChatGPT/Codex Skill execution."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single effect dispatch owner",
+      "assessment": "all new adapters are registered in ProviderAdapterRegistry and invoked only by WorkflowAdapterDispatcher",
+      "evidence": "skill-system/controller/workflow_dispatcher.py"
+    },
+    {
+      "rule": "Explicit write authority",
+      "assessment": "the existing guard remains mandatory before local.workspace, local.git, or github.code_review mutating invocation",
+      "evidence": "skill-system/controller/workflow_dispatcher.py"
+    },
+    {
+      "rule": "Exact external identity",
+      "assessment": "GitHub PR creation re-reads the PR and proves exact repository, branches, and head SHA",
+      "evidence": "skill-system/controller/concrete_publication_hosts.py"
+    },
+    {
+      "rule": "Independent completion authority",
+      "assessment": "adapter receipts have authority_effect false and the existing TaskRun bridge remains unchanged",
+      "evidence": "skill-system/controller/workflow_taskrun_bridge.py"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "classification": "skill-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "An installed Customer Agent Starter can receive a bounded structured workspace mutation, create an exact-scope local Git commit, create an exact-head GitHub pull request, and wait for CI through one assembled Provider registry without fake success.",
+    "actual": "Workspace mutation has no adapter, local Git and code-review adapters depend on fake-only host implementations, and Starter runtime embedding has no concrete Provider bootstrap.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/red-baseline.md",
+      "skill-system/controller/publication_provider_adapters.py",
+      "skill-system/controller/provider_adapters.py",
+      "skill-system/controller/starter_runtime.py"
+    ]
+  },
+  "violated_invariants": [
+    "An activated mutating capability must execute through a real bounded Provider implementation after the existing Write Authority Guard.",
+    "A commit receipt must prove the exact parent SHA and exact changed path set from a real repository.",
+    "A pull-request receipt must prove the requested repository, branches, and exact head SHA from the remote provider.",
+    "Missing Host credentials or Provider effects must block rather than produce simulated evidence."
+  ],
+  "affected_boundaries": [
+    "structured workspace mutation",
+    "local Git publication",
+    "GitHub pull-request creation",
+    "installed Starter Provider bootstrap"
+  ]
+}

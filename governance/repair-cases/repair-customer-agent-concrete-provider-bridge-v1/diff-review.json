@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "permit_digest": "195caa43eaab4089b19d30180e79e133ab32c0b35ee84fac17cf82b15e87373b",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "bd5d276e9c03fbb0862148ef7b918b6787eea93433869af934cf61510e5954f0",
+  "candidate_source_fingerprint": "8fbcb4307bdb4f5106e1d57b03f087b2bc5cfca6c567da6ede031274b6bf9996",
+  "changed_paths": [
+    "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+    "skill-system/controller/concrete_publication_hosts.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/controller/workspace_provider_adapter.py",
+    "skill-system/schemas/workflow-workspace-mutation-request.schema.json",
+    "skill-system/tests/test_concrete_publication_hosts.py",
+    "skill-system/tests/test_starter_provider_bootstrap.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_workspace_provider_adapter.py"
+  ],
+  "added_paths": [
+    "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
+    "skill-system/controller/concrete_publication_hosts.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/controller/workspace_provider_adapter.py",
+    "skill-system/schemas/workflow-workspace-mutation-request.schema.json",
+    "skill-system/tests/test_concrete_publication_hosts.py",
+    "skill-system/tests/test_starter_provider_bootstrap.py",
+    "skill-system/tests/test_workspace_provider_adapter.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+    "skill-system/tests/test_starter_runtime.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

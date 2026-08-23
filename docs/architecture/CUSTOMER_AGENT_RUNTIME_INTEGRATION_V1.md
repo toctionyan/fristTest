@@ -105,6 +105,16 @@ can name a known Provider so activation is reviewable, while execution still
 fails closed until the corresponding real adapter is injected. No placeholder
 result is treated as successful execution.
 
+The concrete deterministic effect set is now assembled by
+`build_concrete_starter_provider_registry()`: structured `local.workspace`
+mutation, allow-listed `local.process` test/Quality, exact-scope `local.git`
+commit, exact-head `github.code_review` PR creation, and event-driven
+`github.actions` CI wait. See
+`CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md` for the operation contracts and
+counterexamples. The remaining Host-specific boundary is real model-driven
+Skill execution through ChatGPT/Codex structured tools; repository Python does
+not impersonate that Host or fabricate its Skill output.
+
 ## Standalone product boundary
 
 The developed customer Agent does not import the Harness Starter runtime. The

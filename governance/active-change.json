@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
   "target_kind": "repair",
-  "goal": "Bind a verified Customer Agent Starter to exact Skill implementations, runtime registration, invocation routing, LangGraph execution, durable resume, and TaskRun checkpoints without adding a second authority.",
+  "goal": "Add exact, fail-closed workspace mutation, real local Git commit, GitHub pull-request creation, and installed Starter Provider bootstrap without creating new write, merge, quality, or completion authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -27,6 +27,7 @@
     "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
     "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
     "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -37,15 +38,15 @@
   "invariants": [
     "customer product source remains unchanged",
     "trusted Judge inputs and completion authority remain unchanged",
-    "the existing WorkflowSpec and graph validator remain the sole runtime semantics",
-    "runtime registration is a provenance seal, not a second Workflow or Skill registry",
-    "Starter Skill implementations are exact package members bound to matching Skill contracts",
-    "entrypoint routing is exact and never guesses a mutating Workflow from free-form language",
-    "activation delegates to the existing Capability Resolver and does not grant writes",
-    "execution delegates to WorkflowAdapterDispatcher, LangGraph runtime, and TaskRun bridge",
+    "Capability Registry and Resolver remain the sole Provider binding authorities",
+    "WorkflowAdapterDispatcher remains the sole graph-step dispatch owner",
+    "existing WriteAuthorityGuard remains mandatory before every mutating Provider or Skill effect",
+    "workspace writes use a closed structured operation contract with exact paths and digest preconditions",
+    "Git commits require exact parent SHA and exact changed paths",
+    "GitHub pull requests require an exact-head verification read and never expose credentials",
     "customer-agent publication Workflows stop after CI evidence and never merge automatically",
     "TaskRun remains the only completion authority and Graph END transitions only to VALIDATING",
-    "existing write-authority guards remain mandatory",
+    "missing Provider configuration, credentials, or remote identity blocks instead of simulating success",
     "authoring validation and explanation require no model or network",
     "declaration parsing is safe and unknown fields fail closed"
   ],
@@ -66,23 +67,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/diff-review.json",
-      "evidence_sha256": "7faae9d06e38aef3866613c08973136c74908173b7ef0f941570d9a931aed9ed",
-      "recorded_at": "2026-08-23T10:53:04.347299+00:00"
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/diff-review.json",
+      "evidence_sha256": "fce8d43ce160519fc3ad41adbfd8be51423afc1dc569336fbdd4264b52d96760",
+      "recorded_at": "2026-08-23T11:43:28.865181+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/counterexamples.md",
-      "evidence_sha256": "6cdf081c51083ed23eb90b509a0959e5b0f497beb29b0740b266055bd68c36ca",
-      "recorded_at": "2026-08-23T10:53:04.443438+00:00"
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/counterexamples.md",
+      "evidence_sha256": "c71a9eab7da0f0f76badd51da5297f1545464f4adb54dfa6536f9a7a703d92b0",
+      "recorded_at": "2026-08-23T11:43:28.943637+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-customer-agent-runtime-integration-v1/verification.json",
-      "evidence_sha256": "eb0d129cac9e464fbb6157f65962a3919849a553c70d86a9cac7e5489a9d7a89",
-      "recorded_at": "2026-08-23T10:55:43.150761+00:00"
+      "evidence": ".quality/skill-control-plane/repair-customer-agent-concrete-provider-bridge-v1/verification.json",
+      "evidence_sha256": "04a6df30c9162f25cd56bd07586988d14c55c9d7392d7bea3c7f069ba26542ee",
+      "recorded_at": "2026-08-23T11:43:57.909844+00:00"
     }
   ],
   "decision_record": null,
@@ -90,17 +91,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-customer-agent-runtime-integration-v1/verification.json",
-    "sha256": "eb0d129cac9e464fbb6157f65962a3919849a553c70d86a9cac7e5489a9d7a89",
-    "source_fingerprint": "fb41604103c6c3d419df94d0499d29089ae4071fd7e89e8919ebba5c666245e8",
-    "source_file_count": 1043,
-    "verified_at": "2026-08-23T10:55:43.150130+00:00"
+    "path": ".quality/skill-control-plane/repair-customer-agent-concrete-provider-bridge-v1/verification.json",
+    "sha256": "04a6df30c9162f25cd56bd07586988d14c55c9d7392d7bea3c7f069ba26542ee",
+    "source_fingerprint": "f722f6c072251f8ed8014730469db258cd32eb9cd1541d30702bacc900c031f3",
+    "source_file_count": 1066,
+    "verified_at": "2026-08-23T11:43:57.909087+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-customer-agent-runtime-integration-v1",
-  "repair_governance_consumed_at": "2026-08-23T10:55:51.704167+00:00",
-  "created_at": "2026-08-23T20:00:00+00:00",
+  "repair_governance": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1",
+  "created_at": "2026-08-23T21:00:00+00:00",
   "status": "closed",
+  "repair_governance_permit_digest": "195caa43eaab4089b19d30180e79e133ab32c0b35ee84fac17cf82b15e87373b",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "a341ba008ce7b6db7ae39b99a116e21b8f682f4d7c7f824ee71dd08fb382cdb6",
-  "closed_at": "2026-08-23T10:55:51.704183+00:00"
+  "repair_governance_consumed_at": "2026-08-23T11:44:03.897641+00:00",
+  "closed_at": "2026-08-23T11:44:03.897658+00:00"
 }
