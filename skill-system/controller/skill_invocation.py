@@ -42,11 +42,33 @@ def canonical_skill_path(skill_name: str) -> Path:
     return Path("skill-system") / "skills" / _safe_token(skill_name, label="skill name") / "SKILL.md"
 
 
-def canonical_skill_identity(workspace: Path, skill_name: str) -> tuple[Path, str]:
-    relative = canonical_skill_path(skill_name)
-    path = workspace / relative
-    if not path.is_file():
+def canonical_skill_identity(
+    workspace: Path,
+    skill_name: str,
+    *,
+    canonical_skill_paths: Mapping[str, str | Path] | None = None,
+) -> tuple[Path, str]:
+    if canonical_skill_paths is None:
+        relative = canonical_skill_path(skill_name)
+    else:
+        raw = canonical_skill_paths.get(skill_name)
+        if raw is None:
+            raise SkillInvocationError(
+                f"registered canonical Skill path is missing for {skill_name!r}"
+            )
+        relative = Path(_text(raw))
+        if relative.name != "SKILL.md":
+            raise SkillInvocationError("registered canonical Skill path must end in SKILL.md")
+    if relative.is_absolute() or ".." in relative.parts or "." in relative.parts:
+        raise SkillInvocationError("canonical Skill path must be workspace-relative and bounded")
+    root = workspace.resolve()
+    path = root / relative
+    if path.is_symlink() or not path.is_file():
         raise SkillInvocationError(f"canonical Skill is missing: {relative.as_posix()}")
+    try:
+        path.resolve().relative_to(root)
+    except ValueError as exc:
+        raise SkillInvocationError("canonical Skill path escapes workspace") from exc
     return relative, _sha256_bytes(path.read_bytes())
 
 
@@ -70,6 +92,7 @@ def build_receipt(
     change_id: str | None = None,
     task_id: str | None = None,
     response_bound: bool = False,
+    canonical_skill_paths: Mapping[str, str | Path] | None = None,
 ) -> dict[str, Any]:
     """Build PASS evidence only after the canonical Skill and output are materialized.
 
@@ -85,12 +108,18 @@ def build_receipt(
     selected_skill = _safe_token(selected_skill, label="selected skill")
     if selected_skill != required_skill:
         raise SkillInvocationError("selected Skill does not match the required Skill")
-    relative, digest = canonical_skill_identity(workspace, selected_skill)
+    relative, digest = canonical_skill_identity(
+        workspace,
+        selected_skill,
+        canonical_skill_paths=canonical_skill_paths,
+    )
     entry = Path(_text(entrypoint))
     if entry.is_absolute() or ".." in entry.parts:
         raise SkillInvocationError("entrypoint must be a workspace-relative path")
     if not (workspace / entry).is_file():
         raise SkillInvocationError(f"Skill entrypoint is missing: {entry.as_posix()}")
+    if canonical_skill_paths is not None and entry != relative:
+        raise SkillInvocationError("registered Skill entrypoint must match canonical Skill path")
     output_schema = _text(output_schema)
     output_evidence_ref = _text(output_evidence_ref)
     if not output_schema or not output_evidence_ref:
@@ -138,6 +167,7 @@ def validate_receipt(
     expected_change_id: str | None = None,
     expected_task_id: str | None = None,
     require_response_bound: bool = False,
+    canonical_skill_paths: Mapping[str, str | Path] | None = None,
 ) -> dict[str, Any]:
     if payload.get("schema") != SKILL_INVOCATION_RECEIPT_SCHEMA:
         raise SkillInvocationError("unsupported Skill invocation receipt schema")
@@ -165,7 +195,11 @@ def validate_receipt(
             f"Skill invocation mismatch: expected {expected_skill}, got {selected_skill}"
         )
 
-    relative, digest = canonical_skill_identity(workspace, selected_skill)
+    relative, digest = canonical_skill_identity(
+        workspace,
+        selected_skill,
+        canonical_skill_paths=canonical_skill_paths,
+    )
     if payload.get("canonical_skill_path") != relative.as_posix():
         raise SkillInvocationError("Skill invocation canonical path mismatch")
     if payload.get("loaded_sha256") != digest:
@@ -174,6 +208,8 @@ def validate_receipt(
     entry = Path(_text(payload.get("entrypoint")))
     if entry.is_absolute() or ".." in entry.parts or not (workspace / entry).is_file():
         raise SkillInvocationError("Skill invocation entrypoint is missing or unsafe")
+    if canonical_skill_paths is not None and entry != relative:
+        raise SkillInvocationError("registered Skill entrypoint does not match canonical Skill path")
     phases = payload.get("phases") if isinstance(payload.get("phases"), Mapping) else {}
     for name in _REQUIRED_PHASES:
         if phases.get(name) != "PASS":
@@ -234,7 +270,13 @@ def _load_active_index(workspace: Path, *, allow_missing: bool = False) -> dict[
     return payload
 
 
-def write_receipt(workspace: Path, payload: Mapping[str, Any], *, make_current: bool = True) -> Path:
+def write_receipt(
+    workspace: Path,
+    payload: Mapping[str, Any],
+    *,
+    make_current: bool = True,
+    canonical_skill_paths: Mapping[str, str | Path] | None = None,
+) -> Path:
     """Persist one receipt and update its active key without evicting other Skills.
 
     `make_current` is retained as a compatibility argument for callers but now means
@@ -243,7 +285,11 @@ def write_receipt(workspace: Path, payload: Mapping[str, Any], *, make_current: 
     required Skills before one governed write or completion decision.
     """
 
-    validated = validate_receipt(workspace, payload)
+    validated = validate_receipt(
+        workspace,
+        payload,
+        canonical_skill_paths=canonical_skill_paths,
+    )
     path = receipt_path(workspace, _text(validated.get("invocation_id")))
     path.parent.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(validated, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

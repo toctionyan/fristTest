@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness.local/schemas/harness-starter-runtime-registration.schema.json",
+  "title": "Harness Starter Runtime Registration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "starter",
+    "project",
+    "entrypoints",
+    "skills",
+    "policy",
+    "registration_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "harness-starter-runtime-registration@1"},
+    "starter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["starter_id", "version", "path", "package_sha256"],
+      "properties": {
+        "starter_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "package_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "project_type", "commands", "write_scope", "providers"],
+      "properties": {
+        "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "project_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "commands": {"$ref": "#/$defs/stringMap"},
+        "write_scope": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "providers": {"$ref": "#/$defs/stringMap"}
+      }
+    },
+    "entrypoints": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["workflow_id", "workflow_sha256"],
+        "properties": {
+          "workflow_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "workflow_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"$ref": "#/$defs/skillPath"},
+          "sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standalone_application",
+        "automatic_merge",
+        "registration_executes_workflow",
+        "registration_grants_write_authority",
+        "routing_grants_write_authority",
+        "activation_completes_taskrun",
+        "completion_authority",
+        "authority_effect"
+      ],
+      "properties": {
+        "standalone_application": {"const": true},
+        "automatic_merge": {"const": false},
+        "registration_executes_workflow": {"const": false},
+        "registration_grants_write_authority": {"const": false},
+        "routing_grants_write_authority": {"const": false},
+        "activation_completes_taskrun": {"const": false},
+        "completion_authority": {"const": "TaskRun"},
+        "authority_effect": {"const": false}
+      }
+    },
+    "registration_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+    },
+    "skillPath": {
+      "type": "string",
+      "minLength": 9,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).*/SKILL\\.md$"
+    },
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    }
+  }
+}

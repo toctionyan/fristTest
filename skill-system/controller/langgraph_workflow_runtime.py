@@ -29,6 +29,26 @@ class WorkflowRuntimeError(RuntimeError):
     """Raised when a declarative Workflow cannot be executed safely."""
 
 
+def is_durable_checkpointer(checkpointer: Any) -> bool:
+    """Recognize durable LangGraph savers, including explicitly fenced wrappers."""
+
+    current = checkpointer
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        module = type(current).__module__.lower()
+        name = type(current).__name__.lower()
+        identity = f"{module}.{name}"
+        if "checkpoint.memory" in identity or "inmemory" in name:
+            return False
+        if "checkpoint.sqlite" in identity or "checkpoint.postgres" in identity:
+            return True
+        if getattr(current, "durable_checkpointer", False) is True:
+            return True
+        current = getattr(current, "_inner", None)
+    return False
+
+
 class WorkflowRuntimeState(TypedDict, total=False):
     task_id: str
     target_ref: dict[str, Any]
@@ -416,5 +436,6 @@ __all__ = [
     "WorkflowStepDispatcher",
     "build_langgraph_workflow",
     "initial_workflow_state",
+    "is_durable_checkpointer",
     "resume_workflow_state",
 ]

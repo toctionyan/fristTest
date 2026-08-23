@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "permit_digest": "a341ba008ce7b6db7ae39b99a116e21b8f682f4d7c7f824ee71dd08fb382cdb6",
+  "diff_review_sha256": "7faae9d06e38aef3866613c08973136c74908173b7ef0f941570d9a931aed9ed",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "aced75c7c19733867c44901547d0c1a84816faca730f816f73fd751def14884e",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "3d77dd0327343a0fab0a07af40dcc971331d6a84afbb15e0c82d963f5056294b"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/counterexamples.md",
+      "evidence_sha256": "6cdf081c51083ed23eb90b509a0959e5b0f497beb29b0740b266055bd68c36ca"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/diff-review.json",
+      "evidence_sha256": "7faae9d06e38aef3866613c08973136c74908173b7ef0f941570d9a931aed9ed"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/focused-tests.md",
+      "evidence_sha256": "b83674297615a134a4a5a383989e744a2cd4e6e3203b1a6f553c03c3a88cd90a"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/negative-paths.md",
+      "evidence_sha256": "fb545937a0be7b711d98f7c26feabdfa1df92d1ff1ae7f05e7d1a54f21931048"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/red-baseline.md",
+      "evidence_sha256": "5354ca13559407c0098a795e157fc3ee6d8f4608853ee41526814b80f3453cb5"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/regression.md",
+      "evidence_sha256": "acf72939a0b372c962678b34eff0926506ffac87526385297c755b7e0b6cf8f6"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "6b7f227cb3f4d73278e31fe01d6ae592f31a5ee7718c7552816e6a905277a489"
+    }
+  ],
+  "residual_risks": [
+    "ChatGPT/Codex Host embedding must inject the real Skill Host, durable saver, TaskRun, and write Guard.",
+    "Workspace, VCS commit, and PR creation remain fail-closed until their concrete Provider adapters are supplied."
+  ]
+}

@@ -43,6 +43,12 @@ class CustomerAgentStarterTest(unittest.TestCase):
         verification = verify_starter(STARTER, registry_workspace=ROOT)
         self.assertEqual(verification.starter.starter_id, "customer-agent")
         self.assertEqual(len(verification.skill_ids), 7)
+        self.assertEqual(
+            set(verification.starter.skill_entrypoints), set(verification.skill_ids)
+        )
+        self.assertTrue(
+            all(path.endswith("/SKILL.md") for path in verification.starter.skill_entrypoints.values())
+        )
         self.assertEqual(len(verification.workflow_ids), 6)
         self.assertEqual(len(verification.composed_workflow_ids), 2)
         self.assertEqual(
@@ -145,6 +151,19 @@ class CustomerAgentStarterTest(unittest.TestCase):
             package = self.copy_starter(Path(raw_dir))
             (package / "skills" / "customer-agent-audit.json").unlink()
             with self.assertRaisesRegex(HarnessStarterError, "inventory mismatch"):
+                verify_starter(package, registry_workspace=ROOT)
+
+    def test_skill_implementation_identity_and_digest_are_package_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            package = self.copy_starter(Path(raw_dir))
+            skill = package / "skill-implementations/customer-agent-audit/SKILL.md"
+            skill.write_text(
+                skill.read_text(encoding="utf-8").replace(
+                    "name: customer-agent-audit", "name: customer-agent-other", 1
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(HarnessStarterError, "frontmatter name mismatch"):
                 verify_starter(package, registry_workspace=ROOT)
         with tempfile.TemporaryDirectory() as raw_dir:
             package = self.copy_starter(Path(raw_dir))

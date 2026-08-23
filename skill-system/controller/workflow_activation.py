@@ -67,6 +67,31 @@ def activate_workflow(
     provider_preferences: Mapping[str, str] | None = None,
 ) -> WorkflowActivation:
     workflow = require_workflow(workspace, workflow_id)
+    return activate_workflow_spec(
+        workspace,
+        workflow=workflow,
+        available_provider_ids=available_provider_ids,
+        provider_preferences=provider_preferences,
+    )
+
+
+def activate_workflow_spec(
+    workspace: Path,
+    *,
+    workflow: WorkflowSpec,
+    available_provider_ids: Iterable[str] = (),
+    provider_preferences: Mapping[str, str] | None = None,
+) -> WorkflowActivation:
+    """Activate one already-canonical WorkflowSpec without another registry write.
+
+    Installed Starter adapters compile through ``parse_workflow_spec`` first and
+    pass that exact object here. Capability contracts, Provider resolution,
+    mutation checks, and activation projection remain identical to registry-ID
+    activation.
+    """
+
+    if not isinstance(workflow, WorkflowSpec):
+        raise WorkflowActivationError("workflow must be a canonical WorkflowSpec")
     _assert_mutation_boundary(workspace, workflow)
     preflight = preflight_capabilities(
         workspace,
@@ -83,4 +108,5 @@ __all__ = [
     "WorkflowActivation",
     "WorkflowActivationError",
     "activate_workflow",
+    "activate_workflow_spec",
 ]

@@ -71,6 +71,11 @@ def _write_json(payload: dict[str, object], output: str) -> None:
     )
 
 
+def _project_path(project_workspace: Path, value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else project_workspace / path
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -128,6 +133,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     starter_init.add_argument("--starter", required=True)
     starter_init.add_argument("--output", required=True)
+
+    starter_register = commands.add_parser(
+        "starter-register",
+        help="seal a verified installed Starter for exact runtime activation",
+    )
+    starter_register.add_argument("--project-workspace", required=True)
+    starter_register.add_argument(
+        "--directory",
+        required=True,
+        help="installed Starter directory, absolute or relative to project workspace",
+    )
+    starter_register.add_argument(
+        "--output",
+        required=True,
+        help="new registration JSON, absolute or relative to project workspace",
+    )
     return parser
 
 
@@ -223,6 +244,21 @@ def main(argv: list[str] | None = None) -> int:
             )
             payload = verification.as_dict()
             payload["installed_to"] = str(Path(args.output))
+            _write_or_print(payload, None)
+            return 0
+        if args.authoring_command == "starter-register":
+            from starter_runtime import StarterRuntimeError, register_starter_runtime
+
+            project_workspace = Path(args.project_workspace).resolve()
+            try:
+                payload = register_starter_runtime(
+                    project_workspace=project_workspace,
+                    starter_directory=_project_path(project_workspace, args.directory),
+                    output=_project_path(project_workspace, args.output),
+                    registry_workspace=ROOT,
+                )
+            except StarterRuntimeError as exc:
+                raise HarnessAuthoringError(str(exc)) from exc
             _write_or_print(payload, None)
             return 0
         raise HarnessAuthoringError(f"unsupported authoring command: {args.authoring_command}")

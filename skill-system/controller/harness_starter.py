@@ -36,6 +36,7 @@ _ENTRYPOINTS = frozenset(
     }
 )
 _DECLARATION_SUFFIXES = frozenset({".json", ".yaml", ".yml"})
+_SKILL_SUFFIXES = frozenset({".md"})
 _FORBIDDEN_AUTOMATIC_CAPABILITIES = frozenset({"code_review.pull_request.merge"})
 _STABLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$")
 
@@ -50,6 +51,7 @@ class StarterManifest:
     version: str
     project: str
     skill_contracts: tuple[str, ...]
+    skill_entrypoints: dict[str, str]
     workflows: tuple[str, ...]
     compositions: tuple[str, ...]
     entrypoints: dict[str, str]
@@ -63,6 +65,7 @@ class StarterManifest:
             "version": self.version,
             "project": self.project,
             "skill_contracts": list(self.skill_contracts),
+            "skill_entrypoints": dict(self.skill_entrypoints),
             "workflows": list(self.workflows),
             "compositions": list(self.compositions),
             "entrypoints": dict(self.entrypoints),
@@ -97,6 +100,7 @@ class StarterVerification:
             "project": self.project.as_dict(),
             "inventory": {
                 "skills": list(self.skill_ids),
+                "skill_entrypoints": dict(sorted(self.starter.skill_entrypoints.items())),
                 "workflows": list(self.workflow_ids),
                 "composed_workflows": list(self.composed_workflow_ids),
                 "entrypoints": dict(self.starter.entrypoints),
@@ -139,8 +143,23 @@ def _text(value: object, *, field: str) -> str:
 
 
 def _relative_declaration(value: object, *, field: str) -> str:
+    return _relative_file(
+        value,
+        field=field,
+        allowed_suffixes=_DECLARATION_SUFFIXES,
+        label="JSON/YAML declaration",
+    )
+
+
+def _relative_file(
+    value: object,
+    *,
+    field: str,
+    allowed_suffixes: frozenset[str],
+    label: str,
+) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise HarnessStarterError(f"{field} must be a relative declaration path")
+        raise HarnessStarterError(f"{field} must be a relative {label} path")
     raw = value.strip().replace("\\", "/")
     path = PurePosixPath(raw)
     if (
@@ -149,9 +168,9 @@ def _relative_declaration(value: object, *, field: str) -> str:
         or ".." in path.parts
         or "." in path.parts
         or not path.parts
-        or path.suffix.casefold() not in _DECLARATION_SUFFIXES
+        or path.suffix.casefold() not in allowed_suffixes
     ):
-        raise HarnessStarterError(f"{field} must be a bounded relative JSON/YAML path")
+        raise HarnessStarterError(f"{field} must be a bounded relative {label} path")
     return path.as_posix()
 
 
@@ -172,7 +191,7 @@ def parse_starter_manifest(raw: Mapping[str, Any]) -> StarterManifest:
         row,
         {
             "schema", "starter_id", "version", "project", "skill_contracts",
-            "workflows", "compositions", "entrypoints", "policies",
+            "skill_entrypoints", "workflows", "compositions", "entrypoints", "policies",
         },
         field="Starter manifest",
     )
@@ -182,9 +201,29 @@ def parse_starter_manifest(raw: Mapping[str, Any]) -> StarterManifest:
     version = _text(row.get("version"), field="version")
     project = _relative_declaration(row.get("project"), field="project")
     skill_contracts = _path_list(row.get("skill_contracts"), field="skill_contracts")
+    raw_skill_entrypoints = _object(row.get("skill_entrypoints"), field="skill_entrypoints")
+    if not raw_skill_entrypoints:
+        raise HarnessStarterError("skill_entrypoints cannot be empty")
+    skill_entrypoints = {
+        _text(skill_id, field="skill_entrypoints identity"): _relative_file(
+            raw_path,
+            field=f"skill_entrypoints.{skill_id}",
+            allowed_suffixes=_SKILL_SUFFIXES,
+            label="Skill Markdown",
+        )
+        for skill_id, raw_path in raw_skill_entrypoints.items()
+    }
+    if len(set(skill_entrypoints.values())) != len(skill_entrypoints):
+        raise HarnessStarterError("skill_entrypoints must contain unique paths")
     workflows = _path_list(row.get("workflows"), field="workflows")
     compositions = _path_list(row.get("compositions"), field="compositions")
-    declared_paths = (project, *skill_contracts, *workflows, *compositions)
+    declared_paths = (
+        project,
+        *skill_contracts,
+        *skill_entrypoints.values(),
+        *workflows,
+        *compositions,
+    )
     if len(set(declared_paths)) != len(declared_paths):
         raise HarnessStarterError("Starter declaration paths must be unique across categories")
 
@@ -213,6 +252,7 @@ def parse_starter_manifest(raw: Mapping[str, Any]) -> StarterManifest:
         version=version,
         project=project,
         skill_contracts=skill_contracts,
+        skill_entrypoints=skill_entrypoints,
         workflows=workflows,
         compositions=compositions,
         entrypoints=entrypoints,
@@ -275,13 +315,14 @@ def _verify_declared_inventory(directory: Path, manifest: StarterManifest) -> di
         MANIFEST_NAME,
         manifest.project,
         *manifest.skill_contracts,
+        *manifest.skill_entrypoints.values(),
         *manifest.workflows,
         *manifest.compositions,
     }
     actual = {
         path.relative_to(directory).as_posix()
         for path in directory.rglob("*")
-        if path.is_file() and path.suffix.casefold() in _DECLARATION_SUFFIXES
+        if path.is_file()
     }
     missing = sorted(declared - actual)
     undeclared = sorted(actual - declared)
@@ -336,6 +377,26 @@ def verify_starter(directory: Path, *, registry_workspace: Path) -> StarterVerif
         contract = parse_skill_contract(raw)
         _require_unique(contract.skill, skill_ids, field="Skill identity")
         skill_rows.append(raw)
+    if set(manifest.skill_entrypoints) != skill_ids:
+        missing = sorted(skill_ids - set(manifest.skill_entrypoints))
+        unexpected = sorted(set(manifest.skill_entrypoints) - skill_ids)
+        raise HarnessStarterError(
+            "skill_entrypoints must match Skill contract identities: "
+            f"missing={missing} unexpected={unexpected}"
+        )
+    for skill_id, relative in manifest.skill_entrypoints.items():
+        path = _member(root, relative)
+        content = path.read_text(encoding="utf-8")
+        frontmatter = content.split("---", 2)
+        name_lines = (
+            [line.strip() for line in frontmatter[1].splitlines() if line.strip().startswith("name:")]
+            if content.startswith("---\n") and len(frontmatter) == 3
+            else []
+        )
+        if name_lines != [f"name: {skill_id}"]:
+            raise HarnessStarterError(
+                f"Skill implementation frontmatter name mismatch for {skill_id!r}"
+            )
 
     workflow_rows: dict[str, dict[str, Any]] = {}
     compiled_workflows: dict[str, Any] = {}

@@ -12,6 +12,15 @@
     "skills/customer-agent-standards-gate.json",
     "skills/customer-agent-context-audit.json"
   ],
+  "skill_entrypoints": {
+    "customer-agent-audit": "skill-implementations/customer-agent-audit/SKILL.md",
+    "customer-agent-module-audit": "skill-implementations/customer-agent-module-audit/SKILL.md",
+    "customer-agent-architecture-review": "skill-implementations/customer-agent-architecture-review/SKILL.md",
+    "customer-agent-repair": "skill-implementations/customer-agent-repair/SKILL.md",
+    "customer-agent-adversarial-review": "skill-implementations/customer-agent-adversarial-review/SKILL.md",
+    "customer-agent-standards-gate": "skill-implementations/customer-agent-standards-gate/SKILL.md",
+    "customer-agent-context-audit": "skill-implementations/customer-agent-context-audit/SKILL.md"
+  },
   "workflows": [
     "workflows/customer-agent-overall-audit.json",
     "workflows/customer-agent-module-audit.json",

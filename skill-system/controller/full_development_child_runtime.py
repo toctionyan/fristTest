@@ -14,6 +14,7 @@ from langgraph_workflow_runtime import (
     WorkflowRuntimeState,
     build_langgraph_workflow,
     initial_workflow_state,
+    is_durable_checkpointer,
     resume_workflow_state,
 )
 from runtime import HarnessRuntimeEngine, HarnessRuntimeState, HarnessRuntimeStatus
@@ -30,31 +31,6 @@ CHILD_EXECUTION_SCHEMA = "full-development-child-execution@1"
 
 class FullDevelopmentChildRuntimeError(RuntimeError):
     """Raised when a child Workflow cannot be delegated through the canonical runtime."""
-
-
-def _durable_checkpointer(checkpointer: Any) -> bool:
-    """Recognize durable LangGraph savers, including fenced wrappers.
-
-    Memory savers are deliberately rejected. Custom wrappers may expose an
-    explicit ``durable_checkpointer = True`` contract or wrap a recognized saver
-    through ``_inner``.
-    """
-
-    current = checkpointer
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        module = type(current).__module__.lower()
-        name = type(current).__name__.lower()
-        identity = f"{module}.{name}"
-        if "checkpoint.memory" in identity or "inmemory" in name:
-            return False
-        if "checkpoint.sqlite" in identity or "checkpoint.postgres" in identity:
-            return True
-        if getattr(current, "durable_checkpointer", False) is True:
-            return True
-        current = getattr(current, "_inner", None)
-    return False
 
 
 @dataclass(frozen=True)
@@ -109,7 +85,7 @@ class FullDevelopmentChildRuntime:
         taskrun_store: TaskRunStore,
         workspace_fingerprint: str | None,
     ) -> None:
-        if checkpointer is None or not _durable_checkpointer(checkpointer):
+        if checkpointer is None or not is_durable_checkpointer(checkpointer):
             raise FullDevelopmentChildRuntimeError(
                 "full-development child runtime requires a durable checkpointer"
             )

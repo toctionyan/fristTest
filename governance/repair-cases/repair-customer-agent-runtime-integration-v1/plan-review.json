@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "repair_plan_sha256": "12224120d54eeccca6913257eb37009bcf4dc796e95cd4856358187d5a1f69d1",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/harness_starter.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/harness_invocation.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/workflow_activation.py",
+    "skill-system/controller/skill_invocation.py",
+    "skill-system/controller/workflow_dispatcher.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/full_development_child_runtime.py",
+    "skill-system/schemas/harness-starter.schema.json",
+    "skill-system/schemas/harness-starter-runtime-registration.schema.json",
+    "skill-system/starters/customer-agent/**",
+    "skill-system/tests/test_customer_agent_starter.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_skill_invocation.py",
+    "skill-system/tests/test_harness_invocation.py",
+    "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md"
+  ],
+  "review_findings": [
+    "The design passes exact compiled WorkflowSpec objects into the existing activation authority instead of modifying or duplicating global registries.",
+    "Registration remains a digest-bound provenance reference and is revalidated on every load.",
+    "Real SKILL.md sources are package members and receipts remain dependent on real Host execution.",
+    "Strict entrypoint/slash parsing prevents natural-language guessing from acquiring mutation effects.",
+    "The generic executor is injected with the existing Dispatcher, durable checkpointer, and existing TaskRun; it owns none of those authorities.",
+    "Arbitrary project commands and missing concrete adapters stay outside this change and fail closed at runtime."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single semantic authority",
+      "assessment": "registration stores provenance only; WorkflowSpec, graph parser, Resolver, Dispatcher, LangGraph, and TaskRun remain canonical owners",
+      "evidence": "skill-system/controller/workflow_activation.py"
+    },
+    {
+      "rule": "Real Skill execution",
+      "assessment": "contract identity, package SKILL.md path, loaded digest, Host result, and receipt validation are all bound",
+      "evidence": "skill-system/controller/skill_invocation.py"
+    },
+    {
+      "rule": "Explicit write authority",
+      "assessment": "effect preview identifies mutation but only the existing injected Dispatcher Guard can permit an adapter call",
+      "evidence": "skill-system/controller/workflow_dispatcher.py"
+    },
+    {
+      "rule": "Durable lifecycle",
+      "assessment": "memory checkpointers are rejected and runtime states project through workflow_taskrun_bridge",
+      "evidence": "skill-system/controller/workflow_taskrun_bridge.py"
+    }
+  ]
+}
