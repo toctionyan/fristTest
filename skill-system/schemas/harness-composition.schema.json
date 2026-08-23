@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness-composition.schema.json",
+  "title": "Harness Composition Declaration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "base_workflow", "bindings"],
+  "properties": {
+    "schema": {"const": "harness-composition@1"},
+    "id": {"$ref": "#/$defs/stableId"},
+    "version": {"type": "string", "minLength": 1},
+    "base_workflow": {"$ref": "#/$defs/stableId"},
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/binding"}
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "host_skill", "extension_skill", "at", "anchor", "routes"],
+      "properties": {
+        "id": {"$ref": "#/$defs/stableId"},
+        "host_skill": {"$ref": "#/$defs/stableId"},
+        "extension_skill": {"$ref": "#/$defs/stableId"},
+        "at": {"$ref": "#/$defs/stableId"},
+        "anchor": {"$ref": "#/$defs/anchor"},
+        "order": {"type": "integer", "minimum": -10000, "maximum": 10000, "default": 100},
+        "routes": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/stableId"},
+          "additionalProperties": {
+            "enum": ["$CONTINUE", "END", "WAITING_EXTERNAL", "HUMAN_GATE", "BLOCKED_UNRECOVERABLE"]
+          }
+        },
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 64}
+      }
+    },
+    "anchor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "step"],
+          "properties": {
+            "kind": {"const": "before_step"},
+            "step": {"$ref": "#/$defs/stableId"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "step", "outcome"],
+          "properties": {
+            "kind": {"const": "after_route"},
+            "step": {"$ref": "#/$defs/stableId"},
+            "outcome": {"$ref": "#/$defs/stableId"}
+          }
+        }
+      ]
+    }
+  }
+}

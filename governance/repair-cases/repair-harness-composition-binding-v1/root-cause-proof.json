@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-harness-composition-binding-v1",
+  "failure_case_sha256": "71e137e7bcd9efe97b1addda9c773072768ef4705d20b19682ddeedbeab88ffe",
+  "decision": "PROVEN",
+  "root_cause": "Authoring v1 deliberately stopped at validating extension compatibility metadata. No canonical composition contract owns anchor selection, deterministic ordering, graph-edge insertion, capability propagation, compatibility checks, or provenance. Consequently a Host can only realize an extension by editing the base Workflow itself.",
+  "causal_chain": [
+    "Skill contracts declare extension types and accepted extension points.",
+    "Workflow declarations compile directly into WorkflowSpec without an overlay phase.",
+    "No declaration binds an extension Skill to a host Skill, hook, and graph anchor.",
+    "No deterministic transformer can derive a new Workflow declaration.",
+    "Users must rewrite the base declaration, losing reuse, provenance, and rollback isolation."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-harness-composition-binding-v1/evidence/red-baseline.md",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/schemas/harness-skill-contract.schema.json",
+    "docs/architecture/HARNESS_AUTHORING_CORE_V1.md"
+  ],
+  "rejected_hypotheses": [
+    "Extension-point names can be interpreted as graph positions; names are identifiers and must not become implicit control flow.",
+    "The model can rewrite the Workflow safely each time; that is nondeterministic, obscures provenance, and recreates Host lock-in.",
+    "Composition needs a second runtime; a pure deterministic transformation followed by the existing compiler is sufficient."
+  ],
+  "affected_boundaries": [
+    "extension point ownership",
+    "deterministic graph transformation",
+    "capability and write-mode compatibility",
+    "derived Workflow provenance"
+  ]
+}

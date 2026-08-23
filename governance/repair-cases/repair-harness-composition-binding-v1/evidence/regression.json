@@ -1,0 +1,13 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "regression",
+  "status": "PASS",
+  "profiles": {
+    "skill-static": "PASS",
+    "skill-unit": "PASS with repository agent-service dependency path; 791 tests passed",
+    "skill-host-integration": "PASS",
+    "skill-security": "PASS",
+    "project-compatibility-smoke": "PASS"
+  },
+  "environment_note": "The bare system Python lacks existing pytest/httpx/dotenv/langchain dependencies. Tests were rerun unchanged with services/agent-service/.venv site-packages, matching the established repository environment."
+}

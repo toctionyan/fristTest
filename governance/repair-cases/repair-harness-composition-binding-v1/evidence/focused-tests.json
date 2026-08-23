@@ -1,0 +1,13 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "focused_tests",
+  "status": "PASS",
+  "command": "python3 -B -m unittest skill-system/tests/test_harness_composition.py skill-system/tests/test_harness_authoring.py skill-system/tests/test_dev_workflow_registry.py skill-system/tests/test_workflow_graph_contract.py",
+  "test_count": 34,
+  "assertions": [
+    "before_step and after_route preserve base input and compile a derived graph",
+    "same-anchor bindings use deterministic order independent of declaration order",
+    "capabilities, provenance, standalone output, and TaskRun VALIDATING semantics are preserved",
+    "existing Authoring Core, Workflow Registry, and graph contract tests remain green"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "authority_boundary",
+  "status": "PASS",
+  "assertions": [
+    "Composer does not execute Skills, Providers, commands, or Integration calls.",
+    "Derived graph is accepted only through existing WorkflowSpec and workflow_graph_contract validation.",
+    "Mutating compatibility does not grant write permission; existing Write Authority Guard is unchanged.",
+    "Completion block is inherited and revalidated; TaskRun remains sole completion authority.",
+    "No services, web, contracts, customer runtime, Dispatcher, Provider, or TaskRun source changed."
+  ]
+}

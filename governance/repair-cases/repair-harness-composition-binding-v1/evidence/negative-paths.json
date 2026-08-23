@@ -1,0 +1,12 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "negative_paths",
+  "status": "PASS",
+  "covered": [
+    "mutating extension cannot upgrade a READ_ONLY Workflow",
+    "artifact-incompatible extension is rejected",
+    "binding routes cannot jump to arbitrary graph steps",
+    "unknown fields and unsafe YAML remain rejected by the Authoring Core",
+    "base Workflow and Skill declarations are not modified in place"
+  ]
+}

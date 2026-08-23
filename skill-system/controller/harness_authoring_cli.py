@@ -17,6 +17,7 @@ from harness_authoring import (  # type: ignore  # noqa: E402
     load_declaration,
     validate_declaration,
 )
+from harness_composition import compose_workflow  # type: ignore  # noqa: E402
 
 
 def _pairs(values: list[str], *, option: str) -> dict[str, str]:
@@ -53,9 +54,22 @@ def _write_or_print(payload: dict[str, object], output: str | None) -> None:
     )
 
 
+def _write_json(payload: dict[str, object], output: str) -> None:
+    target = Path(output)
+    if target.exists():
+        raise HarnessAuthoringError(f"refusing to overwrite existing output: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Initialize, validate, compile, and explain portable Harness declarations"
+        description=(
+            "Initialize, validate, compose, compile, and explain portable Harness declarations"
+        )
     )
     commands = parser.add_subparsers(dest="authoring_command", required=True)
 
@@ -78,6 +92,23 @@ def _parser() -> argparse.ArgumentParser:
 
     explain = commands.add_parser("explain", help="explain a compiled Workflow without running it")
     explain.add_argument("--workflow", required=True)
+
+    compose = commands.add_parser(
+        "compose", help="derive a Workflow from a base declaration and extension bindings"
+    )
+    compose.add_argument("--workflow", required=True, help="base harness-workflow@1 declaration")
+    compose.add_argument("--composition", required=True, help="harness-composition@1 overlay")
+    compose.add_argument(
+        "--skill-contract",
+        action="append",
+        required=True,
+        help="host or extension harness-skill-contract@1 declaration; repeat as needed",
+    )
+    compose.add_argument("--output", help="optional composed-workflow-plan@1 JSON output")
+    compose.add_argument(
+        "--derived-workflow-output",
+        help="optional standalone derived harness-workflow@1 JSON output",
+    )
     return parser
 
 
@@ -137,6 +168,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.authoring_command == "explain":
             plan = compile_workflow_declaration(load_declaration(Path(args.workflow)))
             _write_or_print(explain_workflow(plan), None)
+            return 0
+        if args.authoring_command == "compose":
+            plan = compose_workflow(
+                load_declaration(Path(args.workflow)),
+                load_declaration(Path(args.composition)),
+                [load_declaration(Path(path)) for path in args.skill_contract],
+            )
+            payload = plan.as_dict()
+            if args.derived_workflow_output:
+                _write_json(payload["derived_workflow"], args.derived_workflow_output)
+            _write_or_print(payload, args.output)
             return 0
         raise HarnessAuthoringError(f"unsupported authoring command: {args.authoring_command}")
     except (HarnessAuthoringError, OSError) as exc:

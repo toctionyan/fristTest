@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-harness-composition-binding-v1",
+  "permit_digest": "d2817e761cb3ce87aac310fc2ea166bdb418dc33e13cbf1529060bee02faa32c",
+  "diff_review_sha256": "907d84adefae241319a7ad7a1d36980c5515c7e701312201922388536269572d",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "90b231ced0f81acf018e0d2fffdf7a997ce0141f5627f361b3db57e954ff9a29",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/authority-boundary.json",
+      "evidence_sha256": "a6d28f773057545e5afd6eaf2c768063b8babd7e40388975190f645879ebd340"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/counterexamples.json",
+      "evidence_sha256": "14aef39dd3374cdde8e278b9e1198620456d5807f90c6c44616c9687b7284aa8"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/diff-review.json",
+      "evidence_sha256": "907d84adefae241319a7ad7a1d36980c5515c7e701312201922388536269572d"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/focused-tests.json",
+      "evidence_sha256": "5f8594621a871ba11b0e678a360a890f74bfede67730b86f1f3da708b2bc5c3a"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/negative-paths.json",
+      "evidence_sha256": "c74dee675b348401504272289588f190b3c7bbcd2ffa2ca9856c9008df2d0ef5"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/original-failure.json",
+      "evidence_sha256": "e0a9a3bef216adcc25a0c6f8645c71062c6db7022d17c79aacaad19b24166b47"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/regression.json",
+      "evidence_sha256": "3661ba27aab6619a6447b2c20bcc02ae3cda533928b58a2ea2c2c9e665cf2571"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/runtime-trace.json",
+      "evidence_sha256": "5439de49e8dfbe7f11f77783a0cf57fbb126b0de8fb635dd7d89643c96c2dd4a"
+    }
+  ],
+  "residual_risks": [
+    "Natural-language generation of composition overlays remains a later layer; v1 consumes explicit open declarations."
+  ]
+}

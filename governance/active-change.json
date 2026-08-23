@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-harness-authoring-core-v1",
+  "change_id": "repair-harness-composition-binding-v1",
   "target_kind": "repair",
-  "goal": "Add a portable, no-model Harness Authoring Core that compiles strict declarations into the existing Workflow runtime authority.",
+  "goal": "Add deterministic Skill extension composition that derives reviewable Workflows without rewriting base Skills or creating a second runtime authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -24,6 +24,7 @@
     "Makefile",
     "skillctl.py",
     "docs/architecture/HARNESS_AUTHORING_CORE_V1.md",
+    "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -35,6 +36,8 @@
     "customer product source remains unchanged",
     "trusted Judge inputs and completion authority remain unchanged",
     "the existing WorkflowSpec and graph validator remain the sole runtime semantics",
+    "base Skill contracts and Workflow declarations remain immutable composition inputs",
+    "extension placement is explicit and never inferred from hook names",
     "TaskRun remains the only completion authority and Graph END transitions only to VALIDATING",
     "existing write-authority guards remain mandatory",
     "authoring validation and explanation require no model or network",
@@ -57,23 +60,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/independent-review.json",
-      "evidence_sha256": "46afc1fa857c873fbc665b67a8e69c7bc9e2a2fa969ee4cfd3cbd3adfc2ab550",
-      "recorded_at": "2026-08-23T08:48:46.700617+00:00"
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/independent-review.json",
+      "evidence_sha256": "c0ed6fc25c914b585c3a0c54fb5b886be01c0d96d3e74475c321333c27472110",
+      "recorded_at": "2026-08-23T09:35:46.851350+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/independent-review.json",
-      "evidence_sha256": "46afc1fa857c873fbc665b67a8e69c7bc9e2a2fa969ee4cfd3cbd3adfc2ab550",
-      "recorded_at": "2026-08-23T08:48:46.797186+00:00"
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/evidence/independent-review.json",
+      "evidence_sha256": "c0ed6fc25c914b585c3a0c54fb5b886be01c0d96d3e74475c321333c27472110",
+      "recorded_at": "2026-08-23T09:35:46.956891+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-harness-authoring-core-v1/verification.json",
-      "evidence_sha256": "e028ac5e620c8b112e119803bee8c70e0d4756376d5864dbf235176e14519029",
-      "recorded_at": "2026-08-23T08:49:45.623972+00:00"
+      "evidence": ".quality/skill-control-plane/repair-harness-composition-binding-v1/verification.json",
+      "evidence_sha256": "8d17aef9e752b7d1d1b1837a40a0d0c7e85e38db5efbcdeb58987751ee5e0d80",
+      "recorded_at": "2026-08-23T09:36:20.484579+00:00"
     }
   ],
   "decision_record": null,
@@ -81,17 +84,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-harness-authoring-core-v1/verification.json",
-    "sha256": "e028ac5e620c8b112e119803bee8c70e0d4756376d5864dbf235176e14519029",
-    "source_fingerprint": "ad26485369a18efe2def3ff2d5053456ad5b7cda0d2d2ff962bb40f2a7a59fdb",
-    "source_file_count": 958,
-    "verified_at": "2026-08-23T08:49:45.623327+00:00"
+    "path": ".quality/skill-control-plane/repair-harness-composition-binding-v1/verification.json",
+    "sha256": "8d17aef9e752b7d1d1b1837a40a0d0c7e85e38db5efbcdeb58987751ee5e0d80",
+    "source_fingerprint": "28c7743da34c7bcb9455a2c6cd95bbfa3a20c92922ad9c6ee5e2fa85cf8d76d8",
+    "source_file_count": 979,
+    "verified_at": "2026-08-23T09:36:20.483913+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-harness-authoring-core-v1",
-  "repair_governance_consumed_at": "2026-08-23T08:49:52.329712+00:00",
+  "repair_governance": "governance/repair-cases/repair-harness-composition-binding-v1",
+  "repair_governance_consumed_at": "2026-08-23T09:36:26.007217+00:00",
   "created_at": "2026-08-23T19:00:00+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "bb815e277fcd31ee83f076d757786e1da8fa8b65fb62847a9b2b4ec761536aae",
-  "closed_at": "2026-08-23T08:49:52.329728+00:00"
+  "repair_governance_permit_digest": "d2817e761cb3ce87aac310fc2ea166bdb418dc33e13cbf1529060bee02faa32c",
+  "closed_at": "2026-08-23T09:36:26.007233+00:00"
 }

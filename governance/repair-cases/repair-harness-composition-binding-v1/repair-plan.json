@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-harness-composition-binding-v1",
+  "root_cause_proof_sha256": "1849c1bcef6c4a2240c28af9c20001de3a9a6ee7b4d4f61be480ee0d3cabe43b",
+  "status": "APPROVED",
+  "strategy": "Add a pure, deterministic Composer upstream of the existing Workflow compiler. A closed harness-composition@1 overlay binds extension Skill contracts to declared host hooks and explicit graph anchors, validates type/artifact/mode/capability compatibility, inserts ordered graph nodes, emits provenance, and then recompiles the derived harness-workflow@1 declaration through the existing WorkflowSpec and graph validator.",
+  "changes": [
+    {
+      "path": "skill-system/controller/harness_composition.py",
+      "responsibility": "parse composition overlays, validate Skill compatibility, deterministically transform graph edges, propagate capabilities, and emit provenance-bound composed plans",
+      "reason": "composition semantics are the missing boundary proven by the root-cause record"
+    },
+    {
+      "path": "skill-system/controller/harness_authoring.py",
+      "responsibility": "publish stable authoring helpers needed by the Composer without duplicating parsing semantics",
+      "reason": "the Composer must reuse strict Skill and Workflow declarations"
+    },
+    {
+      "path": "skill-system/controller/harness_authoring_cli.py",
+      "responsibility": "expose model-free compose and composition validation commands",
+      "reason": "extensions must be usable from ChatGPT, Codex, or a standalone terminal"
+    },
+    {
+      "path": "skill-system/schemas/harness-composition.schema.json",
+      "responsibility": "document the closed overlay, explicit anchor, route, and ordering contract",
+      "reason": "composition files must be reviewable and maintainable without a Host"
+    },
+    {
+      "path": "skill-system/tests/test_harness_composition.py",
+      "responsibility": "prove deterministic insertion, compatibility, provenance, CLI behavior, and fail-closed counterexamples",
+      "reason": "graph transformation and authority boundaries need focused regression coverage"
+    },
+    {
+      "path": "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
+      "responsibility": "explain extension points, overlays, examples, conflicts, authority, and standalone maintenance",
+      "reason": "users need a concrete extension model rather than implicit YAML rewriting"
+    }
+  ],
+  "unchanged_boundaries": [
+    "WorkflowSpec and workflow_graph_contract remain the only runtime and topology authorities",
+    "the Composer is a pure authoring transform and never executes a Skill or capability",
+    "TaskRun remains the only completion authority and Graph END still means VALIDATING",
+    "existing write-authority guards remain mandatory for mutating Skills",
+    "base Skill contracts and base Workflow declarations are never rewritten",
+    "customer product source and generated standalone runtime remain unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not infer graph placement from extension-point names.",
+    "Do not introduce a second Workflow runtime, graph parser, completion judge, or write authority.",
+    "Do not permit a mutating extension in a READ_ONLY Workflow or infer write permission from workspace.write capability.",
+    "Do not silently overwrite graph step IDs, duplicate Skill contracts, or incompatible hook types.",
+    "Do not allow provider-specific capability bindings in a composed Workflow.",
+    "Do not modify the base declaration in place."
+  ],
+  "required_invariants": [
+    "composition input is closed, versioned, safely loaded, and deterministic",
+    "each binding names a host Skill, declared hook, extension Skill, explicit anchor, order, and routes",
+    "multiple bindings at one anchor have stable order and duplicate identities fail closed",
+    "extension inputs and outputs satisfy type-specific artifact compatibility rules",
+    "extension capabilities are propagated into the derived Workflow and revalidated by WorkflowSpec",
+    "mutating extensions require an already WRITE and write_governed base Workflow",
+    "derived plans include base, overlay, Skill-contract digests, binding order, and a provenance digest",
+    "the final derived declaration compiles through compile_workflow_declaration"
+  ],
+  "required_tests": {
+    "focused": [
+      "before-step and after-route anchors insert extension Skills without modifying the input Workflow",
+      "multiple bindings at one anchor use deterministic order independent of declaration order",
+      "composed output compiles through WorkflowSpec and preserves TaskRun VALIDATING semantics",
+      "CLI composes JSON or safe YAML declarations without a model"
+    ],
+    "counterexamples": [
+      "undeclared hooks, incompatible extension types, unknown host Skills, and missing anchor steps are rejected",
+      "duplicate binding IDs, duplicate Skill contracts, graph-step collisions, and invalid continuation routes are rejected",
+      "provider-specific capabilities remain rejected by the canonical Workflow parser"
+    ],
+    "regression": [
+      "Authoring Core tests remain green",
+      "Workflow Registry and graph contract tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "mutating extension on a READ_ONLY Workflow is rejected",
+      "artifact-incompatible extensions are rejected",
+      "composition cannot change completion authority or acquire execution authority"
+    ]
+  },
+  "risks": [
+    "Graph rewriting can become implicit control flow; explicit anchors and routes keep it reviewable.",
+    "Multiple extensions can become order-dependent; stable order plus provenance makes the result reproducible.",
+    "Capability propagation could be mistaken for authorization; existing runtime guards remain the only write authority.",
+    "Overly strict artifact checks can block valid providers; type-specific rules are intentionally minimal and explicit."
+  ],
+  "rollback_plan": "Remove the Composer module, route, schema, tests, and composition documentation together. Existing Skill contracts, Workflow declarations, WorkflowSpec runtime, Dispatcher, Provider Adapters, TaskRun, and customer project code require no rollback because composition does not mutate them."
+}

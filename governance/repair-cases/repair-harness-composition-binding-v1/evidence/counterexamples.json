@@ -1,0 +1,12 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "counterexamples",
+  "status": "PASS",
+  "covered": [
+    "unknown hook and incompatible extension type",
+    "unknown anchor step and graph-step collision",
+    "invalid continuation target and missing continuation",
+    "duplicate binding ID, duplicate contract, invalid stable ID, and self-extension",
+    "provider-specific capability rejected by canonical Workflow compilation"
+  ]
+}
