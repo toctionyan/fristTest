@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-harness-authoring-core-v1",
+  "permit_digest": "bb815e277fcd31ee83f076d757786e1da8fa8b65fb62847a9b2b4ec761536aae",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "78de4424e279d6cebe7e5658ce871340b790411c050167570c218001b20c9d3e",
+  "candidate_source_fingerprint": "b06f21df2602aabd158432f132b9cbee5e490c83527f046b9e0f798a040e911b",
+  "changed_paths": [
+    "docs/architecture/HARNESS_AUTHORING_CORE_V1.md",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/workflow_registry.py",
+    "skill-system/schemas/harness-project.schema.json",
+    "skill-system/schemas/harness-skill-contract.schema.json",
+    "skill-system/schemas/harness-workflow.schema.json",
+    "skill-system/tests/test_harness_authoring.py",
+    "skillctl.py"
+  ],
+  "added_paths": [
+    "docs/architecture/HARNESS_AUTHORING_CORE_V1.md",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/harness-project.schema.json",
+    "skill-system/schemas/harness-skill-contract.schema.json",
+    "skill-system/schemas/harness-workflow.schema.json",
+    "skill-system/tests/test_harness_authoring.py"
+  ],
+  "modified_paths": [
+    "skill-system/controller/workflow_registry.py",
+    "skillctl.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": [
+    "Authoring terminates at the existing WorkflowSpec parser; no second runtime or completion authority was added.",
+    "Customer product source and trusted Judge inputs are unchanged.",
+    "Strict loading, bounded write scope, and negative tests preserve fail-closed behavior."
+  ]
+}

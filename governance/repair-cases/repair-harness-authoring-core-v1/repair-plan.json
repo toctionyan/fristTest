@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-harness-authoring-core-v1",
+  "root_cause_proof_sha256": "cda36ee7cdb42de585759f064b6dabb0b7f27d29cc27896fa7ac8651e28b2957",
+  "status": "APPROVED",
+  "strategy": "Add a host-independent authoring boundary before the existing Workflow Registry: strict versioned Project, Skill Contract, and Workflow declarations are safely loaded and validated, Workflow declarations compile into the existing WorkflowSpec and graph validator, and a no-model skillctl authoring command initializes, validates, compiles, and explains declarations. Do not add a second workflow runtime or completion authority.",
+  "changes": [
+    {
+      "path": "skill-system/controller/harness_authoring.py",
+      "responsibility": "own safe declaration loading, strict semantic validation, canonical WorkflowSpec compilation, and deterministic project initialization",
+      "reason": "the missing authoring boundary is the proven root cause"
+    },
+    {
+      "path": "skill-system/controller/harness_authoring_cli.py",
+      "responsibility": "expose host-independent project-init, validate, compile, and explain commands",
+      "reason": "maintenance must not depend on ChatGPT, Codex, a model, or network access"
+    },
+    {
+      "path": "skill-system/controller/workflow_registry.py",
+      "responsibility": "publish the existing strict WorkflowSpec parser for compiler reuse",
+      "reason": "authoring must terminate at the current runtime contract rather than duplicate it"
+    },
+    {
+      "path": "skillctl.py",
+      "responsibility": "route the authoring command to the controller CLI",
+      "reason": "the repository root CLI is the portable operator entry point"
+    },
+    {
+      "path": "skill-system/schemas/harness-project.schema.json",
+      "responsibility": "document the closed harness-project@1 wire contract",
+      "reason": "portable files require reviewable versioned constraints"
+    },
+    {
+      "path": "skill-system/schemas/harness-skill-contract.schema.json",
+      "responsibility": "document the closed harness-skill-contract@1 wire contract",
+      "reason": "skills need explicit capabilities, modes, outputs, and extension metadata"
+    },
+    {
+      "path": "skill-system/schemas/harness-workflow.schema.json",
+      "responsibility": "document the closed harness-workflow@1 wire contract",
+      "reason": "workflow authoring must explicitly preserve TaskRun completion authority"
+    },
+    {
+      "path": "skill-system/tests/test_harness_authoring.py",
+      "responsibility": "prove valid authoring, fail-closed counterexamples, and no-model CLI behavior",
+      "reason": "the new boundary needs focused and negative-path coverage"
+    },
+    {
+      "path": "docs/architecture/HARNESS_AUTHORING_CORE_V1.md",
+      "responsibility": "state ownership, extension model, portability, and operator examples",
+      "reason": "Host adapters must remain optional and project outputs standalone"
+    }
+  ],
+  "unchanged_boundaries": [
+    "Workflow Registry and WorkflowSpec remain the sole workflow runtime contract",
+    "workflow_graph_contract remains the sole graph topology validator",
+    "LangGraph Runtime, Dispatcher, Provider Adapters, and durable checkpointer remain unchanged",
+    "TaskRun remains the only completion authority and Graph END only transitions to VALIDATING",
+    "existing write-authority guards remain the only mutating capability authority",
+    "customer product source and generated project runtime remain independent from this authoring tool"
+  ],
+  "forbidden_repairs": [
+    "Do not introduce a YAML-specific runtime or interpreter.",
+    "Do not let compiled declarations claim COMPLETED or bypass TaskRun validation.",
+    "Do not infer write authority from a skill name, graph position, or capability binding.",
+    "Do not execute arbitrary constructors, imports, tags, expressions, or shell commands while parsing declarations.",
+    "Do not require a language model, ChatGPT session, Codex session, network, or vendor SDK for validation and explanation.",
+    "Do not weaken existing Workflow Registry or graph validation to accept authoring input."
+  ],
+  "required_invariants": [
+    "unknown fields and unsupported schema versions fail closed",
+    "YAML uses a safe loader and JSON remains a first-class portable format",
+    "compiled Workflow declarations pass through the existing WorkflowSpec parser and graph validator",
+    "Graph END cannot represent overall completion and compiled plans identify TaskRun as authority",
+    "mutating Skill contracts explicitly require workspace.write capability",
+    "generated project declarations use bounded relative write scopes",
+    "validation, compilation, explanation, and initialization are deterministic and model-free"
+  ],
+  "required_tests": {
+    "focused": [
+      "valid JSON and YAML declarations load into the same strict contracts",
+      "project-init generates a declaration accepted by validate",
+      "workflow compile and explain reuse WorkflowSpec and preserve TaskRun VALIDATING semantics"
+    ],
+    "counterexamples": [
+      "unknown declaration keys are rejected",
+      "provider-bound workflow requirements remain rejected by the existing registry contract",
+      "a workflow completion declaration cannot use COMPLETED or a non-TaskRun authority"
+    ],
+    "regression": [
+      "existing Workflow Registry and graph contract tests remain green",
+      "existing harness invocation and composition runtime tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "unsafe YAML tags and malformed documents fail without execution",
+      "mutating Skill contract without workspace.write is rejected",
+      "absolute, traversal, or repository-wide project write scopes are rejected"
+    ]
+  },
+  "risks": [
+    "A permissive authoring layer could become a second DSL authority; reuse of WorkflowSpec and strict unknown-field rejection contain this risk.",
+    "YAML availability differs across standalone Python environments; JSON support and an explicit dependency error preserve deterministic behavior.",
+    "Large generated configuration sets could become difficult to maintain; v1 intentionally generates one minimal Project declaration and references built-in policy instead of copying it."
+  ],
+  "rollback_plan": "Revert the authoring controller, CLI route, schemas, tests, and documentation together. Existing Workflow Registry, LangGraph runtime, providers, TaskRun, and customer project code require no rollback because they are not modified semantically."
+}

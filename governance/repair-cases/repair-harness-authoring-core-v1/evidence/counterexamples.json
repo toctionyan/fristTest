@@ -1,0 +1,12 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "counterexamples",
+  "status": "PASS",
+  "verified": [
+    "unknown top-level Workflow keys fail closed",
+    "provider-bound capabilities remain rejected by the existing Workflow Registry parser",
+    "Graph completion cannot claim COMPLETED or replace TaskRun",
+    "WRITE Workflow without write_governed is rejected",
+    "numeric YAML scalars are not coerced into contract strings"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "negative_paths",
+  "status": "PASS",
+  "verified": [
+    "unsafe Python YAML tags fail under safe_load and do not create their marker file",
+    "mutating Skill contract without workspace.write fails",
+    "absolute, traversal, root wildcard, and dot write scopes fail",
+    "unsupported schema versions and unknown keys fail",
+    "missing PyYAML has an explicit JSON fallback message"
+  ]
+}

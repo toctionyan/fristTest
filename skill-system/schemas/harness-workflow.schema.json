@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness-workflow.schema.json",
+  "title": "Harness Workflow Declaration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "request_class", "skills", "mode", "graph", "completion"],
+  "properties": {
+    "schema": {"const": "harness-workflow@1"},
+    "id": {"$ref": "#/$defs/stableId"},
+    "version": {"type": "string", "minLength": 1},
+    "request_class": {"type": "string", "minLength": 1},
+    "skills": {"$ref": "#/$defs/uniqueStrings"},
+    "mode": {"enum": ["READ_ONLY", "WRITE"]},
+    "status_first": {"type": "boolean", "default": false},
+    "deterministic_response": {"type": "boolean", "default": false},
+    "write_governed": {"type": "boolean", "default": false},
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {"$ref": "#/$defs/uniqueStrings"},
+            "optional": {"$ref": "#/$defs/uniqueStrings"}
+          }
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "steps"],
+      "properties": {
+        "start": {"$ref": "#/$defs/stableId"},
+        "max_attempts_per_step": {"type": "integer", "minimum": 1, "maximum": 64},
+        "steps": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"$ref": "#/$defs/stableId"},
+          "additionalProperties": {"$ref": "#/$defs/step"}
+        }
+      }
+    },
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transition_to", "policy", "authority"],
+      "properties": {
+        "transition_to": {"const": "VALIDATING"},
+        "policy": {"$ref": "#/$defs/stableId"},
+        "authority": {"const": "TaskRun"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "WRITE"}}, "required": ["mode"]},
+      "then": {"properties": {"write_governed": {"const": true}}, "required": ["write_governed"]}
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
+    },
+    "uniqueStrings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "routes"],
+      "properties": {
+        "type": {"enum": ["skill", "executor", "gate", "external_wait", "human_gate"]},
+        "use": {"type": "string", "minLength": 1},
+        "routes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 64}
+      }
+    }
+  }
+}

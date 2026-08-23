@@ -1,0 +1,27 @@
+{
+  "schema": "change-review-evidence@1",
+  "change_id": "repair-harness-authoring-core-v1",
+  "status": "PASS",
+  "scope_review": {
+    "decision": "PASS",
+    "findings": [
+      "The deterministic diff contains exactly the nine approved implementation and documentation paths.",
+      "No services, web, contracts, provider runtime, trusted Judge, or customer production source changed.",
+      "The implementation closes the reproduced missing authoring boundary without expanding into automatic graph composition."
+    ]
+  },
+  "adversarial_review": {
+    "decision": "PASS",
+    "findings": [
+      "Unsafe YAML tags are rejected by safe_load and tested for absence of side effects.",
+      "Unknown keys, scalar coercion, unbounded write scope, provider binding, ungoverned writes, and false completion all fail closed.",
+      "The compiler delegates runtime and graph semantics to the existing canonical parsers.",
+      "The CLI has no model, vendor SDK, network, provider execution, or customer runtime dependency."
+    ]
+  },
+  "evidence": [
+    "governance/repair-cases/repair-harness-authoring-core-v1/diff-review.json",
+    "governance/repair-cases/repair-harness-authoring-core-v1/closure-matrix.json",
+    "governance/repair-cases/repair-harness-authoring-core-v1/evidence/regression.json"
+  ]
+}

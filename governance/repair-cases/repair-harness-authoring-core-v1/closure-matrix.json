@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-harness-authoring-core-v1",
+  "permit_digest": "bb815e277fcd31ee83f076d757786e1da8fa8b65fb62847a9b2b4ec761536aae",
+  "diff_review_sha256": "3ed4c6b5d8d5dfc7b1b86d2755afc3a363a5ecc79e7b86ed0e8bce0009734bee",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "b06f21df2602aabd158432f132b9cbee5e490c83527f046b9e0f798a040e911b",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/authority-boundary.json",
+      "evidence_sha256": "14ceff969eff7a92ebd86619d9d9a1cb0bea6433bb90323245c943c37a3aa54e"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/counterexamples.json",
+      "evidence_sha256": "24a250048638e8483d384b872f2f5929130a7008cf8215e8733a07c686945d1a"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/diff-review.json",
+      "evidence_sha256": "3ed4c6b5d8d5dfc7b1b86d2755afc3a363a5ecc79e7b86ed0e8bce0009734bee"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/focused-tests.json",
+      "evidence_sha256": "be877ca5d44324e850d3a7dcdf8b93f4cd36ad4a8a4041eda59f96293ee5d7e4"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/negative-paths.json",
+      "evidence_sha256": "3e90fe3e7f149a649f5563c3886d4fb2936791f91e8ce5c05bd30197efd0a6df"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/original-failure.json",
+      "evidence_sha256": "6f56d77906c0bf12ad1607848d97dce8d727bb623eafc1eb801654df5c291304"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/regression.json",
+      "evidence_sha256": "e57315964227217fa0622462e6750e38fc6592196cbdc3fe3cf961f671e1bd50"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/runtime-trace.json",
+      "evidence_sha256": "24c706bd5d290ab307c4c4223c1020607944564c5bac87007e3fc9f55e6ec7e5"
+    }
+  ],
+  "residual_risks": [
+    "Workflow extension-point insertion remains an explicit future Composer layer; v1 validates extension compatibility metadata but does not mutate graphs automatically."
+  ]
+}

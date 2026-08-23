@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-harness-authoring-core-v1",
+  "repair_plan_sha256": "9d45c3e0c541d9544c2946e279af6e096e42a465bc3fb84780c69c5f11209ddd",
+  "plan_review_sha256": "aba750e857095a52e825c11cf68b76eb4126cfd4d0fa2906a16666ed08fe5953",
+  "baseline_manifest_sha256": "f763ea3f6a47dc9bffd0f054d1c4570bf15bd6780a1240a6ddc3cf08b7e72357",
+  "allowed_paths": [
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/workflow_registry.py",
+    "skillctl.py",
+    "skill-system/schemas/harness-project.schema.json",
+    "skill-system/schemas/harness-skill-contract.schema.json",
+    "skill-system/schemas/harness-workflow.schema.json",
+    "skill-system/tests/test_harness_authoring.py",
+    "docs/architecture/HARNESS_AUTHORING_CORE_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "valid JSON and YAML declarations load into the same strict contracts",
+      "project-init generates a declaration accepted by validate",
+      "workflow compile and explain reuse WorkflowSpec and preserve TaskRun VALIDATING semantics"
+    ],
+    "counterexamples": [
+      "unknown declaration keys are rejected",
+      "provider-bound workflow requirements remain rejected by the existing registry contract",
+      "a workflow completion declaration cannot use COMPLETED or a non-TaskRun authority"
+    ],
+    "regression": [
+      "existing Workflow Registry and graph contract tests remain green",
+      "existing harness invocation and composition runtime tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "unsafe YAML tags and malformed documents fail without execution",
+      "mutating Skill contract without workspace.write is rejected",
+      "absolute, traversal, or repository-wide project write scopes are rejected"
+    ]
+  },
+  "baseline_source_fingerprint": "78de4424e279d6cebe7e5658ce871340b790411c050167570c218001b20c9d3e",
+  "baseline_workspace_fingerprint": "83c38013ebbfd9336fcce66a19add6586ac3d6a1c7da6d95e267ee878b1433a8",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "bb815e277fcd31ee83f076d757786e1da8fa8b65fb62847a9b2b4ec761536aae"
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-harness-authoring-core-v1",
+  "failure_case_sha256": "d1597e036b60bac5993027f5af1b70d1cb4788a5e37104b9c3beffba4f8e7594",
+  "decision": "PROVEN",
+  "root_cause": "The existing control plane begins at hand-authored JSON registries and exact invocation. It intentionally validates runtime topology, but there is no upstream authoring contract that safely loads portable declarations, rejects unknown fields, validates Project and Skill metadata, or compiles a versioned Workflow declaration into the same WorkflowSpec. Host conversations therefore remain the only convenient composer even though they are not durable authority.",
+  "causal_chain": [
+    "The Workflow registry owns strict runtime rows and Graph validation.",
+    "No host-independent loader or compiler exists before that registry boundary.",
+    "skillctl exposes invocation and governance commands but no authoring command.",
+    "Users must either edit registry JSON directly or rely on a Host conversation to construct declarations.",
+    "Without a canonical compiler and CLI, declarations cannot be maintained or explained consistently after a Host is removed."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-harness-authoring-core-v1/evidence/red-baseline.md",
+    "skill-system/controller/workflow_registry.py",
+    "skill-system/controller/workflow_graph_contract.py",
+    "skillctl.py"
+  ],
+  "rejected_hypotheses": [
+    "Putting more instructions in the Gateway Skill is sufficient; that would preserve Host lock-in and provide no deterministic validation.",
+    "A second YAML-specific Workflow runtime is required; the existing WorkflowSpec and Graph validator already own runtime semantics.",
+    "Every project should hand-edit all policy files; built-in policy references and generated minimal profiles are sufficient."
+  ],
+  "affected_boundaries": [
+    "authoring ownership",
+    "declaration validation",
+    "canonical Workflow compilation",
+    "offline CLI maintenance"
+  ]
+}

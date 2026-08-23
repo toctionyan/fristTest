@@ -182,6 +182,19 @@ def _parse_workflow(row: dict[str, Any]) -> WorkflowSpec:
     )
 
 
+def parse_workflow_spec(row: dict[str, Any]) -> WorkflowSpec:
+    """Parse one target-independent row using the canonical runtime contract.
+
+    Authoring adapters must call this boundary instead of reproducing Workflow
+    or graph semantics.  The returned spec is the same type consumed by the
+    activation and runtime layers.
+    """
+
+    if not isinstance(row, dict):
+        raise WorkflowRegistryError("workflow row must be an object")
+    return _parse_workflow(row)
+
+
 def load_workflow_registry(workspace: Path) -> dict[str, WorkflowSpec]:
     """Load target-independent, provider-neutral development Workflow specs.
 
@@ -211,7 +224,7 @@ def load_workflow_registry(workspace: Path) -> dict[str, WorkflowSpec]:
     for raw in rows:
         if not isinstance(raw, dict):
             raise WorkflowRegistryError("each workflow registry row must be an object")
-        spec = _parse_workflow(raw)
+        spec = parse_workflow_spec(raw)
         if spec.workflow_id in workflows:
             raise WorkflowRegistryError(f"duplicate workflow_id: {spec.workflow_id}")
         workflows[spec.workflow_id] = spec
@@ -233,5 +246,6 @@ __all__ = [
     "WorkflowRegistryError",
     "WorkflowSpec",
     "load_workflow_registry",
+    "parse_workflow_spec",
     "require_workflow",
 ]

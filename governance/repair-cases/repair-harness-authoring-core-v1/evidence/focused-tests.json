@@ -1,0 +1,13 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "focused_tests",
+  "status": "PASS",
+  "command": "python3 -B -m unittest skill-system/tests/test_harness_authoring.py skill-system/tests/test_dev_workflow_registry.py skill-system/tests/test_workflow_graph_contract.py",
+  "test_count": 24,
+  "assertions": [
+    "JSON and safe YAML compile identically",
+    "project-init output validates",
+    "compile and explain preserve WorkflowSpec and TaskRun authority",
+    "existing Workflow Registry and graph contract behavior remains green"
+  ]
+}
