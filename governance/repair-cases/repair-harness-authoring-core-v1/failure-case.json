@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-harness-authoring-core-v1",
+  "classification": "skill-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A host-independent CLI can initialize, validate, explain and compile versioned Project, Skill Contract and Workflow declarations into the existing canonical runtime contract.",
+    "actual": "skillctl rejects the authoring command and the repository has no common declaration loader, semantic compiler or no-LLM authoring interface.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-harness-authoring-core-v1/evidence/red-baseline.md",
+      "skillctl.py",
+      "skill-system/controller/workflow_registry.py"
+    ]
+  },
+  "violated_invariants": [
+    "ChatGPT and Codex are replaceable Host adapters, not the sole owner of Harness declarations.",
+    "Declarative authoring must compile into the existing WorkflowSpec and runtime rather than create a second execution authority.",
+    "Open declarations must be strict, versioned, explainable and maintainable without a model."
+  ],
+  "affected_boundaries": [
+    "host-to-Harness authoring boundary",
+    "declaration-to-runtime compilation boundary",
+    "offline maintenance boundary"
+  ]
+}

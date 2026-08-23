@@ -1,0 +1,15 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "regression",
+  "status": "PASS",
+  "command": "PYTHONPATH=$PWD/services/agent-service/.venv/lib/python3.12/site-packages make skill-quality",
+  "unit_test_count": 781,
+  "profiles": {
+    "skill-static": "PASS",
+    "skill-unit": "PASS",
+    "skill-host-integration": "PASS",
+    "skill-security": "PASS",
+    "project-compatibility-smoke": "PASS"
+  },
+  "note": "The repository snapshot contains dependency packages in the agent-service virtual-environment site-packages but its python launcher is absent, so the canonical interpreter was given that existing site-packages path."
+}

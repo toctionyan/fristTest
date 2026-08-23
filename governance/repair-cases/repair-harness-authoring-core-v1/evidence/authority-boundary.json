@@ -1,0 +1,20 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "authority_boundary",
+  "status": "PASS",
+  "owners": {
+    "authoring_wire_validation": "harness_authoring.py",
+    "workflow_runtime_contract": "workflow_registry.parse_workflow_spec",
+    "graph_topology": "workflow_graph_contract.parse_workflow_graph",
+    "execution": "existing LangGraph Runtime and WorkflowAdapterDispatcher",
+    "write_authority": "existing write-authority guards",
+    "completion": "TaskRun"
+  },
+  "prohibitions_verified": [
+    "Authoring Core does not execute Workflow nodes",
+    "Authoring Core does not select or run providers",
+    "Graph END is represented as TaskRun VALIDATING",
+    "Skill capability metadata does not grant write authority",
+    "customer product source is unchanged"
+  ]
+}

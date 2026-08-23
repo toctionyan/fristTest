@@ -1,0 +1,17 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "runtime_trace",
+  "status": "PASS",
+  "trace": [
+    "skillctl.py dispatches authoring to harness_authoring_cli.py",
+    "load_declaration reads JSON or safe YAML",
+    "closed authoring validation checks wire types and version",
+    "compile_workflow_declaration calls workflow_registry.parse_workflow_spec",
+    "parse_workflow_spec calls workflow_graph_contract.parse_workflow_graph",
+    "compiled-workflow-plan@1 records VALIDATING and TaskRun authority",
+    "compile and explain stop without capability activation or provider execution"
+  ],
+  "model_calls": 0,
+  "network_calls": 0,
+  "provider_executions": 0
+}

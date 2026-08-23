@@ -1,0 +1,9 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "original_failure",
+  "status": "PASS",
+  "observation": "The portable root CLI rejected the authoring command before implementation.",
+  "command": "python3 -B skillctl.py authoring validate",
+  "observed_exit_code": 2,
+  "source": "governance/repair-cases/repair-harness-authoring-core-v1/evidence/red-baseline.md"
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-harness-authoring-core-v1",
+  "repair_plan_sha256": "9d45c3e0c541d9544c2946e279af6e096e42a465bc3fb84780c69c5f11209ddd",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/workflow_registry.py",
+    "skillctl.py",
+    "skill-system/schemas/harness-project.schema.json",
+    "skill-system/schemas/harness-skill-contract.schema.json",
+    "skill-system/schemas/harness-workflow.schema.json",
+    "skill-system/tests/test_harness_authoring.py",
+    "docs/architecture/HARNESS_AUTHORING_CORE_V1.md"
+  ],
+  "review_findings": [
+    "The proposed compiler is upstream of and terminates at the current WorkflowSpec parser, so it does not create a peer runtime or graph authority.",
+    "The CLI makes generated declarations maintainable without a Host while leaving ChatGPT and Codex available as optional natural-language composers.",
+    "Strict schemas, safe loading, bounded write scope, and explicit mutating capabilities close the main authoring trust-boundary risks.",
+    "TaskRun VALIDATING semantics remain explicit in the source declaration and compiled plan; Graph END cannot claim completion.",
+    "The path set is limited to control-plane authoring, its root route, tests, schemas, and architecture documentation."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single runtime authority",
+      "assessment": "authoring compiles into workflow_registry.parse_workflow_spec and workflow_graph_contract rather than interpreting a parallel graph",
+      "evidence": "skill-system/controller/workflow_registry.py"
+    },
+    {
+      "rule": "TaskRun is sole completion authority",
+      "assessment": "the declaration contract requires transition_to VALIDATING and authority TaskRun",
+      "evidence": "skill-system/controller/composition_bootstrap.py"
+    },
+    {
+      "rule": "Observation and capability binding are not write authority",
+      "assessment": "mutating Skill contracts require explicit workspace.write while existing runtime guards remain unchanged",
+      "evidence": "skill-system/controller/workflow_adapter_dispatcher.py"
+    },
+    {
+      "rule": "Minimal bounded repair",
+      "assessment": "v1 covers portable declarations and deterministic authoring commands without modifying customer source or provider execution",
+      "evidence": "governance/repair-cases/repair-harness-authoring-core-v1/root-cause-proof.json"
+    }
+  ]
+}

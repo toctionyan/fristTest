@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+CONTROLLER = Path(__file__).resolve().parent
+if str(CONTROLLER) not in sys.path:
+    sys.path.insert(0, str(CONTROLLER))
+
+from harness_authoring import (  # type: ignore  # noqa: E402
+    HarnessAuthoringError,
+    compile_workflow_declaration,
+    explain_workflow,
+    initialize_project,
+    load_declaration,
+    validate_declaration,
+)
+
+
+def _pairs(values: list[str], *, option: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw in values:
+        key, separator, value = raw.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if not separator or not key or not value:
+            raise HarnessAuthoringError(f"{option} must use key=value format")
+        if key in result:
+            raise HarnessAuthoringError(f"duplicate {option} key: {key}")
+        result[key] = value
+    return result
+
+
+def _write_or_print(payload: dict[str, object], output: str | None) -> None:
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if output is None:
+        print(rendered, end="")
+        return
+    target = Path(output)
+    if target.exists():
+        raise HarnessAuthoringError(f"refusing to overwrite existing output: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(rendered, encoding="utf-8")
+    print(
+        json.dumps(
+            {"schema": "harness-authoring-result@1", "status": "PASS", "output": str(target)},
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Initialize, validate, compile, and explain portable Harness declarations"
+    )
+    commands = parser.add_subparsers(dest="authoring_command", required=True)
+
+    project_init = commands.add_parser("project-init", help="generate a minimal Project declaration")
+    project_init.add_argument("--output", required=True)
+    project_init.add_argument("--project-id", required=True)
+    project_init.add_argument("--project-type", required=True)
+    project_init.add_argument("--command", action="append", default=[], help="name=command")
+    project_init.add_argument("--write-scope", action="append", default=[])
+    project_init.add_argument("--provider", action="append", default=[], help="capability=provider")
+    project_init.add_argument("--default", action="append", default=[], help="name=workflow-id")
+    project_init.add_argument("--force", action="store_true")
+
+    validate = commands.add_parser("validate", help="validate one or more declarations")
+    validate.add_argument("paths", nargs="+")
+
+    compile_command = commands.add_parser("compile", help="compile a Workflow declaration")
+    compile_command.add_argument("--workflow", required=True)
+    compile_command.add_argument("--output")
+
+    explain = commands.add_parser("explain", help="explain a compiled Workflow without running it")
+    explain.add_argument("--workflow", required=True)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        if args.authoring_command == "project-init":
+            if not args.command:
+                raise HarnessAuthoringError("project-init requires at least one --command")
+            if not args.write_scope:
+                raise HarnessAuthoringError("project-init requires at least one --write-scope")
+            declaration = initialize_project(
+                Path(args.output),
+                project_id=args.project_id,
+                project_type=args.project_type,
+                commands=_pairs(args.command, option="--command"),
+                write_scope=args.write_scope,
+                providers=_pairs(args.provider, option="--provider"),
+                defaults=_pairs(args.default, option="--default"),
+                force=args.force,
+            )
+            print(
+                json.dumps(
+                    {
+                        "schema": "harness-authoring-result@1",
+                        "status": "PASS",
+                        "output": str(Path(args.output)),
+                        "declaration": declaration.as_dict(),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.authoring_command == "validate":
+            results = []
+            for raw_path in args.paths:
+                path = Path(raw_path)
+                validated = validate_declaration(load_declaration(path))
+                results.append(
+                    {"path": str(path), "schema": validated["schema"], "status": "PASS"}
+                )
+            print(
+                json.dumps(
+                    {"schema": "harness-validation@1", "status": "PASS", "results": results},
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.authoring_command == "compile":
+            plan = compile_workflow_declaration(load_declaration(Path(args.workflow)))
+            _write_or_print(plan.as_dict(), args.output)
+            return 0
+        if args.authoring_command == "explain":
+            plan = compile_workflow_declaration(load_declaration(Path(args.workflow)))
+            _write_or_print(explain_workflow(plan), None)
+            return 0
+        raise HarnessAuthoringError(f"unsupported authoring command: {args.authoring_command}")
+    except (HarnessAuthoringError, OSError) as exc:
+        print(
+            json.dumps(
+                {"schema": "harness-authoring-result@1", "status": "FAIL", "error": str(exc)},
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
