@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "root_cause_proof_sha256": "0e4fc1c6d6cd99f1eb98d6a2e741d6c06cfa6870422ec02dc62e97b5a7691c72",
+  "status": "APPROVED",
+  "strategy": "Add closed structured effect implementations underneath the existing Provider Adapter contracts. A transactional local.workspace adapter will validate path and content-digest preconditions before mutation. A subprocess-based local Git host will create a commit only from an exact parent and exact changed-path set. A GitHub REST host will create a PR and re-read it to prove repository, branches, and exact head SHA. A thin Starter Provider bootstrap will assemble these with existing local process and event-driven CI adapters without creating new capability or write authorities.",
+  "changes": [
+    {
+      "path": "skill-system/controller/workspace_provider_adapter.py",
+      "responsibility": "execute one exact structured workspace mutation transaction with traversal, symlink, digest, scope, rollback, and receipt checks",
+      "reason": "local.workspace is registered but currently has no executable Provider Adapter"
+    },
+    {
+      "path": "skill-system/schemas/workflow-workspace-mutation-request.schema.json",
+      "responsibility": "publish the strict host-independent workspace mutation request contract",
+      "reason": "Hosts and generated Workflows need a reviewable non-shell write shape"
+    },
+    {
+      "path": "skill-system/controller/concrete_publication_hosts.py",
+      "responsibility": "implement real local Git commit and GitHub PR-create hosts behind existing publication adapters",
+      "reason": "current publication hosts are Protocol-only and tested with fakes"
+    },
+    {
+      "path": "skill-system/controller/starter_provider_bootstrap.py",
+      "responsibility": "assemble local.workspace, local.process, local.git, selected code-review, and selected CI adapters from explicit configuration",
+      "reason": "installed Starter embeddings should not duplicate security-sensitive registry assembly"
+    },
+    {
+      "path": "skill-system/tests/test_workspace_provider_adapter.py",
+      "responsibility": "prove transactional mutation and traversal, symlink, stale digest, duplicate path, out-of-scope, and rollback counterexamples",
+      "reason": "workspace mutation must fail closed before partial source drift"
+    },
+    {
+      "path": "skill-system/tests/test_concrete_publication_hosts.py",
+      "responsibility": "prove a real temporary Git commit and exact GitHub PR request/verification contract with a transport boundary",
+      "reason": "fake Provider receipts cannot certify concrete effect semantics"
+    },
+    {
+      "path": "skill-system/tests/test_starter_provider_bootstrap.py",
+      "responsibility": "prove exact Provider registry assembly, missing configuration blockers, and no merge capability",
+      "reason": "the ChatGPT/Codex embedding needs one tested assembly path"
+    },
+    {
+      "path": "skill-system/tests/test_starter_runtime.py",
+      "responsibility": "add an installed Customer Agent publication route regression using the concrete bootstrap boundary",
+      "reason": "the Starter runtime must consume the new assembly without changing TaskRun completion semantics"
+    },
+    {
+      "path": "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
+      "responsibility": "document effect contracts, Host injection, credentials, evidence, and standalone product boundary",
+      "reason": "operators need to understand what runs inside Harness and what remains project-owned"
+    },
+    {
+      "path": "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+      "responsibility": "replace the stale concrete-adapter boundary with the new bootstrap and remaining Host Skill boundary",
+      "reason": "the runtime architecture record must match executable coverage"
+    }
+  ],
+  "unchanged_boundaries": [
+    "Capability Registry and Resolver remain the sole Provider binding authorities",
+    "WorkflowAdapterDispatcher remains the sole graph-step dispatch owner",
+    "the existing WriteAuthorityGuard runs before every mutating Provider invocation",
+    "a mutating Skill still requires the existing Guard before the real Skill Host edits source",
+    "publication_provider_adapters remain the receipt-validation boundary for Git and code review",
+    "GitHub credentials authorize the remote API but do not replace repository ChangePermit or WriteAuthorityGuard",
+    "Customer Agent Workflows contain no merge step and the bootstrap exposes no automatic merge path",
+    "Graph END projects only to TaskRun VALIDATING and never COMPLETED",
+    "customer application runtime and dependencies remain independent of Harness"
+  ],
+  "forbidden_repairs": [
+    "Do not execute shell strings supplied by Workflow or Skill output.",
+    "Do not accept absolute paths, traversal, symlinks, missing precondition digests, or undeclared changed paths.",
+    "Do not let a workspace request write governance evidence or Harness quality output as product source.",
+    "Do not create a Git commit when HEAD differs from expected_parent_sha or the worktree contains out-of-scope changes.",
+    "Do not trust the GitHub create response without an exact-head verification read.",
+    "Do not log, persist, or return GitHub tokens.",
+    "Do not add PR merge to Customer Agent Starter bootstrap.",
+    "Do not mark TaskRun complete from adapter, Git, PR, CI, Quality, or Graph END success."
+  ],
+  "required_invariants": [
+    "workspace mutations are all-or-rollback and receipt-bind before/after SHA-256 for every path",
+    "local Git commit parent and changed paths exactly match the request",
+    "GitHub PR receipt is re-read and exact-head bound",
+    "Provider assembly requires explicit workspace, profiles, repository, token source, and provider IDs",
+    "missing credentials, repository drift, remote mismatch, or transport failure becomes blocked evidence",
+    "no concrete adapter acquires completion, quality, merge, or write authority"
+  ],
+  "required_tests": {
+    "focused": [
+      "structured create/replace/delete transaction produces exact digest-bound receipt",
+      "real temporary Git repository produces an exact-parent exact-path commit",
+      "GitHub PR create request and verification read produce an exact-head receipt",
+      "Starter Provider bootstrap registers the activated concrete providers"
+    ],
+    "counterexamples": [
+      "path traversal, absolute path, symlink, stale digest, duplicate path, protected path, and partial failure are rejected",
+      "dirty out-of-scope Git path, wrong parent, empty diff, and receipt path mismatch are rejected",
+      "missing token, wrong repository, wrong remote head, invalid PR identity, and transport error are rejected",
+      "bootstrap cannot register duplicate providers or enable automatic merge"
+    ],
+    "regression": [
+      "Dispatcher, publication Provider, Starter runtime, Capability, Workflow, TaskRun, and control-plane suites remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "no shell command from runtime state is executed",
+      "no token appears in evidence or exception messages",
+      "no static Capability, Workflow, Skill, or Provider registry row is added",
+      "customer application source remains unchanged",
+      "Graph END remains VALIDATING and Customer Agent Workflows still have no merge capability"
+    ]
+  },
+  "risks": [
+    "Workspace rollback can fail under concurrent external mutation; the adapter will detect post-write drift, attempt bounded rollback, and block with explicit evidence.",
+    "Git hooks may reject a commit; failure remains blocked and no fabricated receipt is emitted.",
+    "GitHub response shapes or permissions may vary; the host validates only the required stable contract and blocks otherwise.",
+    "ChatGPT/Codex still supplies the real model-driven Skill Host; this change closes deterministic workspace/publication effects, not model execution itself."
+  ],
+  "rollback_plan": "Remove the concrete workspace/publication hosts and Starter Provider bootstrap plus their schemas/tests/docs. The existing injected Protocol adapters and runtime remain intact and continue to fail closed when no embedding host is supplied."
+}

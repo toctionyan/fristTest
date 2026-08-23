@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "permit_digest": "195caa43eaab4089b19d30180e79e133ab32c0b35ee84fac17cf82b15e87373b",
+  "diff_review_sha256": "fce8d43ce160519fc3ad41adbfd8be51423afc1dc569336fbdd4264b52d96760",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "8fbcb4307bdb4f5106e1d57b03f087b2bc5cfca6c567da6ede031274b6bf9996",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "953337f5222cbee02bddb89dbd2c01e09c5f6c3d199f1ae5f16a10cdfdae95f0"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/counterexamples.md",
+      "evidence_sha256": "c71a9eab7da0f0f76badd51da5297f1545464f4adb54dfa6536f9a7a703d92b0"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/diff-review.json",
+      "evidence_sha256": "fce8d43ce160519fc3ad41adbfd8be51423afc1dc569336fbdd4264b52d96760"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/focused-tests.md",
+      "evidence_sha256": "2152e5a0b6f8403977b925e2d80735c5f768807d2c7229bd56d13305417e89ef"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/negative-paths.md",
+      "evidence_sha256": "32c72a686ef7fd764ee35d6d24f0b827eb03cbe1a0b8c106ae55582e8f0a645a"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/red-baseline.md",
+      "evidence_sha256": "0f0a2bbaa962eecf4e2f6dad8b18b1e696a4699e2e38d8510216c1b4085bfd8a"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/regression.md",
+      "evidence_sha256": "eef17639730bed4ab38767a54a4810b01aeb2ac38cb269304556473d16451c0d"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "bf3cbdfb8a68de87ed407369a5d21fc7e1ef50d9ae35bd8a4c1f01d70566f062"
+    }
+  ],
+  "residual_risks": []
+}

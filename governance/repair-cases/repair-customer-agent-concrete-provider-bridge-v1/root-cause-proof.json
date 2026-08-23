@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "failure_case_sha256": "19ba7dde24b0c5ac1b94a5cc26f44dab46e3dac8b130df03e03a8ab170f96487",
+  "decision": "PROVEN",
+  "root_cause": "The prior stages intentionally stopped at provider-neutral dispatch and injected publication Protocols. That preserved authority boundaries but left the final effect boundary to each embedding application. There is no repository-owned structured workspace mutation adapter, real local Git host, GitHub PR-create host, or fail-closed bootstrap that assembles them for an installed Starter.",
+  "causal_chain": [
+    "CapabilityResolver binds workspace.write, vcs.commit.create, and code_review.pull_request.create to provider identities.",
+    "WorkflowAdapterDispatcher enforces WriteAuthorityGuard before calling a mutating Provider Adapter.",
+    "local.workspace has no executable adapter at all.",
+    "LocalGitProviderAdapter and CodeReviewProviderAdapter validate receipts but delegate effects to Protocols.",
+    "All repository tests for those hosts use in-memory fakes, so no real Git repository or remote exact-head response is proved.",
+    "StarterWorkflowRuntime accepts a ProviderAdapterRegistry but exposes no canonical concrete assembly, so embeddings must duplicate security-sensitive setup."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-customer-agent-concrete-provider-bridge-v1/evidence/red-baseline.md",
+    "skill-system/controller/workflow_dispatcher.py",
+    "skill-system/controller/publication_provider_adapters.py",
+    "skill-system/controller/provider_adapters.py",
+    "skill-system/tests/test_publication_provider_adapters.py",
+    "skill-system/tests/test_starter_runtime.py"
+  ],
+  "rejected_hypotheses": [
+    "Put Git or GitHub commands inside Customer Agent Skills; this would couple methodology to providers and bypass capability dispatch.",
+    "Treat fake host receipts as concrete integration evidence; they prove shape validation only.",
+    "Grant write permission from composition or provider availability; binding is not authority.",
+    "Let the GitHub host merge after CI; Customer Agent publication Workflows intentionally stop after CI and contain no merge capability.",
+    "Execute arbitrary shell or project command text from Workflow state; runtime effects require closed structured contracts."
+  ],
+  "affected_boundaries": [
+    "Provider effect execution",
+    "workspace path and digest preconditions",
+    "Git parent and changed-path identity",
+    "GitHub repository and PR exact-head identity",
+    "Starter Provider assembly"
+  ]
+}

@@ -35,6 +35,10 @@ from starter_runtime import (  # type: ignore  # noqa: E402
     resolve_starter_entrypoint,
 )
 from skill_invocation import SkillInvocationError, canonical_skill_identity  # type: ignore  # noqa: E402
+from starter_provider_bootstrap import (  # type: ignore  # noqa: E402
+    GitHubPullRequestConfiguration,
+    build_concrete_starter_provider_registry,
+)
 from task_run import TaskRunStore  # type: ignore  # noqa: E402
 from workflow_dispatcher import (  # type: ignore  # noqa: E402
     ProviderAdapterRegistry,
@@ -105,6 +109,54 @@ class AllowWriteGuard:
 
     def assert_allowed(self, *, binding, step, state) -> None:
         self.capabilities.append(binding.capability_id)
+
+
+class MutatingRecordingSkillHost(RecordingSkillHost):
+    def __init__(self, workspace: Path) -> None:
+        super().__init__()
+        self.workspace = workspace
+
+    def execute(self, *, skill_name, request_class, step, state):
+        if skill_name == "customer-agent-repair":
+            target = self.workspace / "src/fix.py"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("FIXED = True\n", encoding="utf-8")
+        return super().execute(
+            skill_name=skill_name,
+            request_class=request_class,
+            step=step,
+            state=state,
+        )
+
+
+class RepositoryBackedGitHubTransport:
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace
+        self.calls = []
+        self.create_payload = None
+
+    def request(self, *, method, url, headers, payload):
+        self.calls.append((method, url))
+        if method == "POST":
+            self.create_payload = dict(payload)
+        head_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return {
+            "number": 2094,
+            "html_url": "https://github.com/owner/customer-agent/pull/2094",
+            "draft": False,
+            "base": {"ref": "main", "repo": {"full_name": "owner/customer-agent"}},
+            "head": {
+                "ref": "feat/runtime-provider-test",
+                "sha": head_sha,
+                "repo": {"full_name": "owner/customer-agent"},
+            },
+        }
 
 
 class StarterRuntimeTest(unittest.TestCase):
@@ -352,7 +404,7 @@ class StarterRuntimeTest(unittest.TestCase):
         )
         waiting = runtime.start(target_ref={"kind": "finding", "ref": "finding-17"})
         state = waiting["runtime_state"]
-        self.assertEqual(state["runtime_status"], RUNTIME_STATUS_WAITING_EXTERNAL)
+        self.assertEqual(state["runtime_status"], RUNTIME_STATUS_WAITING_EXTERNAL, state)
         self.assertEqual(store.payload["status"], "WAITING_EXTERNAL_RESULT")
         self.assertIn("workspace.write", guard.capabilities)
         self.assertIn("vcs.commit.create", guard.capabilities)
@@ -389,6 +441,132 @@ class StarterRuntimeTest(unittest.TestCase):
         phases = [row["phase"] for row in store.payload["checkpoints"]]
         self.assertIn("WORKFLOW_WAITING_EXTERNAL", phases)
         self.assertIn("WORKFLOW_RUNTIME_RESUMED", phases)
+
+    def test_installed_ci_route_uses_real_git_and_exact_head_github_bridge(self) -> None:
+        (self.project / ".gitignore").write_text(
+            ".quality/\n.harness/taskruns/\n.harness/*.sqlite*\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "init", "-b", "main"], cwd=self.project, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Harness Runtime Test"],
+            cwd=self.project,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "harness@example.invalid"],
+            cwd=self.project,
+            check=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=self.project, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "baseline"],
+            cwd=self.project,
+            check=True,
+            capture_output=True,
+        )
+        parent_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.project,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "switch", "-c", "feat/runtime-provider-test"],
+            cwd=self.project,
+            check=True,
+            capture_output=True,
+        )
+
+        transport = RepositoryBackedGitHubTransport(self.project)
+        assembly = build_concrete_starter_provider_registry(
+            workspace=self.project,
+            write_scope=("src/**", "tests/**"),
+            allowed_profiles={
+                "test.run": ("customer-agent-test",),
+                "quality.evaluate": ("customer-agent-quality",),
+            },
+            github=GitHubPullRequestConfiguration(
+                repository_full_name="owner/customer-agent",
+                token="test-token",
+            ),
+            process_runner=lambda profile, *, state_file: {"status": "PASS"},
+            github_transport=transport,
+        )
+        resolved = resolve_starter_entrypoint(
+            self.load(), registry_workspace=ROOT, entrypoint="repair_with_ci"
+        )
+        connection = sqlite3.connect(
+            self.project / ".harness/concrete-checkpoints.sqlite",
+            check_same_thread=False,
+        )
+        self.addCleanup(connection.close)
+        store = self.store("concrete-ci")
+        guard = AllowWriteGuard()
+        runtime = StarterWorkflowRuntime(
+            registry_workspace=ROOT,
+            resolved=resolved,
+            skill_host=MutatingRecordingSkillHost(self.project),
+            provider_adapters=assembly.registry,
+            checkpointer=SqliteSaver(connection),
+            taskrun_store=store,
+            workspace_fingerprint="fp-1",
+            write_authority_guard=guard,
+        )
+        waiting = runtime.start(
+            target_ref={
+                "kind": "finding",
+                "ref": "finding-concrete-provider",
+                "execution_profiles": {
+                    "test.run": "customer-agent-test",
+                    "quality.evaluate": "customer-agent-quality",
+                },
+                "publication_requests": {
+                    "commit": {
+                        "capability_id": "vcs.commit.create",
+                        "expected_parent_sha": parent_sha,
+                        "message": "fix: concrete provider runtime",
+                        "changed_paths": ["src/fix.py"],
+                    },
+                    "create-pr": {
+                        "capability_id": "code_review.pull_request.create",
+                        "repository_full_name": "owner/customer-agent",
+                        "base_branch": "main",
+                        "head_branch": "feat/runtime-provider-test",
+                        "title": "fix: concrete provider runtime",
+                        "body": "Exact-head runtime proof",
+                        "draft": False,
+                        "from_steps": {
+                            "head_sha": {"step_id": "commit", "path": "commit_sha"}
+                        },
+                    },
+                },
+                "external_handles": {
+                    "ci.run.wait": {
+                        "correlation_ref": "ci:customer-agent:2094",
+                        "resume_event": "ci.completed",
+                    }
+                },
+            }
+        )
+
+        state = waiting["runtime_state"]
+        self.assertEqual(state["runtime_status"], RUNTIME_STATUS_WAITING_EXTERNAL, state)
+        self.assertEqual(store.payload["status"], "WAITING_EXTERNAL_RESULT")
+        self.assertEqual(state["external_wait"]["provider"], "github.actions")
+        self.assertEqual(transport.calls, [
+            ("POST", "https://api.github.com/repos/owner/customer-agent/pulls"),
+            ("GET", "https://api.github.com/repos/owner/customer-agent/pulls/2094"),
+        ])
+        commit_sha = state["step_results"]["commit"][-1]["payload"]["commit_sha"]
+        self.assertNotEqual(commit_sha, parent_sha)
+        self.assertEqual(
+            state["step_results"]["create-pr"][-1]["payload"]["receipt"]["head_sha"],
+            commit_sha,
+        )
+        self.assertFalse(assembly.policy["automatic_merge"])
+        self.assertNotEqual(store.payload["status"], "COMPLETED")
 
     def test_in_memory_checkpointer_is_rejected(self) -> None:
         resolved = resolve_starter_entrypoint(

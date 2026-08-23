@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-customer-agent-concrete-provider-bridge-v1",
+  "repair_plan_sha256": "6b93dcbabfc1015e8bd3349dcfb5cc024a291b00d8827edfe88a544ac88247ae",
+  "plan_review_sha256": "b2c7fef882e1b7721ebdc9081b617bd8359e109131fc0fc73519386181004ea0",
+  "baseline_manifest_sha256": "24bba204f461c8121b574a1d684a5b1ffbfd40ee45cd944a8aa6f7a35a9cc865",
+  "allowed_paths": [
+    "skill-system/controller/workspace_provider_adapter.py",
+    "skill-system/controller/concrete_publication_hosts.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/schemas/workflow-workspace-mutation-request.schema.json",
+    "skill-system/tests/test_workspace_provider_adapter.py",
+    "skill-system/tests/test_concrete_publication_hosts.py",
+    "skill-system/tests/test_starter_provider_bootstrap.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "docs/architecture/CUSTOMER_AGENT_CONCRETE_PROVIDER_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "structured create/replace/delete transaction produces exact digest-bound receipt",
+      "real temporary Git repository produces an exact-parent exact-path commit",
+      "GitHub PR create request and verification read produce an exact-head receipt",
+      "Starter Provider bootstrap registers the activated concrete providers"
+    ],
+    "counterexamples": [
+      "path traversal, absolute path, symlink, stale digest, duplicate path, protected path, and partial failure are rejected",
+      "dirty out-of-scope Git path, wrong parent, empty diff, and receipt path mismatch are rejected",
+      "missing token, wrong repository, wrong remote head, invalid PR identity, and transport error are rejected",
+      "bootstrap cannot register duplicate providers or enable automatic merge"
+    ],
+    "regression": [
+      "Dispatcher, publication Provider, Starter runtime, Capability, Workflow, TaskRun, and control-plane suites remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "no shell command from runtime state is executed",
+      "no token appears in evidence or exception messages",
+      "no static Capability, Workflow, Skill, or Provider registry row is added",
+      "customer application source remains unchanged",
+      "Graph END remains VALIDATING and Customer Agent Workflows still have no merge capability"
+    ]
+  },
+  "baseline_source_fingerprint": "bd5d276e9c03fbb0862148ef7b918b6787eea93433869af934cf61510e5954f0",
+  "baseline_workspace_fingerprint": "ebf419b1b94d55d11572b5550c5ef0832b3b486fa610f0be0343b9cd480264ab",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "195caa43eaab4089b19d30180e79e133ab32c0b35ee84fac17cf82b15e87373b"
+}
