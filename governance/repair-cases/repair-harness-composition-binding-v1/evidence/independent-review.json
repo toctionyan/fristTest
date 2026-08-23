@@ -1,0 +1,28 @@
+{
+  "schema": "change-review-evidence@1",
+  "change_id": "repair-harness-composition-binding-v1",
+  "status": "PASS",
+  "scope_review": {
+    "decision": "PASS",
+    "findings": [
+      "The deterministic diff contains exactly six approved implementation and documentation paths.",
+      "No services, web, contracts, Dispatcher, Provider, TaskRun, trusted Judge, or customer source changed.",
+      "The change closes graph composition only and does not expand into natural-language generation or execution."
+    ]
+  },
+  "adversarial_review": {
+    "decision": "PASS",
+    "findings": [
+      "No second runtime, graph parser, write authority, or completion authority was introduced.",
+      "Explicit anchors prevent hook names from becoming hidden control-flow instructions.",
+      "Stable ordering and source digests make overlays reproducible and reviewable.",
+      "Failure cases cover mutation escalation, artifact mismatch, collisions, duplicates, self-extension, and Provider binding.",
+      "The base declarations remain unchanged and the derived Workflow is portable outside ChatGPT or Codex."
+    ]
+  },
+  "evidence": [
+    "governance/repair-cases/repair-harness-composition-binding-v1/diff-review.json",
+    "governance/repair-cases/repair-harness-composition-binding-v1/closure-matrix.json",
+    "governance/repair-cases/repair-harness-composition-binding-v1/evidence/regression.json"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "runtime_trace",
+  "status": "PASS",
+  "trace": [
+    "load safe JSON/YAML declarations",
+    "parse closed harness-composition@1 overlay",
+    "compile and validate base harness-workflow@1",
+    "validate host hook, extension type, artifacts, mode, and capabilities",
+    "resolve order and insert explicit before_step / after_route chains",
+    "compile derived declaration through compile_workflow_declaration",
+    "emit composed-workflow-plan@1 with source and provenance digests"
+  ],
+  "execution_effect": "none; composition is an authoring transform"
+}

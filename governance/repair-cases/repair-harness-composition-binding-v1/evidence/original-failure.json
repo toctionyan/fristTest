@@ -1,0 +1,7 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "original_failure",
+  "status": "PASS",
+  "failure": "Authoring v1 exposed extension metadata but had no composition declaration, graph transformer, provenance, or compose command.",
+  "repair_observed": "harness_composition.py and skillctl.py authoring compose now derive and compile an immutable overlay result."
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-harness-composition-binding-v1",
+  "permit_digest": "d2817e761cb3ce87aac310fc2ea166bdb418dc33e13cbf1529060bee02faa32c",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "f08b1c94960f10f54699f398be73394487bb077a22a57634418f353df70595f3",
+  "candidate_source_fingerprint": "90b231ced0f81acf018e0d2fffdf7a997ce0141f5627f361b3db57e954ff9a29",
+  "changed_paths": [
+    "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/harness_composition.py",
+    "skill-system/schemas/harness-composition.schema.json",
+    "skill-system/tests/test_harness_composition.py"
+  ],
+  "added_paths": [
+    "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
+    "skill-system/controller/harness_composition.py",
+    "skill-system/schemas/harness-composition.schema.json",
+    "skill-system/tests/test_harness_composition.py"
+  ],
+  "modified_paths": [
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": [
+    "Composer is a pure transform ending at the existing Workflow compiler; no peer runtime was added.",
+    "All changed source paths are bounded to authoring, schema, tests, and documentation.",
+    "Customer product source and existing write/completion authorities remain unchanged."
+  ]
+}

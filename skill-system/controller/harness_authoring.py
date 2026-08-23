@@ -426,9 +426,13 @@ def validate_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
         return parse_skill_contract(raw).as_dict()
     if schema == WORKFLOW_SCHEMA:
         return compile_workflow_declaration(raw).as_dict()
+    if schema == "harness-composition@1":
+        from harness_composition import parse_composition_declaration
+
+        return parse_composition_declaration(raw).as_dict()
     raise HarnessAuthoringError(
         f"unsupported declaration schema {schema!r}; expected {PROJECT_SCHEMA}, "
-        f"{SKILL_CONTRACT_SCHEMA}, or {WORKFLOW_SCHEMA}"
+        f"{SKILL_CONTRACT_SCHEMA}, {WORKFLOW_SCHEMA}, or harness-composition@1"
     )
 
 

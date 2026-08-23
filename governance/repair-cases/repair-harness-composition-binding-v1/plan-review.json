@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-harness-composition-binding-v1",
+  "repair_plan_sha256": "5723b080a3b520efbb672cd52f79f13a66eab1e0e4e4b8bedd7c398225bd469b",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/harness_composition.py",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/harness-composition.schema.json",
+    "skill-system/tests/test_harness_composition.py",
+    "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md"
+  ],
+  "review_findings": [
+    "The Composer is a pure transform that ends at compile_workflow_declaration, so WorkflowSpec and workflow_graph_contract retain runtime authority.",
+    "Explicit before-step and after-route anchors prevent hook names from becoming hidden topology semantics.",
+    "The base Workflow and Skill contracts remain immutable; the derived plan records all source digests and resolved ordering.",
+    "Mutating extensions cannot upgrade a READ_ONLY Workflow, and capability propagation does not replace runtime write guards.",
+    "The path set is limited to composition authoring, tests, schema, and documentation."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single runtime authority",
+      "assessment": "the transformed harness-workflow@1 declaration is accepted only after the existing Authoring Core invokes parse_workflow_spec and workflow_graph_contract",
+      "evidence": "skill-system/controller/harness_authoring.py"
+    },
+    {
+      "rule": "No implicit write authority",
+      "assessment": "mutating extension compatibility is a compile-time prerequisite while WorkflowAdapterDispatcher and existing guards retain execution authority",
+      "evidence": "skill-system/controller/workflow_adapter_dispatcher.py"
+    },
+    {
+      "rule": "TaskRun is sole completion authority",
+      "assessment": "the Composer preserves the base completion block byte-for-semantics and recompiles it through the existing completion checks",
+      "evidence": "skill-system/controller/harness_authoring.py"
+    },
+    {
+      "rule": "Minimal bounded repair",
+      "assessment": "composition is added upstream without changing runtime, providers, TaskRun, or customer product code",
+      "evidence": "governance/repair-cases/repair-harness-composition-binding-v1/root-cause-proof.json"
+    }
+  ]
+}

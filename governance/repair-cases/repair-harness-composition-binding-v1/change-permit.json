@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-harness-composition-binding-v1",
+  "repair_plan_sha256": "5723b080a3b520efbb672cd52f79f13a66eab1e0e4e4b8bedd7c398225bd469b",
+  "plan_review_sha256": "d1911237c2a37718c9f0958f2066b6a2e10ac16f182f890eae234b1dbd716a9a",
+  "baseline_manifest_sha256": "1d2918e40897074a126756b7675f312e1aac874a8901edd4e606eaaf740fa3a0",
+  "allowed_paths": [
+    "skill-system/controller/harness_composition.py",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/harness-composition.schema.json",
+    "skill-system/tests/test_harness_composition.py",
+    "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "before-step and after-route anchors insert extension Skills without modifying the input Workflow",
+      "multiple bindings at one anchor use deterministic order independent of declaration order",
+      "composed output compiles through WorkflowSpec and preserves TaskRun VALIDATING semantics",
+      "CLI composes JSON or safe YAML declarations without a model"
+    ],
+    "counterexamples": [
+      "undeclared hooks, incompatible extension types, unknown host Skills, and missing anchor steps are rejected",
+      "duplicate binding IDs, duplicate Skill contracts, graph-step collisions, and invalid continuation routes are rejected",
+      "provider-specific capabilities remain rejected by the canonical Workflow parser"
+    ],
+    "regression": [
+      "Authoring Core tests remain green",
+      "Workflow Registry and graph contract tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "mutating extension on a READ_ONLY Workflow is rejected",
+      "artifact-incompatible extensions are rejected",
+      "composition cannot change completion authority or acquire execution authority"
+    ]
+  },
+  "baseline_source_fingerprint": "f08b1c94960f10f54699f398be73394487bb077a22a57634418f353df70595f3",
+  "baseline_workspace_fingerprint": "f51986ae3088a9fe8a7bbe100f1b87f4dc5758069b78a2720e680b31f728b38d",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "d2817e761cb3ce87aac310fc2ea166bdb418dc33e13cbf1529060bee02faa32c"
+}

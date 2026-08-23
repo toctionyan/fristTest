@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-harness-composition-binding-v1",
+  "classification": "skill-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A compatible Skill can be bound at a declared extension point through a deterministic overlay without rewriting the base Skill or Workflow, and the result compiles through the existing WorkflowSpec and graph validator.",
+    "actual": "Skill contracts expose extension_type and extension_points, but skillctl has no compose command and the Authoring Core performs no graph composition or provenance generation.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-harness-composition-binding-v1/evidence/red-baseline.md",
+      "skill-system/controller/harness_authoring.py",
+      "skill-system/controller/harness_authoring_cli.py"
+    ]
+  },
+  "violated_invariants": [
+    "Extension metadata must be operationally useful without granting execution or write authority.",
+    "Adding a compatible Skill should create a reviewable overlay rather than rewrite the original Skill or Workflow.",
+    "Composed graphs must still terminate at the existing WorkflowSpec and graph validator."
+  ],
+  "affected_boundaries": [
+    "Skill extension compatibility boundary",
+    "composition-to-Workflow compilation boundary",
+    "portable authoring CLI boundary"
+  ]
+}
