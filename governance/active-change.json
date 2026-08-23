@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-host-result-immutable-publication-race-v1",
+  "change_id": "repair-starter-host-session-orchestration-v1",
   "target_kind": "repair",
-  "goal": "Make #2095 Host request/result publication atomically immutable under concurrent submitters without changing Host or workflow authority.",
+  "goal": "Add one durable ChatGPT/Codex Host session orchestrator over verified Starter selection, TaskRun, LangGraph, Provider, and Host bridge boundaries without adding write, completion, or merge authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -23,6 +23,8 @@
     "B18_STAGE_SUMMARY.json",
     "Makefile",
     "skillctl.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -52,23 +54,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/diff-review.json",
-      "evidence_sha256": "d05fb04c03e500c73f77296b9732a8a31d7addee91737776eb600ef579a54969",
-      "recorded_at": "2026-08-23T12:38:42.817510+00:00"
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/diff-review.json",
+      "evidence_sha256": "41c20ccd76cda90654bb372bd67d590edec798e4a52f8133b71f122711ad8b9e",
+      "recorded_at": "2026-08-23T13:13:07.780586+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-host-result-immutable-publication-race-v1/evidence/counterexamples.md",
-      "evidence_sha256": "18813cd1f337c8e0003c7e619001ff957016c9bb5983669eda0a30b3f026ddaf",
-      "recorded_at": "2026-08-23T12:38:42.901769+00:00"
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/counterexamples.md",
+      "evidence_sha256": "55635823a5908304e5298d1122b2e34b7f3ad6722630b3897165f08bc83fb31b",
+      "recorded_at": "2026-08-23T13:13:07.875988+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-host-result-immutable-publication-race-v1/verification.json",
-      "evidence_sha256": "380725141bcb71d0d995945567dd7f0dd05b9afc574e27c255db7954a4fc5aa0",
-      "recorded_at": "2026-08-23T12:39:18.997457+00:00"
+      "evidence": ".quality/skill-control-plane/repair-starter-host-session-orchestration-v1/verification.json",
+      "evidence_sha256": "18b672a8680c369625a701d935f78592314f309e7f8d9ce7e51977a72f657161",
+      "recorded_at": "2026-08-23T13:13:45.265382+00:00"
     }
   ],
   "decision_record": null,
@@ -76,17 +78,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-host-result-immutable-publication-race-v1/verification.json",
-    "sha256": "380725141bcb71d0d995945567dd7f0dd05b9afc574e27c255db7954a4fc5aa0",
-    "source_fingerprint": "118129cb8ff2c04d8fb55cc1e7010d7af80c7a6332a5aaf5abacb5ab591ccd12",
-    "source_file_count": 1097,
-    "verified_at": "2026-08-23T12:39:18.996862+00:00"
+    "path": ".quality/skill-control-plane/repair-starter-host-session-orchestration-v1/verification.json",
+    "sha256": "18b672a8680c369625a701d935f78592314f309e7f8d9ce7e51977a72f657161",
+    "source_fingerprint": "5c28ceef47d18ba1ff987ee79ef7d30217b249247a12c5f2b9a3a89907a8f430",
+    "source_file_count": 1117,
+    "verified_at": "2026-08-23T13:13:45.264775+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-host-result-immutable-publication-race-v1",
-  "repair_governance_consumed_at": "2026-08-23T12:39:25.133311+00:00",
-  "created_at": "2026-08-23T12:35:35.532045+00:00",
+  "repair_governance": "governance/repair-cases/repair-starter-host-session-orchestration-v1",
+  "repair_governance_consumed_at": "2026-08-23T13:13:52.681785+00:00",
+  "created_at": "2026-08-23T13:02:02.784342+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "565707bcb488d3e5754e79c57c7f5945085730a06c50d3e9a5f750dfecf170cb",
-  "closed_at": "2026-08-23T12:39:25.133328+00:00"
+  "repair_governance_permit_digest": "31013c7a7dafe89c7c54c43a2072fc51f78cd25af4dfdc302d59d4f71e367566",
+  "closed_at": "2026-08-23T13:13:52.681799+00:00"
 }

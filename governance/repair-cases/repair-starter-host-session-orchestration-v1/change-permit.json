@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "repair_plan_sha256": "6ee22e889b0b70fb7486484c0908f5fc7de26bee5f923d8f63612b80f6151354",
+  "plan_review_sha256": "24cc8c8cbfd467034b0b84b59d2460aa367cecb7bcaff760e6b4305aa1ff5eca",
+  "baseline_manifest_sha256": "0ff215e6da0fe8f51f3cfb4e2625449f0b6ffc6939c2e1f9579ed99eacf4e653",
+  "allowed_paths": [
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "read-only natural-language selection starts one TaskRun and yields the exact Host Skill request",
+      "multiple Host Skill results resume the same session and TaskRun until Graph END becomes VALIDATING",
+      "mutating selection remains AWAITING_CONFIRMATION until an exact preview digest is confirmed",
+      "closed next_action values cover Host wait, external wait, Human Gate, validation, and blocked states"
+    ],
+    "counterexamples": [
+      "wrong session revision, registration, selection request, entrypoint, confirmation digest, TaskRun, Workflow, or Host execution is rejected",
+      "start before selection/confirmation, duplicate start, wrong resume kind, missing evidence, and stale runtime state are rejected",
+      "session/result tampering and concurrent conflicting persistence are rejected"
+    ],
+    "regression": [
+      "Starter selection, runtime, Host bridge, TaskRun bridge, Provider adapter, invocation, and authoring suites remain green",
+      "complete Skill unit and all required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "the orchestrator never interprets free-form language or executes arbitrary Host commands",
+      "selection, confirmation, and session identity grant no write authority",
+      "no Skill receipt exists before a validated Host result resumes the Skill node",
+      "Graph END never marks TaskRun COMPLETED and no merge capability is introduced",
+      "standalone customer application source and dependencies remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "59d27aa884f6552a3813100b3d219d518682f0df2f8019b6e124a15c1949a59a",
+  "baseline_workspace_fingerprint": "bcb64c94820cab2a376a520d05e85385e0c9b82ecd8a7456770e8308f964c3e6",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "31013c7a7dafe89c7c54c43a2072fc51f78cd25af4dfdc302d59d4f71e367566"
+}

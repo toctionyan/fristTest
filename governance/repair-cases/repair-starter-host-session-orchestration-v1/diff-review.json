@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "permit_digest": "31013c7a7dafe89c7c54c43a2072fc51f78cd25af4dfdc302d59d4f71e367566",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "59d27aa884f6552a3813100b3d219d518682f0df2f8019b6e124a15c1949a59a",
+  "candidate_source_fingerprint": "e9972f83d974d5563a70624c8ec3804cecbaf6da38c56793d8af77496defb4aa",
+  "changed_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py"
+  ],
+  "added_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

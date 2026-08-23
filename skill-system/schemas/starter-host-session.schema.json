@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harness.local/schemas/starter-host-session.schema.json",
+  "title": "Durable ChatGPT/Codex Starter Host session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "session_fingerprint_sha256",
+    "revision",
+    "phase",
+    "host_id",
+    "registration_ref",
+    "registration_sha256",
+    "selection_request",
+    "selection",
+    "confirmation",
+    "resolution",
+    "task_id",
+    "taskrun_ref",
+    "target_ref",
+    "runtime_state",
+    "taskrun_status",
+    "taskrun_phase",
+    "next_action",
+    "last_error",
+    "policy"
+  ],
+  "properties": {
+    "schema": {"const": "starter-host-session@1"},
+    "session_id": {"$ref": "#/$defs/stableId"},
+    "session_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "revision": {"type": "integer", "minimum": 0},
+    "phase": {
+      "enum": [
+        "AWAITING_SELECTION",
+        "AWAITING_CONFIRMATION",
+        "READY_TO_START",
+        "STARTING",
+        "WAITING_HOST",
+        "WAITING_EXTERNAL",
+        "HUMAN_GATE",
+        "RESUMING_HOST",
+        "RESUMING_EXTERNAL",
+        "RESUMING_HUMAN",
+        "VALIDATING",
+        "BLOCKED"
+      ]
+    },
+    "host_id": {"enum": ["chatgpt", "codex"]},
+    "registration_ref": {"type": "string", "minLength": 1},
+    "registration_sha256": {"$ref": "#/$defs/sha256"},
+    "selection_request": {
+      "type": "object",
+      "required": [
+        "schema",
+        "host_id",
+        "registration_ref",
+        "registration_sha256",
+        "user_request",
+        "candidates",
+        "policy",
+        "request_fingerprint_sha256"
+      ]
+    },
+    "selection": {"type": ["object", "null"]},
+    "confirmation": {"type": ["object", "null"]},
+    "resolution": {"type": ["object", "null"]},
+    "task_id": {"anyOf": [{"$ref": "#/$defs/stableId"}, {"type": "null"}]},
+    "taskrun_ref": {"type": ["string", "null"], "pattern": "^(file:.*)?$"},
+    "target_ref": {"type": ["object", "null"]},
+    "runtime_state": {"type": ["object", "null"]},
+    "taskrun_status": {"type": ["string", "null"]},
+    "taskrun_phase": {"type": ["string", "null"]},
+    "next_action": {"$ref": "#/$defs/nextAction"},
+    "last_error": {"type": ["string", "null"]},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host_interprets_language",
+        "repository_keyword_router",
+        "one_taskrun_per_session",
+        "write_authority_granted",
+        "automatic_merge",
+        "completion_authority",
+        "authority_effect"
+      ],
+      "properties": {
+        "host_interprets_language": {"const": true},
+        "repository_keyword_router": {"const": false},
+        "one_taskrun_per_session": {"const": true},
+        "write_authority_granted": {"const": false},
+        "automatic_merge": {"const": false},
+        "completion_authority": {"const": "TaskRun"},
+        "authority_effect": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nextAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "kind",
+        "session_id",
+        "task_id",
+        "workflow_id",
+        "details",
+        "policy"
+      ],
+      "properties": {
+        "schema": {"const": "starter-host-next-action@1"},
+        "kind": {
+          "enum": [
+            "SELECT_EXACT_ENTRYPOINT",
+            "CONFIRM_EXACT_EFFECT_PREVIEW",
+            "START_TASKRUN",
+            "STARTING_TASKRUN",
+            "EXECUTE_HOST_SKILL",
+            "WAIT_EXTERNAL_EVENT",
+            "REQUEST_HUMAN_DECISION",
+            "RESUMING_HOST",
+            "RESUMING_EXTERNAL",
+            "RESUMING_HUMAN",
+            "EVALUATE_COMPLETION_POLICY",
+            "INSPECT_BLOCKER"
+          ]
+        },
+        "session_id": {"$ref": "#/$defs/stableId"},
+        "task_id": {"anyOf": [{"$ref": "#/$defs/stableId"}, {"type": "null"}]},
+        "workflow_id": {"anyOf": [{"$ref": "#/$defs/stableId"}, {"type": "null"}]},
+        "details": {"type": "object"},
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selection_is_execution",
+            "selection_grants_write_authority",
+            "graph_end_completes_taskrun",
+            "automatic_merge",
+            "completion_authority",
+            "authority_effect"
+          ],
+          "properties": {
+            "selection_is_execution": {"const": false},
+            "selection_grants_write_authority": {"const": false},
+            "graph_end_completes_taskrun": {"const": false},
+            "automatic_merge": {"const": false},
+            "completion_authority": {"const": "TaskRun"},
+            "authority_effect": {"const": false}
+          }
+        }
+      }
+    }
+  }
+}

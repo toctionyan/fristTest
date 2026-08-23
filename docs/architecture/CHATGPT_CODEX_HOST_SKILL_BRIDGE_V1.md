@@ -124,9 +124,13 @@ receipt. Deterministic side effects that already have Provider Adapters continue
 through `WorkflowAdapterDispatcher`; they should not be duplicated as arbitrary
 Host commands.
 
-A future Host wrapper may transport these same request/result objects through a
-different API, but it cannot fork Skill identity, write guards, TaskRun lifecycle,
-Quality verdicts, merge authority or completion policy.
+`StarterHostOrchestrator` now owns the durable interaction order above this
+per-Skill transport: bounded selection, exact mutation confirmation, one TaskRun
+start, repeated Host/external/human resume, and closed next-action projection.
+A transport-specific ChatGPT/Codex wrapper may render or carry the same session,
+request, and result objects through a different API, but it cannot fork Skill
+identity, write guards, TaskRun lifecycle, Quality verdicts, merge authority, or
+completion policy. See `CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md`.
 
 ## Customer Agent example
 
@@ -151,4 +155,3 @@ customer Agent imports none of them. Removing `.harness` and Harness tooling doe
 not remove the application's source, tests, packaging, deployment commands or
 runtime dependencies; the developed project remains independently runnable and
 maintainable.
-

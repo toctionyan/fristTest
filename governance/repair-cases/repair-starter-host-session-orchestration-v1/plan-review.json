@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "repair_plan_sha256": "6ee22e889b0b70fb7486484c0908f5fc7de26bee5f923d8f63612b80f6151354",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md"
+  ],
+  "review_findings": [
+    "The new owner is only the durable conversational session order; it delegates semantic selection, execution, evidence validation, write permission, and completion to existing authorities.",
+    "One session binds one exact registration, user request, resolved Workflow, stable TaskRun, and current runtime state.",
+    "The orchestrator accepts injected Providers/checkpointer/Guard and therefore does not create target-specific fallback authority.",
+    "Next actions are projections of canonical runtime states, not new Workflow outcomes.",
+    "No automatic confirmation, completion, merge, or customer runtime dependency is introduced."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single lifecycle authority",
+      "assessment": "the orchestrator creates/reopens exactly one TaskRun and every runtime transition is checkpointed through StarterWorkflowRuntime",
+      "evidence": "skill-system/controller/starter_host_orchestrator.py"
+    },
+    {
+      "rule": "No fabricated Skill execution",
+      "assessment": "WAITING_HOST is projected as an action; only DurableHostSkillBridge.submit_result plus runtime resume can advance it",
+      "evidence": "skill-system/tests/test_starter_host_orchestrator.py"
+    },
+    {
+      "rule": "Selection is not write authority",
+      "assessment": "exact mutation confirmation is required, then existing WriteAuthorityGuard remains independently required during dispatch",
+      "evidence": "skill-system/controller/starter_host_orchestrator.py"
+    },
+    {
+      "rule": "Standalone product boundary",
+      "assessment": "all session artifacts are control-plane files under .harness and product code imports none of the new module",
+      "evidence": "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+    }
+  ]
+}

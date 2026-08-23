@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A ChatGPT or Codex wrapper can drive one verified Starter request from bounded semantic selection through exact confirmation, one TaskRun start, and repeated Host/external/human resumes using one durable session identity.",
+    "actual": "Selection, runtime start/resume, TaskRun projection, and Host request/result evidence exist only as separate APIs. No durable session controller owns their ordering, correlates them, or exposes one closed next-action contract.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/red-baseline.md",
+      "skill-system/controller/starter_runtime.py",
+      "skill-system/controller/host_skill_bridge.py",
+      "skill-system/controller/harness_invocation.py"
+    ]
+  },
+  "violated_invariants": [
+    "A Host integration must not create a second TaskRun or restart a waiting Workflow.",
+    "Natural-language selection and mutating confirmation must remain bound to one exact verified candidate and effect preview.",
+    "Host, external-event, and human-gate resumes must match the active durable wait identity.",
+    "Graph END must remain TaskRun VALIDATING and must not become completion or merge."
+  ],
+  "affected_boundaries": [
+    "ChatGPT/Codex interaction session",
+    "Starter selection and confirmation ordering",
+    "TaskRun and LangGraph start/resume identity",
+    "Host/external/human next-action projection"
+  ]
+}
