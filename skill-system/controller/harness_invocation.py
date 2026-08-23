@@ -32,6 +32,7 @@ INVOCATION_ROUTE_SCHEMA = "harness-invocation-route@1"
 OPEN_MODE = "OPEN"
 SKILL_MODE = "SKILL_BOUND"
 WORKFLOW_MODE = "WORKFLOW_BOUND"
+STARTER_MODE = "STARTER_WORKFLOW_BOUND"
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
 
 
@@ -46,13 +47,24 @@ def _identifier(value: object, *, field: str) -> str:
     return text
 
 
-def infer_mode(*, skill: str | None = None, workflow: str | None = None) -> str:
-    if skill and workflow:
-        raise HarnessInvocationError("choose at most one explicit Skill or Workflow")
+def infer_mode(
+    *,
+    skill: str | None = None,
+    workflow: str | None = None,
+    starter_entrypoint: str | None = None,
+    starter_command: str | None = None,
+) -> str:
+    selectors = [bool(skill), bool(workflow), bool(starter_entrypoint), bool(starter_command)]
+    if sum(selectors) > 1:
+        raise HarnessInvocationError(
+            "choose at most one explicit Skill, Workflow, Starter entrypoint, or Starter command"
+        )
     if skill:
         return SKILL_MODE
     if workflow:
         return WORKFLOW_MODE
+    if starter_entrypoint or starter_command:
+        return STARTER_MODE
     return OPEN_MODE
 
 
@@ -180,6 +192,41 @@ def build_workflow_route(
     return route
 
 
+def build_starter_route(
+    workspace: Path,
+    *,
+    project_workspace: Path,
+    starter_registration: Path,
+    starter_entrypoint: str | None,
+    starter_command: str | None,
+    payload: str,
+) -> dict[str, Any]:
+    from starter_runtime import (
+        StarterRuntimeError,
+        load_starter_registration,
+        resolve_starter_entrypoint,
+    )
+
+    try:
+        loaded = load_starter_registration(
+            project_workspace=project_workspace,
+            registration=starter_registration,
+            registry_workspace=workspace,
+        )
+        resolved = resolve_starter_entrypoint(
+            loaded,
+            registry_workspace=workspace,
+            entrypoint=starter_entrypoint,
+            command=starter_command,
+            user_payload=payload,
+        )
+    except StarterRuntimeError as exc:
+        raise HarnessInvocationError(str(exc)) from exc
+    route = resolved.as_route(registry_workspace=workspace)
+    route["mode"] = STARTER_MODE
+    return route
+
+
 def build_route(
     workspace: Path,
     *,
@@ -188,11 +235,22 @@ def build_route(
     composition_id: str | None = None,
     task_id: str | None = None,
     payload: str = "",
+    project_workspace: Path | None = None,
+    starter_registration: Path | None = None,
+    starter_entrypoint: str | None = None,
+    starter_command: str | None = None,
 ) -> dict[str, Any]:
-    mode = infer_mode(skill=skill, workflow=workflow)
+    mode = infer_mode(
+        skill=skill,
+        workflow=workflow,
+        starter_entrypoint=starter_entrypoint,
+        starter_command=starter_command,
+    )
     if mode == OPEN_MODE:
-        if composition_id or task_id:
-            raise HarnessInvocationError("OPEN invocation cannot bind composition_id or task_id")
+        if composition_id or task_id or starter_registration or project_workspace:
+            raise HarnessInvocationError(
+                "OPEN invocation cannot bind composition_id, task_id, or Starter runtime options"
+            )
         return build_open_route(payload=payload)
     if mode == SKILL_MODE:
         if composition_id:
@@ -201,6 +259,23 @@ def build_route(
             workspace.resolve(),
             skill=str(skill),
             task_id=task_id,
+            payload=payload,
+        )
+    if mode == STARTER_MODE:
+        if composition_id or skill or workflow:
+            raise HarnessInvocationError("Starter invocation cannot bind global Skill/Workflow options")
+        if task_id:
+            raise HarnessInvocationError("Starter routing does not create or bind a TaskRun")
+        if project_workspace is None or starter_registration is None:
+            raise HarnessInvocationError(
+                "Starter invocation requires --project-workspace and --starter-registration"
+            )
+        return build_starter_route(
+            workspace.resolve(),
+            project_workspace=Path(project_workspace).resolve(),
+            starter_registration=Path(starter_registration).resolve(),
+            starter_entrypoint=starter_entrypoint,
+            starter_command=starter_command,
             payload=payload,
         )
     return build_workflow_route(
@@ -219,9 +294,13 @@ def main() -> int:
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--skill")
     selector.add_argument("--workflow")
+    selector.add_argument("--starter-entrypoint")
+    selector.add_argument("--starter-command")
     parser.add_argument("--composition-id")
     parser.add_argument("--task-id")
     parser.add_argument("--payload", default="")
+    parser.add_argument("--project-workspace")
+    parser.add_argument("--starter-registration")
     args = parser.parse_args()
     try:
         route = build_route(
@@ -231,6 +310,12 @@ def main() -> int:
             composition_id=args.composition_id,
             task_id=args.task_id,
             payload=args.payload,
+            project_workspace=Path(args.project_workspace) if args.project_workspace else None,
+            starter_registration=(
+                Path(args.starter_registration) if args.starter_registration else None
+            ),
+            starter_entrypoint=args.starter_entrypoint,
+            starter_command=args.starter_command,
         )
     except (
         CapabilityRegistryError,

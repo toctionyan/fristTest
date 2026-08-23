@@ -7,7 +7,13 @@ from typing import Any, Iterable, Mapping, Protocol
 
 from capability_registry import CapabilityBinding
 from langgraph_workflow_runtime import StepDispatchResult, WorkflowRuntimeState
-from skill_invocation import build_receipt, canonical_skill_path, validate_receipt, write_receipt
+from skill_invocation import (
+    build_receipt,
+    canonical_skill_identity,
+    canonical_skill_path,
+    validate_receipt,
+    write_receipt,
+)
 from workflow_graph_contract import WorkflowStepSpec
 
 
@@ -119,10 +125,23 @@ class CanonicalSkillInvocationAdapter:
         workspace: Path,
         request_class: str,
         host: SkillHostAdapter,
+        canonical_skill_paths: Mapping[str, str | Path] | None = None,
+        skill_capability_bindings: Mapping[str, Iterable[CapabilityBinding]] | None = None,
+        write_authority_guard: Any | None = None,
     ) -> None:
         self.workspace = workspace.resolve()
         self.request_class = _text(request_class).upper()
         self.host = host
+        self.canonical_skill_paths = (
+            {str(key): Path(value) for key, value in canonical_skill_paths.items()}
+            if canonical_skill_paths is not None
+            else None
+        )
+        self.skill_capability_bindings = {
+            str(key): tuple(values)
+            for key, values in (skill_capability_bindings or {}).items()
+        }
+        self.write_authority_guard = write_authority_guard
         if not self.request_class:
             raise WorkflowDispatchError("Skill adapter requires request_class")
 
@@ -135,6 +154,23 @@ class CanonicalSkillInvocationAdapter:
         skill_name = _text(step.use)
         if step.step_type != "skill" or not skill_name:
             raise WorkflowDispatchError("canonical Skill adapter requires a skill step with use")
+
+        canonical_skill_identity(
+            self.workspace,
+            skill_name,
+            canonical_skill_paths=self.canonical_skill_paths,
+        )
+        for binding in self.skill_capability_bindings.get(skill_name, ()):
+            if binding.mutates:
+                if self.write_authority_guard is None:
+                    raise WorkflowDispatchError(
+                        f"mutating Skill requires existing write authority: {skill_name}"
+                    )
+                self.write_authority_guard.assert_allowed(
+                    binding=binding,
+                    step=step,
+                    state=state,
+                )
 
         host_result = self.host.execute(
             skill_name=skill_name,
@@ -152,15 +188,24 @@ class CanonicalSkillInvocationAdapter:
             request_class=self.request_class,
             required_skill=skill_name,
             selected_skill=skill_name,
-            entrypoint=canonical_skill_path(skill_name).as_posix(),
+            entrypoint=(
+                self.canonical_skill_paths[skill_name].as_posix()
+                if self.canonical_skill_paths is not None
+                else canonical_skill_path(skill_name).as_posix()
+            ),
             output_schema=_text(host_result.output_schema),
             output_content=host_result.output_content,
             output_evidence_ref=output_ref,
             change_id=_text(state.get("change_id")) or None,
             task_id=_text(state.get("task_id")) or None,
             response_bound=False,
+            canonical_skill_paths=self.canonical_skill_paths,
         )
-        path = write_receipt(self.workspace, receipt)
+        path = write_receipt(
+            self.workspace,
+            receipt,
+            canonical_skill_paths=self.canonical_skill_paths,
+        )
         validate_receipt(
             self.workspace,
             receipt,
@@ -168,6 +213,7 @@ class CanonicalSkillInvocationAdapter:
             expected_skill=skill_name,
             expected_change_id=_text(state.get("change_id")) or None,
             expected_task_id=_text(state.get("task_id")) or None,
+            canonical_skill_paths=self.canonical_skill_paths,
         )
         receipt_ref = f"file:{path.relative_to(self.workspace).as_posix()}"
         refs = _evidence((*host_result.evidence_refs, output_ref, receipt_ref))

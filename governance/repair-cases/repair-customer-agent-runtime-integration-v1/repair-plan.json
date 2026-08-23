@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "root_cause_proof_sha256": "655ffa01291517836c2cadc17dfd362eda8d48269012b1ec0611e8476d77c3c4",
+  "status": "APPROVED",
+  "strategy": "Extend the Starter manifest with exact Skill implementation members and integrity-bind every package file. Add a provenance-only runtime registration record that points back to the verified package instead of copying semantic rows into global registries. Resolve one exact entrypoint into the canonical WorkflowSpec, activate that spec through the existing Capability Resolver, show effects before execution, and provide an injected generic start/resume bootstrap that delegates to WorkflowAdapterDispatcher, LangGraph, a durable checkpointer, and the existing TaskRun bridge.",
+  "changes": [
+    {
+      "path": "skill-system/controller/harness_starter.py",
+      "responsibility": "bind Skill contracts to bounded SKILL.md implementations and include every package member in verification/digest",
+      "reason": "real Host execution requires an integrity-bound implementation, not only a contract"
+    },
+    {
+      "path": "skill-system/schemas/harness-starter.schema.json",
+      "responsibility": "publish the exact skill_entrypoints manifest contract",
+      "reason": "Skill source binding must remain open and reviewable"
+    },
+    {
+      "path": "skill-system/starters/customer-agent/**",
+      "responsibility": "provide concise Host-loadable SKILL.md implementations and bind them in starter.json",
+      "reason": "the bundled Starter must be executable through a real Host bridge"
+    },
+    {
+      "path": "skill-system/controller/starter_runtime.py",
+      "responsibility": "create/validate provenance registrations, resolve exact entrypoints, compile or compose through canonical parsers, activate exact WorkflowSpec inputs, produce effect previews, and start/resume through existing runtime bridges",
+      "reason": "installed packages need a bounded adapter into existing authorities"
+    },
+    {
+      "path": "skill-system/schemas/harness-starter-runtime-registration.schema.json",
+      "responsibility": "publish the closed provenance registration wire contract",
+      "reason": "registration must be versioned, strict, and host-independent"
+    },
+    {
+      "path": "skill-system/controller/workflow_activation.py",
+      "responsibility": "activate an already canonical WorkflowSpec while retaining the current registry-ID wrapper",
+      "reason": "installed Workflow sources must reuse Capability Resolver without global registry duplication"
+    },
+    {
+      "path": "skill-system/controller/skill_invocation.py",
+      "responsibility": "allow an injected, expected package Skill path to be the canonical source for receipt building and validation",
+      "reason": "project-local Skills must produce the same real invocation receipt without copying into the Harness registry"
+    },
+    {
+      "path": "skill-system/controller/workflow_dispatcher.py",
+      "responsibility": "pass verified Starter Skill source bindings into the canonical Skill invocation adapter",
+      "reason": "reaching a Skill node must load the exact registered implementation before receipt creation"
+    },
+    {
+      "path": "skill-system/controller/langgraph_workflow_runtime.py",
+      "responsibility": "expose the existing durable-checkpointer classification for generic and full-development runtime reuse",
+      "reason": "all runtime bootstraps must reject memory-only checkpointing consistently"
+    },
+    {
+      "path": "skill-system/controller/full_development_child_runtime.py",
+      "responsibility": "reuse the shared durable-checkpointer classifier",
+      "reason": "durability must have one implementation"
+    },
+    {
+      "path": "skill-system/controller/harness_authoring_cli.py",
+      "responsibility": "add starter-register without executing or activating the package",
+      "reason": "Hosts need a deterministic registration command"
+    },
+    {
+      "path": "skill-system/controller/harness_invocation.py",
+      "responsibility": "add exact Starter entrypoint and strict slash-command routing with effect preview",
+      "reason": "ChatGPT and Codex need one non-fuzzy interaction boundary"
+    },
+    {
+      "path": "skill-system/tests/test_customer_agent_starter.py",
+      "responsibility": "prove Skill implementation inventory/digest binding and installation integrity",
+      "reason": "SKILL.md drift or omission must fail closed"
+    },
+    {
+      "path": "skill-system/tests/test_starter_runtime.py",
+      "responsibility": "prove registration, exact routing, activation, effect preview, TaskRun start/resume, and authority counterexamples",
+      "reason": "runtime integration must be executable evidence rather than documentation"
+    },
+    {
+      "path": "skill-system/tests/test_skill_invocation.py",
+      "responsibility": "prove injected canonical Skill sources cannot escape, drift, or mismatch identity",
+      "reason": "receipt integrity must remain fail closed"
+    },
+    {
+      "path": "skill-system/tests/test_harness_invocation.py",
+      "responsibility": "prove root CLI exact Starter routing and no natural-language mutation guessing",
+      "reason": "the Host-facing entrypoint must preserve explicit selection"
+    },
+    {
+      "path": "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+      "responsibility": "document runtime topology, command interactions, authority boundaries, and remaining provider/Host responsibilities",
+      "reason": "operators need concrete activation and resume semantics"
+    },
+    {
+      "path": "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
+      "responsibility": "update the previous current-boundary section after runtime integration",
+      "reason": "the architecture record must not remain stale"
+    }
+  ],
+  "unchanged_boundaries": [
+    "WorkflowSpec and workflow_graph_contract remain sole Workflow semantic/topology authorities",
+    "Capability Registry and Resolver remain sole Provider binding authorities",
+    "WorkflowAdapterDispatcher remains sole step dispatch owner",
+    "a real Host must execute SKILL.md before the existing receipt can be emitted",
+    "mutating adapters still require the existing injected Write Authority Guard",
+    "LangGraph owns routing only and TaskRun remains lifecycle/completion authority",
+    "Graph END projects only to TaskRun VALIDATING",
+    "Starter registration and route construction execute no provider and grant no authority",
+    "customer application source and runtime remain independent of Harness"
+  ],
+  "forbidden_repairs": [
+    "Do not append Starter Workflows or Skills into static global registries.",
+    "Do not treat a registration record as a semantic cache or authority grant.",
+    "Do not fabricate a Skill receipt from graph position or a Skill contract.",
+    "Do not fuzzy-map free-form language to a mutating Workflow.",
+    "Do not accept an in-memory LangGraph checkpointer for executable runtime.",
+    "Do not start a second TaskRun or mark TaskRun COMPLETED from Graph END.",
+    "Do not add merge capability to Customer Agent Workflows.",
+    "Do not execute arbitrary Project command strings during registration or routing."
+  ],
+  "required_invariants": [
+    "every Skill contract identity has exactly one digest-bound SKILL.md package member",
+    "registration points to a bounded project-local package and fails on package drift",
+    "entrypoint and slash-command resolution are exact and closed",
+    "write effects and remote effects are shown before runtime execution",
+    "write-governed execution cannot proceed without the existing guard in the injected Dispatcher",
+    "runtime start requires an existing matching TaskRun and durable checkpointer",
+    "resume accepts only the exact WAITING_EXTERNAL or HUMAN_GATE state and TaskRun phase",
+    "the canonical bridge projects Graph END to VALIDATING only"
+  ],
+  "required_tests": {
+    "focused": [
+      "all seven bundled SKILL.md files validate and match Skill contract identities",
+      "registration and load reproduce the exact package digest and entrypoint WorkflowSpec",
+      "read-only and write entrypoints produce correct effect previews and activation bindings",
+      "generic runtime starts and resumes through injected Dispatcher/checkpointer/TaskRun bridge"
+    ],
+    "counterexamples": [
+      "Skill source drift, missing files, wrong frontmatter name, and traversal are rejected",
+      "registration/package digest drift and entrypoint mismatch are rejected",
+      "unknown or ambiguous slash commands fail without Workflow selection",
+      "write runtime without Write Guard and runtime with memory checkpointer fail closed",
+      "resume with wrong event, workflow, TaskRun phase, or correlation fails closed"
+    ],
+    "regression": [
+      "Starter, Authoring, Composition, Invocation, Activation, Dispatcher, LangGraph, and TaskRun tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "registration and routing have no execution or authority effect",
+      "no static registry rows are added",
+      "no Customer Agent Workflow gains merge capability",
+      "customer application source remains unchanged"
+    ]
+  },
+  "risks": [
+    "A registration file could become stale; every load re-verifies the package digest and exact paths.",
+    "Host implementations could claim execution without loading the bound file; receipt validation binds the expected source digest and path.",
+    "Project commands are not yet safe runtime profiles; this stage deliberately does not execute arbitrary command strings.",
+    "Concrete workspace/git/PR adapters are not all implemented; missing injected adapters remain runtime blockers rather than simulated success."
+  ],
+  "rollback_plan": "Remove Starter runtime registration/routing/bootstrap, injected Skill path support, bundled SKILL.md files, related schemas/tests/docs, and restore Starter manifest v1 shape. Existing static registries, Workflow runtime, Provider adapters, TaskRun, and customer source require no rollback."
+}

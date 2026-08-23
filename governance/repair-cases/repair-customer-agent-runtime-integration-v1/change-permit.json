@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "repair_plan_sha256": "12224120d54eeccca6913257eb37009bcf4dc796e95cd4856358187d5a1f69d1",
+  "plan_review_sha256": "a4bde9e9a963202cd7bf3fe0ab20aa0fb5b900f71451c07ab904d002ea4017b8",
+  "baseline_manifest_sha256": "82788d6fc9f7d446b48b3efccb4cf3d2dc9bde2fdf2131f8724cbbb7aa0a31c4",
+  "allowed_paths": [
+    "skill-system/controller/harness_starter.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/harness_invocation.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/workflow_activation.py",
+    "skill-system/controller/skill_invocation.py",
+    "skill-system/controller/workflow_dispatcher.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/full_development_child_runtime.py",
+    "skill-system/schemas/harness-starter.schema.json",
+    "skill-system/schemas/harness-starter-runtime-registration.schema.json",
+    "skill-system/starters/customer-agent/**",
+    "skill-system/tests/test_customer_agent_starter.py",
+    "skill-system/tests/test_starter_runtime.py",
+    "skill-system/tests/test_skill_invocation.py",
+    "skill-system/tests/test_harness_invocation.py",
+    "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "all seven bundled SKILL.md files validate and match Skill contract identities",
+      "registration and load reproduce the exact package digest and entrypoint WorkflowSpec",
+      "read-only and write entrypoints produce correct effect previews and activation bindings",
+      "generic runtime starts and resumes through injected Dispatcher/checkpointer/TaskRun bridge"
+    ],
+    "counterexamples": [
+      "Skill source drift, missing files, wrong frontmatter name, and traversal are rejected",
+      "registration/package digest drift and entrypoint mismatch are rejected",
+      "unknown or ambiguous slash commands fail without Workflow selection",
+      "write runtime without Write Guard and runtime with memory checkpointer fail closed",
+      "resume with wrong event, workflow, TaskRun phase, or correlation fails closed"
+    ],
+    "regression": [
+      "Starter, Authoring, Composition, Invocation, Activation, Dispatcher, LangGraph, and TaskRun tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "registration and routing have no execution or authority effect",
+      "no static registry rows are added",
+      "no Customer Agent Workflow gains merge capability",
+      "customer application source remains unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "a3a01a3a1600bdc957ee7348c3de5c28fa84ec7d3bf561c97c45c36fc96756ad",
+  "baseline_workspace_fingerprint": "58369b370331f26e6c86b465576d1433ab711a88980191f04c1fc81f0686ac72",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "a341ba008ce7b6db7ae39b99a116e21b8f682f4d7c7f824ee71dd08fb382cdb6"
+}

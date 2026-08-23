@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-customer-agent-starter-v1",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
   "target_kind": "repair",
-  "goal": "Add a verified, installable Customer Agent Starter using the existing Authoring, Composition, Workflow, and Provider authorities.",
+  "goal": "Bind a verified Customer Agent Starter to exact Skill implementations, runtime registration, invocation routing, LangGraph execution, durable resume, and TaskRun checkpoints without adding a second authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -26,6 +26,7 @@
     "docs/architecture/HARNESS_AUTHORING_CORE_V1.md",
     "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md",
     "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -37,8 +38,11 @@
     "customer product source remains unchanged",
     "trusted Judge inputs and completion authority remain unchanged",
     "the existing WorkflowSpec and graph validator remain the sole runtime semantics",
-    "starter verification delegates to existing Project, Skill, Workflow, Composition, Capability, and Provider parsers",
-    "starter installation does not execute Workflows, activate Providers, grant writes, or modify customer application source",
+    "runtime registration is a provenance seal, not a second Workflow or Skill registry",
+    "Starter Skill implementations are exact package members bound to matching Skill contracts",
+    "entrypoint routing is exact and never guesses a mutating Workflow from free-form language",
+    "activation delegates to the existing Capability Resolver and does not grant writes",
+    "execution delegates to WorkflowAdapterDispatcher, LangGraph runtime, and TaskRun bridge",
     "customer-agent publication Workflows stop after CI evidence and never merge automatically",
     "TaskRun remains the only completion authority and Graph END transitions only to VALIDATING",
     "existing write-authority guards remain mandatory",
@@ -62,23 +66,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/independent-review.json",
-      "evidence_sha256": "f6d3bd5414de18ead2c82fb9b37cd41050e85676f91935ea7c452aa82e4555de",
-      "recorded_at": "2026-08-23T10:08:16.930350+00:00"
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/diff-review.json",
+      "evidence_sha256": "7faae9d06e38aef3866613c08973136c74908173b7ef0f941570d9a931aed9ed",
+      "recorded_at": "2026-08-23T10:53:04.347299+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/independent-review.json",
-      "evidence_sha256": "f6d3bd5414de18ead2c82fb9b37cd41050e85676f91935ea7c452aa82e4555de",
-      "recorded_at": "2026-08-23T10:08:17.178242+00:00"
+      "evidence": "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/counterexamples.md",
+      "evidence_sha256": "6cdf081c51083ed23eb90b509a0959e5b0f497beb29b0740b266055bd68c36ca",
+      "recorded_at": "2026-08-23T10:53:04.443438+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-customer-agent-starter-v1/verification.json",
-      "evidence_sha256": "4629f8602c6642703810063c94828ee8e2743928dc6c9d7bd909441f12a90586",
-      "recorded_at": "2026-08-23T10:08:47.427341+00:00"
+      "evidence": ".quality/skill-control-plane/repair-customer-agent-runtime-integration-v1/verification.json",
+      "evidence_sha256": "eb0d129cac9e464fbb6157f65962a3919849a553c70d86a9cac7e5489a9d7a89",
+      "recorded_at": "2026-08-23T10:55:43.150761+00:00"
     }
   ],
   "decision_record": null,
@@ -86,17 +90,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-customer-agent-starter-v1/verification.json",
-    "sha256": "4629f8602c6642703810063c94828ee8e2743928dc6c9d7bd909441f12a90586",
-    "source_fingerprint": "f8a39589a142f55299991855d14d69875db28627bcc31a5e40b769a50c07e3ae",
-    "source_file_count": 1017,
-    "verified_at": "2026-08-23T10:08:47.426740+00:00"
+    "path": ".quality/skill-control-plane/repair-customer-agent-runtime-integration-v1/verification.json",
+    "sha256": "eb0d129cac9e464fbb6157f65962a3919849a553c70d86a9cac7e5489a9d7a89",
+    "source_fingerprint": "fb41604103c6c3d419df94d0499d29089ae4071fd7e89e8919ebba5c666245e8",
+    "source_file_count": 1043,
+    "verified_at": "2026-08-23T10:55:43.150130+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-customer-agent-starter-v1",
-  "repair_governance_consumed_at": "2026-08-23T10:08:53.191668+00:00",
-  "created_at": "2026-08-23T19:00:00+00:00",
+  "repair_governance": "governance/repair-cases/repair-customer-agent-runtime-integration-v1",
+  "repair_governance_consumed_at": "2026-08-23T10:55:51.704167+00:00",
+  "created_at": "2026-08-23T20:00:00+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "d9427b536bc6a38e9b49b41f4db48f8a728fb92fdffc462a743bbd5785a45f64",
-  "closed_at": "2026-08-23T10:08:53.191684+00:00"
+  "repair_governance_permit_digest": "a341ba008ce7b6db7ae39b99a116e21b8f682f4d7c7f824ee71dd08fb382cdb6",
+  "closed_at": "2026-08-23T10:55:51.704183+00:00"
 }

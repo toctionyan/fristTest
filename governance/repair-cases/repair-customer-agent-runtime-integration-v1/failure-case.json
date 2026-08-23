@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "classification": "skill-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A verified installed Starter can bind exact Skill implementations, resolve one exact entrypoint, activate its compiled Workflow through the existing Resolver, produce an effect preview, and execute or resume through the existing LangGraph and TaskRun bridge.",
+    "actual": "Starter v1 stops at verification and copying; it has no Skill implementation entries, runtime registration seal, entrypoint route, exact WorkflowSpec activation path, or generic start/resume bridge.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/red-baseline.md",
+      "skill-system/controller/harness_starter.py",
+      "skill-system/controller/harness_invocation.py",
+      "skill-system/controller/workflow_activation.py"
+    ]
+  },
+  "violated_invariants": [
+    "Reaching a Starter Skill node must load and execute a real package-bound SKILL.md before creating a receipt.",
+    "An installed Starter must reuse the canonical Workflow, Resolver, Dispatcher, LangGraph, TaskRun, and completion authorities.",
+    "Free-form language must not silently select a mutating Workflow.",
+    "Runtime registration must not become a second semantic registry or grant operational authority."
+  ],
+  "affected_boundaries": [
+    "Starter Skill implementation integrity",
+    "runtime provenance registration",
+    "exact Host invocation routing",
+    "TaskRun start and event-driven resume"
+  ]
+}

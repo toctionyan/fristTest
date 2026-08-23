@@ -53,6 +53,17 @@ the real repository. Provider bindings can change without changing Workflow
 topology. For example, `ci.run.wait` may bind to a future registered GitLab CI
 adapter instead of `github.actions`.
 
+Seal the installed bytes for runtime use. The registration is stored outside
+the immutable package and contains provenance, exact entrypoint identities, and
+authority-denial flags rather than copied global registry rows:
+
+```bash
+python3 -B skillctl.py authoring starter-register \
+  --project-workspace "$PWD" \
+  --directory .harness/customer-agent \
+  --output .harness/runtime/customer-agent.registration.json
+```
+
 ## ChatGPT or Codex interaction contract
 
 Natural language and slash commands are Host conveniences. The Host must map
@@ -63,11 +74,24 @@ write Workflow.
 | User interaction | Exact selection | Required input |
 | --- | --- | --- |
 | “检查客服 Agent 总体还有哪些问题” | `overall_audit` | project/revision scope |
-| `/harness audit --module conversation-context` | `module_audit` | exact module or feature scope |
+| `/harness audit module conversation-context` | `module_audit` | exact module or feature scope |
 | “分析整体架构，重点检查会话状态和工具边界” | `architecture_review` | quality attributes or focus |
 | `/harness repair F-142 --local` | `repair_and_prove` | finding/evidence identifier |
-| `/harness repair F-142 --ci github` | `repair_with_ci` | finding, repository, base branch |
-| `/harness full-dev "add complaint escalation" --ci github` | `full_dev` | bounded goal, acceptance criteria, repository |
+| `/harness repair F-142 --ci` | `repair_with_ci` | finding, repository, base branch |
+| `/harness full-dev "add complaint escalation" --ci` | `full_dev` | bounded goal, acceptance criteria, repository |
+
+The strict command router can be inspected without starting a TaskRun:
+
+```bash
+python3 -B skillctl.py invoke \
+  --project-workspace "$PWD" \
+  --starter-registration .harness/runtime/customer-agent.registration.json \
+  --starter-command '/harness audit module conversation-context'
+```
+
+Routing re-verifies the package, every Skill implementation, and every derived
+Workflow digest. It returns exact activation bindings and an effect preview;
+it does not execute a Skill, create a TaskRun, or grant write authority.
 
 Before a mutating run, the interaction should present a compact effect preview:
 
@@ -157,10 +181,16 @@ functionality.
 
 ## Current boundary
 
-Starter v1 supplies verified authoring material and a safe initializer. It does
-not register the installed declarations into the repository-wide runtime
-registries or start a TaskRun. That remains a separate activation step so
-installation cannot acquire operational authority. A later integration may
-offer a natural-language Composer or `/harness` command router, but its output
-must resolve to these exact declarations and pass the same deterministic
-verification before activation.
+Starter v1 now includes project-local runtime registration, strict entrypoint
+routing, Capability activation, effect preview, real Host Skill invocation
+receipts, injected Provider dispatch, durable LangGraph checkpoints, external
+event resume, and the existing TaskRun bridge. Graph END still becomes
+`VALIDATING`; it never becomes completion or merge.
+
+Execution is deliberately an embedding API because the ChatGPT/Codex Host must
+inject the real Skill Host, the selected Provider adapters, the durable saver,
+the existing TaskRun, and—on write routes—the existing Write Authority Guard.
+The built-in concrete Provider set currently covers local `test.run` /
+`quality.evaluate` and event-driven CI wait. Workspace mutation, VCS commit, and
+PR creation remain fail-closed until their real adapters and authority objects
+are injected; the runtime does not simulate them.

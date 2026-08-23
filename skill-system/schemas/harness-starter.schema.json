@@ -10,6 +10,7 @@
     "version",
     "project",
     "skill_contracts",
+    "skill_entrypoints",
     "workflows",
     "compositions",
     "entrypoints",
@@ -21,6 +22,12 @@
     "version": {"type": "string", "minLength": 1},
     "project": {"$ref": "#/$defs/declarationPath"},
     "skill_contracts": {"$ref": "#/$defs/nonEmptyUniquePaths"},
+    "skill_entrypoints": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/stableId"},
+      "additionalProperties": {"$ref": "#/$defs/skillPath"}
+    },
     "workflows": {"$ref": "#/$defs/nonEmptyUniquePaths"},
     "compositions": {"$ref": "#/$defs/nonEmptyUniquePaths"},
     "entrypoints": {
@@ -61,6 +68,10 @@
     "declarationPath": {
       "type": "string",
       "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._@/-]+\\.(?:json|ya?ml)$"
+    },
+    "skillPath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._@/-]+\\.md$"
     },
     "nonEmptyUniquePaths": {
       "type": "array",

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-customer-agent-runtime-integration-v1",
+  "failure_case_sha256": "e3d512f91e4c2380c6d2889d2ddd3f95d382aa0fe851d52cac5d06b855338fb0",
+  "decision": "PROVEN",
+  "root_cause": "Starter v1 deliberately ended at authoring verification. Its manifest binds contracts and Workflows but not executable Skill sources, and the existing activation API can only retrieve a Workflow from the static registry by ID. No provenance-only adapter resolves an installed package into the existing runtime inputs, so the Host cannot execute it without manually copying semantics into global registries.",
+  "causal_chain": [
+    "The Starter manifest contains Skill contracts but no Skill implementation paths.",
+    "The package digest ignores non-declaration files, so a SKILL.md could not yet be integrity-bound.",
+    "Workflow activation requires require_workflow(workspace, workflow_id) from the static registry.",
+    "Harness invocation requires a static composition ID and has no Starter registration selector.",
+    "The generic LangGraph runtime and TaskRun bridge exist but have no installed-Starter bootstrap.",
+    "A naive implementation would duplicate registry rows or fabricate Skill execution, violating existing authorities."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-customer-agent-runtime-integration-v1/evidence/red-baseline.md",
+    "skill-system/controller/harness_starter.py",
+    "skill-system/controller/skill_invocation.py",
+    "skill-system/controller/workflow_activation.py",
+    "skill-system/controller/langgraph_workflow_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py"
+  ],
+  "rejected_hypotheses": [
+    "Copy Starter Workflows into dev-workflows.json; this creates mutable duplicated registration state and couples projects to the Harness source tree.",
+    "Treat a Skill contract as executable instructions; a contract cannot prove real Host execution or produce a valid invocation receipt.",
+    "Let natural language choose any Workflow directly; mutating selection must be exact and reviewable.",
+    "Build a customer-agent-specific graph runner; the existing LangGraph runtime already owns topology and resume semantics."
+  ],
+  "affected_boundaries": [
+    "Starter package inventory and digest",
+    "Skill invocation canonical source binding",
+    "WorkflowSpec activation by exact compiled source",
+    "Host invocation and effect preview",
+    "generic LangGraph and TaskRun execution bootstrap"
+  ]
+}
