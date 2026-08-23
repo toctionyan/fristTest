@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-customer-agent-starter-v1",
+  "permit_digest": "d9427b536bc6a38e9b49b41f4db48f8a728fb92fdffc462a743bbd5785a45f64",
+  "diff_review_sha256": "4318485eeedf831ff7f58299db5ee843d58e3033a625e5fb28dd76b2a046af58",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "7181294a23294a8bd571f53b458a5c5cb14365dfa0275889115a669089c03a32",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/authority-boundary.json",
+      "evidence_sha256": "3de403521f24ac7ed3f6e2aa2878b114b22601a27682e345cd0eeacc35ab06d2"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/counterexamples.json",
+      "evidence_sha256": "809738c1db8bdd41b1f7bc230df5f9957fe6d7e0f2598cc4189e97422a336564"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/diff-review.json",
+      "evidence_sha256": "4318485eeedf831ff7f58299db5ee843d58e3033a625e5fb28dd76b2a046af58"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/focused-tests.json",
+      "evidence_sha256": "7d5f0207653f70b1bc108511ad72cff99f5242c51abf6be29a8171842fb4626c"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/negative-paths.json",
+      "evidence_sha256": "269098f6677183749ba40036491cc63a92c9d5da48533a054d6c9453773dd5f7"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/original-failure.json",
+      "evidence_sha256": "c82839103bc9ce072c3b8700ee11c3fdb67470e7e1b252e60a02616cea7d40c3"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/regression.json",
+      "evidence_sha256": "1ce6a06778e75e6e0fa18ae6983715278e16ccf483822018fe9138e206bf8c3a"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/runtime-trace.json",
+      "evidence_sha256": "f2049a5ca9434b3dc52138b59430efe7d97c92f30a1c9c3e4fd183e4a659e029"
+    }
+  ],
+  "residual_risks": [
+    "Starter v1 does not import installed declarations into runtime registries or start TaskRun; explicit activation remains the next bounded integration stage."
+  ]
+}

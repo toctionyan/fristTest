@@ -1,0 +1,14 @@
+{
+  "schema": "harness-skill-contract@1",
+  "skill": "customer-agent-architecture-review",
+  "version": "1.0.0",
+  "mode": "read_only",
+  "inputs": ["project-context@1", "finding-set@1"],
+  "capabilities": ["workspace.read", "vcs.diff.read"],
+  "outputs": ["architecture-assessment@1"],
+  "extension_type": "procedure",
+  "extension_points": {
+    "before-analysis": ["context-provider", "audit-lens"],
+    "before-validation": ["gate", "audit-lens"]
+  }
+}

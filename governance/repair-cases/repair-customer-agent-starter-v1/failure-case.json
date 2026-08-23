@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-customer-agent-starter-v1",
+  "classification": "skill-gap",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A user can initialize and verify a coherent customer-agent Harness package containing project configuration, domain Skills, audit/architecture/repair/full-development Workflows, extension overlays, and provider bindings without hand-writing every YAML file.",
+    "actual": "Authoring and Composition operate on individual declarations only; no starter manifest, package verifier, bundled customer-agent declarations, or starter-init command exists.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-customer-agent-starter-v1/evidence/red-baseline.md",
+      "skill-system/controller/harness_authoring_cli.py",
+      "docs/architecture/HARNESS_COMPOSITION_BINDING_V1.md"
+    ]
+  },
+  "violated_invariants": [
+    "Users should not need to hand-author a large set of YAML files to begin a supported project type.",
+    "A starter must compile through the same Authoring and Composition authorities used by manually authored declarations.",
+    "The generated customer application must remain standalone and must not import Harness runtime code."
+  ],
+  "affected_boundaries": [
+    "starter package integrity boundary",
+    "project initialization boundary",
+    "customer-agent domain extension boundary",
+    "provider configuration readiness boundary"
+  ]
+}

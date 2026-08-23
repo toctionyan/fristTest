@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-customer-agent-starter-v1",
+  "root_cause_proof_sha256": "5e0c8e8a4f13b0756f6457bec6ac473a9bddb570ffaccc269a5ac9f1142bc4f6",
+  "status": "APPROVED",
+  "strategy": "Add a generic, read-before-write Starter verifier and installer that reuses the existing Project, Skill, Workflow, Composition, capability, and Provider parsers. Bundle a customer-agent starter with overall audit, module audit, architecture review, repair-and-prove, repair-with-CI, and full-development Workflows plus standards/context extension overlays. Installation copies only a pre-verified declaration package and never modifies customer application source.",
+  "changes": [
+    {
+      "path": "skill-system/controller/harness_starter.py",
+      "responsibility": "parse closed starter manifests, verify cross-file identities and provider coverage, list built-ins, and safely install a verified package",
+      "reason": "package-level integrity and initialization are the proven missing boundary"
+    },
+    {
+      "path": "skill-system/controller/harness_authoring_cli.py",
+      "responsibility": "expose starter-list, starter-verify, and starter-init through the portable root authoring command",
+      "reason": "users and Hosts need one deterministic interface instead of manual file copying"
+    },
+    {
+      "path": "skill-system/schemas/harness-starter.schema.json",
+      "responsibility": "publish the closed manifest and entrypoint contract",
+      "reason": "starter inventory must be reviewable, versioned, and maintainable without ChatGPT"
+    },
+    {
+      "path": "skill-system/starters/customer-agent/**",
+      "responsibility": "provide the customer-agent Project declaration, domain Skill contracts, Workflows, Composition overlays, and package manifest",
+      "reason": "the requested real project example requires coherent executable declarations"
+    },
+    {
+      "path": "skill-system/tests/test_customer_agent_starter.py",
+      "responsibility": "prove package verification, all Workflow compilation, overlay composition, Provider coverage, safe installation, and negative paths",
+      "reason": "starter coherence must be deterministic rather than asserted by documentation"
+    },
+    {
+      "path": "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md",
+      "responsibility": "document commands, files, interaction mapping, extension examples, CI choices, and standalone application boundary",
+      "reason": "operators need concrete usage from natural language through generated declarations"
+    }
+  ],
+  "unchanged_boundaries": [
+    "WorkflowSpec and workflow_graph_contract remain the sole runtime/topology authorities",
+    "harness_composition remains the sole extension overlay transformer",
+    "Capability Registry and Provider Registry remain the source of Provider coverage truth",
+    "Starter installation does not activate Providers, grant writes, execute commands, or run Workflows",
+    "TaskRun remains the only completion authority and Graph END still means VALIDATING",
+    "existing Write Authority Guard and explicit host authorization remain mandatory",
+    "customer application source is neither generated nor modified by this starter package"
+  ],
+  "forbidden_repairs": [
+    "Do not add a second customer-agent runtime or graph interpreter.",
+    "Do not install into a non-empty target or follow symlinks from a starter package.",
+    "Do not accept absolute, traversal, duplicate, missing, or undeclared manifest paths.",
+    "Do not treat configured Provider coverage as Provider activation or write authorization.",
+    "Do not put merge authority in the customer-agent full-development Workflow.",
+    "Do not make the produced customer application import Harness code."
+  ],
+  "required_invariants": [
+    "the starter manifest is closed, versioned, and uses bounded relative paths",
+    "every Skill, Workflow, and Composition declaration is validated by the existing canonical parser",
+    "Skill and Workflow identities are unique across the package",
+    "Project defaults and starter entrypoints resolve to base or derived Workflow IDs",
+    "every required capability has an explicit Project Provider binding supported by the current Provider Registry",
+    "mutating Workflows remain WRITE and write_governed and never bypass the existing Guard",
+    "the CI Workflow creates and waits for a PR check but does not merge it",
+    "starter-init verifies before copying and refuses non-empty destinations",
+    "the installed package is byte-identical to the bundled declarations"
+  ],
+  "required_tests": {
+    "focused": [
+      "the bundled customer-agent starter verifies all declarations and entrypoints",
+      "overall/module/architecture/repair/CI/full-development Workflows compile through WorkflowSpec",
+      "standards and context overlays compose through harness_composition",
+      "starter-init installs a byte-identical package and the installed package re-verifies"
+    ],
+    "counterexamples": [
+      "duplicate identities, missing files, undeclared entrypoints, and traversal paths are rejected",
+      "missing or incompatible Provider bindings are rejected",
+      "a non-empty installation target is rejected"
+    ],
+    "regression": [
+      "Authoring and Composition tests remain green",
+      "Workflow Registry, activation, and bootstrap tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "starter verification has no execution or authorization effect",
+      "full-development Workflow contains no merge capability or merge node",
+      "installed declarations contain no dependency from customer application source to Harness runtime"
+    ]
+  },
+  "risks": [
+    "A starter could become a hidden runtime registry; it is restricted to declaration verification and copying.",
+    "Default Python commands may not match every project; users can replace the Project declaration through the existing project-init command without editing domain Workflows.",
+    "GitHub-specific defaults reduce portability; Provider IDs remain isolated in Project configuration while Workflows request provider-neutral capabilities.",
+    "Domain Skills may hide policy assumptions; contracts expose artifacts, capabilities, modes, and extension points for review."
+  ],
+  "rollback_plan": "Remove the starter controller route, manifest schema, bundled customer-agent package, tests, and documentation together. Existing Authoring, Composition, Workflow runtime, Provider adapters, TaskRun, and customer application source require no rollback."
+}

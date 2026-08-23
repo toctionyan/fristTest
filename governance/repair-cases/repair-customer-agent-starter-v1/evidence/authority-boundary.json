@@ -1,0 +1,22 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "authority_boundary",
+  "status": "PASS",
+  "owners": {
+    "starter_inventory": "harness_starter.py",
+    "declaration_semantics": "harness_authoring.py",
+    "extension_composition": "harness_composition.py",
+    "workflow_runtime_contract": "workflow_registry.parse_workflow_spec",
+    "graph_topology": "workflow_graph_contract.parse_workflow_graph",
+    "provider_truth": "capability_registry.load_provider_registry",
+    "write_authority": "existing Write Authority Guard",
+    "completion": "TaskRun"
+  },
+  "prohibitions_verified": [
+    "Starter selection or installation is not Workflow activation",
+    "Provider coverage is not Provider activation",
+    "Capability binding is not a write grant",
+    "CI green is not overall completion or merge authorization",
+    "customer application runtime remains independent of Harness"
+  ]
+}

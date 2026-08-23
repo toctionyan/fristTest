@@ -1,0 +1,13 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "focused_tests",
+  "status": "PASS",
+  "command": "python3 -B -m unittest skill-system/tests/test_harness_authoring.py skill-system/tests/test_harness_composition.py skill-system/tests/test_customer_agent_starter.py -v",
+  "test_count": 31,
+  "assertions": [
+    "the bundled package verifies seven Skills, six base Workflows, two composed Workflows, and six entrypoints",
+    "starter-list and starter-init are available through the root CLI",
+    "installation is byte-equivalent and re-verifies",
+    "Authoring and Composition canonical behavior remains green"
+  ]
+}

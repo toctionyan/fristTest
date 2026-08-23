@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-customer-agent-starter-v1",
+  "repair_plan_sha256": "0bf7986a74a8c1989a1a94ce85c7ec23b3af00e74497a3ddb0adc837bf9a5669",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/harness_starter.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/harness-starter.schema.json",
+    "skill-system/starters/customer-agent/**",
+    "skill-system/tests/test_customer_agent_starter.py",
+    "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md"
+  ],
+  "review_findings": [
+    "The package verifier delegates every declaration to the existing Authoring and Composition parsers, so it cannot become a peer runtime.",
+    "Provider checks prove configuration coverage only and explicitly do not activate Providers or grant authority.",
+    "The full-development Workflow stops after CI evidence and does not include merge capability, preserving explicit merge authorization.",
+    "Installation is bounded to a verified declaration directory and refuses non-empty targets.",
+    "The change does not touch services, customer application source, runtime Dispatcher, Provider adapters, or TaskRun."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single runtime authority",
+      "assessment": "starter verification calls compile_workflow_declaration and compose_workflow; it never interprets graph execution",
+      "evidence": "skill-system/controller/harness_authoring.py"
+    },
+    {
+      "rule": "Capability binding is not authority",
+      "assessment": "project provider coverage is checked against capability_registry while activation and Write Guard remain unchanged",
+      "evidence": "skill-system/controller/capability_registry.py"
+    },
+    {
+      "rule": "Explicit merge authorization",
+      "assessment": "customer-agent CI and full-development Workflows request PR creation and CI waiting but no merge capability",
+      "evidence": "skill-system/registry/capabilities.json"
+    },
+    {
+      "rule": "Standalone customer application",
+      "assessment": "the package contains only Harness development declarations and does not write customer runtime source",
+      "evidence": "governance/repair-cases/repair-customer-agent-starter-v1/root-cause-proof.json"
+    }
+  ]
+}

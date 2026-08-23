@@ -1,0 +1,69 @@
+{
+  "schema": "harness-workflow@1",
+  "id": "customer-agent-repair-and-prove",
+  "version": "1.0.0",
+  "request_class": "REPAIR",
+  "skills": ["customer-agent-repair", "customer-agent-adversarial-review"],
+  "mode": "WRITE",
+  "status_first": false,
+  "deterministic_response": false,
+  "write_governed": true,
+  "requirements": {
+    "capabilities": {
+      "required": [
+        "workspace.read",
+        "workspace.write",
+        "vcs.diff.read",
+        "test.run",
+        "quality.evaluate"
+      ],
+      "optional": []
+    }
+  },
+  "graph": {
+    "start": "repair",
+    "max_attempts_per_step": 8,
+    "steps": {
+      "repair": {
+        "type": "skill",
+        "use": "customer-agent-repair",
+        "routes": {
+          "patched": "focused-tests",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "focused-tests": {
+        "type": "gate",
+        "use": "test.run",
+        "routes": {
+          "green": "adversarial-review",
+          "red": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "adversarial-review": {
+        "type": "skill",
+        "use": "customer-agent-adversarial-review",
+        "routes": {
+          "clean": "quality",
+          "findings": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "quality": {
+        "type": "gate",
+        "use": "quality.evaluate",
+        "routes": {
+          "green": "END",
+          "red": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      }
+    }
+  },
+  "completion": {
+    "transition_to": "VALIDATING",
+    "policy": "customer-agent-repair-proved@1",
+    "authority": "TaskRun"
+  }
+}

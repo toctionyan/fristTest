@@ -1,0 +1,22 @@
+{
+  "schema": "harness-composition@1",
+  "id": "customer-agent-audit-with-standards",
+  "version": "1.0.0",
+  "base_workflow": "customer-agent-overall-audit",
+  "bindings": [
+    {
+      "id": "customer-agent-standards-gate",
+      "host_skill": "customer-agent-audit",
+      "extension_skill": "customer-agent-standards-gate",
+      "at": "before-validation",
+      "anchor": {
+        "kind": "before_step",
+        "step": "quality"
+      },
+      "routes": {
+        "continue": "$CONTINUE",
+        "blocked": "BLOCKED_UNRECOVERABLE"
+      }
+    }
+  ]
+}

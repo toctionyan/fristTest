@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-customer-agent-starter-v1",
+  "repair_plan_sha256": "0bf7986a74a8c1989a1a94ce85c7ec23b3af00e74497a3ddb0adc837bf9a5669",
+  "plan_review_sha256": "d3b9bf1cd2a6362dcada42df18777a2929b1d5df0e380af44c6b1c4c774e3260",
+  "baseline_manifest_sha256": "975863cb541237ae22f061a10ec64fb8954643153d73bf6284f4d1035d8ac38e",
+  "allowed_paths": [
+    "skill-system/controller/harness_starter.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/harness-starter.schema.json",
+    "skill-system/starters/customer-agent/**",
+    "skill-system/tests/test_customer_agent_starter.py",
+    "docs/architecture/CUSTOMER_AGENT_STARTER_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "the bundled customer-agent starter verifies all declarations and entrypoints",
+      "overall/module/architecture/repair/CI/full-development Workflows compile through WorkflowSpec",
+      "standards and context overlays compose through harness_composition",
+      "starter-init installs a byte-identical package and the installed package re-verifies"
+    ],
+    "counterexamples": [
+      "duplicate identities, missing files, undeclared entrypoints, and traversal paths are rejected",
+      "missing or incompatible Provider bindings are rejected",
+      "a non-empty installation target is rejected"
+    ],
+    "regression": [
+      "Authoring and Composition tests remain green",
+      "Workflow Registry, activation, and bootstrap tests remain green",
+      "skill-control-plane remains green"
+    ],
+    "negative_path": [
+      "starter verification has no execution or authorization effect",
+      "full-development Workflow contains no merge capability or merge node",
+      "installed declarations contain no dependency from customer application source to Harness runtime"
+    ]
+  },
+  "baseline_source_fingerprint": "39d636f92e809742964aa6587b5b6668e5249c9938ce2c4cf950fe02c88c8932",
+  "baseline_workspace_fingerprint": "fd5b2f8694f4c8bd2aec950a89305226078c4e86f48d47d413e5b1f6950bd85a",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "d9427b536bc6a38e9b49b41f4db48f8a728fb92fdffc462a743bbd5785a45f64"
+}

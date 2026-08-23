@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-customer-agent-starter-v1",
+  "failure_case_sha256": "475e55d4b312966d05bebd3e971c0ab3d35a17beee61c64c251e73dfcb1f789b",
+  "decision": "PROVEN",
+  "root_cause": "The control plane has strict parsers for individual Project, Skill, Workflow, and Composition declarations, but no package-level manifest or verifier owns cross-file identity, default entrypoint, capability/provider coverage, and installation integrity. Domain examples therefore remain prose or isolated fixtures instead of one reusable customer-agent starter.",
+  "causal_chain": [
+    "Authoring validates one declaration at a time.",
+    "Composition validates one base Workflow plus explicitly supplied Skill contracts.",
+    "No manifest enumerates the declarations that belong to one supported starter.",
+    "No verifier proves unique Skill/Workflow identities, valid overlays, default entrypoints, or Provider coverage across the package.",
+    "No CLI can safely copy a verified package into a target workspace.",
+    "Users must reconstruct examples manually and can create inconsistent or non-runnable combinations."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-customer-agent-starter-v1/evidence/red-baseline.md",
+    "skill-system/controller/harness_authoring.py",
+    "skill-system/controller/harness_composition.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/registry/executors.json",
+    "skill-system/registry/integrations.json"
+  ],
+  "rejected_hypotheses": [
+    "Documentation snippets are sufficient; they do not prove cross-file compilation or Provider coverage.",
+    "The starter should modify customer application source; a development Harness package must remain separate from the produced application runtime.",
+    "A new customer-agent runtime is necessary; existing WorkflowSpec, Composer, Dispatcher, and Provider contracts already own execution semantics."
+  ],
+  "affected_boundaries": [
+    "starter manifest ownership",
+    "cross-declaration verification",
+    "safe starter installation",
+    "standalone project separation"
+  ]
+}
