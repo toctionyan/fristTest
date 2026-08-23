@@ -1,0 +1,23 @@
+{
+  "schema": "harness-composition@1",
+  "id": "customer-agent-module-audit-with-context",
+  "version": "1.0.0",
+  "base_workflow": "customer-agent-module-audit",
+  "bindings": [
+    {
+      "id": "customer-agent-context-audit",
+      "host_skill": "customer-agent-module-audit",
+      "extension_skill": "customer-agent-context-audit",
+      "at": "finding-enrichment",
+      "anchor": {
+        "kind": "after_route",
+        "step": "inspect-module",
+        "outcome": "findings"
+      },
+      "routes": {
+        "continue": "$CONTINUE",
+        "blocked": "BLOCKED_UNRECOVERABLE"
+      }
+    }
+  ]
+}

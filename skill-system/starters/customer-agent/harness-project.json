@@ -1,0 +1,32 @@
+{
+  "schema": "harness-project@1",
+  "project_id": "customer-agent",
+  "project_type": "agent",
+  "commands": {
+    "start": "python -m app",
+    "test": "python -m pytest",
+    "quality": "python -m pytest"
+  },
+  "write_scope": [
+    "src/**",
+    "tests/**",
+    "docs/**",
+    ".github/workflows/**",
+    "pyproject.toml"
+  ],
+  "providers": {
+    "workspace.read": "local.workspace",
+    "workspace.write": "local.workspace",
+    "vcs.diff.read": "local.git",
+    "vcs.commit.create": "local.git",
+    "test.run": "local.process",
+    "quality.evaluate": "local.process",
+    "code_review.pull_request.create": "github.code_review",
+    "ci.run.wait": "github.actions"
+  },
+  "defaults": {
+    "audit_workflow": "customer-agent-audit-with-standards",
+    "repair_workflow": "customer-agent-repair-and-prove",
+    "full_dev_workflow": "customer-agent-full-dev"
+  }
+}

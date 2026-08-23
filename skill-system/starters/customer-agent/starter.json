@@ -1,0 +1,39 @@
+{
+  "schema": "harness-starter@1",
+  "starter_id": "customer-agent",
+  "version": "1.0.0",
+  "project": "harness-project.json",
+  "skill_contracts": [
+    "skills/customer-agent-audit.json",
+    "skills/customer-agent-module-audit.json",
+    "skills/customer-agent-architecture-review.json",
+    "skills/customer-agent-repair.json",
+    "skills/customer-agent-adversarial-review.json",
+    "skills/customer-agent-standards-gate.json",
+    "skills/customer-agent-context-audit.json"
+  ],
+  "workflows": [
+    "workflows/customer-agent-overall-audit.json",
+    "workflows/customer-agent-module-audit.json",
+    "workflows/customer-agent-architecture-review.json",
+    "workflows/customer-agent-repair-and-prove.json",
+    "workflows/customer-agent-repair-with-ci.json",
+    "workflows/customer-agent-full-dev.json"
+  ],
+  "compositions": [
+    "compositions/customer-agent-audit-with-standards.json",
+    "compositions/customer-agent-module-audit-with-context.json"
+  ],
+  "entrypoints": {
+    "overall_audit": "customer-agent-audit-with-standards",
+    "module_audit": "customer-agent-module-audit-with-context",
+    "architecture_review": "customer-agent-architecture-review",
+    "repair_and_prove": "customer-agent-repair-and-prove",
+    "repair_with_ci": "customer-agent-repair-with-ci",
+    "full_dev": "customer-agent-full-dev"
+  },
+  "policies": {
+    "standalone_application": true,
+    "automatic_merge": false
+  }
+}

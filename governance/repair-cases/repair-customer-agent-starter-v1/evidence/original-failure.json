@@ -1,0 +1,7 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "original_failure",
+  "status": "PASS",
+  "observation": "Authoring and Composition accepted individual declarations but no verified customer-agent package or starter-list/starter-init/starter-verify command existed.",
+  "source": "governance/repair-cases/repair-customer-agent-starter-v1/evidence/red-baseline.md"
+}

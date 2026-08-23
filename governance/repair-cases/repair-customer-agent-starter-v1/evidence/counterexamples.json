@@ -1,0 +1,14 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "counterexamples",
+  "status": "PASS",
+  "verified": [
+    "missing and undeclared declaration files fail closed",
+    "manifest path traversal fails closed",
+    "duplicate Skill identities fail closed",
+    "unknown entrypoint Workflow identities fail closed",
+    "unknown and missing Provider bindings fail closed",
+    "reinstallation into an existing target fails closed",
+    "automatic_merge false rejects a merge capability"
+  ]
+}

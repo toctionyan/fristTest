@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "harness-starter.schema.json",
+  "title": "Harness Starter Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "starter_id",
+    "version",
+    "project",
+    "skill_contracts",
+    "workflows",
+    "compositions",
+    "entrypoints",
+    "policies"
+  ],
+  "properties": {
+    "schema": {"const": "harness-starter@1"},
+    "starter_id": {"$ref": "#/$defs/stableId"},
+    "version": {"type": "string", "minLength": 1},
+    "project": {"$ref": "#/$defs/declarationPath"},
+    "skill_contracts": {"$ref": "#/$defs/nonEmptyUniquePaths"},
+    "workflows": {"$ref": "#/$defs/nonEmptyUniquePaths"},
+    "compositions": {"$ref": "#/$defs/nonEmptyUniquePaths"},
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overall_audit",
+        "module_audit",
+        "architecture_review",
+        "repair_and_prove",
+        "repair_with_ci",
+        "full_dev"
+      ],
+      "properties": {
+        "overall_audit": {"$ref": "#/$defs/stableId"},
+        "module_audit": {"$ref": "#/$defs/stableId"},
+        "architecture_review": {"$ref": "#/$defs/stableId"},
+        "repair_and_prove": {"$ref": "#/$defs/stableId"},
+        "repair_with_ci": {"$ref": "#/$defs/stableId"},
+        "full_dev": {"$ref": "#/$defs/stableId"}
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["standalone_application", "automatic_merge"],
+      "properties": {
+        "standalone_application": {"const": true},
+        "automatic_merge": {"type": "boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$"
+    },
+    "declarationPath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._@/-]+\\.(?:json|ya?ml)$"
+    },
+    "nonEmptyUniquePaths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/declarationPath"}
+    }
+  }
+}

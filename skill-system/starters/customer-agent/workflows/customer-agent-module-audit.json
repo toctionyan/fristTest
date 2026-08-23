@@ -1,0 +1,46 @@
+{
+  "schema": "harness-workflow@1",
+  "id": "customer-agent-module-audit",
+  "version": "1.0.0",
+  "request_class": "DIAGNOSIS",
+  "skills": ["customer-agent-module-audit"],
+  "mode": "READ_ONLY",
+  "status_first": false,
+  "deterministic_response": false,
+  "write_governed": false,
+  "requirements": {
+    "capabilities": {
+      "required": ["workspace.read", "test.run"],
+      "optional": []
+    }
+  },
+  "graph": {
+    "start": "inspect-module",
+    "max_attempts_per_step": 4,
+    "steps": {
+      "inspect-module": {
+        "type": "skill",
+        "use": "customer-agent-module-audit",
+        "routes": {
+          "findings": "targeted-tests",
+          "clean": "targeted-tests",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "targeted-tests": {
+        "type": "executor",
+        "use": "test.run",
+        "routes": {
+          "green": "END",
+          "red": "END",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      }
+    }
+  },
+  "completion": {
+    "transition_to": "VALIDATING",
+    "policy": "customer-agent-module-report-produced@1",
+    "authority": "TaskRun"
+  }
+}

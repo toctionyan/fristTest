@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 CONTROLLER = Path(__file__).resolve().parent
+ROOT = CONTROLLER.parents[1]
 if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
@@ -18,6 +19,11 @@ from harness_authoring import (  # type: ignore  # noqa: E402
     validate_declaration,
 )
 from harness_composition import compose_workflow  # type: ignore  # noqa: E402
+from harness_starter import (  # type: ignore  # noqa: E402
+    initialize_starter,
+    list_builtin_starters,
+    verify_starter,
+)
 
 
 def _pairs(values: list[str], *, option: str) -> dict[str, str]:
@@ -109,6 +115,19 @@ def _parser() -> argparse.ArgumentParser:
         "--derived-workflow-output",
         help="optional standalone derived harness-workflow@1 JSON output",
     )
+
+    commands.add_parser("starter-list", help="list and verify built-in Starter packages")
+
+    starter_verify = commands.add_parser(
+        "starter-verify", help="verify one installed Starter package"
+    )
+    starter_verify.add_argument("--directory", required=True)
+
+    starter_init = commands.add_parser(
+        "starter-init", help="install a verified built-in Starter into a new directory"
+    )
+    starter_init.add_argument("--starter", required=True)
+    starter_init.add_argument("--output", required=True)
     return parser
 
 
@@ -179,6 +198,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.derived_workflow_output:
                 _write_json(payload["derived_workflow"], args.derived_workflow_output)
             _write_or_print(payload, args.output)
+            return 0
+        if args.authoring_command == "starter-list":
+            _write_or_print(
+                {
+                    "schema": "harness-starter-list@1",
+                    "status": "PASS",
+                    "starters": list_builtin_starters(registry_workspace=ROOT),
+                },
+                None,
+            )
+            return 0
+        if args.authoring_command == "starter-verify":
+            verification = verify_starter(
+                Path(args.directory), registry_workspace=ROOT
+            )
+            _write_or_print(verification.as_dict(), None)
+            return 0
+        if args.authoring_command == "starter-init":
+            verification = initialize_starter(
+                args.starter,
+                Path(args.output),
+                registry_workspace=ROOT,
+            )
+            payload = verification.as_dict()
+            payload["installed_to"] = str(Path(args.output))
+            _write_or_print(payload, None)
             return 0
         raise HarnessAuthoringError(f"unsupported authoring command: {args.authoring_command}")
     except (HarnessAuthoringError, OSError) as exc:

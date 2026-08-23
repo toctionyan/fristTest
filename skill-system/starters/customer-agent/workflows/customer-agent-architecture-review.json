@@ -1,0 +1,37 @@
+{
+  "schema": "harness-workflow@1",
+  "id": "customer-agent-architecture-review",
+  "version": "1.0.0",
+  "request_class": "DESIGN",
+  "skills": ["customer-agent-architecture-review"],
+  "mode": "READ_ONLY",
+  "status_first": false,
+  "deterministic_response": false,
+  "write_governed": false,
+  "requirements": {
+    "capabilities": {
+      "required": ["workspace.read", "vcs.diff.read"],
+      "optional": []
+    }
+  },
+  "graph": {
+    "start": "review-architecture",
+    "max_attempts_per_step": 4,
+    "steps": {
+      "review-architecture": {
+        "type": "skill",
+        "use": "customer-agent-architecture-review",
+        "routes": {
+          "approved": "END",
+          "change-required": "END",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      }
+    }
+  },
+  "completion": {
+    "transition_to": "VALIDATING",
+    "policy": "customer-agent-architecture-assessment-produced@1",
+    "authority": "TaskRun"
+  }
+}

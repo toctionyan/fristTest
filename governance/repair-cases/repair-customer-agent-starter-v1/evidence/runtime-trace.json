@@ -1,0 +1,19 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "runtime_trace",
+  "status": "PASS",
+  "trace": [
+    "skillctl.py dispatches authoring starter commands to harness_authoring_cli.py",
+    "verify_starter parses the closed starter manifest and exact declaration inventory",
+    "Project and Skill declarations pass through harness_authoring canonical parsers",
+    "base Workflows compile through WorkflowSpec and workflow_graph_contract",
+    "composition overlays derive and compile through harness_composition",
+    "Capability and Provider coverage resolves through the existing Provider Registry",
+    "starter-init verifies the source, copies to a new target, and re-verifies the installed package",
+    "execution and activation remain downstream and are not entered"
+  ],
+  "model_calls": 0,
+  "network_calls": 0,
+  "provider_executions": 0,
+  "write_authority_grants": 0
+}

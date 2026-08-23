@@ -1,0 +1,14 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "regression",
+  "status": "PASS",
+  "command": "PYTHONPATH=$PWD/services/agent-service/.venv/lib/python3.12/site-packages python3 -B skill-system/controller/profile_runner.py skill-control-plane",
+  "unit_test_count": 801,
+  "profiles": {
+    "skill-static": "PASS",
+    "skill-unit": "PASS",
+    "skill-host-integration": "PASS",
+    "skill-security": "PASS",
+    "project-compatibility-smoke": "PASS"
+  }
+}

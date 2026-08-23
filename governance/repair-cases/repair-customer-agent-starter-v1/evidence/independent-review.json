@@ -1,0 +1,28 @@
+{
+  "schema": "change-review-evidence@1",
+  "change_id": "repair-customer-agent-starter-v1",
+  "status": "PASS",
+  "scope_review": {
+    "decision": "PASS",
+    "findings": [
+      "The deterministic diff contains only the approved Starter controller, CLI, schema, bundled declarations, tests, and documentation paths.",
+      "No services, web, contracts, trusted Judge inputs, Provider runtime adapters, or customer application source changed.",
+      "The implementation closes the package-level initialization gap without adding a second Workflow or graph runtime."
+    ]
+  },
+  "adversarial_review": {
+    "decision": "PASS",
+    "findings": [
+      "Traversal, symlink, missing, undeclared, duplicate identity, unknown entrypoint, Provider mismatch, overwrite, and automatic merge counterexamples fail closed.",
+      "All declarations reuse canonical Project, Skill, Workflow, Composition, Capability, and Provider parsers.",
+      "CI Workflows can create a PR and wait for CI but cannot merge; Graph END remains VALIDATING under TaskRun authority.",
+      "Installation only copies a verified declaration package and has no execution, Provider activation, write-grant, or customer-runtime effect."
+    ]
+  },
+  "evidence": [
+    "governance/repair-cases/repair-customer-agent-starter-v1/diff-review.json",
+    "governance/repair-cases/repair-customer-agent-starter-v1/evidence/focused-tests.json",
+    "governance/repair-cases/repair-customer-agent-starter-v1/evidence/regression.json",
+    "governance/repair-cases/repair-customer-agent-starter-v1/evidence/authority-boundary.json"
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "schema": "harness-workflow@1",
+  "id": "customer-agent-repair-with-ci",
+  "version": "1.0.0",
+  "request_class": "REPAIR",
+  "skills": ["customer-agent-repair", "customer-agent-adversarial-review"],
+  "mode": "WRITE",
+  "status_first": false,
+  "deterministic_response": false,
+  "write_governed": true,
+  "requirements": {
+    "capabilities": {
+      "required": [
+        "workspace.read",
+        "workspace.write",
+        "vcs.diff.read",
+        "test.run",
+        "quality.evaluate",
+        "vcs.commit.create",
+        "code_review.pull_request.create",
+        "ci.run.wait"
+      ],
+      "optional": []
+    }
+  },
+  "graph": {
+    "start": "repair",
+    "max_attempts_per_step": 8,
+    "steps": {
+      "repair": {
+        "type": "skill",
+        "use": "customer-agent-repair",
+        "routes": {
+          "patched": "focused-tests",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "focused-tests": {
+        "type": "gate",
+        "use": "test.run",
+        "routes": {
+          "green": "adversarial-review",
+          "red": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "adversarial-review": {
+        "type": "skill",
+        "use": "customer-agent-adversarial-review",
+        "routes": {
+          "clean": "quality",
+          "findings": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "quality": {
+        "type": "gate",
+        "use": "quality.evaluate",
+        "routes": {
+          "green": "commit",
+          "red": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "commit": {
+        "type": "executor",
+        "use": "vcs.commit.create",
+        "routes": {
+          "green": "create-pr",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "create-pr": {
+        "type": "executor",
+        "use": "code_review.pull_request.create",
+        "routes": {
+          "green": "wait-ci",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      },
+      "wait-ci": {
+        "type": "external_wait",
+        "use": "ci.run.wait",
+        "routes": {
+          "pending": "WAITING_EXTERNAL",
+          "green": "END",
+          "red": "repair",
+          "blocked": "BLOCKED_UNRECOVERABLE"
+        }
+      }
+    }
+  },
+  "completion": {
+    "transition_to": "VALIDATING",
+    "policy": "customer-agent-repair-ci-green@1",
+    "authority": "TaskRun"
+  }
+}

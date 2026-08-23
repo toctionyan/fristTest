@@ -1,0 +1,12 @@
+{
+  "schema": "repair-evidence@1",
+  "dimension": "negative_paths",
+  "status": "PASS",
+  "verified": [
+    "verification reports and performs no Workflow execution",
+    "verification activates no Provider and grants no write authority",
+    "CI and full-development Workflows contain PR creation and CI wait but no merge capability or node",
+    "all Graph completion declarations transition only to VALIDATING under TaskRun authority",
+    "the Starter contains only development declarations and adds no customer application runtime import"
+  ]
+}
