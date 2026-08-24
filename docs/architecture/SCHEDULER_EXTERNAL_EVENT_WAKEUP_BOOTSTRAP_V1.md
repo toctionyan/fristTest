@@ -66,7 +66,7 @@ export HARNESS_HOST_FACTORY=concrete_host_bootstrap:build_orchestrator
 export HARNESS_HOST_BOOTSTRAP=/path/to/project/.harness/host/bootstrap.json
 ```
 
-A trusted webhook listener writes one closed request:
+A provider-neutral caller may still write one closed trusted request:
 
 ```json
 {
@@ -91,6 +91,17 @@ python3 -B skillctl.py scheduler --host-id codex ingest --request event.json
 python3 -B skillctl.py scheduler --host-id codex wake \
   --event-ref file:.harness/runtime/external-events/<event-id>.json
 ```
+
+For real GitHub Actions delivery, the concrete Host now supplies a signed
+`workflow_run` listener that verifies HMAC, persists raw provider evidence, and
+calls these same Scheduler operations without hand-written normalization:
+
+```bash
+python3 -B skillctl.py provider-webhook \
+  --host-id codex serve --bind 127.0.0.1 --port 8787
+```
+
+See [Provider Webhook / External Event Transport v1](PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md).
 
 Alternatively, cron, launchd, systemd timer, GitHub webhook automation, or an IDE extension may trigger one bounded inbox snapshot:
 

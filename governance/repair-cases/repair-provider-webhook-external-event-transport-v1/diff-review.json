@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "permit_digest": "778bc8c96791373e56d748c1f7391ea19e2406369df9620e742a897ccc6e1f66",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "a31ae0454846ae80b20b3ce88f23bcdad6b2f75640579c106f1682647f677288",
+  "candidate_source_fingerprint": "9344f6389dd8e1b88daab647385a4dafbaca1096df5d351f4ee405adee3fdfb6",
+  "changed_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/github_webhook_external_event_transport.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/provider_webhook_cli.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skill-system/tests/test_provider_webhook_external_event_transport.py",
+    "skillctl.py"
+  ],
+  "added_paths": [
+    "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md",
+    "skill-system/controller/github_webhook_external_event_transport.py",
+    "skill-system/controller/provider_webhook_cli.py",
+    "skill-system/tests/test_provider_webhook_external_event_transport.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skillctl.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

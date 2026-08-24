@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "repair_plan_sha256": "911fdef60a45e737b823a5ba8bc8f591c182f32f8e9e11c715cbcbfe2322f11e",
+  "plan_review_sha256": "f1b9b66abb18142bdd30b386a307133a783ce9170dde6f297001783ed838a399",
+  "baseline_manifest_sha256": "236c9cbb68c1aad056b6653dfab17096fe10cdf169c1dae3835460ed1899e486",
+  "allowed_paths": [
+    "skill-system/controller/github_webhook_external_event_transport.py",
+    "skill-system/controller/provider_webhook_cli.py",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_provider_webhook_external_event_transport.py",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skillctl.py",
+    "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "a valid signed completed GitHub workflow_run for the configured repository persists sealed raw evidence and delegates exact normalized ingest/wake once",
+      "the root one-request CLI and WSGI POST listener use the same transport implementation",
+      "initializer and built-in factory attach concrete-host-bootstrap@4 provider transport configuration"
+    ],
+    "counterexamples": [
+      "missing or invalid signature, delivery ID, event type, action, run status, repository, run ID, head SHA, body encoding, content type, or size fails closed",
+      "same delivery with changed bytes or changed session is rejected and concurrent replay cannot submit twice",
+      "Scheduler rejection remains rejection and cannot be converted to success by the listener"
+    ],
+    "regression": [
+      "Scheduler, Provider adapter, Host bootstrap, initializer, Host runtime/transport, schemas, and complete skill-unit suites remain green"
+    ],
+    "negative_path": [
+      "listener contains no Provider polling or merge/completion/write transition",
+      "webhook secret never appears in durable artifacts, output, bootstrap, or project command environment",
+      "product source and dependencies remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "a31ae0454846ae80b20b3ce88f23bcdad6b2f75640579c106f1682647f677288",
+  "baseline_workspace_fingerprint": "d72c2263be733f045802aa2d186ef14ee4c23059b3c186f55f32dd4bc68c82d4",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "778bc8c96791373e56d748c1f7391ea19e2406369df9620e742a897ccc6e1f66"
+}

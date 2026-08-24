@@ -49,6 +49,7 @@ def _initialize_concrete_host_project_locked(
     process_timeout_seconds: int = 900,
     github_repository: str | None = None,
     github_token_environment_variable: str = "GITHUB_TOKEN",
+    github_webhook_secret_environment_variable: str = "GITHUB_WEBHOOK_SECRET",
 ) -> dict[str, Any]:
     """Install, register, and seal one built-in Starter without touching product code."""
 
@@ -127,6 +128,24 @@ def _initialize_concrete_host_project_locked(
                 "ci_provider_id": "github.actions",
                 "api_base": "https://api.github.com",
             }
+        provider_webhook = None
+        if github is not None:
+            provider_webhook = {
+                "type": "github-workflow-run-hmac-sha256",
+                "provider_id": "github.actions",
+                "repository_full_name": github_repository,
+                "secret_environment_variable": (
+                    github_webhook_secret_environment_variable
+                ),
+                "evidence_root": ".harness/runtime/provider-webhook-evidence/github",
+                "receipt_root": ".harness/runtime/provider-webhook-receipts/github",
+                "lock_root": ".harness/runtime/provider-webhook-locks/github",
+                "max_body_bytes": 1048576,
+                "http_path_prefix": "/v1/github/workflow-run/",
+                "automatic_wake": True,
+                "provider_polling": False,
+                "authority_effect": False,
+            }
         bootstrap = seal_bootstrap(
             {
                 "schema": CONCRETE_HOST_BOOTSTRAP_SCHEMA,
@@ -168,6 +187,7 @@ def _initialize_concrete_host_project_locked(
                     "provider_polling": False,
                     "authority_effect": False,
                 },
+                "provider_webhook": provider_webhook,
                 "runtime": {
                     "session_root": ".harness/runtime/host-sessions",
                     "taskrun_root": ".harness/taskruns",
@@ -178,6 +198,8 @@ def _initialize_concrete_host_project_locked(
                     "configuration_completes_taskrun": False,
                     "scheduler_is_authority": False,
                     "external_event_completes_taskrun": False,
+                    "provider_webhook_is_authority": False,
+                    "provider_webhook_interprets_ci": False,
                     "provider_polling": False,
                     "automatic_merge": False,
                     "completion_authority": "TaskRun",
@@ -226,6 +248,11 @@ def _initialize_concrete_host_project_locked(
             "github_token_variable": (
                 github_token_environment_variable if github_repository is not None else None
             ),
+            "github_webhook_secret_variable": (
+                github_webhook_secret_environment_variable
+                if github_repository is not None
+                else None
+            ),
         },
         "policy": dict(bootstrap["policy"]),
     }
@@ -241,6 +268,7 @@ def initialize_concrete_host_project(
     process_timeout_seconds: int = 900,
     github_repository: str | None = None,
     github_token_environment_variable: str = "GITHUB_TOKEN",
+    github_webhook_secret_environment_variable: str = "GITHUB_WEBHOOK_SECRET",
 ) -> dict[str, Any]:
     """Serialize publication so concurrent initializers cannot delete each other."""
 
@@ -267,6 +295,9 @@ def initialize_concrete_host_project(
                 process_timeout_seconds=process_timeout_seconds,
                 github_repository=github_repository,
                 github_token_environment_variable=github_token_environment_variable,
+                github_webhook_secret_environment_variable=(
+                    github_webhook_secret_environment_variable
+                ),
             )
     except Exception:
         # Keep a durable empty lock file when .harness contains installation state.

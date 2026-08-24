@@ -18,7 +18,7 @@ The generated application remains independently runnable. `.harness/**` is devel
   host-init.lock                         concurrent initializer serialization
   starters/customer-agent/             verified immutable Starter copy
   runtime/starter-registration.json    sealed Starter/workflow/skill identity
-  host/bootstrap.json                  concrete-host-bootstrap@3
+  host/bootstrap.json                  concrete-host-bootstrap@4
   runtime/langgraph-checkpoints.sqlite3  created on first Host command
   runtime/host-sessions/               durable interaction sessions
   runtime/authority-checks/            exact ChangePermit checks
@@ -27,6 +27,9 @@ The generated application remains independently runnable. `.harness/**` is devel
   runtime/external-events/             exact wait-bound provider events
   runtime/external-wakeup-receipts/    delivery reservations and receipts
   runtime/external-wakeup-locks/       per-session one-shot serialization
+  runtime/provider-webhook-evidence/  signed GitHub provider evidence
+  runtime/provider-webhook-receipts/  replay-safe ingress receipts
+  runtime/provider-webhook-locks/     per-delivery serialization
   taskruns/                             canonical TaskRun state
 ```
 
@@ -68,10 +71,16 @@ Local-only audit and test assembly requires no GitHub token. Configure GitHub on
 python3 -B skillctl.py authoring host-init \
   --project-workspace /path/to/project \
   --github-repository owner/repository \
-  --github-token-environment-variable GITHUB_TOKEN
+  --github-token-environment-variable GITHUB_TOKEN \
+  --github-webhook-secret-environment-variable GITHUB_WEBHOOK_SECRET
 ```
 
-Only the environment-variable name is written. The token value is loaded at factory runtime and is never emitted. If integration is configured and the variable is missing, bootstrap blocks; it does not silently downgrade or choose another provider.
+Only environment-variable names are written. Values are loaded at runtime and
+are never emitted or passed to sealed project command profiles. A missing API
+token blocks GitHub Provider assembly; a missing webhook secret blocks webhook
+receipt without disabling or weakening the Host. The generated GitHub transport
+verifies real `workflow_run` signatures and calls the existing Scheduler. See
+[Provider Webhook / External Event Transport v1](PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md).
 
 ## Authority boundaries
 
@@ -88,5 +97,11 @@ The generated bootstrap has a fixed non-authorizing policy:
 - CI green and Quality green remain evidence, not overall completion.
 
 The factory also injects a durable one-shot external-event scheduler. It accepts only an event matching the exact active Host/TaskRun wait, invokes the existing `RESUME_EXTERNAL` or exact pending-transition `RECONCILE` operation, and writes an idempotent receipt. It performs no Provider polling and cannot select routes or complete a TaskRun. See [Scheduler / External Event Wake-up Bootstrap v1](SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md).
+
+When GitHub is configured, the factory additionally injects one
+GitHub-specific HMAC webhook transport. It owns only authentication, provider
+evidence, replay protection, and normalization before Scheduler ingest. It does
+not interpret CI conclusions or gain write, completion, release, production, or
+merge authority.
 
 Normal governed repair is automatic after the target project already has an implementing active Change Contract and valid ChangePermit and the `START` target carries their exact `change_id` and `permit_digest`. Initialization, natural-language routing, `SELECT`, and `CONFIRM` cannot manufacture those facts. True policy choices remain explicit Human Gates. See [Write Authority / Human Gate Bootstrap v1](WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md).

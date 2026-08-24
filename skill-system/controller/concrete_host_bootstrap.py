@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-CONCRETE_HOST_BOOTSTRAP_SCHEMA = "concrete-host-bootstrap@3"
+CONCRETE_HOST_BOOTSTRAP_SCHEMA = "concrete-host-bootstrap@4"
 DEFAULT_BOOTSTRAP_ENVIRONMENT_VARIABLE = "HARNESS_HOST_BOOTSTRAP"
 DEFAULT_BOOTSTRAP_RELATIVE = Path(".harness/host/bootstrap.json")
 
@@ -22,6 +22,8 @@ _POLICY = {
     "configuration_completes_taskrun": False,
     "scheduler_is_authority": False,
     "external_event_completes_taskrun": False,
+    "provider_webhook_is_authority": False,
+    "provider_webhook_interprets_ci": False,
     "provider_polling": False,
     "automatic_merge": False,
     "completion_authority": "TaskRun",
@@ -36,6 +38,27 @@ _SCHEDULER_DEFAULT = {
     "provider_polling": False,
     "authority_effect": False,
 }
+
+
+def _provider_webhook_default(
+    github: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if github is None:
+        return None
+    return {
+        "type": "github-workflow-run-hmac-sha256",
+        "provider_id": github.get("ci_provider_id", "github.actions"),
+        "repository_full_name": github.get("repository_full_name"),
+        "secret_environment_variable": "GITHUB_WEBHOOK_SECRET",
+        "evidence_root": ".harness/runtime/provider-webhook-evidence/github",
+        "receipt_root": ".harness/runtime/provider-webhook-receipts/github",
+        "lock_root": ".harness/runtime/provider-webhook-locks/github",
+        "max_body_bytes": 1048576,
+        "http_path_prefix": "/v1/github/workflow-run/",
+        "automatic_wake": True,
+        "provider_polling": False,
+        "authority_effect": False,
+    }
 
 
 class ConcreteHostBootstrapError(RuntimeError):
@@ -56,16 +79,26 @@ def bootstrap_digest(payload: Mapping[str, Any]) -> str:
 
 def seal_bootstrap(payload: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(payload)
-    # Programmatic authoring upgrades the previous non-authorizing bootstrap
-    # input to the fixed scheduler defaults. Persisted @3 files are still
-    # validated as closed and cannot omit or weaken these fields.
+    # Programmatic authoring upgrades previous non-authorizing bootstrap input.
+    # Persisted files are validated against the current closed schema and cannot
+    # omit or weaken the successor fields.
+    if result.get("schema") == "concrete-host-bootstrap@3":
+        result["schema"] = CONCRETE_HOST_BOOTSTRAP_SCHEMA
     result.setdefault("scheduler", dict(_SCHEDULER_DEFAULT))
+    providers = result.get("providers")
+    github = providers.get("github") if isinstance(providers, Mapping) else None
+    result.setdefault(
+        "provider_webhook",
+        _provider_webhook_default(github if isinstance(github, Mapping) else None),
+    )
     policy = result.get("policy")
     if isinstance(policy, Mapping):
         normalized_policy = dict(policy)
         for field in (
             "scheduler_is_authority",
             "external_event_completes_taskrun",
+            "provider_webhook_is_authority",
+            "provider_webhook_interprets_ci",
             "provider_polling",
         ):
             normalized_policy.setdefault(field, False)
@@ -148,6 +181,7 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
             "authority",
             "human_gate",
             "scheduler",
+            "provider_webhook",
             "runtime",
             "policy",
             "bootstrap_sha256",
@@ -325,6 +359,103 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
     if scheduler.get("authority_effect") is not False:
         raise ConcreteHostBootstrapError("scheduler configuration cannot grant authority")
 
+    provider_webhook = payload.get("provider_webhook")
+    if github is None:
+        if provider_webhook is not None:
+            raise ConcreteHostBootstrapError(
+                "provider_webhook requires providers.github"
+            )
+    else:
+        provider_webhook = _object(
+            provider_webhook, field="provider_webhook"
+        )
+        _closed(
+            provider_webhook,
+            {
+                "type",
+                "provider_id",
+                "repository_full_name",
+                "secret_environment_variable",
+                "evidence_root",
+                "receipt_root",
+                "lock_root",
+                "max_body_bytes",
+                "http_path_prefix",
+                "automatic_wake",
+                "provider_polling",
+                "authority_effect",
+            },
+            field="provider_webhook",
+        )
+        if provider_webhook.get("type") != "github-workflow-run-hmac-sha256":
+            raise ConcreteHostBootstrapError(
+                "provider_webhook.type must be github-workflow-run-hmac-sha256"
+            )
+        if provider_webhook.get("provider_id") != github["ci_provider_id"]:
+            raise ConcreteHostBootstrapError(
+                "provider_webhook.provider_id must match providers.github.ci_provider_id"
+            )
+        if (
+            provider_webhook.get("repository_full_name")
+            != github["repository_full_name"]
+        ):
+            raise ConcreteHostBootstrapError(
+                "provider_webhook.repository_full_name must match providers.github"
+            )
+        secret_variable = provider_webhook.get("secret_environment_variable")
+        if (
+            not isinstance(secret_variable, str)
+            or not _ENVIRONMENT_VARIABLE.fullmatch(secret_variable)
+        ):
+            raise ConcreteHostBootstrapError(
+                "provider_webhook.secret_environment_variable must be an uppercase name"
+            )
+        if secret_variable == github["token_environment_variable"]:
+            raise ConcreteHostBootstrapError(
+                "provider webhook secret must not reuse the GitHub API token variable"
+            )
+        webhook_roots: list[str] = []
+        for field in ("evidence_root", "receipt_root", "lock_root"):
+            provider_webhook[field] = _relative(
+                provider_webhook.get(field), field=f"provider_webhook.{field}"
+            )
+            if not provider_webhook[field].startswith(".harness/"):
+                raise ConcreteHostBootstrapError(
+                    f"provider_webhook.{field} must stay beneath .harness"
+                )
+            webhook_roots.append(provider_webhook[field])
+        if len(set(webhook_roots)) != 3 or set(webhook_roots).intersection(
+            {scheduler["event_root"], scheduler["receipt_root"], scheduler["lock_root"]}
+        ):
+            raise ConcreteHostBootstrapError(
+                "provider webhook roots must be distinct from each other and Scheduler roots"
+            )
+        body_limit = provider_webhook.get("max_body_bytes")
+        if (
+            not isinstance(body_limit, int)
+            or isinstance(body_limit, bool)
+            or not 1 <= body_limit <= 10 * 1024 * 1024
+        ):
+            raise ConcreteHostBootstrapError(
+                "provider_webhook.max_body_bytes must be 1..10485760"
+            )
+        if provider_webhook.get("http_path_prefix") != "/v1/github/workflow-run/":
+            raise ConcreteHostBootstrapError(
+                "provider_webhook.http_path_prefix is fixed"
+            )
+        if provider_webhook.get("automatic_wake") is not True:
+            raise ConcreteHostBootstrapError(
+                "provider_webhook must deliver through one Scheduler wake"
+            )
+        if provider_webhook.get("provider_polling") is not False:
+            raise ConcreteHostBootstrapError(
+                "provider_webhook cannot enable Provider polling"
+            )
+        if provider_webhook.get("authority_effect") is not False:
+            raise ConcreteHostBootstrapError(
+                "provider_webhook configuration cannot grant authority"
+            )
+
     runtime = _object(payload.get("runtime"), field="runtime")
     _closed(
         runtime,
@@ -352,6 +483,7 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
         "authority": authority,
         "human_gate": human_gate,
         "scheduler": scheduler,
+        "provider_webhook": provider_webhook,
         "runtime": runtime,
         "policy": dict(_POLICY),
         "bootstrap_sha256": digest,
@@ -509,10 +641,21 @@ def build_orchestrator(*, host_id: str):
         workspace=project_workspace,
         commands={command: commands[command] for command in command_ids},
         timeout=provider_config["process_timeout_seconds"],
-        denied_environment_variables=(
-            (github_raw["token_environment_variable"],)
-            if github_raw is not None
-            else ()
+        denied_environment_variables=tuple(
+            value
+            for value in (
+                (
+                    github_raw["token_environment_variable"]
+                    if github_raw is not None
+                    else None
+                ),
+                (
+                    config["provider_webhook"]["secret_environment_variable"]
+                    if config["provider_webhook"] is not None
+                    else None
+                ),
+            )
+            if value is not None
         ),
     )
     github = None
@@ -567,9 +710,31 @@ def build_orchestrator(*, host_id: str):
         lock_root=scheduler_config["lock_root"],
         max_events_per_run=scheduler_config["max_events_per_run"],
     )
+    provider_webhook_config = config["provider_webhook"]
+    provider_webhook_transport = None
+    if provider_webhook_config is not None:
+        from github_webhook_external_event_transport import (
+            GitHubWorkflowRunWebhookTransport,
+        )
+
+        provider_webhook_transport = GitHubWorkflowRunWebhookTransport(
+            workspace=project_workspace,
+            scheduler=wakeup_scheduler,
+            host_id=host_id,
+            repository_full_name=provider_webhook_config["repository_full_name"],
+            provider_id=provider_webhook_config["provider_id"],
+            secret_environment_variable=provider_webhook_config[
+                "secret_environment_variable"
+            ],
+            evidence_root=provider_webhook_config["evidence_root"],
+            receipt_root=provider_webhook_config["receipt_root"],
+            lock_root=provider_webhook_config["lock_root"],
+            max_body_bytes=provider_webhook_config["max_body_bytes"],
+        )
     # Keep the sqlite connection alive for the one-shot command lifetime.
     orchestrator._concrete_bootstrap_connection = connection
     orchestrator._concrete_wakeup_scheduler = wakeup_scheduler
+    orchestrator._concrete_provider_webhook_transport = provider_webhook_transport
     orchestrator._concrete_bootstrap_policy = {
         "provider_ids": list(assembly.provider_ids),
         "write_authority_injected": True,
@@ -579,6 +744,12 @@ def build_orchestrator(*, host_id: str):
         "human_gate_injected": True,
         "scheduler_injected": True,
         "scheduler_type": "durable-local-one-shot",
+        "provider_webhook_injected": provider_webhook_transport is not None,
+        "provider_webhook_type": (
+            provider_webhook_config["type"]
+            if provider_webhook_config is not None
+            else None
+        ),
         **_POLICY,
     }
     return orchestrator

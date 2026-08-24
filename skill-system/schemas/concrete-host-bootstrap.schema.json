@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "concrete-host-bootstrap.schema.json",
-  "title": "Concrete Host Bootstrap v3",
+  "title": "Concrete Host Bootstrap v4",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "starter", "registration", "checkpointer", "providers", "authority", "human_gate", "scheduler", "runtime", "policy", "bootstrap_sha256"],
+  "required": ["schema", "starter", "registration", "checkpointer", "providers", "authority", "human_gate", "scheduler", "provider_webhook", "runtime", "policy", "bootstrap_sha256"],
   "properties": {
-    "schema": {"const": "concrete-host-bootstrap@3"},
+    "schema": {"const": "concrete-host-bootstrap@4"},
     "starter": {
       "type": "object",
       "additionalProperties": false,
@@ -104,6 +104,30 @@
         "authority_effect": {"const": false}
       }
     },
+    "provider_webhook": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "provider_id", "repository_full_name", "secret_environment_variable", "evidence_root", "receipt_root", "lock_root", "max_body_bytes", "http_path_prefix", "automatic_wake", "provider_polling", "authority_effect"],
+          "properties": {
+            "type": {"const": "github-workflow-run-hmac-sha256"},
+            "provider_id": {"type": "string", "minLength": 1},
+            "repository_full_name": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+            "secret_environment_variable": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+            "evidence_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+            "receipt_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+            "lock_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+            "max_body_bytes": {"type": "integer", "minimum": 1, "maximum": 10485760},
+            "http_path_prefix": {"const": "/v1/github/workflow-run/"},
+            "automatic_wake": {"const": true},
+            "provider_polling": {"const": false},
+            "authority_effect": {"const": false}
+          }
+        }
+      ]
+    },
     "runtime": {
       "type": "object",
       "additionalProperties": false,
@@ -120,6 +144,8 @@
         "configuration_completes_taskrun": false,
         "scheduler_is_authority": false,
         "external_event_completes_taskrun": false,
+        "provider_webhook_is_authority": false,
+        "provider_webhook_interprets_ci": false,
         "provider_polling": false,
         "automatic_merge": false,
         "completion_authority": "TaskRun",

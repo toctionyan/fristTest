@@ -73,6 +73,7 @@ def unsigned_bootstrap() -> dict[str, object]:
             "provider_polling": False,
             "authority_effect": False,
         },
+        "provider_webhook": None,
         "runtime": {
             "session_root": ".harness/runtime/host-sessions",
             "taskrun_root": ".harness/taskruns",
@@ -83,6 +84,8 @@ def unsigned_bootstrap() -> dict[str, object]:
             "configuration_completes_taskrun": False,
             "scheduler_is_authority": False,
             "external_event_completes_taskrun": False,
+            "provider_webhook_is_authority": False,
+            "provider_webhook_interprets_ci": False,
             "provider_polling": False,
             "automatic_merge": False,
             "completion_authority": "TaskRun",
@@ -195,6 +198,7 @@ class ConcreteHostBootstrapTest(unittest.TestCase):
         self.assertIsNotNone(orchestrator._concrete_wakeup_scheduler)
         self.assertTrue(orchestrator._concrete_bootstrap_policy["scheduler_injected"])
         self.assertFalse(orchestrator._concrete_bootstrap_policy["provider_polling"])
+        self.assertIsNone(orchestrator._concrete_provider_webhook_transport)
         self.assertFalse(
             orchestrator._concrete_bootstrap_policy["write_authority_currently_granted"]
         )
@@ -235,6 +239,47 @@ class ConcreteHostBootstrapTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(Exception, "PRIVATE_GITHUB_TOKEN"):
                 build_orchestrator(host_id="chatgpt")
+
+    def test_configured_github_injects_lazy_secret_webhook_transport(self) -> None:
+        self._git_init()
+        result = initialize_concrete_host_project(
+            project_workspace=self.root,
+            registry_workspace=ROOT,
+            github_repository="owner/customer-agent",
+            github_token_environment_variable="PRIVATE_GITHUB_TOKEN",
+            github_webhook_secret_environment_variable="PRIVATE_WEBHOOK_SECRET",
+        )
+        bootstrap_path = self.root / result["bootstrap"]
+        bootstrap = json.loads(bootstrap_path.read_text(encoding="utf-8"))
+        self.assertEqual(bootstrap["schema"], "concrete-host-bootstrap@4")
+        self.assertEqual(
+            bootstrap["provider_webhook"]["secret_environment_variable"],
+            "PRIVATE_WEBHOOK_SECRET",
+        )
+        self.assertNotIn("secret", bootstrap["provider_webhook"])
+        self.assertEqual(
+            result["environment"]["github_webhook_secret_variable"],
+            "PRIVATE_WEBHOOK_SECRET",
+        )
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HARNESS_HOST_BOOTSTRAP": str(bootstrap_path),
+                "PRIVATE_GITHUB_TOKEN": "api-token",
+            },
+            clear=True,
+        ):
+            orchestrator = build_orchestrator(host_id="codex")
+        self.assertIsNotNone(orchestrator._concrete_provider_webhook_transport)
+        self.assertTrue(
+            orchestrator._concrete_bootstrap_policy["provider_webhook_injected"]
+        )
+        self.assertEqual(
+            orchestrator._concrete_provider_webhook_transport.secret_environment_variable,
+            "PRIVATE_WEBHOOK_SECRET",
+        )
+        orchestrator._concrete_bootstrap_connection.close()
 
     def test_root_cli_initializes_and_opens_one_durable_host_session(self) -> None:
         self._git_init()

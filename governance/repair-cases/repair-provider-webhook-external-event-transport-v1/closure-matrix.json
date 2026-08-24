@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "permit_digest": "778bc8c96791373e56d748c1f7391ea19e2406369df9620e742a897ccc6e1f66",
+  "diff_review_sha256": "77ba33170b0ac51e5fc5b812ba3b85df8a9b561ebafbdfe281b523ab9a3adb6d",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "9344f6389dd8e1b88daab647385a4dafbaca1096df5d351f4ee405adee3fdfb6",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "6fd2a360a6ea016b63b16df8142c599ff16931a537a23a159ff94821026d62ff"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/counterexamples.md",
+      "evidence_sha256": "3868cf63f5440d7c9219df81eb53e0c24b017587b7d600b31872ec62f2c8980d"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/diff-review.json",
+      "evidence_sha256": "77ba33170b0ac51e5fc5b812ba3b85df8a9b561ebafbdfe281b523ab9a3adb6d"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/focused-tests.md",
+      "evidence_sha256": "f0ced809758b6754a93a82e939ab75c1233fe16467a5cf42fe36aad19a272e52"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/negative-paths.md",
+      "evidence_sha256": "5303f977c257238affbd5d580eb05a0660bd81ae4f6246874b934aa0473454a0"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/red-baseline.md",
+      "evidence_sha256": "3da5e6c0a90d63eed641f3856d8527ed859fea33c9ba212027516f9ca4e68f5c"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/regression.md",
+      "evidence_sha256": "f0bf4252f67aa5683c008645bb80ef8a3c0eef5cdc8c46993415aafa3553af98"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "77d61e734a01a30554153e387c31a91e3e9460623c61c67758563233672f663f"
+    }
+  ],
+  "residual_risks": []
+}

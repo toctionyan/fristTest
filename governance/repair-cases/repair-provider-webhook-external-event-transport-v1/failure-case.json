@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A concrete GitHub-enabled ChatGPT/Codex Host authenticates one real workflow_run webhook, persists immutable provider evidence, rejects replay conflicts, and passes the normalized exact event to the existing Scheduler for one idempotent wake-up.",
+    "actual": "The Host stops at a trusted normalized scheduler-ingest boundary. No provider signature verifier, provider-native workflow_run normalizer, durable delivery replay owner, HTTP listener, or root provider-webhook transport command exists.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/red-baseline.md",
+      "skill-system/controller/scheduler_cli.py",
+      "skill-system/controller/durable_external_event_scheduler.py",
+      "skill-system/controller/concrete_host_bootstrap.py",
+      "skill-system/controller/project_initializer.py"
+    ]
+  },
+  "violated_invariants": [
+    "A real Provider event must be authenticated before it enters the trusted normalized Scheduler boundary.",
+    "Provider delivery identity and exact signed bytes must be durable and replay-safe.",
+    "The Provider listener must reuse the existing Scheduler, Host transport, Workflow runtime, and TaskRun authorities rather than becoming a second controller."
+  ],
+  "affected_boundaries": [
+    "GitHub workflow_run webhook authentication",
+    "provider-native event normalization and immutable evidence",
+    "external event HTTP/process transport",
+    "concrete Host bootstrap and project initializer"
+  ]
+}
