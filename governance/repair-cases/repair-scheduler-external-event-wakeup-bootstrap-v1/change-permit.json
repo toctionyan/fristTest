@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "repair_plan_sha256": "dcdf6350c85bccf47eb5a099f0663658a761f366fd20748f357279ffd66cf770",
+  "plan_review_sha256": "3db3a121c395b2b7057286112b2f4b99dbe713aa0788d9fe4888790134d448c7",
+  "baseline_manifest_sha256": "4ea7afb27380d7340b614123174b6e2a651b860febb16bd51caf66f9de074b53",
+  "allowed_paths": [
+    "skill-system/controller/durable_external_event_scheduler.py",
+    "skill-system/controller/scheduler_cli.py",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/schemas/external-event-wakeup.schema.json",
+    "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skillctl.py",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "exact waiting event ingests and wakes the same session/TaskRun through existing transport",
+      "duplicate and concurrent wake produce one resume and one durable receipt",
+      "initializer/factory inject concrete scheduler configuration"
+    ],
+    "counterexamples": [
+      "wrong provider, correlation, event name, evidence, session, revision, TaskRun, or wait checkpoint is rejected",
+      "a second event for an already-consumed wait is rejected stale",
+      "tampered event, reservation, receipt, or path fails closed"
+    ],
+    "regression": [
+      "provider adapter, LangGraph runtime, TaskRun bridge, Host orchestrator/transport, initializer, schema, and all skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "scheduler contains no polling loop and cannot complete TaskRun or merge",
+      "product source and dependencies remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "8b5140dfc13760bac19ac7932ab9fdde803da86dffb76c927a61bbdbfb1d72ae",
+  "baseline_workspace_fingerprint": "1a3cd111b9be7e46fab836d473830acda4facdc911daadb514f983b44f980c39",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "420a82a1e7a482510e813493f957f6dc863d4c6cbdf5aa0e3437f2303aac53f1"
+}

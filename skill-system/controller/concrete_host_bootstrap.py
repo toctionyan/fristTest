@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-CONCRETE_HOST_BOOTSTRAP_SCHEMA = "concrete-host-bootstrap@2"
+CONCRETE_HOST_BOOTSTRAP_SCHEMA = "concrete-host-bootstrap@3"
 DEFAULT_BOOTSTRAP_ENVIRONMENT_VARIABLE = "HARNESS_HOST_BOOTSTRAP"
 DEFAULT_BOOTSTRAP_RELATIVE = Path(".harness/host/bootstrap.json")
 
@@ -20,8 +20,20 @@ _ENVIRONMENT_VARIABLE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _POLICY = {
     "configuration_grants_write_authority": False,
     "configuration_completes_taskrun": False,
+    "scheduler_is_authority": False,
+    "external_event_completes_taskrun": False,
+    "provider_polling": False,
     "automatic_merge": False,
     "completion_authority": "TaskRun",
+    "authority_effect": False,
+}
+_SCHEDULER_DEFAULT = {
+    "type": "durable-local-one-shot",
+    "event_root": ".harness/runtime/external-events",
+    "receipt_root": ".harness/runtime/external-wakeup-receipts",
+    "lock_root": ".harness/runtime/external-wakeup-locks",
+    "max_events_per_run": 100,
+    "provider_polling": False,
     "authority_effect": False,
 }
 
@@ -44,6 +56,20 @@ def bootstrap_digest(payload: Mapping[str, Any]) -> str:
 
 def seal_bootstrap(payload: Mapping[str, Any]) -> dict[str, Any]:
     result = dict(payload)
+    # Programmatic authoring upgrades the previous non-authorizing bootstrap
+    # input to the fixed scheduler defaults. Persisted @3 files are still
+    # validated as closed and cannot omit or weaken these fields.
+    result.setdefault("scheduler", dict(_SCHEDULER_DEFAULT))
+    policy = result.get("policy")
+    if isinstance(policy, Mapping):
+        normalized_policy = dict(policy)
+        for field in (
+            "scheduler_is_authority",
+            "external_event_completes_taskrun",
+            "provider_polling",
+        ):
+            normalized_policy.setdefault(field, False)
+        result["policy"] = normalized_policy
     result["bootstrap_sha256"] = bootstrap_digest(result)
     return validate_bootstrap_declaration(result)
 
@@ -121,6 +147,7 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
             "providers",
             "authority",
             "human_gate",
+            "scheduler",
             "runtime",
             "policy",
             "bootstrap_sha256",
@@ -252,6 +279,52 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
     if human_gate.get("authority_effect") is not False:
         raise ConcreteHostBootstrapError("Human Gate configuration cannot grant authority")
 
+    scheduler = _object(payload.get("scheduler"), field="scheduler")
+    _closed(
+        scheduler,
+        {
+            "type",
+            "event_root",
+            "receipt_root",
+            "lock_root",
+            "max_events_per_run",
+            "provider_polling",
+            "authority_effect",
+        },
+        field="scheduler",
+    )
+    if scheduler.get("type") != "durable-local-one-shot":
+        raise ConcreteHostBootstrapError(
+            "scheduler.type must be durable-local-one-shot"
+        )
+    for field in ("event_root", "receipt_root", "lock_root"):
+        scheduler[field] = _relative(
+            scheduler.get(field), field=f"scheduler.{field}"
+        )
+        if not scheduler[field].startswith(".harness/"):
+            raise ConcreteHostBootstrapError(
+                f"scheduler.{field} must stay beneath .harness"
+            )
+    if len(
+        {
+            scheduler["event_root"],
+            scheduler["receipt_root"],
+            scheduler["lock_root"],
+        }
+    ) != 3:
+        raise ConcreteHostBootstrapError(
+            "scheduler event, receipt, and lock roots must be distinct"
+        )
+    limit = scheduler.get("max_events_per_run")
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1000:
+        raise ConcreteHostBootstrapError(
+            "scheduler.max_events_per_run must be 1..1000"
+        )
+    if scheduler.get("provider_polling") is not False:
+        raise ConcreteHostBootstrapError("scheduler cannot enable Provider polling")
+    if scheduler.get("authority_effect") is not False:
+        raise ConcreteHostBootstrapError("scheduler configuration cannot grant authority")
+
     runtime = _object(payload.get("runtime"), field="runtime")
     _closed(
         runtime,
@@ -278,6 +351,7 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
         "providers": providers,
         "authority": authority,
         "human_gate": human_gate,
+        "scheduler": scheduler,
         "runtime": runtime,
         "policy": dict(_POLICY),
         "bootstrap_sha256": digest,
@@ -390,6 +464,7 @@ def build_orchestrator(*, host_id: str):
     project_workspace, config = load_bootstrap(Path(configured))
 
     from langgraph.checkpoint.sqlite import SqliteSaver
+    from durable_external_event_scheduler import DurableExternalEventScheduler
     from durable_human_gate import DurableHumanGateAdapter
     from governed_write_authority import ChangePermitWriteAuthorityGuard
     from starter_host_orchestrator import StarterHostOrchestrator
@@ -483,8 +558,18 @@ def build_orchestrator(*, host_id: str):
         session_root=config["runtime"]["session_root"],
         taskrun_root=config["runtime"]["taskrun_root"],
     )
+    scheduler_config = config["scheduler"]
+    wakeup_scheduler = DurableExternalEventScheduler(
+        workspace=project_workspace,
+        orchestrator=orchestrator,
+        event_root=scheduler_config["event_root"],
+        receipt_root=scheduler_config["receipt_root"],
+        lock_root=scheduler_config["lock_root"],
+        max_events_per_run=scheduler_config["max_events_per_run"],
+    )
     # Keep the sqlite connection alive for the one-shot command lifetime.
     orchestrator._concrete_bootstrap_connection = connection
+    orchestrator._concrete_wakeup_scheduler = wakeup_scheduler
     orchestrator._concrete_bootstrap_policy = {
         "provider_ids": list(assembly.provider_ids),
         "write_authority_injected": True,
@@ -492,6 +577,8 @@ def build_orchestrator(*, host_id: str):
         "write_authority_source": "active ChangePermit; evaluated per mutating dispatch",
         "generic_merge_authority": False,
         "human_gate_injected": True,
+        "scheduler_injected": True,
+        "scheduler_type": "durable-local-one-shot",
         **_POLICY,
     }
     return orchestrator

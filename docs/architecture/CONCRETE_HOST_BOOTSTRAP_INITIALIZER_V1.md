@@ -18,12 +18,15 @@ The generated application remains independently runnable. `.harness/**` is devel
   host-init.lock                         concurrent initializer serialization
   starters/customer-agent/             verified immutable Starter copy
   runtime/starter-registration.json    sealed Starter/workflow/skill identity
-  host/bootstrap.json                  concrete-host-bootstrap@2
+  host/bootstrap.json                  concrete-host-bootstrap@3
   runtime/langgraph-checkpoints.sqlite3  created on first Host command
   runtime/host-sessions/               durable interaction sessions
   runtime/authority-checks/            exact ChangePermit checks
   runtime/human-gates/                 durable gate contracts
   runtime/human-decisions/             explicit sealed decisions
+  runtime/external-events/             exact wait-bound provider events
+  runtime/external-wakeup-receipts/    delivery reservations and receipts
+  runtime/external-wakeup-locks/       per-session one-shot serialization
   taskruns/                             canonical TaskRun state
 ```
 
@@ -83,5 +86,7 @@ The generated bootstrap has a fixed non-authorizing policy:
 - LangGraph `END` remains `TaskRun VALIDATING`;
 - TaskRun remains the only completion authority;
 - CI green and Quality green remain evidence, not overall completion.
+
+The factory also injects a durable one-shot external-event scheduler. It accepts only an event matching the exact active Host/TaskRun wait, invokes the existing `RESUME_EXTERNAL` or exact pending-transition `RECONCILE` operation, and writes an idempotent receipt. It performs no Provider polling and cannot select routes or complete a TaskRun. See [Scheduler / External Event Wake-up Bootstrap v1](SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md).
 
 Normal governed repair is automatic after the target project already has an implementing active Change Contract and valid ChangePermit and the `START` target carries their exact `change_id` and `permit_digest`. Initialization, natural-language routing, `SELECT`, and `CONFIRM` cannot manufacture those facts. True policy choices remain explicit Human Gates. See [Write Authority / Human Gate Bootstrap v1](WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md).
