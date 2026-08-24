@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "root_cause_proof_sha256": "1438dc5b280b734cf72f9636dc3ef4d4484637ea87976b64e6e7a4f843da83e0",
+  "status": "APPROVED",
+  "strategy": "Replace the unfiltered first-1000 issue enumeration inside the WP-08 GitHub adapter with a repository-bound, state-bound, title-scoped GitHub issue search dedicated to ReleaseRun ledgers. Reject incomplete, malformed, or over-1000 scoped results; retain body contract parsing and all existing actor, run identity, attempt budget, candidate SHA, terminal conclusion, update, close, dispatch, and production-closure boundaries.",
+  "changes": [
+    {
+      "path": "scripts/wp08_release_github.py",
+      "responsibility": "discover WP-08 ReleaseRun ledger candidates through a bounded exact-scope issue search and fail closed when the result set cannot be proven complete",
+      "reason": "the generic first-1000 issue enumeration cannot see historical active ledger #696"
+    },
+    {
+      "path": "skill-system/tests/test_wp08_release_retirement.py",
+      "responsibility": "prove scoped discovery finds an old ledger independently of unrelated issue volume and rejects incomplete or excessive search results",
+      "reason": "existing fakes always place the ledger in the first returned row and cannot reproduce the production pagination defect"
+    }
+  ],
+  "unchanged_boundaries": [
+    "scripts/wp08_release_state.py remains the only ReleaseRun state contract owner",
+    "scripts/wp08_release_coordinator.py and scripts/wp08_release_recovery.py remain the only transition decision owners",
+    "only an authorized repository owner or the recorded authorized actor can issue control comments",
+    "retirement still requires exact current run ID, exhausted attempt budget, eligible control state, completed protected-main workflow_dispatch identity, matching candidate SHA, and a failure-like conclusion",
+    "authorization still requires protected main and no discoverable active ReleaseRun",
+    "semantic failure is never blindly retried and production_closed remains false",
+    "no existing issue state is edited manually and no workflow is dispatched by this repair"
+  ],
+  "forbidden_repairs": [
+    "Do not hand-edit or directly close issue #696.",
+    "Do not bypass the ReleaseRun body contract or trust title text as state.",
+    "Do not treat incomplete GitHub search results as absence of an active ledger.",
+    "Do not remove multiple-active-run detection or authorize a second controller.",
+    "Do not weaken actor, run ID, candidate SHA, protected-main, attempt-budget, terminal-conclusion, or production-closure checks.",
+    "Do not modify workflow files, product services, task-ledger completion, environment configuration, secrets, or production evidence."
+  ],
+  "required_invariants": [
+    "ReleaseRun discovery is repository-bound, issue-only, state-bound, and scoped to the exact WP-08 Release title marker before body parsing",
+    "search incompleteness, invalid payload shape, or more than 1000 scoped ReleaseRun candidates fails closed",
+    "only bodies accepted by parse_issue_state can become ReleaseRun authority",
+    "zero, one, and multiple active ledgers remain distinguishable and multiple active ledgers are rejected",
+    "issue-comment retirement and new authorization consume the same single discovery authority",
+    "the repair itself cannot update an issue, dispatch a workflow, close WP-08, or set production_closed"
+  ],
+  "required_tests": {
+    "focused": [
+      "a title-scoped search finds an old valid ReleaseRun ledger that generic repository pagination would miss",
+      "the existing exhausted failed-run retirement path still closes its exact issue and never dispatches WP-08"
+    ],
+    "counterexamples": [
+      "incomplete GitHub search results fail closed",
+      "more than 1000 scoped ReleaseRun candidates fail closed",
+      "non-Release titles and invalid bodies never become authority"
+    ],
+    "regression": [
+      "WP-08 retirement, recovery, coordinator, reconciler, and full skill-control-plane tests remain green"
+    ],
+    "negative_path": [
+      "the repair does not use the generic repository issue enumeration endpoint",
+      "the repair does not alter workflow dispatch, issue transition, authorization, retry, or production closure semantics"
+    ]
+  },
+  "risks": [
+    "GitHub issue search has a 1000-result ceiling; the adapter must reject rather than truncate if the scoped ReleaseRun set ever reaches that ceiling.",
+    "Title search is an acquisition filter only; the machine body contract must remain the semantic authority.",
+    "GitHub can report incomplete search indexing; such a response must block all ReleaseRun decisions until a complete query succeeds."
+  ],
+  "rollback_plan": "Revert the adapter and focused tests; ReleaseRun state remains untouched, #696 remains open, and no new WP-08 authorization is allowed until another exact discovery repair is approved."
+}

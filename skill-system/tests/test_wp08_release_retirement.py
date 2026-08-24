@@ -22,6 +22,7 @@ def _load(name: str, relative: str):
 
 STATE = _load("wp08_release_retirement_state_test", "scripts/wp08_release_state.py")
 RECOVERY = _load("wp08_release_retirement_recovery_test", "scripts/wp08_release_recovery.py")
+GITHUB = _load("wp08_release_retirement_github_test", "scripts/wp08_release_github.py")
 
 
 def _state(*, status: str, attempt: int = 8) -> dict:
@@ -96,7 +97,74 @@ def _comment(body: str, *, actor: str = "toctionyan", issue_number: int = 219) -
     }
 
 
+class SearchAPI(GITHUB.GitHubAPI):
+    def __init__(self, payload: dict) -> None:
+        super().__init__("toctionyan/fristTest", "test-token")
+        self.payload = payload
+        self.paths: list[str] = []
+
+    def _request(self, method: str, path: str, **kwargs):
+        self.paths.append(path)
+        if method != "GET" or not path.startswith("/search/issues?"):
+            raise AssertionError((method, path, kwargs))
+        return 200, self.payload
+
+
 class WP08ReleaseRetirementTests(unittest.TestCase):
+    def test_release_discovery_uses_exact_scoped_search_for_old_ledger(self) -> None:
+        state = _state(status=STATE.STATUS_FAILED_NEEDS_CLASSIFICATION)
+        api = SearchAPI({
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "number": 696,
+                "title": "[WP08 Release] wp08-release-123456",
+                "body": STATE.render_issue_body(state),
+            }],
+        })
+        found = GITHUB.find_release_issue(api)
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertEqual(696, found[0])
+        self.assertEqual(state, found[1])
+        self.assertEqual(1, len(api.paths))
+        self.assertIn("%5BWP08+Release%5D", api.paths[0])
+        self.assertIn("is%3Aissue", api.paths[0])
+        self.assertIn("is%3Aopen", api.paths[0])
+        self.assertNotIn("/repos/toctionyan/fristTest/issues", api.paths[0])
+
+    def test_release_discovery_rejects_incomplete_search(self) -> None:
+        api = SearchAPI({
+            "total_count": 1,
+            "incomplete_results": True,
+            "items": [],
+        })
+        with self.assertRaisesRegex(GITHUB.GitHubCoordinatorError, "results are incomplete"):
+            GITHUB.find_release_issue(api)
+
+    def test_release_discovery_rejects_over_limit_search(self) -> None:
+        api = SearchAPI({
+            "total_count": 1001,
+            "incomplete_results": False,
+            "items": [],
+        })
+        with self.assertRaisesRegex(GITHUB.GitHubCoordinatorError, "bounded result limit"):
+            GITHUB.find_release_issue(api)
+
+    def test_release_discovery_rejects_out_of_scope_title(self) -> None:
+        state = _state(status=STATE.STATUS_FAILED_NEEDS_CLASSIFICATION)
+        api = SearchAPI({
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [{
+                "number": 854,
+                "title": "[WP08 Repair] unrelated repair issue",
+                "body": STATE.render_issue_body(state),
+            }],
+        })
+        with self.assertRaisesRegex(GITHUB.GitHubCoordinatorError, "out-of-scope candidates"):
+            GITHUB.find_release_issue(api)
+
     def test_exhausted_failed_run_can_be_retired_and_issue_closed(self) -> None:
         api = FakeAPI(_state(status=STATE.STATUS_FAILED_NEEDS_CLASSIFICATION))
         RECOVERY.handle_issue_comment(

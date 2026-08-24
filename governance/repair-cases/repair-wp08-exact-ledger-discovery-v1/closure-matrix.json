@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "permit_digest": "f31930f88c04ddc909fdd5872f22fb53146246ec49c88104e5b5e258c140fd03",
+  "diff_review_sha256": "876c52c1ac0b7d4a039c0b49e6c3f8b17dd374c54da6d81f5d83193ec9716711",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "1da1f17df6d7bfd172357b86e1515a6e1c0fec7832326416040bbc86e6991f31",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "44dadfd72ae0ca273abb795092f7df0ecb55a69b8e18d8f9cb0b840cf40af9dd"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/counterexamples.md",
+      "evidence_sha256": "c4ba672264ca2c8f1a124cf1881bbbf07755132f35eed285d66db2169874c848"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/diff-review.json",
+      "evidence_sha256": "876c52c1ac0b7d4a039c0b49e6c3f8b17dd374c54da6d81f5d83193ec9716711"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/focused-tests.md",
+      "evidence_sha256": "32107e76c24587a6b95969f1bc43383e3929a77029b7543ed363f32c363f43a6"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/negative-paths.md",
+      "evidence_sha256": "680b2e8d98cc34f6cb6854d6f123788b512f5a05422ff64126b2cf9be4742e57"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/red-baseline.md",
+      "evidence_sha256": "ecff565c379967786e62c7514cf8706c8e9e4ce874a567c260f08a154a178f14"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/regression.md",
+      "evidence_sha256": "123bd54f628b904a2fde9975566584e3c9f57e02dcdc658a90cbeb8c15aa1d0e"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "7b92bf14fca14df65d65ed60ef1d30086fc727640ee667cd288761db771d6290"
+    }
+  ],
+  "residual_risks": []
+}

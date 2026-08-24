@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "repair_plan_sha256": "a97b8cc964568d81bbb647e1657f031216216690551ee15262cb3d1bb4b74c42",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "scripts/wp08_release_github.py",
+    "skill-system/tests/test_wp08_release_retirement.py"
+  ],
+  "review_findings": [
+    "The root cause is proven by the exact live issue, comment, workflow run, unchanged state, and GitHub pagination boundary.",
+    "A ReleaseRun-scoped search fixes both retirement lookup and the single-active-run authorization guard through their shared discovery authority.",
+    "Failing on incomplete, malformed, or excessive scoped results preserves absence-versus-unknown semantics.",
+    "The title predicate remains acquisition-only because parse_issue_state still owns semantic ledger acceptance.",
+    "The two-path scope changes no workflow, state transition, retry rule, secret boundary, product code, or production closure authority."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single authority",
+      "assessment": "retirement, reconciliation and authorization continue to consume find_release_issue as the sole active-ledger discovery owner",
+      "evidence": "scripts/wp08_release_github.py"
+    },
+    {
+      "rule": "Fail closed",
+      "assessment": "incomplete or over-limit scoped searches raise GitHubCoordinatorError instead of returning an empty authority set",
+      "evidence": "skill-system/tests/test_wp08_release_retirement.py"
+    },
+    {
+      "rule": "Untrusted content",
+      "assessment": "search title matches remain candidates only and require the closed wp08-release-run@1 body parser before use",
+      "evidence": "scripts/wp08_release_state.py"
+    },
+    {
+      "rule": "No authority expansion",
+      "assessment": "the adapter acquires ledger evidence only; existing coordinator and recovery code retain every state-transition decision",
+      "evidence": "scripts/wp08_release_recovery.py"
+    }
+  ]
+}
