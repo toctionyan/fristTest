@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "permit_digest": "d2380dedf53dd9b07b96ab4ada53974d9409d48866a130a5bc3d164c857b5834",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "2ec566ddcae4966266514c5c9642599a729b6d917ef9f47f97d9349113e6d42a",
+  "candidate_source_fingerprint": "8303f2df7cd45633d979e49967d54f58f4cd7bda9ac37459a14f8a4b0cb955b7",
+  "changed_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "docs/architecture/WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/durable_human_gate.py",
+    "skill-system/controller/governed_write_authority.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skill-system/tests/test_write_authority_human_gate_bootstrap.py"
+  ],
+  "added_paths": [
+    "docs/architecture/WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md",
+    "skill-system/controller/durable_human_gate.py",
+    "skill-system/controller/governed_write_authority.py",
+    "skill-system/tests/test_write_authority_human_gate_bootstrap.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

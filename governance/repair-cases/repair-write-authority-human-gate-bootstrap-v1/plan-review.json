@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "repair_plan_sha256": "60df3df5a8ef46ba39c3e466163ab4fa2dada698112c017d1dc175401eab7cfc",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/governed_write_authority.py",
+    "skill-system/controller/durable_human_gate.py",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_write_authority_human_gate_bootstrap.py",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "docs/architecture/WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"
+  ],
+  "review_findings": [
+    "The write guard is an adapter over the existing ChangePermit chain, not a successor or peer authority.",
+    "Exact request paths are checked before Provider effects and are checked again by concrete Provider policy.",
+    "Generic write authority explicitly excludes merge, preserving the stronger independent merge boundary.",
+    "The Human Gate adapter owns only gate/decision representation and delegates sequence, wait/resume, and lifecycle to existing runtime owners.",
+    "The explicit decision authoring command removes hand-written JSON without making Host commands an authority.",
+    "Product source, Quality, completion, release, production, and merge code are outside the approved scope."
+  ],
+  "skill_rule_mappings": [
+    {"rule": "One control plane", "assessment": "both supported Hosts use the same concrete factory and adapters", "evidence": "skill-system/controller/concrete_host_bootstrap.py"},
+    {"rule": "Single authority", "assessment": "the adapter calls repair_governance.load_chain and permit_path_decision instead of interpreting a second permit format", "evidence": "skill-system/controller/governed_write_authority.py"},
+    {"rule": "Fail-closed mutation", "assessment": "missing identity, permit, exact paths, or supported capability raises before effects", "evidence": "skill-system/tests/test_write_authority_human_gate_bootstrap.py"},
+    {"rule": "Durable external wait", "assessment": "gate and decision artifacts are persisted and bound to the same runtime identity", "evidence": "skill-system/controller/durable_human_gate.py"},
+    {"rule": "Standalone product", "assessment": "all generated state stays under .harness or governance and is not a production dependency", "evidence": "docs/architecture/WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md"}
+  ]
+}

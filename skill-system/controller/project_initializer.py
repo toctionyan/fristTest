@@ -147,6 +147,18 @@ def _initialize_concrete_host_project_locked(
                     "process_timeout_seconds": process_timeout_seconds,
                     "github": github,
                 },
+                "authority": {
+                    "type": "repair-change-permit",
+                    "active_contract_path": "governance/active-change.json",
+                    "audit_root": ".harness/runtime/authority-checks",
+                    "generic_merge_authority": False,
+                },
+                "human_gate": {
+                    "type": "durable-local",
+                    "gate_root": ".harness/runtime/human-gates",
+                    "decision_root": ".harness/runtime/human-decisions",
+                    "authority_effect": False,
+                },
                 "runtime": {
                     "session_root": ".harness/runtime/host-sessions",
                     "taskrun_root": ".harness/taskruns",

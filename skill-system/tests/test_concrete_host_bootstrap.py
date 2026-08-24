@@ -52,6 +52,18 @@ def unsigned_bootstrap() -> dict[str, object]:
             "process_timeout_seconds": 30,
             "github": None,
         },
+        "authority": {
+            "type": "repair-change-permit",
+            "active_contract_path": "governance/active-change.json",
+            "audit_root": ".harness/runtime/authority-checks",
+            "generic_merge_authority": False,
+        },
+        "human_gate": {
+            "type": "durable-local",
+            "gate_root": ".harness/runtime/human-gates",
+            "decision_root": ".harness/runtime/human-decisions",
+            "authority_effect": False,
+        },
         "runtime": {
             "session_root": ".harness/runtime/host-sessions",
             "taskrun_root": ".harness/taskruns",
@@ -162,10 +174,16 @@ class ConcreteHostBootstrapTest(unittest.TestCase):
         ):
             orchestrator = build_orchestrator(host_id="codex")
         self.assertEqual(orchestrator.host_id, "codex")
-        self.assertIsNone(orchestrator.write_authority_guard)
-        self.assertFalse(
+        self.assertIsNotNone(orchestrator.write_authority_guard)
+        self.assertTrue(
             orchestrator._concrete_bootstrap_policy["write_authority_injected"]
         )
+        self.assertIsNotNone(orchestrator.human_gate_adapter)
+        self.assertTrue(orchestrator._concrete_bootstrap_policy["human_gate_injected"])
+        self.assertFalse(
+            orchestrator._concrete_bootstrap_policy["write_authority_currently_granted"]
+        )
+        self.assertFalse(orchestrator._concrete_bootstrap_policy["generic_merge_authority"])
         self.assertTrue(
             (self.root / ".harness/runtime/langgraph-checkpoints.sqlite3").is_file()
         )

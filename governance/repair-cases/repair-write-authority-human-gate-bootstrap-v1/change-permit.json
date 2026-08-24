@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "repair_plan_sha256": "60df3df5a8ef46ba39c3e466163ab4fa2dada698112c017d1dc175401eab7cfc",
+  "plan_review_sha256": "4c8bced645c1eaef2b08a2d5a61dd93fa0bf0d49975566955961930d978475b0",
+  "baseline_manifest_sha256": "270c5e50ac3b61787b2c9b699cbe4e2b76a2c7d22edcbd81b6b585ac11c39461",
+  "allowed_paths": [
+    "skill-system/controller/governed_write_authority.py",
+    "skill-system/controller/durable_human_gate.py",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_write_authority_human_gate_bootstrap.py",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "docs/architecture/WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "active ChangePermit permits only exact workspace/commit/PR-create paths",
+      "factory injects the real guard and durable Human Gate adapter",
+      "authoring human-decision creates a sealed exact-gate artifact"
+    ],
+    "counterexamples": [
+      "missing/stale contract, change ID, permit digest, path, request, or decision artifact fails closed",
+      "generic guard rejects merge and unsupported mutations",
+      "decision for another task/workflow/step or altered routes is rejected"
+    ],
+    "regression": [
+      "dispatcher, runtime, Host orchestrator, Host transport, initializer, schema, and all required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "no authority is derived from configuration or confirmation",
+      "TaskRun completion and product source remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "2ec566ddcae4966266514c5c9642599a729b6d917ef9f47f97d9349113e6d42a",
+  "baseline_workspace_fingerprint": "dae01448ccc688902c7ae946446bdd4197988586db65db16c873bff5549c2c75",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "d2380dedf53dd9b07b96ab4ada53974d9409d48866a130a5bc3d164c857b5834"
+}

@@ -164,6 +164,19 @@ def _parser() -> argparse.ArgumentParser:
         help="optional owner/repository; configured integration requires its token at runtime",
     )
     host_init.add_argument("--github-token-environment-variable", default="GITHUB_TOKEN")
+
+    human_decision = commands.add_parser(
+        "human-decision",
+        help="seal one explicit decision for a persisted concrete Human Gate",
+    )
+    human_decision.add_argument("--project-workspace", required=True)
+    human_decision.add_argument(
+        "--gate-ref",
+        required=True,
+        help="file:.harness/... gate reference returned by the Host",
+    )
+    human_decision.add_argument("--outcome", required=True)
+    human_decision.add_argument("--actor", required=True)
     return parser
 
 
@@ -296,6 +309,38 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                 )
             except ProjectInitializerError as exc:
+                raise HarnessAuthoringError(str(exc)) from exc
+            _write_or_print(payload, None)
+            return 0
+        if args.authoring_command == "human-decision":
+            from concrete_host_bootstrap import (
+                ConcreteHostBootstrapError,
+                load_bootstrap,
+            )
+            from durable_human_gate import (
+                DurableHumanGateError,
+                write_human_decision,
+            )
+
+            project_workspace = Path(args.project_workspace).resolve()
+            gate_ref = str(args.gate_ref)
+            if not gate_ref.startswith("file:"):
+                raise HarnessAuthoringError("--gate-ref must use a file: reference")
+            bootstrap_path = project_workspace / ".harness/host/bootstrap.json"
+            try:
+                loaded_workspace, bootstrap = load_bootstrap(bootstrap_path)
+                if loaded_workspace != project_workspace:
+                    raise HarnessAuthoringError(
+                        "Host bootstrap belongs to another project workspace"
+                    )
+                payload = write_human_decision(
+                    workspace=project_workspace,
+                    gate_path=project_workspace / gate_ref.removeprefix("file:"),
+                    decision_root=bootstrap["human_gate"]["decision_root"],
+                    selected_outcome=args.outcome,
+                    actor=args.actor,
+                )
+            except (DurableHumanGateError, ConcreteHostBootstrapError) as exc:
                 raise HarnessAuthoringError(str(exc)) from exc
             _write_or_print(payload, None)
             return 0

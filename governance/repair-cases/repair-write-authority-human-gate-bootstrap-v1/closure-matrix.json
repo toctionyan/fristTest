@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "permit_digest": "d2380dedf53dd9b07b96ab4ada53974d9409d48866a130a5bc3d164c857b5834",
+  "diff_review_sha256": "aaa8bfdde0a0467a586415f7ee106f3e7c4951600fdc0f0398ef4be9d9817a8e",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "8303f2df7cd45633d979e49967d54f58f4cd7bda9ac37459a14f8a4b0cb955b7",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "c614e460422289ed86095057bf89d0e232fd02cea8ad5849d86cac837ce00716"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/counterexamples.md",
+      "evidence_sha256": "2fdde99901c91905f55a1bb91141a02f9ede382079c3365a115391bc9aa6e099"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/diff-review.json",
+      "evidence_sha256": "aaa8bfdde0a0467a586415f7ee106f3e7c4951600fdc0f0398ef4be9d9817a8e"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/focused-tests.md",
+      "evidence_sha256": "dc5d7f0d0131362d810390f627c511008c9f72b8306f3d1d46b879ef3dd5ffd5"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/negative-paths.md",
+      "evidence_sha256": "2e9218ee2756d6f9c1570685a755a17af8e3df7cd1899ad65c6bda220d860606"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/red-baseline.md",
+      "evidence_sha256": "f4218def295a4d7e9a9d75b124085dd7b4c755b47f48118dcd88c061d779d1f9"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/regression.md",
+      "evidence_sha256": "fce956bcce8a1ceb4192945a60c8dea9e144ad4ab415877f7971ec8077f36a1b"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "792f11a5735b0a2ba5a2b52545e5c9fcd3d6b692b4b1ba9a402b3ef33e0f03d4"
+    }
+  ],
+  "residual_risks": []
+}
