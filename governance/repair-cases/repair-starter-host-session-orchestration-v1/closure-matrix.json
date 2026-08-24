@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "permit_digest": "31013c7a7dafe89c7c54c43a2072fc51f78cd25af4dfdc302d59d4f71e367566",
+  "diff_review_sha256": "41c20ccd76cda90654bb372bd67d590edec798e4a52f8133b71f122711ad8b9e",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "e9972f83d974d5563a70624c8ec3804cecbaf6da38c56793d8af77496defb4aa",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "610bcf3f2c5787b5b353db3a34f6d5a3db0e394a5e9c1db06ebbcc10c200b07f"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/counterexamples.md",
+      "evidence_sha256": "55635823a5908304e5298d1122b2e34b7f3ad6722630b3897165f08bc83fb31b"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/diff-review.json",
+      "evidence_sha256": "41c20ccd76cda90654bb372bd67d590edec798e4a52f8133b71f122711ad8b9e"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/focused-tests.md",
+      "evidence_sha256": "ec32af62e94a88b9de79a583852dfb5c17f30a404fc17b84489dbbe63591c0f4"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/negative-paths.md",
+      "evidence_sha256": "107e5d65cf493616cb3039917eef7f3e45701c749aee41b642243c1fae4a616a"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/red-baseline.md",
+      "evidence_sha256": "bda97c2e45aab5257463648f28e30fcab08f9bfe4b12586977d240470970205f"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/regression.md",
+      "evidence_sha256": "5eb0504d518cf04687d43413a8854eda5c57629eedfadcdb59920e6e2c4312ac"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "1dd01a34dae5a6ba4d71880c9f5d4b678a58b92b040ff02e5c6355f2f6b8cdb2"
+    }
+  ],
+  "residual_risks": []
+}

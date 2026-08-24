@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "root_cause_proof_sha256": "a6b1e0d8ab2b7cc9cca40c039ddc56de12188f9aed8e52854ce4bed9b770cf90",
+  "status": "APPROVED",
+  "strategy": "Add one durable, host-independent StarterHostOrchestrator above the existing selection, Starter runtime, TaskRun bridge, and DurableHostSkillBridge. It persists a revisioned session cursor, delegates exact selection/confirmation to starter_runtime, creates exactly one TaskRun bound to the session and resolved Workflow, projects one closed next_action from the canonical runtime status, and permits only the matching Host/external/human resume method. It injects existing Provider adapters, durable checkpointer, and optional WriteAuthorityGuard rather than recreating them.",
+  "changes": [
+    {
+      "path": "skill-system/controller/starter_host_orchestrator.py",
+      "responsibility": "own durable Host-session ordering, one TaskRun binding, runtime reconstruction, exact next-action projection, and legal resume dispatch",
+      "reason": "the currently separate correct APIs have no cross-call session owner"
+    },
+    {
+      "path": "skill-system/schemas/starter-host-session.schema.json",
+      "responsibility": "publish the closed persisted session and next-action shape",
+      "reason": "ChatGPT/Codex wrappers require a versioned reviewable transport contract"
+    },
+    {
+      "path": "skill-system/tests/test_starter_host_orchestrator.py",
+      "responsibility": "prove selection, confirmation, TaskRun reuse, repeated Host resume, phase rejection, tamper rejection, and Graph END to VALIDATING",
+      "reason": "the new session ordering boundary must fail closed"
+    },
+    {
+      "path": "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+      "responsibility": "document concrete ChatGPT/Codex interaction, extension, resume, authority, and standalone project behavior",
+      "reason": "operators need one clear embedding sequence above the bridge"
+    },
+    {
+      "path": "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+      "responsibility": "replace the future-wrapper gap with the orchestrator boundary while retaining transport limitations",
+      "reason": "the architecture record must match executable coverage"
+    }
+  ],
+  "unchanged_boundaries": [
+    "ChatGPT/Codex remains the semantic interpreter and must select one candidate exposed by the verified Starter",
+    "resolve_starter_host_selection remains exact selection and mutating confirmation authority",
+    "DurableHostSkillBridge remains per-Skill request/result evidence transport",
+    "StarterWorkflowRuntime and LangGraph remain Workflow execution authorities",
+    "TaskRun remains lifecycle and completion authority",
+    "Capability Resolver and WorkflowAdapterDispatcher retain Provider binding and dispatch ownership",
+    "existing WriteAuthorityGuard remains mandatory for mutating Skill or Provider effects",
+    "external waits remain event-driven and Human Gates require explicit decisions",
+    "Graph END remains VALIDATING and no merge adapter or automatic completion is added",
+    "customer application source and runtime dependencies remain unchanged and independently runnable"
+  ],
+  "forbidden_repairs": [
+    "Do not add a keyword or fuzzy natural-language router.",
+    "Do not automatically confirm a mutating selection or treat selection as write authority.",
+    "Do not fabricate Host Skill results, tool receipts, Provider receipts, external events, or Human decisions.",
+    "Do not create a second graph runtime, TaskRun state machine, write guard, Quality judge, completion controller, or merge path.",
+    "Do not restart a session that already started or accept a resume kind unrelated to the active runtime status.",
+    "Do not poll external systems or keep the Workflow invocation alive across waits.",
+    "Do not modify customer Agent product source, packaging, or runtime dependencies.",
+    "Do not automatically merge PR #2096."
+  ],
+  "required_invariants": [
+    "session identity binds Host, verified registration, exact user request, resolved entrypoint, Workflow, and one stable TaskRun",
+    "session persistence is revisioned and conflicting writers fail closed",
+    "mutating selection cannot start before exact effect-preview confirmation and still grants no write authority",
+    "a started session cannot create another TaskRun or restart the graph",
+    "Host result submission must match the active WAITING_HOST execution identity",
+    "external and human resumes are accepted only in their matching runtime phases with durable evidence",
+    "next_action is derived only from canonical runtime state and has authority_effect false",
+    "Graph END projects EVALUATE_COMPLETION_POLICY with TaskRun VALIDATING, never COMPLETED"
+  ],
+  "required_tests": {
+    "focused": [
+      "read-only natural-language selection starts one TaskRun and yields the exact Host Skill request",
+      "multiple Host Skill results resume the same session and TaskRun until Graph END becomes VALIDATING",
+      "mutating selection remains AWAITING_CONFIRMATION until an exact preview digest is confirmed",
+      "closed next_action values cover Host wait, external wait, Human Gate, validation, and blocked states"
+    ],
+    "counterexamples": [
+      "wrong session revision, registration, selection request, entrypoint, confirmation digest, TaskRun, Workflow, or Host execution is rejected",
+      "start before selection/confirmation, duplicate start, wrong resume kind, missing evidence, and stale runtime state are rejected",
+      "session/result tampering and concurrent conflicting persistence are rejected"
+    ],
+    "regression": [
+      "Starter selection, runtime, Host bridge, TaskRun bridge, Provider adapter, invocation, and authoring suites remain green",
+      "complete Skill unit and all required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "the orchestrator never interprets free-form language or executes arbitrary Host commands",
+      "selection, confirmation, and session identity grant no write authority",
+      "no Skill receipt exists before a validated Host result resumes the Skill node",
+      "Graph END never marks TaskRun COMPLETED and no merge capability is introduced",
+      "standalone customer application source and dependencies remain unchanged"
+    ]
+  },
+  "risks": [
+    "A Host may crash between receiving a next action and submitting evidence; revisioned durable state allows exact resume without blind replay.",
+    "Provider credentials and target-specific profile policies remain environment inputs; the orchestrator must block when they are not injected.",
+    "The session proves repository-visible ordering and evidence binding, not a model provider's private reasoning."
+  ],
+  "rollback_plan": "Remove the orchestrator module, schema, tests, and architecture record, and restore the bridge document's future-wrapper statement. Existing independent selection, Starter runtime, TaskRun, Provider, and Host bridge APIs continue to function unchanged."
+}

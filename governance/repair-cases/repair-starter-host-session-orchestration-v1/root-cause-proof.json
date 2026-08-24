@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-starter-host-session-orchestration-v1",
+  "failure_case_sha256": "f54b92740ce415e6b8ba351fac94c08a548a25bbfb09999552e7bbf043aec9c9",
+  "decision": "PROVEN",
+  "root_cause": "The runtime was intentionally delivered as independently injectable boundaries. PR #2095 closed durable per-Skill Host transport, but no owner was added for the higher-level conversational session. Consequently the Host caller, rather than repository code, must remember which selection request was resolved, whether exact mutation confirmation occurred, whether the TaskRun already started, which runtime state is current, and which kind of resume is legal.",
+  "causal_chain": [
+    "Starter Host selection produces a verified candidate or an awaiting-confirmation record but does not persist a conversation/session cursor.",
+    "StarterWorkflowRuntime requires an already-resolved entrypoint and already-existing TaskRun; it correctly refuses to create a second lifecycle owner.",
+    "DurableHostSkillBridge owns one Skill request/result, not the sequence of multiple Skill waits, deterministic Providers, external CI waits, and Human Gates.",
+    "The invocation CLI exposes selection and activation only and deliberately does not execute the runtime.",
+    "Therefore a real ChatGPT/Codex wrapper has no repository-owned state machine for the legal order across those correct low-level APIs."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/red-baseline.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
+    "docs/architecture/CUSTOMER_AGENT_RUNTIME_INTEGRATION_V1.md",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/host_skill_bridge.py",
+    "skill-system/controller/harness_invocation.py"
+  ],
+  "rejected_hypotheses": [
+    "Make DurableHostSkillBridge own the full Workflow; that would mix per-Skill evidence transport with TaskRun and graph lifecycle authority.",
+    "Let the model infer the current phase from files; that permits stale or unrelated state to be resumed.",
+    "Automatically confirm mutating selections; selection is not user write authorization and must not grant it.",
+    "Create a second Host task ledger; TaskRun already owns lifecycle and completion.",
+    "Poll CI or keep a model call alive; external waits must remain event-driven and durable."
+  ],
+  "affected_boundaries": [
+    "Starter semantic selection",
+    "Host session persistence",
+    "TaskRun start/resume",
+    "runtime next-action projection"
+  ]
+}

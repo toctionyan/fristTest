@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "Every persisted starter-host-session@1 is closed, integrity-bound, and reconstructed from canonical session/runtime state; external and Human Gate resumes are proven through the orchestrator; interrupted STARTING or RESUMING transitions have a safe evidence-driven reconciliation path.",
+    "actual": "A persisted next_action can be changed to AUTOMATIC_MERGE with automatic_merge=true and StarterHostOrchestrator.read() returns it without rejection. The focused suite projects external/Human states but does not execute either resume through the orchestrator, and transitional crash states have no reconciliation API.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/red-baseline.md",
+      "skill-system/controller/starter_host_orchestrator.py",
+      "skill-system/tests/test_starter_host_orchestrator.py",
+      "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+    ]
+  },
+  "violated_invariants": [
+    "Persisted Host next_action and policy cannot be accepted from mutable storage as live authority.",
+    "Session tampering and schema drift must fail closed before a Host receives an action.",
+    "External-event and Human-Gate resume ordering must be proven at the composed Host-session boundary.",
+    "A durable claimed transition must have an explicit reconciliation path that never blindly replays an ambiguous effect."
+  ],
+  "affected_boundaries": [
+    "starter-host-session persistence and validation",
+    "canonical Host next-action projection",
+    "external-event and Human-Gate orchestration",
+    "interrupted start/resume recovery"
+  ]
+}
