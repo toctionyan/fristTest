@@ -78,7 +78,7 @@ def build_concrete_starter_provider_registry(
     workspace: Path,
     write_scope: Iterable[str],
     allowed_profiles: Mapping[str, Iterable[str]],
-    github: GitHubPullRequestConfiguration,
+    github: GitHubPullRequestConfiguration | None = None,
     process_runner: ProfileRunner | None = None,
     github_transport: GitHubTransport | None = None,
 ) -> ConcreteStarterProviderAssembly:
@@ -92,12 +92,15 @@ def build_concrete_starter_provider_registry(
     root = workspace.resolve()
     if not root.is_dir():
         raise StarterProviderBootstrapError(f"workspace is not a directory: {root}")
-    code_review_provider_id = _identifier(
-        github.code_review_provider_id, field_name="code_review_provider_id"
-    )
-    ci_provider_id = _identifier(github.ci_provider_id, field_name="ci_provider_id")
     fixed_ids = ("local.workspace", "local.process", "local.git")
-    provider_ids = (*fixed_ids, code_review_provider_id, ci_provider_id)
+    integration_ids: tuple[str, ...] = ()
+    if github is not None:
+        code_review_provider_id = _identifier(
+            github.code_review_provider_id, field_name="code_review_provider_id"
+        )
+        ci_provider_id = _identifier(github.ci_provider_id, field_name="ci_provider_id")
+        integration_ids = (code_review_provider_id, ci_provider_id)
+    provider_ids = (*fixed_ids, *integration_ids)
     if len(set(provider_ids)) != len(provider_ids):
         raise StarterProviderBootstrapError(
             f"concrete Starter Provider IDs must be unique: {provider_ids}"
@@ -119,40 +122,38 @@ def build_concrete_starter_provider_registry(
         workspace=root,
         host=SubprocessLocalGitPublicationHost(workspace=root),
     )
-    github_host = GitHubPullRequestPublicationHost(
-        repository_full_name=github.repository_full_name,
-        token=github.token,
-        api_base=github.api_base,
-        transport=github_transport,
-    )
-    code_review_adapter = CodeReviewProviderAdapter(
-        workspace=root,
-        provider_id=code_review_provider_id,
-        host=github_host,
-        merge_authority_guard=None,
-    )
-    ci_adapter = EventDrivenCIProviderAdapter(
-        workspace=root,
-        provider_id=ci_provider_id,
-    )
-    registry = ProviderAdapterRegistry(
-        [
-            workspace_adapter,
-            process_adapter,
-            git_adapter,
-            RequestDataflowProviderAdapter(code_review_adapter),
-            ci_adapter,
-        ]
-    )
+    adapters = [workspace_adapter, process_adapter, git_adapter]
+    if github is not None:
+        github_host = GitHubPullRequestPublicationHost(
+            repository_full_name=github.repository_full_name,
+            token=github.token,
+            api_base=github.api_base,
+            transport=github_transport,
+        )
+        code_review_adapter = CodeReviewProviderAdapter(
+            workspace=root,
+            provider_id=code_review_provider_id,
+            host=github_host,
+            merge_authority_guard=None,
+        )
+        ci_adapter = EventDrivenCIProviderAdapter(
+            workspace=root,
+            provider_id=ci_provider_id,
+        )
+        adapters.extend([RequestDataflowProviderAdapter(code_review_adapter), ci_adapter])
+    registry = ProviderAdapterRegistry(adapters)
     return ConcreteStarterProviderAssembly(
         registry=registry,
         provider_ids=provider_ids,
         policy={
             "schema": "concrete-starter-provider-assembly@1",
             "write_scope": list(scope),
-            "repository_full_name": github.repository_full_name,
-            "code_review_provider_id": code_review_provider_id,
-            "ci_provider_id": ci_provider_id,
+            "integration_configured": github is not None,
+            "repository_full_name": github.repository_full_name if github is not None else None,
+            "code_review_provider_id": (
+                code_review_provider_id if github is not None else None
+            ),
+            "ci_provider_id": ci_provider_id if github is not None else None,
             "automatic_merge": False,
             "merge_adapter_enabled": False,
             "write_authority_granted": False,

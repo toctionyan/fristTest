@@ -1,5 +1,7 @@
 # ChatGPT / Codex Host CLI Transport v1
 
+The generic factory boundary now has a repository-owned concrete implementation and one-command project initializer. See [Concrete Host Bootstrap / Project Initializer v1](CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md). The trusted operator settings are `HARNESS_HOST_FACTORY=concrete_host_bootstrap:build_orchestrator` and `HARNESS_HOST_BOOTSTRAP=<project>/.harness/host/bootstrap.json`; neither can be selected by a Host command.
+
 ## Outcome
 
 `python3 -B skillctl.py host` is the canonical one-command process boundary for

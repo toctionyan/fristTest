@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "permit_digest": "036b4d1393dcca6f06aedbf1f95d7c87bb4767ee0c433bf8999394624bcdc95e",
+  "diff_review_sha256": "13f602b9dfe0d863656a12e1769f30fb78c6b14fc033a570c1bf67853da1f611",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "797d0aec94ce172682a9d46e86c0faa9807df86ccdd23934bc35243ad53393fc",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "eb9655f65e986951c17010a96f24bcda530073b4dab2ee1f9f3cbed9391d9a5d"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/counterexamples.md",
+      "evidence_sha256": "cce47236588ce490d2cc2e63e399ed6ae465e8cdd9112462da69b76be85f2e9d"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/diff-review.json",
+      "evidence_sha256": "13f602b9dfe0d863656a12e1769f30fb78c6b14fc033a570c1bf67853da1f611"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/focused-tests.md",
+      "evidence_sha256": "09929e832a8ceb79562ec1e1676705194d26c6347ba8b945541b3456fa38575e"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/negative-paths.md",
+      "evidence_sha256": "f143f66e97ca77461395bf4abef16338a795f0b90feedce9c4b48b84862b826d"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/red-baseline.md",
+      "evidence_sha256": "67a10ee89a523f235f179f7bf78ae02210913a85c0548e328b025e06cb68701e"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/regression.md",
+      "evidence_sha256": "f8cae22fccdc76af1352ca4238fbc6ca64738625b97583ace93e097ebef79b88"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "133854e1e8f7034e111af0f5c6d69d098dc3d4d5095f8ed980a121e8ae044a4c"
+    }
+  ],
+  "residual_risks": []
+}

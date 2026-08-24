@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "permit_digest": "036b4d1393dcca6f06aedbf1f95d7c87bb4767ee0c433bf8999394624bcdc95e",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "4f9ade4d141096a126db94cdd1e7137c2487b6bbaa6505a227481bff8cd61dcc",
+  "candidate_source_fingerprint": "797d0aec94ce172682a9d46e86c0faa9807df86ccdd23934bc35243ad53393fc",
+  "changed_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py"
+  ],
+  "added_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/starter_provider_bootstrap.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

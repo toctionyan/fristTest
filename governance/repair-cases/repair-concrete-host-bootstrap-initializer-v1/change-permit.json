@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "repair_plan_sha256": "f2db5815ec5afe73ebc2abcf59b65e3c18a45b93963aab5b9ad28aa82feb8891",
+  "plan_review_sha256": "0a56a078f2cf5ed09c0242b14321fd0beadcc483b15ba32b117eedf7c46d4a3b",
+  "baseline_manifest_sha256": "5d624f04b972d6f1d513e3e7475017cb997baac15db92244ca6d01e23f8f9566",
+  "allowed_paths": [
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "local-only initialization emits verified generated artifacts",
+      "built-in factory assembles the real Orchestrator and durable checkpointer",
+      "configured GitHub integration loads only a named environment token"
+    ],
+    "counterexamples": [
+      "unexpected fields, unsafe paths, stale fingerprints, missing registration, missing token, and overwrite attempts fail closed",
+      "unconfigured write authority is never fabricated"
+    ],
+    "regression": [
+      "authoring, Starter runtime, Provider bootstrap, Host Orchestrator, Host transport, schema, and required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "configuration cannot select write/completion/merge authority",
+      "standalone customer application remains unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "4f9ade4d141096a126db94cdd1e7137c2487b6bbaa6505a227481bff8cd61dcc",
+  "baseline_workspace_fingerprint": "789c16ebdc391369cc276f27f747546e0c6c65ab507de973d533beed31b01b16",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "036b4d1393dcca6f06aedbf1f95d7c87bb4767ee0c433bf8999394624bcdc95e"
+}

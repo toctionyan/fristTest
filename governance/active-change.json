@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-starter-host-cli-transport-v1",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
   "target_kind": "repair",
-  "goal": "Add one closed ChatGPT/Codex Host CLI transport over StarterHostOrchestrator without changing execution, write, completion, or merge authority.",
+  "goal": "Assemble the verified Starter runtime, concrete Providers, durable checkpointer, and Host Orchestrator from one closed generated project bootstrap, with a one-command initializer and fail-closed authority boundaries.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -23,8 +23,8 @@
     "B18_STAGE_SUMMARY.json",
     "Makefile",
     "skillctl.py",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
     "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
-    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -33,7 +33,9 @@
     "contracts/**"
   ],
   "invariants": [
-    "customer-agent product source remains unchanged",
+    "customer-agent product source remains unchanged and independently runnable",
+    "generated bootstrap grants no write, completion, release, or merge authority",
+    "credentials are loaded only from named operator environment variables",
     "trusted Judge inputs are not modified by the implementer",
     "current evidence is required for completion"
   ],
@@ -54,23 +56,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/diff-review.json",
-      "evidence_sha256": "2070d97a3f809a8dafcab4923c385b60834d5c25c3aa5826bc4208017074ca77",
-      "recorded_at": "2026-08-24T02:31:29.791927+00:00"
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/diff-review.json",
+      "evidence_sha256": "13f602b9dfe0d863656a12e1769f30fb78c6b14fc033a570c1bf67853da1f611",
+      "recorded_at": "2026-08-24T03:05:21.295272+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/counterexamples.md",
-      "evidence_sha256": "932f15a065de928ff21be6a94042a0161155a7b13e41465566862a98b793ef56",
-      "recorded_at": "2026-08-24T02:31:29.874715+00:00"
+      "evidence": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/counterexamples.md",
+      "evidence_sha256": "cce47236588ce490d2cc2e63e399ed6ae465e8cdd9112462da69b76be85f2e9d",
+      "recorded_at": "2026-08-24T03:05:21.380108+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-starter-host-cli-transport-v1/verification.json",
-      "evidence_sha256": "07ae57f2c7144845904753364e541aaef948a956d2fc916322b9fb21b2bae7fe",
-      "recorded_at": "2026-08-24T02:32:07.930544+00:00"
+      "evidence": ".quality/skill-control-plane/repair-concrete-host-bootstrap-initializer-v1/verification.json",
+      "evidence_sha256": "c0dd029ae1f5942352df46c9b9d3e3c53b8dab7642c48958e141ef36363edb00",
+      "recorded_at": "2026-08-24T03:07:14.688389+00:00"
     }
   ],
   "decision_record": null,
@@ -78,17 +80,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-starter-host-cli-transport-v1/verification.json",
-    "sha256": "07ae57f2c7144845904753364e541aaef948a956d2fc916322b9fb21b2bae7fe",
-    "source_fingerprint": "4b09b120f85316019dfb6a393afa52e8d38e7859c4d9368dd1640e3f0f25861e",
-    "source_file_count": 1151,
-    "verified_at": "2026-08-24T02:32:07.929889+00:00"
+    "path": ".quality/skill-control-plane/repair-concrete-host-bootstrap-initializer-v1/verification.json",
+    "sha256": "c0dd029ae1f5942352df46c9b9d3e3c53b8dab7642c48958e141ef36363edb00",
+    "source_fingerprint": "34a339dde8d9bd664560cab24882674bdf9ac32d76d263ba5cc06915fd90150e",
+    "source_file_count": 1170,
+    "verified_at": "2026-08-24T03:07:14.687789+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-starter-host-cli-transport-v1",
-  "repair_governance_consumed_at": "2026-08-24T02:32:19.017851+00:00",
-  "created_at": "2026-08-24T02:18:48.045575+00:00",
+  "repair_governance": "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1",
+  "repair_governance_consumed_at": "2026-08-24T03:07:20.578641+00:00",
+  "created_at": "2026-08-24T02:50:23.979947+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "13419ba0432908f55310d59525909c842ec7a45c04f9639adacb7af6ed20f2e3",
-  "closed_at": "2026-08-24T02:32:19.017868+00:00"
+  "repair_governance_permit_digest": "036b4d1393dcca6f06aedbf1f95d7c87bb4767ee0c433bf8999394624bcdc95e",
+  "closed_at": "2026-08-24T03:07:20.578658+00:00"
 }
