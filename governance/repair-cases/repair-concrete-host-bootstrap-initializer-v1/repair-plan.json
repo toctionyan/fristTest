@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "root_cause_proof_sha256": "86bb4af35a14003d24cb1696c0ec4412433c49964c102f844ccfce8c9e732954",
+  "status": "APPROVED",
+  "strategy": "Add one closed concrete-host-bootstrap@1 declaration, a built-in trusted factory that verifies the declaration and Starter registration before assembling existing adapters/checkpointer/Orchestrator, and an atomic host-init authoring command that installs and registers a verified Starter then emits the bootstrap. GitHub remains optional and credential values remain environment-only. Missing WriteAuthorityGuard remains fail-closed.",
+  "changes": [
+    {"path": "skill-system/controller/concrete_host_bootstrap.py", "responsibility": "validate and load a bounded bootstrap, create SQLiteSaver, assemble existing Providers, and return StarterHostOrchestrator", "reason": "one trusted concrete factory is currently missing"},
+    {"path": "skill-system/controller/project_initializer.py", "responsibility": "atomically install/register a verified Starter and generate a sealed project-relative bootstrap", "reason": "operators should not hand-write assembly files"},
+    {"path": "skill-system/controller/harness_authoring_cli.py", "responsibility": "expose host-init with explicit project and optional GitHub settings", "reason": "initialization needs one canonical authoring command"},
+    {"path": "skill-system/controller/starter_provider_bootstrap.py", "responsibility": "allow local-only Provider assembly while preserving optional GitHub integration", "reason": "read-only/local operation must not require an unused token"},
+    {"path": "skill-system/schemas/concrete-host-bootstrap.schema.json", "responsibility": "publish the closed generated declaration contract", "reason": "bootstrap must be reviewable and versioned"},
+    {"path": "skill-system/tests/test_concrete_host_bootstrap.py", "responsibility": "prove initialization, exact validation, assembly, environment credential loading, and fail-closed boundaries", "reason": "the security-sensitive composition boundary needs focused and negative tests"},
+    {"path": "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md", "responsibility": "document lifecycle, generated files, commands, extension points, and standalone boundary", "reason": "operators need a concrete project workflow"},
+    {"path": "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md", "responsibility": "link the built-in factory and initializer", "reason": "transport documentation must show the completed bootstrap path"}
+  ],
+  "unchanged_boundaries": [
+    "Starter verification and registration remain package identity authorities",
+    "Capability activation remains Provider selection authority",
+    "existing adapters remain effect implementations",
+    "WriteAuthorityGuard remains the only mutation authorization boundary and is not created by initialization",
+    "StarterHostOrchestrator remains session-order authority",
+    "LangGraph remains Workflow runtime and TaskRun remains completion authority",
+    "no merge adapter or automatic merge is added",
+    "customer application source and runtime dependencies remain independent"
+  ],
+  "forbidden_repairs": [
+    "Do not accept executable module paths or credential values in Host commands.",
+    "Do not embed tokens in generated files or output.",
+    "Do not create an allow-all or duplicate WriteAuthorityGuard.",
+    "Do not treat initialization, activation, Graph END, CI green, or Quality green as TaskRun completion.",
+    "Do not overwrite an existing installation or partially leave a failed initialization.",
+    "Do not change product source, completion policy, or merge authority.",
+    "Do not automatically merge PR #2098."
+  ],
+  "required_invariants": [
+    "all bootstrap paths are bounded beneath the project workspace",
+    "configuration is closed and fingerprinted",
+    "Starter registration is reverified on every factory load",
+    "SQLite checkpointer is durable and project-local",
+    "GitHub integration is optional and token values come only from the named environment variable",
+    "missing GitHub credentials block configured integration instead of silently downgrading",
+    "missing write authority blocks mutating Skill and Provider dispatch",
+    "initializer refuses overwrite and cleans partial output"
+  ],
+  "required_tests": {
+    "focused": ["local-only initialization emits verified generated artifacts", "built-in factory assembles the real Orchestrator and durable checkpointer", "configured GitHub integration loads only a named environment token"],
+    "counterexamples": ["unexpected fields, unsafe paths, stale fingerprints, missing registration, missing token, and overwrite attempts fail closed", "unconfigured write authority is never fabricated"],
+    "regression": ["authoring, Starter runtime, Provider bootstrap, Host Orchestrator, Host transport, schema, and required skill-only profiles remain green"],
+    "negative_path": ["configuration cannot select write/completion/merge authority", "standalone customer application remains unchanged"]
+  },
+  "risks": [
+    "LocalProcess profile execution remains explicitly allow-listed and target_ref-selected by existing adapter policy.",
+    "The one-shot process owns the SQLite connection for the duration of one command; durable state is on disk.",
+    "Mutating workflows require a separately configured existing WriteAuthorityGuard and are intentionally blocked by the built-in default factory."
+  ],
+  "rollback_plan": "Remove the bootstrap/initializer modules, schema, tests, and documentation link, and restore GitHub-required Provider bootstrap signature. Existing manual trusted factories and all lower runtime components continue to work."
+}

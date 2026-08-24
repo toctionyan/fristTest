@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "repair_plan_sha256": "f2db5815ec5afe73ebc2abcf59b65e3c18a45b93963aab5b9ad28aa82feb8891",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md"
+  ],
+  "review_findings": [
+    "The successor owns only composition and generated configuration; it delegates every live decision to existing authorities.",
+    "A closed project-relative declaration removes handwritten factories without making untrusted Host input executable.",
+    "Local-only assembly is a valid strict subset and does not silently substitute for a configured missing integration.",
+    "The built-in factory has no WriteAuthorityGuard and therefore preserves fail-closed mutating behavior.",
+    "Product source and standalone dependencies remain outside the approved paths."
+  ],
+  "skill_rule_mappings": [
+    {"rule": "One control plane", "assessment": "all Hosts use skillctl host plus the same built-in concrete factory", "evidence": "skill-system/controller/concrete_host_bootstrap.py"},
+    {"rule": "Single authority", "assessment": "composition constructs existing owners and adds no duplicate state writer", "evidence": "skill-system/controller/project_initializer.py"},
+    {"rule": "Fail-closed mutation", "assessment": "initializer cannot configure or grant write authority", "evidence": "skill-system/schemas/concrete-host-bootstrap.schema.json"},
+    {"rule": "Standalone product", "assessment": "all generated Harness files live under .harness and do not become application dependencies", "evidence": "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"}
+  ]
+}

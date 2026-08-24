@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "concrete-host-bootstrap.schema.json",
+  "title": "Concrete Host Bootstrap v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "starter", "registration", "checkpointer", "providers", "runtime", "policy", "bootstrap_sha256"],
+  "properties": {
+    "schema": {"const": "concrete-host-bootstrap@1"},
+    "starter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["starter_id", "package_sha256"],
+      "properties": {
+        "starter_id": {"type": "string", "minLength": 1},
+        "package_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativeJson"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "checkpointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "path"],
+      "properties": {
+        "type": {"const": "sqlite"},
+        "path": {"type": "string", "pattern": "^(?!/)(?!\\.harness/starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.sqlite3$"}
+      }
+    },
+    "providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution_profiles", "process_timeout_seconds", "github"],
+      "properties": {
+        "execution_profiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["test.run", "quality.evaluate"],
+          "properties": {
+            "test.run": {"$ref": "#/$defs/profiles"},
+            "quality.evaluate": {"$ref": "#/$defs/profiles"}
+          }
+        },
+        "process_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "github": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["repository_full_name", "token_environment_variable", "code_review_provider_id", "ci_provider_id", "api_base"],
+              "properties": {
+                "repository_full_name": {"type": "string", "pattern": "^[^/]+/[^/]+$"},
+                "token_environment_variable": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+                "code_review_provider_id": {"type": "string", "minLength": 1},
+                "ci_provider_id": {"type": "string", "minLength": 1},
+                "api_base": {"const": "https://api.github.com"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_root", "taskrun_root", "workspace_fingerprint"],
+      "properties": {
+        "session_root": {"$ref": "#/$defs/relativePath"},
+        "taskrun_root": {"$ref": "#/$defs/relativePath"},
+        "workspace_fingerprint": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "policy": {
+      "const": {
+        "configuration_grants_write_authority": false,
+        "configuration_completes_taskrun": false,
+        "automatic_merge": false,
+        "completion_authority": "TaskRun",
+        "authority_effect": false
+      }
+    },
+    "bootstrap_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relativePath": {"type": "string", "pattern": "^(?!/)(?!\\.harness/starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "relativeJson": {"type": "string", "pattern": "^(?!/)(?!\\.harness/starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.json$"},
+    "profiles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

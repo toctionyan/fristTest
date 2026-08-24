@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "An operator can initialize one verified project Host installation and run the existing ChatGPT/Codex Host transport through a repository-owned concrete factory without hand-writing Python assembly code.",
+    "actual": "The Host CLI requires a trusted factory, but no concrete factory or project initializer assembles the verified Starter registration, Provider registry, durable checkpointer, and Orchestrator.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/red-baseline.md",
+      "skill-system/controller/starter_host_cli.py",
+      "skill-system/controller/starter_provider_bootstrap.py",
+      "skill-system/controller/harness_authoring_cli.py"
+    ]
+  },
+  "violated_invariants": [
+    "Supported Hosts need one concrete bootstrap over the already verified control-plane components.",
+    "Project initialization must generate reviewable configuration rather than requiring handwritten assembly code.",
+    "Bootstrap must not grant write, completion, release, or merge authority."
+  ],
+  "affected_boundaries": [
+    "project initialization",
+    "trusted Host factory",
+    "Provider assembly",
+    "durable LangGraph checkpointer"
+  ]
+}

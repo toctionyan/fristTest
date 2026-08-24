@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-concrete-host-bootstrap-initializer-v1",
+  "failure_case_sha256": "189971f6c07b141f90e9015f8ea5381989e75b5fbec0ed57f79732d46bed5c59",
+  "decision": "PROVEN",
+  "root_cause": "PR #2097 intentionally ended at a generic trusted-factory transport boundary. The repository has all lower components but no single closed configuration, loader, durable checkpointer construction, or atomic initializer that binds them for one project.",
+  "causal_chain": [
+    "The Host CLI validates commands and loads an operator-selected module callable.",
+    "The Provider bootstrap constructs adapters but requires callers to supply all runtime configuration.",
+    "Starter installation and runtime registration are separate authoring commands.",
+    "No repository-owned component seals these outputs into one project-relative bootstrap.",
+    "Every Host/project integration must therefore duplicate security-sensitive assembly code."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-concrete-host-bootstrap-initializer-v1/evidence/red-baseline.md",
+    "skill-system/controller/starter_host_cli.py",
+    "skill-system/controller/starter_provider_bootstrap.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/harness_authoring_cli.py"
+  ],
+  "rejected_hypotheses": [
+    "Let untrusted Host commands select factories, paths, Providers, credentials, or permissions.",
+    "Generate an allow-all WriteAuthorityGuard for convenience.",
+    "Store GitHub tokens in generated configuration.",
+    "Create a second runtime, TaskRun writer, completion controller, or merge adapter.",
+    "Modify the independently runnable customer application."
+  ],
+  "affected_boundaries": [
+    "closed bootstrap declaration",
+    "project initializer",
+    "trusted factory",
+    "optional integration configuration"
+  ]
+}

@@ -149,6 +149,21 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         help="new registration JSON, absolute or relative to project workspace",
     )
+
+    host_init = commands.add_parser(
+        "host-init",
+        help="install and seal one concrete ChatGPT/Codex Host project",
+    )
+    host_init.add_argument("--project-workspace", required=True)
+    host_init.add_argument("--starter", default="customer-agent")
+    host_init.add_argument("--test-profile", action="append", default=[])
+    host_init.add_argument("--quality-profile", action="append", default=[])
+    host_init.add_argument("--process-timeout-seconds", type=int, default=900)
+    host_init.add_argument(
+        "--github-repository",
+        help="optional owner/repository; configured integration requires its token at runtime",
+    )
+    host_init.add_argument("--github-token-environment-variable", default="GITHUB_TOKEN")
     return parser
 
 
@@ -258,6 +273,29 @@ def main(argv: list[str] | None = None) -> int:
                     registry_workspace=ROOT,
                 )
             except StarterRuntimeError as exc:
+                raise HarnessAuthoringError(str(exc)) from exc
+            _write_or_print(payload, None)
+            return 0
+        if args.authoring_command == "host-init":
+            from project_initializer import (
+                ProjectInitializerError,
+                initialize_concrete_host_project,
+            )
+
+            try:
+                payload = initialize_concrete_host_project(
+                    project_workspace=Path(args.project_workspace),
+                    registry_workspace=ROOT,
+                    starter_id=args.starter,
+                    test_profiles=args.test_profile or ("test",),
+                    quality_profiles=args.quality_profile or ("quality",),
+                    process_timeout_seconds=args.process_timeout_seconds,
+                    github_repository=args.github_repository,
+                    github_token_environment_variable=(
+                        args.github_token_environment_variable
+                    ),
+                )
+            except ProjectInitializerError as exc:
                 raise HarnessAuthoringError(str(exc)) from exc
             _write_or_print(payload, None)
             return 0
