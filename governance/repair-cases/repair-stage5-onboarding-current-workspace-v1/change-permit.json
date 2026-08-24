@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "repair_plan_sha256": "59d5a5663e716df98e8203a90e9839923483abaa4945151f7884b9b0680991ca",
+  "plan_review_sha256": "563a816236d5e799e0a91e761761e5a9600c665119072a1bdb7a50e4832caf48",
+  "baseline_manifest_sha256": "9900feffec68a0aaacf9e08d83c44cb5ea69b272216bd73212d7a94304228124",
+  "allowed_paths": [
+    "scripts/repository_onboarding_preflight.py",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/tests/test_repository_onboarding_preflight.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "current B28 workspace copies without PHASE_CANDIDATE_MANIFEST.json evaluate correctly",
+      "a normal .git checkout metadata directory does not cause repository admission failure",
+      "live transport builds the remote marker from exact release/MANIFEST.json bytes and passes the existing evaluator"
+    ],
+    "counterexamples": [
+      "missing or malformed release/MANIFEST.json, mismatched digest, and unrelated repository marker fail closed",
+      "virtual environments, node_modules, caches, symlinks outside .git, and real .env files remain rejected",
+      "public repositories remain blocked without explicit approval"
+    ],
+    "regression": [
+      "both onboarding test modules and the complete skill-control-plane remain green"
+    ],
+    "negative_path": [
+      "no request for PHASE_CANDIDATE_MANIFEST.json remains in the live transport",
+      "no mutation, workflow dispatch, secret value, authority flag, task-ledger closure, or production closure is introduced"
+    ]
+  },
+  "baseline_source_fingerprint": "b333f184ba2eb1af4acaf8a06c5d2499f18ea26399c7e76c1e4ef8db09ec8819",
+  "baseline_workspace_fingerprint": "46e1be1d2628d12a63dd99e318b48605bb6c42e5939078ad123391925d010fd8",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "76ccd95ebdcb5e56ac0b25d7458c8f622c408c9d9c621369efeae824d99d3412"
+}

@@ -38,17 +38,12 @@ PREFLIGHT = _load_preflight()
 
 def _copy_workspace(tmp_path: Path) -> Path:
     target = tmp_path / "workspace"
-    files = set(PREFLIGHT.REQUIRED_ROOT_FILES) | set(PREFLIGHT.REQUIRED_WORKFLOWS) | {
-        "release/MANIFEST.json"
-    }
+    files = set(PREFLIGHT.REQUIRED_ROOT_FILES) | set(PREFLIGHT.REQUIRED_WORKFLOWS)
     for relative in files:
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         source = ROOT / relative
-        if relative == "PHASE_CANDIDATE_MANIFEST.json" and not source.is_file():
-            destination.write_text('{"phase":"candidate"}\n', encoding="utf-8")
-        else:
-            shutil.copy2(source, destination)
+        shutil.copy2(source, destination)
     return target
 
 
@@ -98,7 +93,6 @@ def _ready_responses(
     workspace: Path, *, visibility: str = "private"
 ) -> dict[str, GitHubHttpResponse]:
     base = "https://api.github.com/repos/owner/project"
-    manifest = (workspace / "PHASE_CANDIDATE_MANIFEST.json").read_bytes()
     release = (workspace / "release/MANIFEST.json").read_bytes()
     return {
         base: _json_response(
@@ -124,7 +118,6 @@ def _ready_responses(
                 ]
             }
         ),
-        f"{base}/contents/PHASE_CANDIDATE_MANIFEST.json?ref=main": _content_response(manifest),
         f"{base}/contents/release/MANIFEST.json?ref=main": _content_response(release),
     }
 
@@ -168,6 +161,10 @@ def test_live_private_repository_is_names_only_sealed_and_passes_existing_prefli
     assert all(
         headers["Authorization"] == "Bearer token-only-in-memory"
         for _, _, headers in fake.requests
+    )
+    assert all("PHASE_CANDIDATE_MANIFEST.json" not in url for _, url, _ in fake.requests)
+    assert reloaded["metadata"]["workspace_marker"]["manifest_sha256"] == PREFLIGHT._sha256(
+        workspace / "release/MANIFEST.json"
     )
 
 
@@ -243,10 +240,7 @@ def test_wrong_repository_and_malformed_remote_content_fail_closed(tmp_path: Pat
         _collector(workspace, FakeHttpTransport(responses)).collect()
 
     responses = _ready_responses(workspace)
-    contents = (
-        "https://api.github.com/repos/owner/project/contents/"
-        "PHASE_CANDIDATE_MANIFEST.json?ref=main"
-    )
+    contents = "https://api.github.com/repos/owner/project/contents/release/MANIFEST.json?ref=main"
     responses[contents] = _json_response(
         {"type": "file", "encoding": "base64", "size": 2, "content": "%%%"}
     )

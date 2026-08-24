@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "The repository-onboarding transport and evaluator can bind the current B28 workspace to the selected protected GitHub repository before WP-08 is authorized.",
+    "actual": "The evaluator requires PHASE_CANDIDATE_MANIFEST.json even though B28 deleted it, the transport requests that deleted path remotely, and a normal GitHub checkout is rejected because .git is treated as a runtime directory.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/red-baseline.md",
+      "scripts/repository_onboarding_preflight.py",
+      "skill-system/controller/github_repository_onboarding_transport.py",
+      "release/MANIFEST.json"
+    ]
+  },
+  "violated_invariants": [
+    "Repository onboarding must be executable against the current authoritative workspace shape.",
+    "A GitHub checkout must not be rejected merely because its VCS metadata directory exists.",
+    "The remote marker must use a current versioned identity document and remain exact and fail closed."
+  ],
+  "affected_boundaries": [
+    "repository onboarding workspace identity",
+    "GitHub remote marker collection",
+    "workspace safety traversal",
+    "WP-08 admission preflight"
+  ]
+}

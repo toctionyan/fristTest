@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
   "target_kind": "repair",
-  "goal": "Integrate one read-only GitHub repository onboarding metadata transport with the existing deterministic WP-08 preflight without changing release, deployment, production, write, completion, or merge authority.",
+  "goal": "Align repository onboarding with the current B28 release-manifest identity and normal GitHub checkout metadata without weakening any WP-08 or production authority gate.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
     "skill-system/**",
-    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
     "governance/**",
     "scripts/**",
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
     ".agents/**",
     ".claude/**",
     ".codex/**",
@@ -51,25 +51,18 @@
   ],
   "review_attestations": [
     {
-      "role": "scope-planner",
-      "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/diff-review.json",
-      "evidence_sha256": "554c444240e9267f526211e72f5b9de10fc61b799bbc41e34c7771927aec43b4",
-      "recorded_at": "2026-08-24T05:56:51.850014+00:00"
-    },
-    {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/counterexamples.md",
-      "evidence_sha256": "548dcf8964cb867cb1322c842352ffedc7fe1e5ca3cc2a7a9800260936f842cf",
-      "recorded_at": "2026-08-24T05:56:51.937724+00:00"
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/counterexamples.md",
+      "evidence_sha256": "c71068e7bb3e785c4bbead05ae9624231abf3013d14ebb894bd750cf21830f7d",
+      "recorded_at": "2026-08-24T06:42:11.730427+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-github-repository-onboarding-transport-v1/verification.json",
-      "evidence_sha256": "fe09f95c5878172a67764e4b2b52c6828e7838e7fa63ea5593f44aa26c2efe3e",
-      "recorded_at": "2026-08-24T05:58:41.919794+00:00"
+      "evidence": ".quality/skill-control-plane/repair-stage5-onboarding-current-workspace-v1/verification.json",
+      "evidence_sha256": "69771101c8c3b576c1dcfa8377abc67b4980f1904c8e112cb5f278ef94f669ed",
+      "recorded_at": "2026-08-24T06:47:19.971570+00:00"
     }
   ],
   "decision_record": null,
@@ -77,17 +70,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-github-repository-onboarding-transport-v1/verification.json",
-    "sha256": "fe09f95c5878172a67764e4b2b52c6828e7838e7fa63ea5593f44aa26c2efe3e",
-    "source_fingerprint": "5e799ba4e795a60d6c5c55f8d37d98b9c9bc3b1e7dcf2e70f39feb98fc5eb6c9",
-    "source_file_count": 1242,
-    "verified_at": "2026-08-24T05:58:41.919176+00:00"
+    "path": ".quality/skill-control-plane/repair-stage5-onboarding-current-workspace-v1/verification.json",
+    "sha256": "69771101c8c3b576c1dcfa8377abc67b4980f1904c8e112cb5f278ef94f669ed",
+    "source_fingerprint": "9642c2251371d9d41062e78f14f3fc49f4e2d5b09256e7344b1a093d9e300ff8",
+    "source_file_count": 1257,
+    "verified_at": "2026-08-24T06:47:19.970915+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-github-repository-onboarding-transport-v1",
-  "repair_governance_consumed_at": "2026-08-24T05:58:50.373172+00:00",
-  "created_at": "2026-08-24T05:41:33.205623+00:00",
+  "repair_governance": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1",
+  "repair_governance_consumed_at": "2026-08-24T06:47:26.980861+00:00",
+  "created_at": "2026-08-24T06:37:53.095373+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "af47ac62522e12d8d6e5cdc8d7c87bb53328cc03888d63ffcde58cff7bb7821c",
-  "closed_at": "2026-08-24T05:58:50.373204+00:00"
+  "repair_governance_permit_digest": "76ccd95ebdcb5e56ac0b25d7458c8f622c408c9d9c621369efeae824d99d3412",
+  "closed_at": "2026-08-24T06:47:26.980879+00:00"
 }

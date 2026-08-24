@@ -23,8 +23,7 @@ under the configured GitHub API origin:
 | `/repos/{owner}/{name}/branches/main/protection` | whether GitHub returned the protected-main resource |
 | `/repos/{owner}/{name}/environments` | unique Environment names |
 | `/repos/{owner}/{name}/environments/production-certification/secrets` | unique secret names only |
-| `/repos/{owner}/{name}/contents/PHASE_CANDIDATE_MANIFEST.json?ref={branch}` | exact decoded candidate-manifest bytes and SHA-256 |
-| `/repos/{owner}/{name}/contents/release/MANIFEST.json?ref={branch}` | exact decoded workspace, version, skill version, and phase identity |
+| `/repos/{owner}/{name}/contents/release/MANIFEST.json?ref={branch}` | exact decoded workspace, version, skill version, phase identity, and byte-level SHA-256 |
 
 Pagination is limited to the same API origin and exact repository endpoint,
 with only positive `page` and fixed `per_page=100` parameters. Cross-origin,
@@ -59,6 +58,12 @@ the in-memory seal from the exact collection after the atomic write and before
 using it. A mismatched repository/API identity,
 unexpected field, changed authority flag, malformed digest, or content change
 invalidates the artifact.
+
+`release/MANIFEST.json` is the current B28 phase identity document. The retired
+`PHASE_CANDIDATE_MANIFEST.json` is neither required locally nor requested from
+GitHub. A normal `.git` directory is treated only as checkout metadata during
+workspace safety inspection; virtual environments, dependency trees, caches,
+symlinks outside `.git`, and real `.env` files remain forbidden.
 
 The three authority flags are always:
 

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "root_cause_proof_sha256": "db13d858fac5c254387df4e9a5f9f8db48486d77c0e345a4df7a433a91df9bfe",
+  "status": "APPROVED",
+  "strategy": "Align repository onboarding with the authoritative B28 workspace: use exact release/MANIFEST.json bytes for the local/remote versioned identity digest, stop requiring the deleted PHASE_CANDIDATE_MANIFEST.json, and treat .git as trusted checkout metadata rather than a runtime payload while preserving every other safety, permission, Environment, secret-name, seal, public-approval, and WP-08 authority gate.",
+  "changes": [
+    {
+      "path": "scripts/repository_onboarding_preflight.py",
+      "responsibility": "derive current workspace identity from release/MANIFEST.json and permit VCS checkout metadata without permitting runtime payloads",
+      "reason": "the deterministic evaluator currently rejects the authoritative B28 workspace shape"
+    },
+    {
+      "path": "skill-system/controller/github_repository_onboarding_transport.py",
+      "responsibility": "derive the exact remote workspace marker from release/MANIFEST.json only",
+      "reason": "the transport currently requests a file deliberately deleted by B28"
+    },
+    {
+      "path": "skill-system/tests/test_repository_onboarding_preflight.py",
+      "responsibility": "prove the current workspace identity and checkout-metadata boundary while retaining unsafe runtime and unrelated-repository failures",
+      "reason": "the historical fixture did not represent the current B28 root"
+    },
+    {
+      "path": "skill-system/tests/test_github_repository_onboarding_transport.py",
+      "responsibility": "prove transport success without the deleted phase manifest and exact release-manifest binding",
+      "reason": "the synthetic fixture masked the stale remote request"
+    },
+    {
+      "path": "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
+      "responsibility": "document the corrected identity document and checkout safety behavior",
+      "reason": "operators need a contract matching executable behavior"
+    }
+  ],
+  "unchanged_boundaries": [
+    "scripts/repository_onboarding_preflight.py remains the only repository readiness decision owner",
+    "GitHub remains the authority for repository, protection, Environment, permission, and names-only secret metadata",
+    "public repository use still requires the explicit --allow-public decision",
+    "virtual environments, node_modules, caches, symlinks outside trusted VCS metadata, and real .env files remain forbidden",
+    "protected-environment-preflight remains the owner of secret-value and provider endpoint validation",
+    "the WP-08 coordinator remains the only ReleaseRun authorization owner",
+    "no product source, release workflow, repository settings, secret values, deployment state, or production closure is changed"
+  ],
+  "forbidden_repairs": [
+    "Do not restore or fabricate the obsolete B17i full-tree manifest as current B28 identity.",
+    "Do not accept repository name, branch, or visibility alone as nonempty-repository identity.",
+    "Do not skip digest matching between local and remote release/MANIFEST.json bytes.",
+    "Do not ignore .venv, venv, node_modules, cache directories, symlinks outside .git, or real .env files.",
+    "Do not read or persist secret values, weaken public-repository approval, dispatch WP-08, or claim production closure.",
+    "Do not modify services, web, contracts, release workflows, task-ledger status, or production evidence."
+  ],
+  "required_invariants": [
+    "release/MANIFEST.json is required, parsed as an object, and its exact bytes are SHA-256 bound locally and remotely",
+    "workspace, version, skill version, phase, manifest digest, and production_closed remain fail-closed identity fields",
+    ".git is ignored only as VCS metadata and cannot authorize or alter readiness",
+    "all other workspace safety exclusions remain enforced",
+    "the transport remains HTTPS GET-only, repository-bound, names-only for secrets, sealed, and authority-free",
+    "onboarding PASS remains admission evidence only and cannot close WP-08 or production"
+  ],
+  "required_tests": {
+    "focused": [
+      "current B28 workspace copies without PHASE_CANDIDATE_MANIFEST.json evaluate correctly",
+      "a normal .git checkout metadata directory does not cause repository admission failure",
+      "live transport builds the remote marker from exact release/MANIFEST.json bytes and passes the existing evaluator"
+    ],
+    "counterexamples": [
+      "missing or malformed release/MANIFEST.json, mismatched digest, and unrelated repository marker fail closed",
+      "virtual environments, node_modules, caches, symlinks outside .git, and real .env files remain rejected",
+      "public repositories remain blocked without explicit approval"
+    ],
+    "regression": [
+      "both onboarding test modules and the complete skill-control-plane remain green"
+    ],
+    "negative_path": [
+      "no request for PHASE_CANDIDATE_MANIFEST.json remains in the live transport",
+      "no mutation, workflow dispatch, secret value, authority flag, task-ledger closure, or production closure is introduced"
+    ]
+  },
+  "risks": [
+    "release/MANIFEST.json is a smaller identity document than the retired full-tree manifest; exact candidate SHA binding remains owned by main Quality and the WP-08 ReleaseRun coordinator.",
+    "Ignoring .git must not broaden traversal exclusions to arbitrary hidden directories or runtime payloads.",
+    "A passing onboarding preflight still does not prove live model, PostgreSQL, browser, or RAG certification."
+  ],
+  "rollback_plan": "Revert the evaluator, transport, tests, and documentation changes; repository onboarding returns to fail-closed BLOCKED behavior and no WP-08 run is authorized."
+}
