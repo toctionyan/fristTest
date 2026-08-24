@@ -164,6 +164,10 @@ def _parser() -> argparse.ArgumentParser:
         help="optional owner/repository; configured integration requires its token at runtime",
     )
     host_init.add_argument("--github-token-environment-variable", default="GITHUB_TOKEN")
+    host_init.add_argument(
+        "--github-webhook-secret-environment-variable",
+        default="GITHUB_WEBHOOK_SECRET",
+    )
 
     human_decision = commands.add_parser(
         "human-decision",
@@ -306,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
                     github_repository=args.github_repository,
                     github_token_environment_variable=(
                         args.github_token_environment_variable
+                    ),
+                    github_webhook_secret_environment_variable=(
+                        args.github_webhook_secret_environment_variable
                     ),
                 )
             except ProjectInitializerError as exc:

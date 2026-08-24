@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "repair_plan_sha256": "911fdef60a45e737b823a5ba8bc8f591c182f32f8e9e11c715cbcbfe2322f11e",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/github_webhook_external_event_transport.py",
+    "skill-system/controller/provider_webhook_cli.py",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/harness_authoring_cli.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_provider_webhook_external_event_transport.py",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skillctl.py",
+    "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"
+  ],
+  "review_findings": [
+    "The proposed listener fills the deliberately open Provider authentication boundary without changing Scheduler or Provider-result authority.",
+    "Exact signed bytes and delivery identity are retained, so replay and crash recovery can be proven rather than inferred.",
+    "Session identity comes from the trusted endpoint/process route and remains subject to the Scheduler's exact wait and TaskRun checks.",
+    "The HTTP server is a thin event-driven WSGI wrapper around the same one-request transport, not a polling controller.",
+    "The plan keeps secrets out of configuration and durable artifacts and denies them to project command profiles.",
+    "Product source, Workflow routing, TaskRun completion, Quality, Write Authority, Human Gate, release, production, and merge paths are excluded."
+  ],
+  "skill_rule_mappings": [
+    {"rule": "One control plane", "assessment": "root skillctl provider-webhook and WSGI both call one GitHub transport and the existing Scheduler", "evidence": "skillctl.py"},
+    {"rule": "Single authority", "assessment": "listener authenticates and normalizes only; Scheduler binds/delivers and Provider adapter interprets conclusions", "evidence": "skill-system/controller/github_webhook_external_event_transport.py"},
+    {"rule": "Fail closed", "assessment": "signature, payload, repository, delivery replay, route, and Scheduler mismatch are rejected", "evidence": "skill-system/tests/test_provider_webhook_external_event_transport.py"},
+    {"rule": "Durable external wait", "assessment": "signed provider evidence and transport receipts bind the exact Scheduler event and wake receipt", "evidence": "skill-system/tests/test_provider_webhook_external_event_transport.py"},
+    {"rule": "Standalone product", "assessment": "all ingress code and state stay in Harness control-plane paths", "evidence": "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md"}
+  ]
+}

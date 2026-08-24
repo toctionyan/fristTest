@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "root_cause_proof_sha256": "7f1e88d35ddfcbcbbd748267b4162340d4081f3f8b724b7e3beed5174363925f",
+  "status": "APPROVED",
+  "strategy": "Add one GitHub-specific workflow_run webhook transport in front of the existing provider-neutral Scheduler. The transport verifies the exact raw body with X-Hub-Signature-256, validates closed delivery/event/repository/run fields, stores sealed raw provider evidence and a replay-safe transport receipt, normalizes only provider identity/correlation/event/conclusion, and invokes the existing Scheduler ingest/wake methods. Expose both a one-request process command and a WSGI HTTP listener behind the root skillctl command. Upgrade the generated concrete Host bootstrap with closed non-authorizing transport configuration; do not add polling, Workflow routing, completion, merge, or product-runtime authority.",
+  "changes": [
+    {"path": "skill-system/controller/github_webhook_external_event_transport.py", "responsibility": "authenticate GitHub workflow_run webhooks, persist exact signed evidence, reject conflicting delivery replays, normalize the provider event, and call the existing Scheduler", "reason": "no Provider ingress owner exists before trusted scheduler ingest"},
+    {"path": "skill-system/controller/provider_webhook_cli.py", "responsibility": "expose bounded receive and event-driven WSGI serve operations with closed inputs and safe failures", "reason": "reverse proxies, serverless gateways, and local Hosts need one canonical process/HTTP boundary"},
+    {"path": "skill-system/controller/concrete_host_bootstrap.py", "responsibility": "validate provider-webhook configuration and attach the GitHub transport to the existing orchestrator and Scheduler", "reason": "the concrete Host factory is the trusted composition owner"},
+    {"path": "skill-system/controller/project_initializer.py", "responsibility": "generate closed provider-webhook roots, limits, provider identity, repository identity, and secret environment-variable reference", "reason": "operators must not hand-author security-sensitive transport configuration"},
+    {"path": "skill-system/controller/harness_authoring_cli.py", "responsibility": "accept the webhook secret environment-variable name during host initialization", "reason": "the existing initializer CLI is the only Host installation boundary"},
+    {"path": "skill-system/schemas/concrete-host-bootstrap.schema.json", "responsibility": "publish concrete-host-bootstrap@4 with a closed optional provider_webhook declaration", "reason": "transport configuration must be fingerprinted and fail closed"},
+    {"path": "skill-system/tests/test_provider_webhook_external_event_transport.py", "responsibility": "prove real HMAC verification, GitHub normalization, durable evidence, replay behavior, WSGI behavior, exact Scheduler delegation, and authority negatives", "reason": "webhook ingress is a security, durability, and concurrency boundary"},
+    {"path": "skill-system/tests/test_concrete_host_bootstrap.py", "responsibility": "prove initializer and factory wire @4 transport configuration without granting authority", "reason": "composition and secret-handling regressions must fail"},
+    {"path": "skillctl.py", "responsibility": "route provider-webhook through the canonical root control plane", "reason": "all Hosts must invoke the same transport command"},
+    {"path": "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md", "responsibility": "document deployment, signature, normalization, replay, WSGI, reverse-proxy, Scheduler, and authority boundaries", "reason": "operators need a concrete safe listener contract"},
+    {"path": "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md", "responsibility": "replace the abstract trusted-listener extension note with the concrete GitHub transport handoff", "reason": "scheduler documentation must name the live ingress implementation"},
+    {"path": "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md", "responsibility": "document generated @4 provider webhook configuration and command", "reason": "initializer documentation must match live output"}
+  ],
+  "unchanged_boundaries": [
+    "GitHub remains the authority for webhook HMAC validity and provider-native delivery/run fields",
+    "EventDrivenCIProviderAdapter remains the only owner of green/red/blocked CI result interpretation",
+    "DurableExternalEventScheduler remains the exact wait binding and one-shot delivery owner",
+    "StarterHostCommandTransport and StarterHostOrchestrator remain Host transition owners",
+    "LangGraph remains Workflow sequencing authority and TaskRun remains lifecycle/completion authority",
+    "ChangePermit Write Authority, Human Gate, Quality, release, production, and merge boundaries remain unchanged",
+    "customer-agent product source and runtime dependencies remain independent"
+  ],
+  "forbidden_repairs": [
+    "Do not accept unsigned, malformed, non-workflow_run, non-completed, wrong-repository, oversized, or conflicting replay requests.",
+    "Do not normalize by fuzzy repository, run, session, event, or Provider matching.",
+    "Do not let the request body choose a Host session; the trusted endpoint/process argument supplies the exact session and the Scheduler revalidates its wait.",
+    "Do not poll GitHub, sleep, spawn repair workers, or create another Workflow/TaskRun controller.",
+    "Do not interpret CI conclusion outside EventDrivenCIProviderAdapter.",
+    "Do not grant write, Human Gate, Quality, completion, release, production, deployment, or merge authority.",
+    "Do not expose webhook secrets in bootstrap files, logs, evidence, results, or project command environments.",
+    "Do not change services, web, contracts, or standalone customer application dependencies."
+  ],
+  "required_invariants": [
+    "HMAC comparison covers the exact received body bytes and uses constant-time comparison",
+    "delivery identity, raw body digest, repository, workflow run, head SHA, and normalized event are sealed in durable provider evidence",
+    "the same delivery and body is idempotent while the same delivery with different bytes or session fails closed",
+    "normalization is fixed to github.actions, run-<id>, ci.completed, and does not decide CI outcome",
+    "the exact configured repository and exact trusted session route are required before Scheduler ingest",
+    "HTTP serving is event-driven and contains no Provider polling loop",
+    "transport delegates only to the existing Scheduler and cannot directly write Host session or TaskRun state",
+    "all transport policy fields state authority_effect=false and preserve TaskRun completion authority"
+  ],
+  "required_tests": {
+    "focused": [
+      "a valid signed completed GitHub workflow_run for the configured repository persists sealed raw evidence and delegates exact normalized ingest/wake once",
+      "the root one-request CLI and WSGI POST listener use the same transport implementation",
+      "initializer and built-in factory attach concrete-host-bootstrap@4 provider transport configuration"
+    ],
+    "counterexamples": [
+      "missing or invalid signature, delivery ID, event type, action, run status, repository, run ID, head SHA, body encoding, content type, or size fails closed",
+      "same delivery with changed bytes or changed session is rejected and concurrent replay cannot submit twice",
+      "Scheduler rejection remains rejection and cannot be converted to success by the listener"
+    ],
+    "regression": [
+      "Scheduler, Provider adapter, Host bootstrap, initializer, Host runtime/transport, schemas, and complete skill-unit suites remain green"
+    ],
+    "negative_path": [
+      "listener contains no Provider polling or merge/completion/write transition",
+      "webhook secret never appears in durable artifacts, output, bootstrap, or project command environment",
+      "product source and dependencies remain unchanged"
+    ]
+  },
+  "risks": [
+    "The built-in HTTP server is intended behind an HTTPS reverse proxy; TLS termination and public network policy remain deployment responsibilities.",
+    "GitHub may retry a delivery after a process crash; sealed evidence plus Scheduler idempotency must make that retry safe.",
+    "A valid GitHub event sent to the wrong session route is authenticated but still rejected by exact Scheduler wait correlation.",
+    "Other Providers require separate listener adapters with their own authentication and payload contracts."
+  ],
+  "rollback_plan": "Remove the GitHub webhook transport module, root command, @4 provider_webhook declaration, tests, and docs; restore concrete-host-bootstrap@3 and retain the already merged trusted normalized scheduler ingest/wake boundary from PR #2100."
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "failure_case_sha256": "059ac50e2f18620ead7defb1dbbeea7f2ceb5a5864c5bc73879d8da9e8f0d215",
+  "decision": "PROVEN",
+  "root_cause": "PR #2100 deliberately ended at a trusted normalized event boundary. The concrete Host composition has no provider-specific listener responsible for GitHub HMAC verification, workflow_run normalization, exact raw-payload evidence, and delivery replay ownership before calling that boundary.",
+  "causal_chain": [
+    "EventDrivenCIProviderAdapter publishes an exact github.actions wait and leaves external delivery to the integration layer.",
+    "DurableExternalEventScheduler requires trusted normalized evidence and intentionally rejects ownership of Provider authentication.",
+    "The bootstrap and initializer configure only GitHub API access plus the generic Scheduler, so no live component owns webhook receipt.",
+    "Consequently a real GitHub webhook cannot cross into the existing exact Scheduler/Host resume path without an unsafe hand-written normalization step."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/red-baseline.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "skill-system/controller/provider_adapters.py",
+    "skill-system/controller/durable_external_event_scheduler.py",
+    "skill-system/controller/concrete_host_bootstrap.py"
+  ],
+  "rejected_hypotheses": [
+    "The generic Scheduler should verify GitHub signatures; rejected because that would mix Provider authentication with provider-neutral wait delivery.",
+    "The CI Provider adapter should run an HTTP server; rejected because the adapter owns result interpretation inside Workflow execution, not Host transport or ingress lifecycle.",
+    "Polling GitHub is an equivalent repair; rejected because the accepted architecture is event-driven and forbids provider polling or sleep loops."
+  ],
+  "affected_boundaries": [
+    "provider authentication owner",
+    "provider delivery replay owner",
+    "normalized scheduler ingress",
+    "concrete Host composition"
+  ]
+}
