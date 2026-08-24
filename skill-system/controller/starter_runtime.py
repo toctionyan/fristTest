@@ -12,6 +12,8 @@ from harness_authoring import compile_workflow_declaration, load_declaration, pa
 from harness_composition import compose_workflow, parse_composition_declaration
 from harness_starter import StarterVerification, verify_starter
 from langgraph_workflow_runtime import (
+    RUNTIME_STATUS_BLOCKED,
+    RUNTIME_STATUS_END,
     RUNTIME_STATUS_HUMAN_GATE,
     RUNTIME_STATUS_WAITING_EXTERNAL,
     RUNTIME_STATUS_WAITING_HOST,
@@ -739,6 +741,71 @@ class StarterWorkflowRuntime:
                 "authority_effect": False,
             },
         }
+
+    @staticmethod
+    def _taskrun_projection(runtime_status: str) -> tuple[str, str] | None:
+        return {
+            RUNTIME_STATUS_WAITING_EXTERNAL: (
+                "WAITING_EXTERNAL_RESULT",
+                "WORKFLOW_WAITING_EXTERNAL",
+            ),
+            RUNTIME_STATUS_WAITING_HOST: (
+                "WAITING_EXTERNAL_RESULT",
+                "WORKFLOW_WAITING_HOST",
+            ),
+            RUNTIME_STATUS_HUMAN_GATE: ("BLOCKED", "WORKFLOW_HUMAN_GATE"),
+            RUNTIME_STATUS_BLOCKED: ("BLOCKED", "WORKFLOW_BLOCKED_UNRECOVERABLE"),
+            RUNTIME_STATUS_END: (
+                "VALIDATING",
+                "WORKFLOW_GRAPH_ENDED_AWAITING_COMPLETION_POLICY",
+            ),
+        }.get(runtime_status)
+
+    def recover(
+        self,
+        *,
+        prior_state: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Adopt one durable, non-running graph snapshot after a Host crash.
+
+        Recovery never invokes the graph.  A snapshot equal to the pre-resume
+        state while TaskRun already says RUNTIME_RESUMED is ambiguous: the
+        process may have died while a step effect was in flight.  That case is
+        deliberately blocked instead of being replayed.
+        """
+
+        snapshot = self._graph().get_state(self._config())
+        values = getattr(snapshot, "values", None)
+        if not isinstance(values, Mapping) or not values:
+            raise StarterRuntimeError("no durable LangGraph snapshot is available")
+        state = dict(values)
+        self._assert_task(state)
+        runtime_status = str(state.get("runtime_status") or "").strip()
+        projection = self._taskrun_projection(runtime_status)
+        if projection is None:
+            raise StarterRuntimeError(
+                "durable LangGraph snapshot is still RUNNING or has no recoverable terminal state"
+            )
+        if (
+            prior_state is not None
+            and dict(prior_state) == state
+            and str(self.store.payload.get("phase") or "")
+            in {"WORKFLOW_RUNTIME_STARTED", "WORKFLOW_RUNTIME_RESUMED"}
+        ):
+            raise StarterRuntimeError(
+                "durable LangGraph snapshot did not advance after a claimed transition"
+            )
+        current = (
+            str(self.store.payload.get("status") or ""),
+            str(self.store.payload.get("phase") or ""),
+        )
+        if current != projection:
+            checkpoint_workflow_state(
+                self.store,
+                state=state,
+                workspace_fingerprint=self.workspace_fingerprint,
+            )
+        return self._execution(state)
 
     def start(self, *, target_ref: Mapping[str, Any]) -> dict[str, Any]:
         self._assert_task()

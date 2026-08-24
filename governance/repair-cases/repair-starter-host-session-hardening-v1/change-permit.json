@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "repair_plan_sha256": "bd711c0b5bcd027a9d79ef63634aec638656c91816fbc05426a3b75aab397b61",
+  "plan_review_sha256": "5a03e368bc8caef59174e5e8b85e84b4e9139022509e43dd8eaf6bb1416cd9c0",
+  "baseline_manifest_sha256": "4766e7274c0badfb8f3ee5f9f60745dc502ec218ffe13de02ae484680dab4f41",
+  "allowed_paths": [
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "persisted next_action/policy tampering is rejected on read",
+      "unknown/missing session fields and digest drift are rejected",
+      "a real verified Starter external wait resumes on the exact event/evidence into VALIDATING",
+      "a real verified Starter Human Gate resumes on an explicit decision/evidence into VALIDATING",
+      "crash after durable start or resume execution is reconciled from the same TaskRun/checkpointer without re-executing the completed step"
+    ],
+    "counterexamples": [
+      "wrong phase, event, correlation, Human decision shape, missing evidence, stale revision, or unrelated pending transition is rejected",
+      "a transitional TaskRun with no provable unstarted wait or newer non-running checkpoint is blocked instead of replayed",
+      "automatic_merge, completion authority, and authority_effect cannot be changed in persisted state"
+    ],
+    "regression": [
+      "existing selection, Host bridge, Starter runtime, TaskRun bridge, Provider, invocation, and orchestrator suites remain green",
+      "complete Skill unit and all five required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "session sealing does not become write or merge authority",
+      "reconciliation does not fabricate evidence or re-run ambiguous effects",
+      "Graph END remains TaskRun VALIDATING",
+      "standalone customer application source and dependencies remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "8798e571a76d655f0820a30198ab1d9dc0182b8f0c5fd1b4c0619f421d2e923e",
+  "baseline_workspace_fingerprint": "6f94aacfe149413b1d03c0abf24c8215aa6e5dc34189900b320fbda9d04234c9",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "4ab2bd318388d5c567af81a3295230322ee59e152c971be978c3ae12a104ba7c"
+}

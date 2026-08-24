@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "failure_case_sha256": "efc4162a33166906ddb6ae243576a6ddaede95c22eed5fd42a3c25bb64110221",
+  "decision": "PROVEN",
+  "root_cause": "PR #2096 validates immutable identity fields but treats the remaining persisted session object, including next_action and policy, as already trusted. It also persists only a transitional phase, not the exact pending transition input required for replay-safe recovery. Focused tests prove projection helpers rather than executing the external and Human Gate composition boundaries.",
+  "causal_chain": [
+    "_load_json() proves only that the session is a JSON object and _validate_identity() checks Host, registration, request, revision, and session fingerprint.",
+    "No whole-session digest, exact-field validator, or canonical next-action equality check protects phase, runtime state, pending operation, next_action, or policy.",
+    "The Host may therefore receive a structurally impossible action loaded from mutable storage even though lower write and merge authorities remain intact.",
+    "_claim_resume() records RESUMING_* but discards the exact external event or Human decision; submit_host_result likewise does not bind the submitted result into session recovery state.",
+    "A process interruption can consequently leave an explicit claim that blocks replay but cannot be reconciled by repository code.",
+    "The five focused tests use project_runtime_action() for external/Human states and do not execute successful resume_external() or resume_human() calls through one real Starter TaskRun."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/red-baseline.md",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/tests/test_starter_host_orchestrator.py"
+  ],
+  "rejected_hypotheses": [
+    "Rely on the JSON Schema file being present; neither read() nor _update() executes it and current tests assert only selected top-level properties.",
+    "Treat the existing write guard as sufficient; it protects mutation authority but does not make a fabricated Host action a valid transport state.",
+    "Blindly rerun STARTING or RESUMING; a crash after a Provider or Host effect but before session publication can duplicate effects.",
+    "Move recovery ownership into ChatGPT/Codex prompts; durable transition reconciliation belongs to the repository control plane."
+  ],
+  "affected_boundaries": [
+    "session shape and integrity",
+    "canonical action derivation",
+    "Starter runtime snapshot recovery",
+    "Host/external/human resume correlation"
+  ]
+}

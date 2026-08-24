@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "root_cause_proof_sha256": "6e0a14082902318dfaa99043af4f9c75dcb35105c9e068b0092961b340a790ef",
+  "status": "APPROVED",
+  "strategy": "Harden the existing StarterHostOrchestrator without creating a second session owner. Seal every persisted session, validate an exact closed shape on every load, and require persisted next_action/policy to equal a canonical projection. Persist the exact non-authorizing pending transition input before each STARTING/RESUMING claim. Add StarterWorkflowRuntime.recover() to read a non-running durable LangGraph snapshot and align the existing TaskRun. Add reconcile() that safely starts only a provably unstarted CREATED TaskRun, replays a resume only while the TaskRun is still at its original wait/gate, adopts a newer durable graph snapshot, and blocks ambiguous RUNNING states. Prove real external and Human Gate round trips with temporary verified Starter entrypoints.",
+  "changes": [
+    {
+      "path": "skill-system/controller/starter_host_orchestrator.py",
+      "responsibility": "seal and fully validate session state, derive canonical actions, persist pending transitions, and reconcile interrupted claims",
+      "reason": "this remains the single Host-session ordering and correlation owner"
+    },
+    {
+      "path": "skill-system/controller/starter_runtime.py",
+      "responsibility": "expose read-only recovery of the latest durable non-running LangGraph snapshot and align it with the existing TaskRun",
+      "reason": "the Starter runtime owns graph/checkpointer reconstruction and TaskRun projection"
+    },
+    {
+      "path": "skill-system/schemas/starter-host-session.schema.json",
+      "responsibility": "close the sealed session and pending-transition transport shape",
+      "reason": "persisted recovery state must be versioned and reviewable"
+    },
+    {
+      "path": "skill-system/tests/test_starter_host_orchestrator.py",
+      "responsibility": "prove tamper rejection, schema closure, successful external/Human resumes, stale/wrong evidence rejection, and crash reconciliation",
+      "reason": "the prior suite did not execute these composed boundaries"
+    },
+    {
+      "path": "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+      "responsibility": "document canonical reconstruction and the exact safe/ambiguous reconciliation rules",
+      "reason": "Host implementers must not treat stored next_action or a transitional phase as replay authority"
+    }
+  ],
+  "unchanged_boundaries": [
+    "StarterHostOrchestrator remains the only Host-session state owner",
+    "ChatGPT/Codex remains semantic interpreter among verified candidates",
+    "StarterWorkflowRuntime and LangGraph remain Workflow execution authorities",
+    "TaskRun remains lifecycle and completion authority",
+    "DurableHostSkillBridge remains Host result and immutable receipt transport",
+    "existing WriteAuthorityGuard remains mandatory for mutating effects",
+    "external events and Human decisions must carry durable evidence",
+    "Graph END remains VALIDATING and automatic merge remains false",
+    "customer application source and runtime dependencies remain unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not trust or auto-heal an impossible persisted next_action.",
+    "Do not add an HMAC secret, new authority store, second TaskRun, or second graph state machine.",
+    "Do not blindly replay an ambiguous RUNNING transition or fabricate missing resume evidence.",
+    "Do not interpret natural language, grant write authority, complete TaskRun, or add merge capability.",
+    "Do not modify customer Agent product source, services, web code, contracts, packaging, or runtime dependencies.",
+    "Do not merge PR #2096."
+  ],
+  "required_invariants": [
+    "every returned session has exact fields, a valid state digest, and a canonical phase/action/policy relationship",
+    "changing next_action, policy, phase, pending transition, runtime state, selection, or TaskRun binding fails closed",
+    "pending transition identity is persisted before a runtime call and cleared only after canonical execution publication",
+    "reconciliation retries only a CREATED start or an unchanged durable wait/gate with its exact persisted input",
+    "reconciliation may adopt only a durable non-RUNNING graph snapshot bound to the same TaskRun and Workflow",
+    "ambiguous graph or TaskRun RUNNING state remains blocked for explicit inspection",
+    "external and Human Gate resumes preserve the same session and TaskRun and end in VALIDATING rather than COMPLETED"
+  ],
+  "required_tests": {
+    "focused": [
+      "persisted next_action/policy tampering is rejected on read",
+      "unknown/missing session fields and digest drift are rejected",
+      "a real verified Starter external wait resumes on the exact event/evidence into VALIDATING",
+      "a real verified Starter Human Gate resumes on an explicit decision/evidence into VALIDATING",
+      "crash after durable start or resume execution is reconciled from the same TaskRun/checkpointer without re-executing the completed step"
+    ],
+    "counterexamples": [
+      "wrong phase, event, correlation, Human decision shape, missing evidence, stale revision, or unrelated pending transition is rejected",
+      "a transitional TaskRun with no provable unstarted wait or newer non-running checkpoint is blocked instead of replayed",
+      "automatic_merge, completion authority, and authority_effect cannot be changed in persisted state"
+    ],
+    "regression": [
+      "existing selection, Host bridge, Starter runtime, TaskRun bridge, Provider, invocation, and orchestrator suites remain green",
+      "complete Skill unit and all five required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "session sealing does not become write or merge authority",
+      "reconciliation does not fabricate evidence or re-run ambiguous effects",
+      "Graph END remains TaskRun VALIDATING",
+      "standalone customer application source and dependencies remain unchanged"
+    ]
+  },
+  "risks": [
+    "A process may die while an external side effect is in flight before any durable graph checkpoint; reconciliation must classify this as ambiguous and block.",
+    "A plain SHA-256 seal detects corruption and unauthorized field changes relative to canonical validation but is not a secret-based defense against an actor who can rewrite both code and files.",
+    "Transport-specific ChatGPT/Codex CLI integration remains a later stage and is not added to #2096 hardening."
+  ],
+  "rollback_plan": "Revert the hardening commit to the original #2096 tree. The existing fail-closed STARTING/RESUMING behavior remains, and PR #2096 stays unmerged until a replacement repair is governed."
+}

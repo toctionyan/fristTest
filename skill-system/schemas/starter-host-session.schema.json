@@ -8,6 +8,7 @@
     "schema",
     "session_id",
     "session_fingerprint_sha256",
+    "state_digest_sha256",
     "revision",
     "phase",
     "host_id",
@@ -23,6 +24,7 @@
     "runtime_state",
     "taskrun_status",
     "taskrun_phase",
+    "pending_transition",
     "next_action",
     "last_error",
     "policy"
@@ -31,6 +33,7 @@
     "schema": {"const": "starter-host-session@1"},
     "session_id": {"$ref": "#/$defs/stableId"},
     "session_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "state_digest_sha256": {"$ref": "#/$defs/sha256"},
     "revision": {"type": "integer", "minimum": 0},
     "phase": {
       "enum": [
@@ -73,6 +76,12 @@
     "runtime_state": {"type": ["object", "null"]},
     "taskrun_status": {"type": ["string", "null"]},
     "taskrun_phase": {"type": ["string", "null"]},
+    "pending_transition": {
+      "anyOf": [
+        {"$ref": "#/$defs/pendingTransition"},
+        {"type": "null"}
+      ]
+    },
     "next_action": {"$ref": "#/$defs/nextAction"},
     "last_error": {"type": ["string", "null"]},
     "policy": {
@@ -107,6 +116,32 @@
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "pendingTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "kind",
+        "input",
+        "evidence_refs",
+        "correlation_ref",
+        "authority_effect"
+      ],
+      "properties": {
+        "schema": {"const": "starter-host-pending-transition@1"},
+        "kind": {
+          "enum": ["START", "HOST_RESULT", "EXTERNAL_EVENT", "HUMAN_DECISION"]
+        },
+        "input": {"type": "object"},
+        "evidence_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "correlation_ref": {"type": ["string", "null"]},
+        "authority_effect": {"const": false}
+      }
     },
     "nextAction": {
       "type": "object",

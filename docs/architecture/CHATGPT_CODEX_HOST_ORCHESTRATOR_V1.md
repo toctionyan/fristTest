@@ -15,6 +15,8 @@ One durable `starter-host-session@1` now binds:
 - one stable TaskRun and resolved Workflow;
 - the latest canonical LangGraph runtime state;
 - one closed `starter-host-next-action@1` projection;
+- one sealed `starter-host-pending-transition@1` only while a start/resume call
+  is claimed;
 - a monotonic revision used for compare-and-swap transitions.
 
 The session is an ordering and correlation controller. It does not become a
@@ -82,10 +84,20 @@ states that selection is not execution, selection grants no write authority,
 Graph END does not complete TaskRun, automatic merge is disabled, and TaskRun is
 completion authority.
 
+Persisted `next_action` is never trusted merely because it is valid JSON. Every
+open, read, and compare-and-swap update verifies the exact closed session fields,
+the whole-session state digest, immutable bindings, phase/runtime relationship,
+fixed authority policies, and equality with a newly derived canonical action.
+Changing `next_action`, policy, phase, pending input, runtime identity, or TaskRun
+binding therefore fails before an action is returned to the Host. The SHA-256
+seal is corruption evidence, not a secret or a replacement for filesystem access
+control and the existing write-authority guard.
+
 ### 5. Resume the matching boundary
 
-Each resume first claims the current session revision and enters one non-reentrant
-`RESUMING_*` phase.
+Each resume first seals the exact non-authorizing input/evidence/correlation,
+claims the current session revision, and enters one non-reentrant `RESUMING_*`
+phase.
 
 - `submit_host_result()` is legal only for the active `WAITING_HOST` execution
   ID. It delegates immutable result/tool-receipt validation to
@@ -97,9 +109,26 @@ Each resume first claims the current session revision and enters one non-reentra
   evidence.
 
 Concurrent callers with the same old revision have one winner. The loser sees a
-revision or phase conflict before it can advance the session. A process crash
-after a transition claim leaves an explicit `STARTING` or `RESUMING_*` state; the
-system blocks for reconciliation instead of blindly replaying a side effect.
+revision or phase conflict before it can advance the session.
+
+### 6. Reconcile an interrupted claim
+
+A process crash after a claim leaves `STARTING` or `RESUMING_*` plus its exact
+sealed pending transition. The next Host process calls `reconcile()` with the
+current revision. Reconciliation takes another CAS claim and follows only these
+proof rules:
+
+- a start may run when the stable TaskRun is still exactly `CREATED/CREATED`;
+- a resume may replay its sealed input when TaskRun still contains the exact
+  original Host/external/Human wait handle;
+- a newer non-running durable LangGraph snapshot may be adopted and projected
+  through the existing TaskRun bridge without invoking the graph again;
+- a missing snapshot, `RUNNING` snapshot, or unchanged pre-resume snapshot after
+  TaskRun entered `WORKFLOW_RUNTIME_RESUMED` is ambiguous and becomes `BLOCKED`.
+
+This favors at-most-once safety over automatic liveness. Reconciliation does not
+invent evidence, infer that an in-flight side effect failed, or blindly execute
+an ambiguous step a second time.
 
 ## Customer Agent examples
 
@@ -138,4 +167,3 @@ and `.quality`. The customer application imports none of the orchestrator code.
 Its source, tests, package manifest, deployment configuration, and runtime
 dependencies remain usable when ChatGPT, Codex, the Starter, and Harness artifacts
 are removed.
-

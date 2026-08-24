@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "permit_digest": "4ab2bd318388d5c567af81a3295230322ee59e152c971be978c3ae12a104ba7c",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "8798e571a76d655f0820a30198ab1d9dc0182b8f0c5fd1b4c0619f421d2e923e",
+  "candidate_source_fingerprint": "0846da239d26bd6a832cd23f7e407fc8d4d143ffdd03c924b92bd60d2aeaeb6a",
+  "changed_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py"
+  ],
+  "added_paths": [],
+  "modified_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

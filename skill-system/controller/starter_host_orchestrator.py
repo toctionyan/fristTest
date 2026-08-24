@@ -32,6 +32,7 @@ from workflow_dispatcher import ProviderAdapterRegistry, WriteAuthorityGuard
 
 STARTER_HOST_SESSION_SCHEMA = "starter-host-session@1"
 STARTER_HOST_NEXT_ACTION_SCHEMA = "starter-host-next-action@1"
+STARTER_HOST_PENDING_TRANSITION_SCHEMA = "starter-host-pending-transition@1"
 
 PHASE_AWAITING_SELECTION = "AWAITING_SELECTION"
 PHASE_AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
@@ -47,6 +48,49 @@ PHASE_VALIDATING = "VALIDATING"
 PHASE_BLOCKED = "BLOCKED"
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._:-]+$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SESSION_FIELDS = {
+    "schema",
+    "session_id",
+    "session_fingerprint_sha256",
+    "state_digest_sha256",
+    "revision",
+    "phase",
+    "host_id",
+    "registration_ref",
+    "registration_sha256",
+    "selection_request",
+    "selection",
+    "confirmation",
+    "resolution",
+    "task_id",
+    "taskrun_ref",
+    "target_ref",
+    "runtime_state",
+    "taskrun_status",
+    "taskrun_phase",
+    "pending_transition",
+    "next_action",
+    "last_error",
+    "policy",
+}
+_SESSION_POLICY = {
+    "host_interprets_language": True,
+    "repository_keyword_router": False,
+    "one_taskrun_per_session": True,
+    "write_authority_granted": False,
+    "automatic_merge": False,
+    "completion_authority": "TaskRun",
+    "authority_effect": False,
+}
+_ACTION_POLICY = {
+    "selection_is_execution": False,
+    "selection_grants_write_authority": False,
+    "graph_end_completes_taskrun": False,
+    "automatic_merge": False,
+    "completion_authority": "TaskRun",
+    "authority_effect": False,
+}
 
 
 class StarterHostOrchestrationError(RuntimeError):
@@ -70,6 +114,46 @@ def _canonical(value: object) -> str:
 
 def _digest(value: object) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _state_digest(payload: Mapping[str, Any]) -> str:
+    body = dict(payload)
+    body.pop("state_digest_sha256", None)
+    return _digest(body)
+
+
+def _seal(payload: dict[str, Any]) -> None:
+    payload["state_digest_sha256"] = _state_digest(payload)
+
+
+def _exact_fields(
+    payload: Mapping[str, Any], *, required: set[str], field: str
+) -> None:
+    missing = sorted(required - set(payload))
+    unexpected = sorted(set(payload) - required)
+    if missing or unexpected:
+        raise StarterHostOrchestrationError(
+            f"{field} fields are not closed: missing={missing} unexpected={unexpected}"
+        )
+
+
+def _next_action(
+    *,
+    kind: str,
+    session_id: str,
+    task_id: str | None,
+    workflow_id: str | None,
+    details: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": STARTER_HOST_NEXT_ACTION_SCHEMA,
+        "kind": kind,
+        "session_id": session_id,
+        "task_id": task_id,
+        "workflow_id": workflow_id,
+        "details": dict(details),
+        "policy": dict(_ACTION_POLICY),
+    }
 
 
 def _bounded_root(workspace: Path, value: str | Path, *, field: str) -> Path:
@@ -142,22 +226,13 @@ def project_runtime_action(
         raise StarterHostOrchestrationError(
             f"runtime returned a non-yielding status to Host orchestration: {status!r}"
         )
-    action = {
-        "schema": STARTER_HOST_NEXT_ACTION_SCHEMA,
-        "kind": kind,
-        "session_id": session_id,
-        "task_id": task_id,
-        "workflow_id": workflow_id,
-        "details": details,
-        "policy": {
-            "selection_is_execution": False,
-            "selection_grants_write_authority": False,
-            "graph_end_completes_taskrun": False,
-            "automatic_merge": False,
-            "completion_authority": "TaskRun",
-            "authority_effect": False,
-        },
-    }
+    action = _next_action(
+        kind=kind,
+        session_id=session_id,
+        task_id=task_id,
+        workflow_id=workflow_id,
+        details=details,
+    )
     return phase, action
 
 
@@ -250,6 +325,282 @@ class StarterHostOrchestrator:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
+    def _validate_pending_transition(
+        self, payload: Mapping[str, Any], *, phase: str
+    ) -> None:
+        pending = payload.get("pending_transition")
+        expected_kind = {
+            PHASE_STARTING: "START",
+            PHASE_RESUMING_HOST: "HOST_RESULT",
+            PHASE_RESUMING_EXTERNAL: "EXTERNAL_EVENT",
+            PHASE_RESUMING_HUMAN: "HUMAN_DECISION",
+        }.get(phase)
+        if expected_kind is None:
+            if pending is not None:
+                raise StarterHostOrchestrationError(
+                    "pending_transition is legal only while a transition is claimed"
+                )
+            return
+        if not isinstance(pending, Mapping):
+            raise StarterHostOrchestrationError(
+                f"{phase} requires an exact pending_transition"
+            )
+        _exact_fields(
+            pending,
+            required={
+                "schema",
+                "kind",
+                "input",
+                "evidence_refs",
+                "correlation_ref",
+                "authority_effect",
+            },
+            field="pending_transition",
+        )
+        if (
+            pending.get("schema") != STARTER_HOST_PENDING_TRANSITION_SCHEMA
+            or pending.get("kind") != expected_kind
+            or pending.get("authority_effect") is not False
+            or not isinstance(pending.get("input"), Mapping)
+        ):
+            raise StarterHostOrchestrationError(
+                "pending_transition identity or authority is invalid"
+            )
+        refs = pending.get("evidence_refs")
+        if (
+            not isinstance(refs, list)
+            or any(not _text(ref) for ref in refs)
+            or len(refs) != len(set(map(str, refs)))
+        ):
+            raise StarterHostOrchestrationError(
+                "pending_transition evidence_refs are invalid"
+            )
+        correlation = pending.get("correlation_ref")
+        if correlation is not None and not _text(correlation):
+            raise StarterHostOrchestrationError(
+                "pending_transition correlation_ref must be null or non-empty"
+            )
+        if expected_kind == "START":
+            if refs or correlation is not None or dict(pending["input"]) != payload.get("target_ref"):
+                raise StarterHostOrchestrationError(
+                    "START pending_transition must exactly bind target_ref without evidence"
+                )
+        elif expected_kind == "HOST_RESULT":
+            result = pending["input"].get("result")
+            if (
+                not isinstance(result, Mapping)
+                or _text(result.get("execution_id")) != _text(correlation)
+                or not refs
+            ):
+                raise StarterHostOrchestrationError(
+                    "HOST_RESULT pending_transition is incomplete"
+                )
+        elif expected_kind == "EXTERNAL_EVENT":
+            event = pending["input"].get("event")
+            if not isinstance(event, Mapping) or not refs or not _text(correlation):
+                raise StarterHostOrchestrationError(
+                    "EXTERNAL_EVENT pending_transition is incomplete"
+                )
+        elif expected_kind == "HUMAN_DECISION":
+            decision = pending["input"].get("decision")
+            if not isinstance(decision, Mapping) or not refs or correlation is not None:
+                raise StarterHostOrchestrationError(
+                    "HUMAN_DECISION pending_transition is incomplete"
+                )
+
+    def _expected_action(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        phase = _text(payload.get("phase"))
+        session_id = _identifier(payload.get("session_id"), field="session_id")
+        resolution = payload.get("resolution")
+        workflow_id = (
+            _text(resolution.get("selected_workflow"))
+            if isinstance(resolution, Mapping)
+            else ""
+        )
+        task_id = _text(payload.get("task_id")) or None
+        if phase == PHASE_AWAITING_SELECTION:
+            return _next_action(
+                kind="SELECT_EXACT_ENTRYPOINT",
+                session_id=session_id,
+                task_id=None,
+                workflow_id=None,
+                details={"selection_request": payload["selection_request"]},
+            )
+        if phase == PHASE_AWAITING_CONFIRMATION:
+            return _next_action(
+                kind="CONFIRM_EXACT_EFFECT_PREVIEW",
+                session_id=session_id,
+                task_id=None,
+                workflow_id=workflow_id or None,
+                details={"resolution": resolution},
+            )
+        if phase == PHASE_READY_TO_START:
+            return _next_action(
+                kind="START_TASKRUN",
+                session_id=session_id,
+                task_id=None,
+                workflow_id=workflow_id or None,
+                details={"resolution": resolution},
+            )
+        if phase == PHASE_STARTING:
+            return _next_action(
+                kind="STARTING_TASKRUN",
+                session_id=session_id,
+                task_id=task_id,
+                workflow_id=workflow_id or None,
+                details={},
+            )
+        if phase in {
+            PHASE_RESUMING_HOST,
+            PHASE_RESUMING_EXTERNAL,
+            PHASE_RESUMING_HUMAN,
+        }:
+            return _next_action(
+                kind=phase,
+                session_id=session_id,
+                task_id=task_id,
+                workflow_id=workflow_id or None,
+                details={},
+            )
+        if phase == PHASE_BLOCKED and _text(payload.get("last_error")):
+            return _next_action(
+                kind="INSPECT_BLOCKER",
+                session_id=session_id,
+                task_id=task_id,
+                workflow_id=workflow_id or None,
+                details={"error": payload["last_error"]},
+            )
+        projected_phase, action = project_runtime_action(
+            {
+                "runtime_state": payload.get("runtime_state"),
+                "taskrun_status": payload.get("taskrun_status"),
+                "taskrun_phase": payload.get("taskrun_phase"),
+            },
+            session_id=session_id,
+            task_id=_identifier(task_id, field="task_id"),
+        )
+        if projected_phase != phase:
+            raise StarterHostOrchestrationError(
+                "Host session phase does not match canonical runtime projection"
+            )
+        return action
+
+    def _validate_session_shape(self, payload: Mapping[str, Any]) -> None:
+        _exact_fields(payload, required=_SESSION_FIELDS, field="Host session")
+        digest = _text(payload.get("state_digest_sha256"))
+        if not _SHA256.fullmatch(digest) or digest != _state_digest(payload):
+            raise StarterHostOrchestrationError("Host session state digest mismatch")
+        phase = _text(payload.get("phase"))
+        phases = {
+            PHASE_AWAITING_SELECTION,
+            PHASE_AWAITING_CONFIRMATION,
+            PHASE_READY_TO_START,
+            PHASE_STARTING,
+            PHASE_WAITING_HOST,
+            PHASE_WAITING_EXTERNAL,
+            PHASE_HUMAN_GATE,
+            PHASE_RESUMING_HOST,
+            PHASE_RESUMING_EXTERNAL,
+            PHASE_RESUMING_HUMAN,
+            PHASE_VALIDATING,
+            PHASE_BLOCKED,
+        }
+        if phase not in phases or payload.get("policy") != _SESSION_POLICY:
+            raise StarterHostOrchestrationError(
+                "Host session phase or authority policy is invalid"
+            )
+        self._validate_pending_transition(payload, phase=phase)
+        prestart = {
+            PHASE_AWAITING_SELECTION,
+            PHASE_AWAITING_CONFIRMATION,
+            PHASE_READY_TO_START,
+        }
+        if phase in prestart:
+            for field in (
+                "task_id",
+                "taskrun_ref",
+                "target_ref",
+                "runtime_state",
+                "taskrun_status",
+                "taskrun_phase",
+            ):
+                if payload.get(field) is not None:
+                    raise StarterHostOrchestrationError(
+                        f"pre-start Host session cannot persist {field}"
+                    )
+        if phase == PHASE_AWAITING_SELECTION:
+            if any(payload.get(field) is not None for field in ("selection", "confirmation", "resolution")):
+                raise StarterHostOrchestrationError(
+                    "AWAITING_SELECTION cannot contain a resolved selection"
+                )
+        elif phase == PHASE_AWAITING_CONFIRMATION:
+            selection = payload.get("selection")
+            if not isinstance(selection, Mapping) or payload.get("confirmation") is not None:
+                raise StarterHostOrchestrationError(
+                    "AWAITING_CONFIRMATION requires only the exact selection"
+                )
+            resolution = self._selection_resolution(
+                payload, selection=selection, confirmation=None
+            )
+            if resolution.resolved is not None or payload.get("resolution") != resolution.record:
+                raise StarterHostOrchestrationError(
+                    "AWAITING_CONFIRMATION resolution is stale or executable"
+                )
+        else:
+            resolved = self._resolved(payload)
+            if phase not in prestart:
+                task_id = stable_task_id(
+                    "starter-host",
+                    {
+                        "session_id": payload["session_id"],
+                        "session_fingerprint_sha256": payload[
+                            "session_fingerprint_sha256"
+                        ],
+                        "workflow_id": resolved.workflow.workflow_id,
+                    },
+                )
+                expected_ref = (
+                    f"file:{self.taskrun_root.relative_to(self.project_workspace).as_posix()}"
+                    f"/{task_id}.json"
+                )
+                if (
+                    payload.get("task_id") != task_id
+                    or payload.get("taskrun_ref") != expected_ref
+                    or not isinstance(payload.get("target_ref"), Mapping)
+                ):
+                    raise StarterHostOrchestrationError(
+                        "Host session TaskRun binding is stale or tampered"
+                    )
+        state = payload.get("runtime_state")
+        if state is not None:
+            if (
+                not isinstance(state, Mapping)
+                or state.get("task_id") != payload.get("task_id")
+                or not isinstance(payload.get("taskrun_status"), str)
+                or not isinstance(payload.get("taskrun_phase"), str)
+            ):
+                raise StarterHostOrchestrationError(
+                    "Host session runtime/TaskRun projection is invalid"
+                )
+            resolved = self._resolved(payload)
+            if state.get("workflow_id") != resolved.workflow.workflow_id:
+                raise StarterHostOrchestrationError(
+                    "Host session runtime Workflow is stale or tampered"
+                )
+        elif phase not in {PHASE_STARTING, PHASE_BLOCKED, *prestart}:
+            raise StarterHostOrchestrationError(
+                f"{phase} requires a canonical runtime_state"
+            )
+        if phase != PHASE_BLOCKED and payload.get("last_error") is not None:
+            raise StarterHostOrchestrationError(
+                "last_error is legal only for a BLOCKED Host session"
+            )
+        expected_action = self._expected_action(payload)
+        if payload.get("next_action") != expected_action:
+            raise StarterHostOrchestrationError(
+                "Host session next_action is not the canonical projection"
+            )
+
     def _validate_identity(self, payload: Mapping[str, Any], *, session_id: str) -> None:
         if payload.get("schema") != STARTER_HOST_SESSION_SCHEMA:
             raise StarterHostOrchestrationError("unsupported Host session schema")
@@ -284,6 +635,7 @@ class StarterHostOrchestrator:
         }
         if fingerprint != _digest(identity):
             raise StarterHostOrchestrationError("Host session fingerprint mismatch")
+        self._validate_session_shape(payload)
 
     def read(self, session_id: str) -> dict[str, Any]:
         session_id = _identifier(session_id, field="session_id")
@@ -318,6 +670,8 @@ class StarterHostOrchestrator:
                 )
             mutate(payload)
             payload["revision"] = expected_revision + 1
+            _seal(payload)
+            self._validate_identity(payload, session_id=session_id)
             self._atomic_replace(path, payload)
             return payload
 
@@ -340,6 +694,7 @@ class StarterHostOrchestrator:
             "schema": STARTER_HOST_SESSION_SCHEMA,
             "session_id": session_id,
             "session_fingerprint_sha256": _digest(identity),
+            "state_digest_sha256": "",
             "revision": 0,
             "phase": PHASE_AWAITING_SELECTION,
             "host_id": self.host_id,
@@ -355,33 +710,19 @@ class StarterHostOrchestrator:
             "runtime_state": None,
             "taskrun_status": None,
             "taskrun_phase": None,
-            "next_action": {
-                "schema": STARTER_HOST_NEXT_ACTION_SCHEMA,
-                "kind": "SELECT_EXACT_ENTRYPOINT",
-                "session_id": session_id,
-                "task_id": None,
-                "workflow_id": None,
-                "details": {"selection_request": request},
-                "policy": {
-                    "selection_is_execution": False,
-                    "selection_grants_write_authority": False,
-                    "graph_end_completes_taskrun": False,
-                    "automatic_merge": False,
-                    "completion_authority": "TaskRun",
-                    "authority_effect": False,
-                },
-            },
+            "pending_transition": None,
+            "next_action": _next_action(
+                kind="SELECT_EXACT_ENTRYPOINT",
+                session_id=session_id,
+                task_id=None,
+                workflow_id=None,
+                details={"selection_request": request},
+            ),
             "last_error": None,
-            "policy": {
-                "host_interprets_language": True,
-                "repository_keyword_router": False,
-                "one_taskrun_per_session": True,
-                "write_authority_granted": False,
-                "automatic_merge": False,
-                "completion_authority": "TaskRun",
-                "authority_effect": False,
-            },
+            "policy": dict(_SESSION_POLICY),
         }
+        _seal(payload)
+        self._validate_identity(payload, session_id=session_id)
         path = self._session_path(session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         lock = path.with_suffix(path.suffix + ".lock")
@@ -575,6 +916,7 @@ class StarterHostOrchestrator:
             payload["runtime_state"] = dict(execution["runtime_state"])
             payload["taskrun_status"] = execution.get("taskrun_status")
             payload["taskrun_phase"] = execution.get("taskrun_phase")
+            payload["pending_transition"] = None
             payload["next_action"] = action
             payload["last_error"] = None
 
@@ -596,6 +938,7 @@ class StarterHostOrchestrator:
         def apply(payload: dict[str, Any]) -> None:
             payload["phase"] = PHASE_BLOCKED
             payload["last_error"] = f"{type(error).__name__}: {error}"
+            payload["pending_transition"] = None
             payload["next_action"] = {
                 "schema": STARTER_HOST_NEXT_ACTION_SCHEMA,
                 "kind": "INSPECT_BLOCKER",
@@ -645,6 +988,14 @@ class StarterHostOrchestrator:
             payload["task_id"] = task_id
             payload["taskrun_ref"] = f"file:{relative.as_posix()}"
             payload["target_ref"] = json.loads(_canonical(dict(target_ref)))
+            payload["pending_transition"] = {
+                "schema": STARTER_HOST_PENDING_TRANSITION_SCHEMA,
+                "kind": "START",
+                "input": json.loads(_canonical(dict(target_ref))),
+                "evidence_refs": [],
+                "correlation_ref": None,
+                "authority_effect": False,
+            }
             payload["next_action"] = {
                 "schema": STARTER_HOST_NEXT_ACTION_SCHEMA,
                 "kind": "STARTING_TASKRUN",
@@ -688,6 +1039,7 @@ class StarterHostOrchestrator:
         expected_revision: int,
         waiting_phase: str,
         resuming_phase: str,
+        pending_transition: Mapping[str, Any],
     ) -> dict[str, Any]:
         def apply(payload: dict[str, Any]) -> None:
             if not isinstance(payload.get("runtime_state"), Mapping):
@@ -695,6 +1047,9 @@ class StarterHostOrchestrator:
                     "Host session has no runtime state to resume"
                 )
             payload["phase"] = resuming_phase
+            payload["pending_transition"] = json.loads(
+                _canonical(dict(pending_transition))
+            )
             payload["next_action"] = {
                 "schema": STARTER_HOST_NEXT_ACTION_SCHEMA,
                 "kind": resuming_phase,
@@ -728,11 +1083,24 @@ class StarterHostOrchestrator:
             raise StarterHostOrchestrationError(
                 "Host result does not match the active WAITING_HOST execution"
             )
+        refs = result.get("evidence_refs")
+        if not isinstance(refs, list) or not refs or any(not _text(ref) for ref in refs):
+            raise StarterHostOrchestrationError(
+                "Host result requires durable evidence before transition claim"
+            )
         claimed = self._claim_resume(
             session_id=session_id,
             expected_revision=expected_revision,
             waiting_phase=PHASE_WAITING_HOST,
             resuming_phase=PHASE_RESUMING_HOST,
+            pending_transition={
+                "schema": STARTER_HOST_PENDING_TRANSITION_SCHEMA,
+                "kind": "HOST_RESULT",
+                "input": {"result": dict(result)},
+                "evidence_refs": list(dict.fromkeys(map(str, refs))),
+                "correlation_ref": execution_id,
+                "authority_effect": False,
+            },
         )
         resolved = self._resolved(claimed)
         try:
@@ -781,6 +1149,14 @@ class StarterHostOrchestrator:
             expected_revision=expected_revision,
             waiting_phase=PHASE_WAITING_EXTERNAL,
             resuming_phase=PHASE_RESUMING_EXTERNAL,
+            pending_transition={
+                "schema": STARTER_HOST_PENDING_TRANSITION_SCHEMA,
+                "kind": "EXTERNAL_EVENT",
+                "input": {"event": dict(event)},
+                "evidence_refs": list(dict.fromkeys(refs)),
+                "correlation_ref": _text(correlation_ref),
+                "authority_effect": False,
+            },
         )
         resolved = self._resolved(claimed)
         try:
@@ -824,6 +1200,14 @@ class StarterHostOrchestrator:
             expected_revision=expected_revision,
             waiting_phase=PHASE_HUMAN_GATE,
             resuming_phase=PHASE_RESUMING_HUMAN,
+            pending_transition={
+                "schema": STARTER_HOST_PENDING_TRANSITION_SCHEMA,
+                "kind": "HUMAN_DECISION",
+                "input": {"decision": dict(decision)},
+                "evidence_refs": list(dict.fromkeys(refs)),
+                "correlation_ref": None,
+                "authority_effect": False,
+            },
         )
         resolved = self._resolved(claimed)
         try:
@@ -849,6 +1233,157 @@ class StarterHostOrchestrator:
             execution=execution,
         )
 
+    @staticmethod
+    def _taskrun_still_at_claimed_wait(
+        store: TaskRunStore,
+        *,
+        phase: str,
+        prior_state: Mapping[str, Any],
+    ) -> bool:
+        expected = {
+            PHASE_RESUMING_HOST: (
+                "WAITING_EXTERNAL_RESULT",
+                "WORKFLOW_WAITING_HOST",
+                "host_wait",
+            ),
+            PHASE_RESUMING_EXTERNAL: (
+                "WAITING_EXTERNAL_RESULT",
+                "WORKFLOW_WAITING_EXTERNAL",
+                "external_wait",
+            ),
+            PHASE_RESUMING_HUMAN: (
+                "BLOCKED",
+                "WORKFLOW_HUMAN_GATE",
+                "human_gate",
+            ),
+        }.get(phase)
+        if expected is None:
+            return False
+        status, task_phase, handle_name = expected
+        checkpoints = store.payload.get("checkpoints") or []
+        latest = checkpoints[-1] if checkpoints else {}
+        metadata = latest.get("metadata") if isinstance(latest, Mapping) else {}
+        return (
+            store.payload.get("status") == status
+            and store.payload.get("phase") == task_phase
+            and isinstance(metadata, Mapping)
+            and metadata.get(handle_name) == prior_state.get(handle_name)
+        )
+
+    def _replay_pending_resume(
+        self,
+        *,
+        runtime: StarterWorkflowRuntime,
+        phase: str,
+        session: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        pending = session["pending_transition"]
+        refs = tuple(map(str, pending["evidence_refs"]))
+        if phase == PHASE_RESUMING_HOST:
+            result = pending["input"]["result"]
+            execution_id = _identifier(
+                pending["correlation_ref"], field="execution_id"
+            )
+            pointer = self.skill_host.submit_result(
+                execution_id=execution_id,
+                result=result,
+            )
+            return runtime.resume(
+                state=dict(session["runtime_state"]),
+                host_execution_result=pointer,
+                evidence_refs=(pointer["result_ref"],),
+                correlation_ref=execution_id,
+            )
+        if phase == PHASE_RESUMING_EXTERNAL:
+            return runtime.resume(
+                state=dict(session["runtime_state"]),
+                external_event=pending["input"]["event"],
+                evidence_refs=refs,
+                correlation_ref=_text(pending["correlation_ref"]),
+            )
+        if phase == PHASE_RESUMING_HUMAN:
+            return runtime.resume(
+                state=dict(session["runtime_state"]),
+                human_decision=pending["input"]["decision"],
+                evidence_refs=refs,
+            )
+        raise StarterHostOrchestrationError(
+            f"Host session phase {phase!r} has no resumable pending transition"
+        )
+
+    def reconcile(
+        self,
+        *,
+        session_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Recover one interrupted STARTING/RESUMING claim without blind replay."""
+
+        session_id = _identifier(session_id, field="session_id")
+        current = self.read(session_id)
+        phase = _text(current.get("phase"))
+        transitional = {
+            PHASE_STARTING,
+            PHASE_RESUMING_HOST,
+            PHASE_RESUMING_EXTERNAL,
+            PHASE_RESUMING_HUMAN,
+        }
+        if phase not in transitional:
+            raise StarterHostOrchestrationError(
+                f"Host session phase {phase!r} does not require reconciliation"
+            )
+        # A revision-only CAS claim gives concurrent reconcilers one winner while
+        # preserving the exact sealed pending transition.
+        claimed = self._update(
+            session_id,
+            expected_revision=expected_revision,
+            allowed_phases={phase},
+            mutate=lambda _payload: None,
+        )
+        resolved = self._resolved(claimed)
+        runtime = self._runtime(claimed, resolved)
+        try:
+            if phase == PHASE_STARTING:
+                if (
+                    runtime.store.payload.get("status") == "CREATED"
+                    and runtime.store.payload.get("phase") == "CREATED"
+                ):
+                    execution = runtime.start(
+                        target_ref=dict(claimed["pending_transition"]["input"])
+                    )
+                else:
+                    execution = runtime.recover(prior_state=None)
+            elif self._taskrun_still_at_claimed_wait(
+                runtime.store,
+                phase=phase,
+                prior_state=claimed["runtime_state"],
+            ):
+                execution = self._replay_pending_resume(
+                    runtime=runtime,
+                    phase=phase,
+                    session=claimed,
+                )
+            else:
+                execution = runtime.recover(
+                    prior_state=claimed["runtime_state"]
+                )
+        except Exception as exc:
+            self._record_runtime_failure(
+                session_id=session_id,
+                expected_revision=claimed["revision"],
+                allowed_phase=phase,
+                error=exc,
+            )
+            raise StarterHostOrchestrationError(
+                f"Host session reconciliation blocked: {type(exc).__name__}: {exc}"
+            ) from exc
+        return self._record_execution(
+            session_id=session_id,
+            expected_revision=claimed["revision"],
+            allowed_phase=phase,
+            execution=execution,
+        )
+
 
 __all__ = [
     "PHASE_AWAITING_CONFIRMATION",
@@ -860,6 +1395,7 @@ __all__ = [
     "PHASE_WAITING_EXTERNAL",
     "PHASE_WAITING_HOST",
     "STARTER_HOST_NEXT_ACTION_SCHEMA",
+    "STARTER_HOST_PENDING_TRANSITION_SCHEMA",
     "STARTER_HOST_SESSION_SCHEMA",
     "StarterHostOrchestrationError",
     "StarterHostOrchestrator",

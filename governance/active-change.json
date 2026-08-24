@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-starter-host-session-orchestration-v1",
+  "change_id": "repair-starter-host-session-hardening-v1",
   "target_kind": "repair",
-  "goal": "Add one durable ChatGPT/Codex Host session orchestrator over verified Starter selection, TaskRun, LangGraph, Provider, and Host bridge boundaries without adding write, completion, or merge authority.",
+  "goal": "Harden #2096 Host session persistence, composed external/Human resumes, and interrupted-transition reconciliation without adding write, completion, or merge authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -24,7 +24,6 @@
     "Makefile",
     "skillctl.py",
     "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
-    "docs/architecture/CHATGPT_CODEX_HOST_SKILL_BRIDGE_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -54,23 +53,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/diff-review.json",
-      "evidence_sha256": "41c20ccd76cda90654bb372bd67d590edec798e4a52f8133b71f122711ad8b9e",
-      "recorded_at": "2026-08-23T13:13:07.780586+00:00"
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/diff-review.json",
+      "evidence_sha256": "551297c6eae7a52c3b5635e2d76f8f6e49691f14d0ff5ed2e78cbae94911544b",
+      "recorded_at": "2026-08-24T01:56:24.283856+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-starter-host-session-orchestration-v1/evidence/counterexamples.md",
-      "evidence_sha256": "55635823a5908304e5298d1122b2e34b7f3ad6722630b3897165f08bc83fb31b",
-      "recorded_at": "2026-08-23T13:13:07.875988+00:00"
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/counterexamples.md",
+      "evidence_sha256": "bae1e5707d756881f9a3e5e8249a4862ba6c81bdd85619ba5cb0fb518a751ba0",
+      "recorded_at": "2026-08-24T01:56:24.370869+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-starter-host-session-orchestration-v1/verification.json",
-      "evidence_sha256": "18b672a8680c369625a701d935f78592314f309e7f8d9ce7e51977a72f657161",
-      "recorded_at": "2026-08-23T13:13:45.265382+00:00"
+      "evidence": ".quality/skill-control-plane/repair-starter-host-session-hardening-v1/verification.json",
+      "evidence_sha256": "6085be729954ee7e6e5d18c911ce6626930871b77b5fdd70a1bae3f2f645b2a0",
+      "recorded_at": "2026-08-24T01:57:09.096342+00:00"
     }
   ],
   "decision_record": null,
@@ -78,17 +77,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-starter-host-session-orchestration-v1/verification.json",
-    "sha256": "18b672a8680c369625a701d935f78592314f309e7f8d9ce7e51977a72f657161",
-    "source_fingerprint": "5c28ceef47d18ba1ff987ee79ef7d30217b249247a12c5f2b9a3a89907a8f430",
-    "source_file_count": 1117,
-    "verified_at": "2026-08-23T13:13:45.264775+00:00"
+    "path": ".quality/skill-control-plane/repair-starter-host-session-hardening-v1/verification.json",
+    "sha256": "6085be729954ee7e6e5d18c911ce6626930871b77b5fdd70a1bae3f2f645b2a0",
+    "source_fingerprint": "6d774e0ceef836196886dc6554cfe9199250437b6bba8ba35141c1f4ae932b0b",
+    "source_file_count": 1131,
+    "verified_at": "2026-08-24T01:57:09.095740+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-starter-host-session-orchestration-v1",
-  "repair_governance_consumed_at": "2026-08-23T13:13:52.681785+00:00",
-  "created_at": "2026-08-23T13:02:02.784342+00:00",
+  "repair_governance": "governance/repair-cases/repair-starter-host-session-hardening-v1",
+  "repair_governance_consumed_at": "2026-08-24T01:57:16.233498+00:00",
+  "created_at": "2026-08-24T01:44:21.179886+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "31013c7a7dafe89c7c54c43a2072fc51f78cd25af4dfdc302d59d4f71e367566",
-  "closed_at": "2026-08-23T13:13:52.681799+00:00"
+  "repair_governance_permit_digest": "4ab2bd318388d5c567af81a3295230322ee59e152c971be978c3ae12a104ba7c",
+  "closed_at": "2026-08-24T01:57:16.233516+00:00"
 }

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "repair_plan_sha256": "bd711c0b5bcd027a9d79ef63634aec638656c91816fbc05426a3b75aab397b61",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/schemas/starter-host-session.schema.json",
+    "skill-system/tests/test_starter_host_orchestrator.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+  ],
+  "review_findings": [
+    "The repair strengthens the existing Host-session owner and does not introduce a peer controller.",
+    "Canonical action equality and a whole-session seal close the reproduced mutable-storage acceptance gap.",
+    "Persisting a non-authorizing pending input is necessary for evidence-driven recovery and does not grant mutation authority.",
+    "StarterWorkflowRuntime is the correct owner for reading its durable graph snapshot and projecting it through the existing TaskRun bridge.",
+    "Ambiguous RUNNING states remain blocked, preserving at-most-once safety over liveness.",
+    "The temporary test-only Starter workflows prove external and Human boundaries without modifying shipped customer project declarations."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Single-authority cutover",
+      "assessment": "StarterHostOrchestrator stays the only session writer and StarterWorkflowRuntime stays the only graph/TaskRun reconstruction owner",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/repair-plan.json"
+    },
+    {
+      "rule": "Durable exact resume",
+      "assessment": "the exact pending input is sealed before dispatch and ambiguous effects cannot be replayed",
+      "evidence": "skill-system/tests/test_starter_host_orchestrator.py"
+    },
+    {
+      "rule": "Authority preservation",
+      "assessment": "all actions and recovery records remain authority_effect=false, automatic_merge=false, and completion_authority=TaskRun",
+      "evidence": "skill-system/schemas/starter-host-session.schema.json"
+    },
+    {
+      "rule": "Standalone product boundary",
+      "assessment": "only control-plane code, tests, schema, governance, and architecture documentation change",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/repair-plan.json"
+    }
+  ]
+}

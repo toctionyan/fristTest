@@ -30,6 +30,8 @@ from starter_host_orchestrator import (  # type: ignore  # noqa: E402
     PHASE_BLOCKED,
     PHASE_HUMAN_GATE,
     PHASE_READY_TO_START,
+    PHASE_RESUMING_EXTERNAL,
+    PHASE_STARTING,
     PHASE_VALIDATING,
     PHASE_WAITING_EXTERNAL,
     PHASE_WAITING_HOST,
@@ -40,9 +42,11 @@ from starter_host_orchestrator import (  # type: ignore  # noqa: E402
 from starter_runtime import (  # type: ignore  # noqa: E402
     STARTER_HOST_CONFIRMATION_SCHEMA,
     STARTER_HOST_SELECTION_SCHEMA,
+    StarterWorkflowRuntime,
     register_starter_runtime,
 )
 from workflow_dispatcher import ProviderAdapterRegistry  # type: ignore  # noqa: E402
+from workflow_taskrun_bridge import checkpoint_workflow_resume  # type: ignore  # noqa: E402
 
 
 class GreenLocalProcessAdapter:
@@ -61,6 +65,83 @@ class GreenLocalProcessAdapter:
         )
 
 
+class EventDrivenCIAdapter:
+    provider_id = "github.actions"
+    provider_type = "integration"
+
+    def invoke(self, *, binding, step, state):
+        event = state.get("external_event") or {}
+        if (
+            event.get("event") == "ci.completed"
+            and event.get("correlation_ref") == "ci-host-session-1"
+            and event.get("status") == "success"
+        ):
+            return StepDispatchResult(
+                outcome="green",
+                evidence_refs=("ci:run:ci-host-session-1:green",),
+                payload={"status": "success", "authority_effect": False},
+            )
+        return StepDispatchResult(
+            outcome="pending",
+            evidence_refs=("ci:run:ci-host-session-1:pending",),
+            external_wait={
+                "correlation_ref": "ci-host-session-1",
+                "resume_event": "ci.completed",
+                "authority_effect": False,
+            },
+        )
+
+
+class ExplicitHumanGateAdapter:
+    def invoke(self, *, step, state):
+        decision = state.get("human_decision") or {}
+        if decision.get("decision") == "approve":
+            return StepDispatchResult(
+                outcome="approved",
+                evidence_refs=("human:decision:approve",),
+                payload={"decision": "approve", "authority_effect": False},
+            )
+        return StepDispatchResult(
+            outcome="needs-human",
+            evidence_refs=("human:gate:policy-choice",),
+            human_gate={
+                "gate_id": "policy-choice",
+                "question": "Approve the explicit policy?",
+                "options": ["approve", "reject"],
+                "authority_effect": False,
+            },
+        )
+
+
+class SimulatedProcessCrash(BaseException):
+    pass
+
+
+class CrashAfterStartRuntime(StarterWorkflowRuntime):
+    def start(self, *, target_ref):
+        super().start(target_ref=target_ref)
+        raise SimulatedProcessCrash("after durable start execution")
+
+
+class CrashAfterResumeRuntime(StarterWorkflowRuntime):
+    def resume(self, **kwargs):
+        super().resume(**kwargs)
+        raise SimulatedProcessCrash("after durable resume execution")
+
+
+class CrashAfterTaskRunResumeRuntime(StarterWorkflowRuntime):
+    def resume(self, **kwargs):
+        checkpoint_workflow_resume(
+            self.store,
+            workflow_id=self.resolved.workflow.workflow_id,
+            resume_kind="EXTERNAL_EVENT",
+            workspace_fingerprint=self.workspace_fingerprint,
+            evidence_refs=kwargs["evidence_refs"],
+            correlation_ref=kwargs.get("correlation_ref"),
+        )
+        raise SimulatedProcessCrash("after TaskRun resume before graph checkpoint")
+
+
 class StarterHostOrchestratorTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="starter-host-orchestrator-")
@@ -69,6 +150,7 @@ class StarterHostOrchestratorTest(unittest.TestCase):
         self.package = self.project / ".harness/customer-agent"
         self.package.parent.mkdir(parents=True)
         shutil.copytree(STARTER, self.package)
+        self.install_boundary_test_workflows()
         self.registration = self.project / ".harness/runtime/customer-agent.registration.json"
         register_starter_runtime(
             project_workspace=self.project,
@@ -86,14 +168,110 @@ class StarterHostOrchestratorTest(unittest.TestCase):
             project_workspace=self.project,
             registration=self.registration,
             host_id="codex",
-            provider_adapters=ProviderAdapterRegistry([GreenLocalProcessAdapter()]),
+            provider_adapters=ProviderAdapterRegistry(
+                [GreenLocalProcessAdapter(), EventDrivenCIAdapter()]
+            ),
             checkpointer=SqliteSaver(self.connection),
             workspace_fingerprint="fp-host-session-1",
+            human_gate_adapter=ExplicitHumanGateAdapter(),
         )
         self.schema = json.loads(
             (SKILL_SYSTEM / "schemas/starter-host-session.schema.json").read_text(
                 encoding="utf-8"
             )
+        )
+
+    def install_boundary_test_workflows(self) -> None:
+        workflows = {
+            "customer-agent-ci-wait-test.json": {
+                "schema": "harness-workflow@1",
+                "id": "customer-agent-ci-wait-test",
+                "version": "1.0.0",
+                "request_class": "DIAGNOSIS",
+                "skills": [],
+                "mode": "READ_ONLY",
+                "status_first": False,
+                "deterministic_response": True,
+                "write_governed": False,
+                "requirements": {
+                    "capabilities": {"required": ["ci.run.wait"], "optional": []}
+                },
+                "graph": {
+                    "start": "wait-ci",
+                    "max_attempts_per_step": 2,
+                    "steps": {
+                        "wait-ci": {
+                            "type": "external_wait",
+                            "use": "ci.run.wait",
+                            "routes": {
+                                "pending": "WAITING_EXTERNAL",
+                                "green": "END",
+                                "blocked": "BLOCKED_UNRECOVERABLE",
+                            },
+                        }
+                    },
+                },
+                "completion": {
+                    "transition_to": "VALIDATING",
+                    "policy": "ci-wait-test-complete@1",
+                    "authority": "TaskRun",
+                },
+            },
+            "customer-agent-human-gate-test.json": {
+                "schema": "harness-workflow@1",
+                "id": "customer-agent-human-gate-test",
+                "version": "1.0.0",
+                "request_class": "DIAGNOSIS",
+                "skills": ["customer-agent-audit"],
+                "mode": "READ_ONLY",
+                "status_first": False,
+                "deterministic_response": True,
+                "write_governed": False,
+                "requirements": {
+                    "capabilities": {
+                        "required": ["workspace.read", "vcs.diff.read"],
+                        "optional": [],
+                    }
+                },
+                "graph": {
+                    "start": "policy-choice",
+                    "max_attempts_per_step": 2,
+                    "steps": {
+                        "policy-choice": {
+                            "type": "human_gate",
+                            "routes": {
+                                "needs-human": "HUMAN_GATE",
+                                "approved": "END",
+                                "rejected": "BLOCKED_UNRECOVERABLE",
+                            },
+                        }
+                    },
+                },
+                "completion": {
+                    "transition_to": "VALIDATING",
+                    "policy": "human-gate-test-complete@1",
+                    "authority": "TaskRun",
+                },
+            },
+        }
+        workflow_dir = self.package / "workflows"
+        for name, payload in workflows.items():
+            (workflow_dir / name).write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        starter_path = self.package / "starter.json"
+        starter = json.loads(starter_path.read_text(encoding="utf-8"))
+        starter["workflows"].extend(f"workflows/{name}" for name in workflows)
+        starter["entrypoints"].update(
+            {
+                "architecture_review": "customer-agent-ci-wait-test",
+                "full_dev": "customer-agent-human-gate-test",
+            }
+        )
+        starter_path.write_text(
+            json.dumps(starter, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
 
     def assert_session_schema(self, session):
@@ -169,6 +347,17 @@ class StarterHostOrchestratorTest(unittest.TestCase):
             session_id=session_id,
             expected_revision=opened["revision"],
             selection=self.selection(opened, "overall_audit"),
+        )
+
+    def open_selected_entrypoint(self, session_id, entrypoint):
+        opened = self.orchestrator.open(
+            session_id=session_id,
+            user_request=f"run exact test entrypoint {entrypoint}",
+        )
+        return self.orchestrator.select(
+            session_id=session_id,
+            expected_revision=opened["revision"],
+            selection=self.selection(opened, entrypoint),
         )
 
     def test_read_only_session_reuses_one_taskrun_across_two_host_waits_and_validation(self) -> None:
@@ -389,6 +578,200 @@ class StarterHostOrchestratorTest(unittest.TestCase):
             persisted["selection"]["selected_entrypoint"],
             successes[0]["selection"]["selected_entrypoint"],
         )
+
+    def test_persisted_session_tampering_is_rejected_even_with_recomputed_digest(self) -> None:
+        opened = self.orchestrator.open(
+            session_id="tamper-action",
+            user_request="检查总体问题",
+        )
+        path = self.project / ".harness/runtime/host-sessions/tamper-action.json"
+        tampered = json.loads(path.read_text(encoding="utf-8"))
+        tampered["next_action"]["kind"] = "AUTOMATIC_MERGE"
+        tampered["next_action"]["policy"]["automatic_merge"] = True
+        body = dict(tampered)
+        body.pop("state_digest_sha256")
+        tampered["state_digest_sha256"] = hashlib.sha256(
+            json.dumps(
+                body,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        path.write_text(json.dumps(tampered), encoding="utf-8")
+        with self.assertRaisesRegex(
+            StarterHostOrchestrationError,
+            "phase or authority policy|next_action",
+        ):
+            self.orchestrator.read("tamper-action")
+
+        clean = self.orchestrator.open(
+            session_id="tamper-fields",
+            user_request="检查模块问题",
+        )
+        second = self.project / ".harness/runtime/host-sessions/tamper-fields.json"
+        unknown = dict(clean)
+        unknown["future_authority"] = True
+        body = dict(unknown)
+        body.pop("state_digest_sha256")
+        unknown["state_digest_sha256"] = hashlib.sha256(
+            json.dumps(
+                body,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        second.write_text(json.dumps(unknown), encoding="utf-8")
+        with self.assertRaisesRegex(
+            StarterHostOrchestrationError, "fields are not closed"
+        ):
+            self.orchestrator.read("tamper-fields")
+
+    def test_external_and_human_boundaries_resume_same_taskrun_to_validation(self) -> None:
+        external_ready = self.open_selected_entrypoint(
+            "external-session", "architecture_review"
+        )
+        external = self.orchestrator.start(
+            session_id="external-session",
+            expected_revision=external_ready["revision"],
+            target_ref={"kind": "ci", "ref": "ci-host-session-1"},
+        )
+        self.assertEqual(external["phase"], PHASE_WAITING_EXTERNAL)
+        with self.assertRaisesRegex(
+            StarterHostOrchestrationError, "requires durable evidence"
+        ):
+            self.orchestrator.resume_external(
+                session_id="external-session",
+                expected_revision=external["revision"],
+                event={
+                    "event": "ci.completed",
+                    "correlation_ref": "ci-host-session-1",
+                    "status": "success",
+                },
+                evidence_refs=(),
+                correlation_ref="ci-host-session-1",
+            )
+        external_done = self.orchestrator.resume_external(
+            session_id="external-session",
+            expected_revision=external["revision"],
+            event={
+                "event": "ci.completed",
+                "correlation_ref": "ci-host-session-1",
+                "status": "success",
+            },
+            evidence_refs=("ci:event:ci-host-session-1",),
+            correlation_ref="ci-host-session-1",
+        )
+        self.assertEqual(external_done["phase"], PHASE_VALIDATING)
+        self.assertEqual(external_done["task_id"], external["task_id"])
+        self.assertEqual(external_done["taskrun_status"], "VALIDATING")
+
+        human_ready = self.open_selected_entrypoint("human-session", "full_dev")
+        human = self.orchestrator.start(
+            session_id="human-session",
+            expected_revision=human_ready["revision"],
+            target_ref={"kind": "policy", "ref": "policy-choice"},
+        )
+        self.assertEqual(human["phase"], PHASE_HUMAN_GATE)
+        with self.assertRaisesRegex(
+            StarterHostOrchestrationError, "requires durable evidence"
+        ):
+            self.orchestrator.resume_human(
+                session_id="human-session",
+                expected_revision=human["revision"],
+                decision={"decision": "approve"},
+                evidence_refs=(),
+            )
+        human_done = self.orchestrator.resume_human(
+            session_id="human-session",
+            expected_revision=human["revision"],
+            decision={"decision": "approve"},
+            evidence_refs=("human:decision:policy-choice:approve",),
+        )
+        self.assertEqual(human_done["phase"], PHASE_VALIDATING)
+        self.assertEqual(human_done["task_id"], human["task_id"])
+        self.assertEqual(human_done["taskrun_status"], "VALIDATING")
+
+    def test_interrupted_start_and_resume_reconcile_without_reexecuting_completed_state(self) -> None:
+        ready = self.open_selected_entrypoint(
+            "reconcile-session", "architecture_review"
+        )
+        self.orchestrator.runtime_factory = CrashAfterStartRuntime
+        with self.assertRaises(SimulatedProcessCrash):
+            self.orchestrator.start(
+                session_id="reconcile-session",
+                expected_revision=ready["revision"],
+                target_ref={"kind": "ci", "ref": "ci-host-session-1"},
+            )
+        interrupted_start = self.orchestrator.read("reconcile-session")
+        self.assertEqual(interrupted_start["phase"], PHASE_STARTING)
+        self.orchestrator.runtime_factory = StarterWorkflowRuntime
+        waiting = self.orchestrator.reconcile(
+            session_id="reconcile-session",
+            expected_revision=interrupted_start["revision"],
+        )
+        self.assertEqual(waiting["phase"], PHASE_WAITING_EXTERNAL)
+        task_id = waiting["task_id"]
+
+        self.orchestrator.runtime_factory = CrashAfterResumeRuntime
+        with self.assertRaises(SimulatedProcessCrash):
+            self.orchestrator.resume_external(
+                session_id="reconcile-session",
+                expected_revision=waiting["revision"],
+                event={
+                    "event": "ci.completed",
+                    "correlation_ref": "ci-host-session-1",
+                    "status": "success",
+                },
+                evidence_refs=("ci:event:ci-host-session-1",),
+                correlation_ref="ci-host-session-1",
+            )
+        interrupted_resume = self.orchestrator.read("reconcile-session")
+        self.assertEqual(interrupted_resume["phase"], PHASE_RESUMING_EXTERNAL)
+        self.orchestrator.runtime_factory = StarterWorkflowRuntime
+        recovered = self.orchestrator.reconcile(
+            session_id="reconcile-session",
+            expected_revision=interrupted_resume["revision"],
+        )
+        self.assertEqual(recovered["phase"], PHASE_VALIDATING)
+        self.assertEqual(recovered["task_id"], task_id)
+        self.assertEqual(recovered["taskrun_status"], "VALIDATING")
+
+    def test_ambiguous_resuming_state_blocks_instead_of_blind_replay(self) -> None:
+        ready = self.open_selected_entrypoint(
+            "ambiguous-session", "architecture_review"
+        )
+        waiting = self.orchestrator.start(
+            session_id="ambiguous-session",
+            expected_revision=ready["revision"],
+            target_ref={"kind": "ci", "ref": "ci-host-session-1"},
+        )
+        self.orchestrator.runtime_factory = CrashAfterTaskRunResumeRuntime
+        with self.assertRaises(SimulatedProcessCrash):
+            self.orchestrator.resume_external(
+                session_id="ambiguous-session",
+                expected_revision=waiting["revision"],
+                event={
+                    "event": "ci.completed",
+                    "correlation_ref": "ci-host-session-1",
+                    "status": "success",
+                },
+                evidence_refs=("ci:event:ci-host-session-1",),
+                correlation_ref="ci-host-session-1",
+            )
+        interrupted = self.orchestrator.read("ambiguous-session")
+        self.orchestrator.runtime_factory = StarterWorkflowRuntime
+        with self.assertRaisesRegex(
+            StarterHostOrchestrationError, "did not advance|reconciliation blocked"
+        ):
+            self.orchestrator.reconcile(
+                session_id="ambiguous-session",
+                expected_revision=interrupted["revision"],
+            )
+        blocked = self.orchestrator.read("ambiguous-session")
+        self.assertEqual(blocked["phase"], PHASE_BLOCKED)
+        self.assertIn("did not advance", blocked["last_error"])
 
     def test_next_action_projection_is_closed_and_never_completes(self) -> None:
         base = {"workflow_id": "wf", "task_id": "task-1"}

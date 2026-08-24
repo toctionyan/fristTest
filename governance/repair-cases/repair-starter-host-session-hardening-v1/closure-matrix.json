@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-starter-host-session-hardening-v1",
+  "permit_digest": "4ab2bd318388d5c567af81a3295230322ee59e152c971be978c3ae12a104ba7c",
+  "diff_review_sha256": "551297c6eae7a52c3b5635e2d76f8f6e49691f14d0ff5ed2e78cbae94911544b",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "0846da239d26bd6a832cd23f7e407fc8d4d143ffdd03c924b92bd60d2aeaeb6a",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "7bf857f3278f6ebdbc35953ad2caa3b1c53c08ba0a6905d33391df4501ea5c53"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/counterexamples.md",
+      "evidence_sha256": "bae1e5707d756881f9a3e5e8249a4862ba6c81bdd85619ba5cb0fb518a751ba0"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/diff-review.json",
+      "evidence_sha256": "551297c6eae7a52c3b5635e2d76f8f6e49691f14d0ff5ed2e78cbae94911544b"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/focused-tests.md",
+      "evidence_sha256": "e177f07eb6c77b78eb53df690f99fc086fc895d5c6257fde2dc1db39aabb3594"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/negative-paths.md",
+      "evidence_sha256": "0fdf0dddbd88d8112f5f472fa67bd3f6197c2e3e9a1ebb4070a67ce10a7f741a"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/red-baseline.md",
+      "evidence_sha256": "b1a6e4cc5fb7dd1d72251c38dc2d93fba07a96367003de1c28cd6386e53a1d72"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/regression.md",
+      "evidence_sha256": "ac2d44999b5fde509b6ca16711a3fdd67237ea54567dd037db2ce0e323b446ca"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-session-hardening-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "9d24f30c4738fca45a020feb6e2cbe7deefbcb2cc55a3a06cdaf1aab3588f197"
+    }
+  ],
+  "residual_risks": []
+}
