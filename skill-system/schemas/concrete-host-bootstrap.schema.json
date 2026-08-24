@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "concrete-host-bootstrap.schema.json",
-  "title": "Concrete Host Bootstrap v2",
+  "title": "Concrete Host Bootstrap v3",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "starter", "registration", "checkpointer", "providers", "authority", "human_gate", "runtime", "policy", "bootstrap_sha256"],
+  "required": ["schema", "starter", "registration", "checkpointer", "providers", "authority", "human_gate", "scheduler", "runtime", "policy", "bootstrap_sha256"],
   "properties": {
-    "schema": {"const": "concrete-host-bootstrap@2"},
+    "schema": {"const": "concrete-host-bootstrap@3"},
     "starter": {
       "type": "object",
       "additionalProperties": false,
@@ -90,6 +90,20 @@
         "authority_effect": {"const": false}
       }
     },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "event_root", "receipt_root", "lock_root", "max_events_per_run", "provider_polling", "authority_effect"],
+      "properties": {
+        "type": {"const": "durable-local-one-shot"},
+        "event_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "receipt_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "lock_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "max_events_per_run": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "provider_polling": {"const": false},
+        "authority_effect": {"const": false}
+      }
+    },
     "runtime": {
       "type": "object",
       "additionalProperties": false,
@@ -104,6 +118,9 @@
       "const": {
         "configuration_grants_write_authority": false,
         "configuration_completes_taskrun": false,
+        "scheduler_is_authority": false,
+        "external_event_completes_taskrun": false,
+        "provider_polling": false,
         "automatic_merge": false,
         "completion_authority": "TaskRun",
         "authority_effect": false

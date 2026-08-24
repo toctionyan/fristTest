@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "repair_plan_sha256": "dcdf6350c85bccf47eb5a099f0663658a761f366fd20748f357279ffd66cf770",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/durable_external_event_scheduler.py",
+    "skill-system/controller/scheduler_cli.py",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/schemas/external-event-wakeup.schema.json",
+    "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skillctl.py",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md"
+  ],
+  "review_findings": [
+    "The scheduler reuses the existing Host transport and Orchestrator instead of becoming a second session or TaskRun writer.",
+    "Provider authentication remains outside the generic scheduler; the scheduler owns only durable exact-wait delivery.",
+    "Per-session serialization covers different events racing for the same active wait, while deterministic event identity covers duplicate deliveries.",
+    "Reservation plus existing pending-transition reconciliation closes the process-crash window without blindly repeating a resume.",
+    "The one-shot CLI supports webhook-triggered wake and cron-triggered bounded drain without a daemon or polling provider state.",
+    "Product source, completion policy, Quality, Write Authority, Human Gate, release, production, and merge code are outside scope."
+  ],
+  "skill_rule_mappings": [
+    {"rule": "One control plane", "assessment": "ChatGPT, Codex, webhooks, and cron call the same root scheduler CLI and existing Host transport", "evidence": "skillctl.py"},
+    {"rule": "Single authority", "assessment": "scheduler cannot write session/TaskRun state and calls only RESUME_EXTERNAL or RECONCILE", "evidence": "skill-system/controller/durable_external_event_scheduler.py"},
+    {"rule": "Durable external wait", "assessment": "event, reservation, TaskRun checkpoint proof, and delivery receipt are exact and persistent", "evidence": "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py"},
+    {"rule": "Fail closed", "assessment": "mismatch, tampering, stale revision, competing event, and ambiguous crash state cannot resume", "evidence": "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py"},
+    {"rule": "Standalone product", "assessment": "all scheduler files remain under Harness control-plane paths and are not application dependencies", "evidence": "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md"}
+  ]
+}

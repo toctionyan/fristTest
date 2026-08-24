@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "permit_digest": "420a82a1e7a482510e813493f957f6dc863d4c6cbdf5aa0e3437f2303aac53f1",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "8b5140dfc13760bac19ac7932ab9fdde803da86dffb76c927a61bbdbfb1d72ae",
+  "candidate_source_fingerprint": "2c9569ba0985582aaf20575c2501e0fa114b9f11e1e6be0fcd129ef09fbaedae",
+  "changed_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/durable_external_event_scheduler.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/controller/scheduler_cli.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/schemas/external-event-wakeup.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py",
+    "skillctl.py"
+  ],
+  "added_paths": [
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
+    "skill-system/controller/durable_external_event_scheduler.py",
+    "skill-system/controller/scheduler_cli.py",
+    "skill-system/schemas/external-event-wakeup.schema.json",
+    "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/project_initializer.py",
+    "skill-system/schemas/concrete-host-bootstrap.schema.json",
+    "skill-system/tests/test_concrete_host_bootstrap.py",
+    "skillctl.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": []
+}

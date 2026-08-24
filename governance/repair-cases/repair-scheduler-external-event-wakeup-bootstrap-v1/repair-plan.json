@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "root_cause_proof_sha256": "e940f6a8285b3aaca0c070c6d1d13df4bebe9d9d65ebe680f719490eef64b131",
+  "status": "APPROVED",
+  "strategy": "Add one project-local durable external-event scheduler below the Concrete Host factory. It will ingest only events matching the exact active WAITING_EXTERNAL session, bind them to the Host revision and TaskRun wait checkpoint, persist immutable event evidence, serialize delivery per session, and call the existing Starter Host transport for RESUME_EXTERNAL or RECONCILE. A one-shot CLI supports ingest, wake, and bounded run-once; it never polls providers or becomes a daemon. Upgrade the closed bootstrap and initializer to generate its roots and fixed non-authorizing policy.",
+  "changes": [
+    {"path": "skill-system/controller/durable_external_event_scheduler.py", "responsibility": "persist exact wait-bound events, reserve delivery, recover interrupted resume, and write non-authorizing receipts", "reason": "no concrete event-delivery owner exists"},
+    {"path": "skill-system/controller/scheduler_cli.py", "responsibility": "expose closed ingest, wake, and bounded run-once process operations", "reason": "webhooks and cron need one stable process boundary"},
+    {"path": "skill-system/controller/concrete_host_bootstrap.py", "responsibility": "validate scheduler configuration and attach the scheduler to the existing orchestrator", "reason": "the trusted factory is the composition boundary"},
+    {"path": "skill-system/controller/project_initializer.py", "responsibility": "generate scheduler inbox, receipt, lock, and bounded batch configuration", "reason": "operators should not hand-write bootstrap YAML or JSON"},
+    {"path": "skill-system/schemas/concrete-host-bootstrap.schema.json", "responsibility": "publish the closed concrete-host-bootstrap@3 scheduler shape", "reason": "bootstrap configuration must remain reviewable and fail closed"},
+    {"path": "skill-system/schemas/external-event-wakeup.schema.json", "responsibility": "publish closed ingest/event/reservation/receipt/result contracts", "reason": "listeners and schedulers need a portable versioned wire contract"},
+    {"path": "skill-system/tests/test_scheduler_external_event_wakeup_bootstrap.py", "responsibility": "prove exact matching, idempotency, per-session serialization, crash recovery, stale rejection, and authority boundaries", "reason": "event delivery is a concurrency and recovery boundary"},
+    {"path": "skill-system/tests/test_concrete_host_bootstrap.py", "responsibility": "prove initializer and factory assemble the real scheduler and @3 config", "reason": "the end-to-end bootstrap test must cover the successor composition"},
+    {"path": "skillctl.py", "responsibility": "route the scheduler process command to the canonical controller", "reason": "all Hosts and automation should use one root CLI"},
+    {"path": "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md", "responsibility": "document webhook, cron, event, recovery, and standalone-project interactions", "reason": "operators need an exact extension and deployment model"},
+    {"path": "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md", "responsibility": "document generated scheduler state and commands", "reason": "initializer documentation must match the live bootstrap"}
+  ],
+  "unchanged_boundaries": [
+    "EventDrivenCIProviderAdapter remains Provider-specific event interpretation authority",
+    "StarterHostOrchestrator remains Host session ordering and resume correlation authority",
+    "StarterHostCommandTransport remains the closed RESUME_EXTERNAL and RECONCILE wire owner",
+    "LangGraph remains Workflow sequence and declared route owner",
+    "WorkflowTaskRunBridge and TaskRun remain lifecycle and completion authorities",
+    "ChangePermit Write Authority and Human Gate adapters remain unchanged",
+    "provider listeners authenticate and normalize their own external source before generic ingest",
+    "customer application source and production dependencies remain independent"
+  ],
+  "forbidden_repairs": [
+    "Do not add provider polling, sleep loops, background threads, or a second Workflow runtime.",
+    "Do not mutate Host session or TaskRun files directly from the scheduler.",
+    "Do not accept an event that fails exact provider, correlation, event-name, session revision, TaskRun, or wait-checkpoint binding.",
+    "Do not deliver two events concurrently to one Host session or blindly retry an uncertain transition.",
+    "Do not let scheduler configuration, event arrival, CI green, or delivery receipts grant write, Quality, completion, release, production, or merge authority.",
+    "Do not add GitHub-specific semantics to the generic scheduler.",
+    "Do not change services, web, contracts, or standalone application dependencies."
+  ],
+  "required_invariants": [
+    "ingest is legal only against one exact persisted WAITING_EXTERNAL Host session and TaskRun checkpoint",
+    "event identity is deterministic and its immutable bytes are fingerprinted",
+    "one per-session lock serializes competing event deliveries",
+    "delivery invokes only existing RESUME_EXTERNAL or exact pending-transition RECONCILE",
+    "duplicate wake returns one durable delivery receipt without a second resume",
+    "a crash after TaskRun resume can be proven from exact event evidence; ambiguous state fails closed",
+    "run-once is bounded and contains no provider polling loop",
+    "Graph END remains TaskRun VALIDATING and scheduler policy remains non-authorizing"
+  ],
+  "required_tests": {
+    "focused": ["exact waiting event ingests and wakes the same session/TaskRun through existing transport", "duplicate and concurrent wake produce one resume and one durable receipt", "initializer/factory inject concrete scheduler configuration"],
+    "counterexamples": ["wrong provider, correlation, event name, evidence, session, revision, TaskRun, or wait checkpoint is rejected", "a second event for an already-consumed wait is rejected stale", "tampered event, reservation, receipt, or path fails closed"],
+    "regression": ["provider adapter, LangGraph runtime, TaskRun bridge, Host orchestrator/transport, initializer, schema, and all skill-only profiles remain green"],
+    "negative_path": ["scheduler contains no polling loop and cannot complete TaskRun or merge", "product source and dependencies remain unchanged"]
+  },
+  "risks": [
+    "Generic ingest assumes the caller is a trusted provider listener that already authenticated the webhook or provider API response; provider signature verification remains provider-specific.",
+    "An event arriving before the Host publishes its exact wait is intentionally rejected and must be retried by the listener after the wait exists.",
+    "Local filesystem durability is suitable for one project Host instance; multi-node deployment will require a future database-backed scheduler adapter with the same contract."
+  ],
+  "rollback_plan": "Remove the scheduler module, CLI route, @3 scheduler fields, schemas, tests, and docs; restore concrete-host-bootstrap@2 while leaving the existing manual RESUME_EXTERNAL, LangGraph checkpoint, TaskRun bridge, Provider adapter, Write Authority, and Human Gate behavior unchanged."
+}

@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "permit_digest": "420a82a1e7a482510e813493f957f6dc863d4c6cbdf5aa0e3437f2303aac53f1",
+  "diff_review_sha256": "9a537d3284c5196f987bedd7cc857c837ff6d05dc75c59afcdbe08c33231af2c",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "2c9569ba0985582aaf20575c2501e0fa114b9f11e1e6be0fcd129ef09fbaedae",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "b1365434b3d921e716a93d1b3a08c8af5df00b040c7af3448085398b93c51708"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/counterexamples.md",
+      "evidence_sha256": "6eac0f605b671cf7629ac6afb3541ee65a78070a295fdf2a365de859a5977940"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/diff-review.json",
+      "evidence_sha256": "9a537d3284c5196f987bedd7cc857c837ff6d05dc75c59afcdbe08c33231af2c"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/focused-tests.md",
+      "evidence_sha256": "37f3f7785e90bceaee0dbf3485b861874eea2bf977e0d27af055041ed94dd2e2"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/negative-paths.md",
+      "evidence_sha256": "56039e8349830482dec7ed22eaa62c4da097fa464201188150b1cc70938bc5d0"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/red-baseline.md",
+      "evidence_sha256": "0124880402d8ff99a13b22b048dde87e6d5c3459b42d4b804787ece2fc52da63"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/regression.md",
+      "evidence_sha256": "0802361081a966e9587b894a0faa8f43719207762e407c02c1aa9f4e274c3603"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "8090c4a1c6e01cd5731bccb79443d19a529466f0aa98a4915f198cea7e1a1391"
+    }
+  ],
+  "residual_risks": []
+}

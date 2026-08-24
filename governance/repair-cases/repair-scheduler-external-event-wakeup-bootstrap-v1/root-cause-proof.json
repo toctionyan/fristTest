@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "failure_case_sha256": "271208f10ff3bcb508f3c8c0abe7eb2bc98b05820ff88025bf244a733e8013e8",
+  "decision": "PROVEN",
+  "root_cause": "Earlier stages deliberately implemented the wait handle, durable LangGraph checkpoint, TaskRun projection, and manual Host resume operation separately. The concrete bootstrap now composes providers, Write Authority, and Human Gates, but it does not compose an event-delivery owner that persists normalized events and calls that existing resume path exactly once.",
+  "causal_chain": [
+    "EventDrivenCIProviderAdapter returns pending plus provider, correlation_ref, and resume_event and performs no polling.",
+    "StarterWorkflowRuntime and WorkflowTaskRunBridge preserve the same resume stage and TaskRun WAITING_EXTERNAL_RESULT checkpoint.",
+    "StarterHostOrchestrator and its transport already enforce session revision, phase, correlation, durable evidence, and crash reconciliation.",
+    "Concrete Host bootstrap has no durable inbox, per-session delivery serialization, delivery receipt, scheduler CLI, or generated scheduler configuration.",
+    "Therefore an initialized project cannot autonomously consume a real external completion event even though every lower resume primitive exists."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/red-baseline.md",
+    "skill-system/controller/provider_adapters.py",
+    "skill-system/controller/starter_runtime.py",
+    "skill-system/controller/workflow_taskrun_bridge.py",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/starter_host_transport.py",
+    "skill-system/controller/concrete_host_bootstrap.py"
+  ],
+  "rejected_hypotheses": [
+    "Add a while/sleep polling loop inside LangGraph or the CI Provider adapter.",
+    "Create a second TaskRun writer or bypass StarterHostOrchestrator by mutating session files.",
+    "Treat event arrival, CI success, or scheduler delivery as TaskRun completion.",
+    "Allow unbound events to choose a session, Workflow, step, route, or Provider by nearest match.",
+    "Retry an uncertain external effect without checking the existing pending transition and TaskRun resume checkpoint.",
+    "Put scheduler code or dependencies into the standalone customer application."
+  ],
+  "affected_boundaries": [
+    "event normalization and persistence",
+    "exact active-wait binding",
+    "at-most-once delivery reservation and recovery",
+    "concrete bootstrap and project initializer"
+  ]
+}

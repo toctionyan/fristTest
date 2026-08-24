@@ -159,6 +159,15 @@ def _initialize_concrete_host_project_locked(
                     "decision_root": ".harness/runtime/human-decisions",
                     "authority_effect": False,
                 },
+                "scheduler": {
+                    "type": "durable-local-one-shot",
+                    "event_root": ".harness/runtime/external-events",
+                    "receipt_root": ".harness/runtime/external-wakeup-receipts",
+                    "lock_root": ".harness/runtime/external-wakeup-locks",
+                    "max_events_per_run": 100,
+                    "provider_polling": False,
+                    "authority_effect": False,
+                },
                 "runtime": {
                     "session_root": ".harness/runtime/host-sessions",
                     "taskrun_root": ".harness/taskruns",
@@ -167,6 +176,9 @@ def _initialize_concrete_host_project_locked(
                 "policy": {
                     "configuration_grants_write_authority": False,
                     "configuration_completes_taskrun": False,
+                    "scheduler_is_authority": False,
+                    "external_event_completes_taskrun": False,
+                    "provider_polling": False,
                     "automatic_merge": False,
                     "completion_authority": "TaskRun",
                     "authority_effect": False,

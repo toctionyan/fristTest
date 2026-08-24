@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A concrete ChatGPT/Codex Host installation durably ingests a provider event, binds it to the exact active external wait, and performs one idempotent wake-up of the same Host session and TaskRun.",
+    "actual": "The Host exposes only the manual RESUME_EXTERNAL transport operation. No concrete event inbox, exact-wait matcher, atomic delivery reservation, one-shot scheduler, crash recovery receipt, or initializer wiring exists.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/red-baseline.md",
+      "skill-system/controller/concrete_host_bootstrap.py",
+      "skill-system/controller/starter_host_transport.py",
+      "skill-system/controller/starter_host_orchestrator.py",
+      "skill-system/controller/provider_adapters.py"
+    ]
+  },
+  "violated_invariants": [
+    "External wait must yield and later resume from one durable matching event without a polling loop.",
+    "A duplicate or concurrent event delivery must not resume the same wait twice.",
+    "Scheduler and external events must not gain write, Quality, completion, release, production, or merge authority."
+  ],
+  "affected_boundaries": [
+    "concrete Host bootstrap",
+    "durable external-event inbox",
+    "one-shot scheduler and wake-up receipt",
+    "existing Host RESUME_EXTERNAL transport"
+  ]
+}

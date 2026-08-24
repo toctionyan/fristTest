@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "change_id": "repair-scheduler-external-event-wakeup-bootstrap-v1",
   "target_kind": "repair",
-  "goal": "Integrate one real ChangePermit-backed WriteAuthorityGuard and one durable Human Gate adapter into the concrete ChatGPT/Codex Host bootstrap without creating completion, merge, or product-runtime authority.",
+  "goal": "Integrate one durable one-shot Scheduler / External Event Wake-up Bootstrap that resumes the exact existing Host session and TaskRun without gaining completion, merge, or product-runtime authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
@@ -23,7 +23,7 @@
     "B18_STAGE_SUMMARY.json",
     "Makefile",
     "skillctl.py",
-    "docs/architecture/WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md",
+    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
     "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
     "release/**"
   ],
@@ -33,10 +33,7 @@
     "contracts/**"
   ],
   "invariants": [
-    "customer-agent product source remains unchanged and independently runnable",
-    "write authorization is derived only from one active validated ChangePermit and exact mutation scope",
-    "Human Gate decisions are durable, exact-gate-bound, and grant no write, completion, release, or merge authority",
-    "generic write authority never authorizes pull-request merge",
+    "customer-agent product source remains unchanged",
     "trusted Judge inputs are not modified by the implementer",
     "current evidence is required for completion"
   ],
@@ -57,23 +54,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/diff-review.json",
-      "evidence_sha256": "aaa8bfdde0a0467a586415f7ee106f3e7c4951600fdc0f0398ef4be9d9817a8e",
-      "recorded_at": "2026-08-24T03:40:45.762058+00:00"
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/diff-review.json",
+      "evidence_sha256": "9a537d3284c5196f987bedd7cc857c837ff6d05dc75c59afcdbe08c33231af2c",
+      "recorded_at": "2026-08-24T04:39:25.992347+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/counterexamples.md",
-      "evidence_sha256": "2fdde99901c91905f55a1bb91141a02f9ede382079c3365a115391bc9aa6e099",
-      "recorded_at": "2026-08-24T03:40:45.841722+00:00"
+      "evidence": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1/evidence/counterexamples.md",
+      "evidence_sha256": "6eac0f605b671cf7629ac6afb3541ee65a78070a295fdf2a365de859a5977940",
+      "recorded_at": "2026-08-24T04:39:26.085603+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-write-authority-human-gate-bootstrap-v1/verification.json",
-      "evidence_sha256": "a5f6b81d60f18c384e521523324b0f604280271d07b2fe08409fe5658d52a270",
-      "recorded_at": "2026-08-24T03:41:34.193233+00:00"
+      "evidence": ".quality/skill-control-plane/repair-scheduler-external-event-wakeup-bootstrap-v1/verification.json",
+      "evidence_sha256": "3f68ab1395403bd308dddd4ab9052156fcc221ff91aef57b4a10d90f0321543a",
+      "recorded_at": "2026-08-24T04:40:10.312196+00:00"
     }
   ],
   "decision_record": null,
@@ -81,17 +78,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-write-authority-human-gate-bootstrap-v1/verification.json",
-    "sha256": "a5f6b81d60f18c384e521523324b0f604280271d07b2fe08409fe5658d52a270",
-    "source_fingerprint": "8d1045203b91d93b5335f140c4cf0c6525922c7406d9aecd4216bc29ea382466",
-    "source_file_count": 1188,
-    "verified_at": "2026-08-24T03:41:34.192599+00:00"
+    "path": ".quality/skill-control-plane/repair-scheduler-external-event-wakeup-bootstrap-v1/verification.json",
+    "sha256": "3f68ab1395403bd308dddd4ab9052156fcc221ff91aef57b4a10d90f0321543a",
+    "source_fingerprint": "218c7b6d804d1e49c85ee8f7ff82d60d56e64f3f048b5d478007f5ad8913bd8f",
+    "source_file_count": 1207,
+    "verified_at": "2026-08-24T04:40:10.311543+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1",
-  "repair_governance_consumed_at": "2026-08-24T03:41:43.842659+00:00",
-  "created_at": "2026-08-24T03:27:27.204399+00:00",
+  "repair_governance": "governance/repair-cases/repair-scheduler-external-event-wakeup-bootstrap-v1",
+  "repair_governance_consumed_at": "2026-08-24T04:40:16.813978+00:00",
+  "created_at": "2026-08-24T04:23:40.215624+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "d2380dedf53dd9b07b96ab4ada53974d9409d48866a130a5bc3d164c857b5834",
-  "closed_at": "2026-08-24T03:41:43.842675+00:00"
+  "repair_governance_permit_digest": "420a82a1e7a482510e813493f957f6dc863d4c6cbdf5aa0e3437f2303aac53f1",
+  "closed_at": "2026-08-24T04:40:16.813996+00:00"
 }

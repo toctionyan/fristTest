@@ -64,6 +64,15 @@ def unsigned_bootstrap() -> dict[str, object]:
             "decision_root": ".harness/runtime/human-decisions",
             "authority_effect": False,
         },
+        "scheduler": {
+            "type": "durable-local-one-shot",
+            "event_root": ".harness/runtime/external-events",
+            "receipt_root": ".harness/runtime/external-wakeup-receipts",
+            "lock_root": ".harness/runtime/external-wakeup-locks",
+            "max_events_per_run": 100,
+            "provider_polling": False,
+            "authority_effect": False,
+        },
         "runtime": {
             "session_root": ".harness/runtime/host-sessions",
             "taskrun_root": ".harness/taskruns",
@@ -72,6 +81,9 @@ def unsigned_bootstrap() -> dict[str, object]:
         "policy": {
             "configuration_grants_write_authority": False,
             "configuration_completes_taskrun": False,
+            "scheduler_is_authority": False,
+            "external_event_completes_taskrun": False,
+            "provider_polling": False,
             "automatic_merge": False,
             "completion_authority": "TaskRun",
             "authority_effect": False,
@@ -180,6 +192,9 @@ class ConcreteHostBootstrapTest(unittest.TestCase):
         )
         self.assertIsNotNone(orchestrator.human_gate_adapter)
         self.assertTrue(orchestrator._concrete_bootstrap_policy["human_gate_injected"])
+        self.assertIsNotNone(orchestrator._concrete_wakeup_scheduler)
+        self.assertTrue(orchestrator._concrete_bootstrap_policy["scheduler_injected"])
+        self.assertFalse(orchestrator._concrete_bootstrap_policy["provider_polling"])
         self.assertFalse(
             orchestrator._concrete_bootstrap_policy["write_authority_currently_granted"]
         )
