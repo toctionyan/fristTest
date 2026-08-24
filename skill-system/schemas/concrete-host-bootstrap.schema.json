@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "concrete-host-bootstrap.schema.json",
-  "title": "Concrete Host Bootstrap v1",
+  "title": "Concrete Host Bootstrap v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "starter", "registration", "checkpointer", "providers", "runtime", "policy", "bootstrap_sha256"],
+  "required": ["schema", "starter", "registration", "checkpointer", "providers", "authority", "human_gate", "runtime", "policy", "bootstrap_sha256"],
   "properties": {
-    "schema": {"const": "concrete-host-bootstrap@1"},
+    "schema": {"const": "concrete-host-bootstrap@2"},
     "starter": {
       "type": "object",
       "additionalProperties": false,
@@ -66,6 +66,28 @@
             }
           ]
         }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "active_contract_path", "audit_root", "generic_merge_authority"],
+      "properties": {
+        "type": {"const": "repair-change-permit"},
+        "active_contract_path": {"$ref": "#/$defs/relativeJson"},
+        "audit_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "generic_merge_authority": {"const": false}
+      }
+    },
+    "human_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "gate_root", "decision_root", "authority_effect"],
+      "properties": {
+        "type": {"const": "durable-local"},
+        "gate_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "decision_root": {"type": "string", "pattern": "^\\.harness/(?!starters/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "authority_effect": {"const": false}
       }
     },
     "runtime": {

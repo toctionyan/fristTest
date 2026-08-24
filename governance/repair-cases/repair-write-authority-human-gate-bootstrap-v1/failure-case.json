@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "The concrete ChatGPT/Codex Host factory reuses one active validated ChangePermit as exact mutation authority and can persist and resume exact Human Gate decisions.",
+    "actual": "The concrete factory injects neither WriteAuthorityGuard nor HumanGateAdapter, so governed mutation and concrete Human Gate execution are unavailable.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/red-baseline.md",
+      "skill-system/controller/concrete_host_bootstrap.py",
+      "skill-system/controller/workflow_dispatcher.py",
+      "skill-system/controller/repair_governance.py"
+    ]
+  },
+  "violated_invariants": [
+    "A valid existing ChangePermit should be consumable by the runtime without creating a second write authority.",
+    "Human Gate wait and resume must be bound to durable exact decision evidence.",
+    "Generic write authority must never imply merge, completion, release, or production authority."
+  ],
+  "affected_boundaries": [
+    "ChangePermit-backed runtime write guard",
+    "durable Human Gate adapter",
+    "concrete Host bootstrap",
+    "project initializer"
+  ]
+}

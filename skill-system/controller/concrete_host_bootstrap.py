@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-CONCRETE_HOST_BOOTSTRAP_SCHEMA = "concrete-host-bootstrap@1"
+CONCRETE_HOST_BOOTSTRAP_SCHEMA = "concrete-host-bootstrap@2"
 DEFAULT_BOOTSTRAP_ENVIRONMENT_VARIABLE = "HARNESS_HOST_BOOTSTRAP"
 DEFAULT_BOOTSTRAP_RELATIVE = Path(".harness/host/bootstrap.json")
 
@@ -119,6 +119,8 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
             "registration",
             "checkpointer",
             "providers",
+            "authority",
+            "human_gate",
             "runtime",
             "policy",
             "bootstrap_sha256",
@@ -199,6 +201,57 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
             raise ConcreteHostBootstrapError("providers.github.api_base must be official GitHub API")
         providers["github"] = github
 
+    authority = _object(payload.get("authority"), field="authority")
+    _closed(
+        authority,
+        {
+            "type",
+            "active_contract_path",
+            "audit_root",
+            "generic_merge_authority",
+        },
+        field="authority",
+    )
+    if authority.get("type") != "repair-change-permit":
+        raise ConcreteHostBootstrapError(
+            "authority.type must reuse the repair ChangePermit authority"
+        )
+    authority["active_contract_path"] = _relative(
+        authority.get("active_contract_path"),
+        field="authority.active_contract_path",
+        suffix=".json",
+    )
+    authority["audit_root"] = _relative(
+        authority.get("audit_root"), field="authority.audit_root"
+    )
+    if not authority["audit_root"].startswith(".harness/"):
+        raise ConcreteHostBootstrapError(
+            "authority.audit_root must stay beneath .harness"
+        )
+    if authority.get("generic_merge_authority") is not False:
+        raise ConcreteHostBootstrapError(
+            "generic Write Authority cannot enable merge authority"
+        )
+
+    human_gate = _object(payload.get("human_gate"), field="human_gate")
+    _closed(
+        human_gate,
+        {"type", "gate_root", "decision_root", "authority_effect"},
+        field="human_gate",
+    )
+    if human_gate.get("type") != "durable-local":
+        raise ConcreteHostBootstrapError("human_gate.type must be durable-local")
+    for field in ("gate_root", "decision_root"):
+        human_gate[field] = _relative(
+            human_gate.get(field), field=f"human_gate.{field}"
+        )
+        if not human_gate[field].startswith(".harness/"):
+            raise ConcreteHostBootstrapError(
+                f"human_gate.{field} must stay beneath .harness"
+            )
+    if human_gate.get("authority_effect") is not False:
+        raise ConcreteHostBootstrapError("Human Gate configuration cannot grant authority")
+
     runtime = _object(payload.get("runtime"), field="runtime")
     _closed(
         runtime,
@@ -223,6 +276,8 @@ def validate_bootstrap_declaration(raw: Mapping[str, Any]) -> dict[str, Any]:
         "registration": registration,
         "checkpointer": checkpointer,
         "providers": providers,
+        "authority": authority,
+        "human_gate": human_gate,
         "runtime": runtime,
         "policy": dict(_POLICY),
         "bootstrap_sha256": digest,
@@ -335,6 +390,8 @@ def build_orchestrator(*, host_id: str):
     project_workspace, config = load_bootstrap(Path(configured))
 
     from langgraph.checkpoint.sqlite import SqliteSaver
+    from durable_human_gate import DurableHumanGateAdapter
+    from governed_write_authority import ChangePermitWriteAuthorityGuard
     from starter_host_orchestrator import StarterHostOrchestrator
     from starter_provider_bootstrap import (
         GitHubPullRequestConfiguration,
@@ -393,6 +450,18 @@ def build_orchestrator(*, host_id: str):
         github=github,
         process_runner=runner,
     )
+    authority_config = config["authority"]
+    write_authority_guard = ChangePermitWriteAuthorityGuard(
+        workspace=project_workspace,
+        active_contract_path=authority_config["active_contract_path"],
+        audit_root=authority_config["audit_root"],
+    )
+    human_gate_config = config["human_gate"]
+    human_gate_adapter = DurableHumanGateAdapter(
+        workspace=project_workspace,
+        gate_root=human_gate_config["gate_root"],
+        decision_root=human_gate_config["decision_root"],
+    )
 
     checkpointer_path = _workspace_path(
         project_workspace,
@@ -409,8 +478,8 @@ def build_orchestrator(*, host_id: str):
         provider_adapters=assembly.registry,
         checkpointer=SqliteSaver(connection),
         workspace_fingerprint=config["runtime"]["workspace_fingerprint"],
-        write_authority_guard=None,
-        human_gate_adapter=None,
+        write_authority_guard=write_authority_guard,
+        human_gate_adapter=human_gate_adapter,
         session_root=config["runtime"]["session_root"],
         taskrun_root=config["runtime"]["taskrun_root"],
     )
@@ -418,8 +487,11 @@ def build_orchestrator(*, host_id: str):
     orchestrator._concrete_bootstrap_connection = connection
     orchestrator._concrete_bootstrap_policy = {
         "provider_ids": list(assembly.provider_ids),
-        "write_authority_injected": False,
-        "human_gate_injected": False,
+        "write_authority_injected": True,
+        "write_authority_currently_granted": False,
+        "write_authority_source": "active ChangePermit; evaluated per mutating dispatch",
+        "generic_merge_authority": False,
+        "human_gate_injected": True,
         **_POLICY,
     }
     return orchestrator

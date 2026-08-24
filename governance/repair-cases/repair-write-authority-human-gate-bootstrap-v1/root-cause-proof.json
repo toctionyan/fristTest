@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-write-authority-human-gate-bootstrap-v1",
+  "failure_case_sha256": "d90007f9457aab92a3c4f8905e3666f4eeaa1eb31cee896c7a6f8a5927b96ceb",
+  "decision": "PROVEN",
+  "root_cause": "PR #2098 intentionally stopped at a non-authorizing concrete factory. The repository has a validated ChangePermit chain and durable Host/LangGraph resume mechanics, but no runtime adapter translates that existing permit into the dispatcher WriteAuthorityGuard protocol and no concrete HumanGateAdapter persists and validates an exact gate-bound decision artifact.",
+  "causal_chain": [
+    "WorkflowAdapterDispatcher correctly blocks every mutating binding when no guard is injected.",
+    "repair_governance already validates one active permit and exact allowed/forbidden paths.",
+    "concrete_host_bootstrap currently injects None instead of adapting that existing authority.",
+    "LangGraph and TaskRun preserve HUMAN_GATE waits, while the concrete factory injects no gate adapter.",
+    "Therefore the initialized Host is read-only and cannot execute a real human decision boundary."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-write-authority-human-gate-bootstrap-v1/evidence/red-baseline.md",
+    "skill-system/controller/concrete_host_bootstrap.py",
+    "skill-system/controller/workflow_dispatcher.py",
+    "skill-system/controller/repair_governance.py",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "skill-system/controller/workflow_taskrun_bridge.py"
+  ],
+  "rejected_hypotheses": [
+    "Generate an allow-all write guard during project initialization.",
+    "Let capability activation, Host selection, CONFIRM, CI green, or Quality green grant mutation authority.",
+    "Treat a generic write permit as pull-request merge authority.",
+    "Accept an inline Human Gate answer without exact durable decision evidence.",
+    "Create another TaskRun, completion, release, merge, or production controller."
+  ],
+  "affected_boundaries": [
+    "runtime authority adaptation",
+    "exact mutation-scope extraction",
+    "durable Human Gate contract and decision",
+    "bootstrap schema and initializer"
+  ]
+}

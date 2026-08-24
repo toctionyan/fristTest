@@ -18,9 +18,12 @@ The generated application remains independently runnable. `.harness/**` is devel
   host-init.lock                         concurrent initializer serialization
   starters/customer-agent/             verified immutable Starter copy
   runtime/starter-registration.json    sealed Starter/workflow/skill identity
-  host/bootstrap.json                  concrete-host-bootstrap@1
+  host/bootstrap.json                  concrete-host-bootstrap@2
   runtime/langgraph-checkpoints.sqlite3  created on first Host command
   runtime/host-sessions/               durable interaction sessions
+  runtime/authority-checks/            exact ChangePermit checks
+  runtime/human-gates/                 durable gate contracts
+  runtime/human-decisions/             explicit sealed decisions
   taskruns/                             canonical TaskRun state
 ```
 
@@ -72,10 +75,13 @@ Only the environment-variable name is written. The token value is loaded at fact
 The generated bootstrap has a fixed non-authorizing policy:
 
 - initialization and configuration do not grant write authority;
-- the built-in factory injects no `WriteAuthorityGuard`, so mutating Skill/Provider dispatch remains blocked until a separately governed existing Guard is integrated;
-- the factory adds no Human Gate decision, completion decision, release authority, or merge adapter;
+- the built-in factory injects a `ChangePermitWriteAuthorityGuard`, which reloads the project's existing active ChangePermit for every mutating dispatch and permits only exact requested paths;
+- `workspace.write`, `vcs.commit.create`, and `code_review.pull_request.create` must expose their exact paths before the effect; missing or out-of-permit paths block;
+- the generic guard categorically cannot authorize `code_review.pull_request.merge`;
+- a durable Human Gate adapter persists the exact gate and accepts only a sealed decision artifact for the same TaskRun, Workflow, step, routes, and gate digest;
+- Human Gate decisions add no write, completion, release, merge, or production authority;
 - LangGraph `END` remains `TaskRun VALIDATING`;
 - TaskRun remains the only completion authority;
 - CI green and Quality green remain evidence, not overall completion.
 
-This phase makes read-only audits and the concrete Host/runtime wiring operational. Fully automated repair remains intentionally dependent on a real governed write-authority implementation rather than an initializer-generated allow-all substitute.
+Normal governed repair is automatic after the target project already has an implementing active Change Contract and valid ChangePermit and the `START` target carries their exact `change_id` and `permit_digest`. Initialization, natural-language routing, `SELECT`, and `CONFIRM` cannot manufacture those facts. True policy choices remain explicit Human Gates. See [Write Authority / Human Gate Bootstrap v1](WRITE_AUTHORITY_HUMAN_GATE_BOOTSTRAP_V1.md).
