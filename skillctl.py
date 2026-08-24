@@ -16,6 +16,7 @@ SKILL_INVOCATION_COMMANDS = {
 DIRECT_CONTROLLER_COMMANDS = {
     "authoring": ROOT / "skill-system" / "controller" / "harness_authoring_cli.py",
     "dev-command": ROOT / "skill-system" / "controller" / "dev_command.py",
+    "host": ROOT / "skill-system" / "controller" / "starter_host_cli.py",
     "invoke": ROOT / "skill-system" / "controller" / "harness_invocation.py",
     "workflow-preflight": ROOT / "skill-system" / "controller" / "workflow_preflight_cli.py",
 }

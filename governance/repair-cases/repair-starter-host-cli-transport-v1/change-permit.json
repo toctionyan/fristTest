@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "repair_plan_sha256": "9bdd9e302e69260b67e1e3a69fcf360101a577cc9a55702ebbc97b9a79b5e2ed",
+  "plan_review_sha256": "a750fca2ff61f5d006eb74a2a1d436cdf9cd9b999d1f6e0b5193223d48e70e76",
+  "baseline_manifest_sha256": "9b7a39f88a7b5db62b048f6f6f4d60fd9b7f1baa3e419efda73f6f940c4b6f42",
+  "allowed_paths": [
+    "skill-system/controller/starter_host_transport.py",
+    "skill-system/controller/starter_host_cli.py",
+    "skill-system/schemas/starter-host-command.schema.json",
+    "skill-system/tests/test_starter_host_transport.py",
+    "skillctl.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "OPEN and READ commands preserve natural language and return the canonical selection/session",
+      "SELECT, CONFIRM, START, Host result, external event, Human decision, and RECONCILE map exact revisions and payloads to the corresponding Orchestrator methods",
+      "root skillctl host reads one JSON command and emits one closed JSON response through an injected trusted factory"
+    ],
+    "counterexamples": [
+      "unknown fields, operation, Host, schema, policy, missing or forbidden revision, and malformed operation payload are rejected before dispatch",
+      "factory identifiers inside the request, arbitrary method names, implicit selection, missing evidence, and wrong correlation shapes are rejected",
+      "factory load errors and Orchestrator errors produce bounded non-secret failures and nonzero exit status"
+    ],
+    "regression": [
+      "Host Orchestrator, Starter runtime, selection, Host bridge, Provider bootstrap, TaskRun, and root CLI suites remain green",
+      "complete Skill unit and all required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "transport never interprets user language or executes arbitrary commands",
+      "transport cannot grant write authority, complete a TaskRun, or merge a PR",
+      "external waits and Human Gates cannot advance without exact durable evidence",
+      "standalone customer application source and dependencies remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "88d5cf0f6edabefa795c3104e75b6b03e880614ec7a4dbfa7cf2a179706d9f0a",
+  "baseline_workspace_fingerprint": "4889046286d0aca931c28b9d87476ba9361b6a48d5a5c0ee024ad8ed9de26016",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "13419ba0432908f55310d59525909c842ec7a45c04f9639adacb7af6ed20f2e3"
+}

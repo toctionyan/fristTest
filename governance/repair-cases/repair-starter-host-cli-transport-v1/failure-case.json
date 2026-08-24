@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "ChatGPT, Codex, or another trusted Host can drive the existing StarterHostOrchestrator through one versioned closed command transport and the canonical root CLI without importing controller internals or inventing transition order.",
+    "actual": "The durable Orchestrator exists, but skillctl has no Host command and the repository publishes no closed command/response protocol. Each Host wrapper would have to import Python internals and independently map commands to transitions, creating inconsistent validation and authority risks.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/red-baseline.md",
+      "skillctl.py",
+      "skill-system/controller/starter_host_orchestrator.py",
+      "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+    ]
+  },
+  "violated_invariants": [
+    "All supported Hosts must enter the same host-independent control plane.",
+    "Transport must preserve exact revisions, evidence, and wait correlation without becoming execution authority.",
+    "Natural-language interpretation must select only from verified candidates and must not become a repository keyword router.",
+    "A Host entrypoint must not grant write, completion, release, or merge authority."
+  ],
+  "affected_boundaries": [
+    "root Harness CLI",
+    "ChatGPT/Codex command transport",
+    "StarterHostOrchestrator transition dispatch",
+    "Host error and response projection"
+  ]
+}

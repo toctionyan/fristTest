@@ -23,6 +23,11 @@ The session is an ordering and correlation controller. It does not become a
 semantic router, Skill executor, Provider, write guard, Quality judge, completion
 policy, or merge authority.
 
+The executable process boundary above this controller is the closed
+`starter-host-command@1` transport exposed by `python3 -B skillctl.py host` and
+documented in `CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md`. That transport performs
+only exact validation and method dispatch; it does not add another state owner.
+
 ## Interaction sequence
 
 ### 1. Open
@@ -158,6 +163,10 @@ the runtime produces the same closed wait/end states. A new deterministic tool
 or external integration is added through a Provider adapter. A new Host transport
 may render or carry the session/request/result JSON differently, but it must call
 the same compare-and-swap transitions and cannot reinterpret their authority.
+
+The v1 CLI is the canonical reference transport. ChatGPT Skills, Codex commands,
+IDE integrations, schedulers, or webhooks may wrap its command schema, but they
+must not introduce additional operations, defaults, or lifecycle writers.
 
 ## Standalone project boundary
 
