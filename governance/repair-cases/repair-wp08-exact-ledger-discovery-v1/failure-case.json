@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "The WP-08 coordinator discovers the exact open ReleaseRun ledger regardless of unrelated repository issue volume, retires an exhausted ledger only after all existing authorization and run checks pass, and prevents a second active ReleaseRun.",
+    "actual": "The coordinator scans only the first 1000 unfiltered open issues; live ledger #696 is outside that range, so its valid retirement comment is silently ignored and global active-run detection returns no ledger.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/red-baseline.md",
+      "scripts/wp08_release_github.py",
+      "scripts/wp08_release_recovery.py",
+      "skill-system/tests/test_wp08_release_retirement.py"
+    ]
+  },
+  "violated_invariants": [
+    "One active WP-08 ReleaseRun must remain globally discoverable before authorization, recovery, retirement, or repair continuation changes state.",
+    "A valid authorized retirement command must not be silently ignored because unrelated issues consume a generic pagination window.",
+    "Ambiguous, incomplete, or excessive ReleaseRun discovery must fail closed instead of being interpreted as no active run."
+  ],
+  "affected_boundaries": [
+    "WP-08 ReleaseRun ledger discovery",
+    "attempt-budget retirement",
+    "single-active-run authorization guard",
+    "GitHub issue pagination"
+  ]
+}

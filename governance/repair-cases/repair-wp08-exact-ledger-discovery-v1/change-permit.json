@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "repair_plan_sha256": "a97b8cc964568d81bbb647e1657f031216216690551ee15262cb3d1bb4b74c42",
+  "plan_review_sha256": "f825666d23fd449dc6e4d447114f770282771ab07794e5c0a52c337cfae36fc4",
+  "baseline_manifest_sha256": "e734738bae04174d8b2df33f6835e90a08a8f37043561f62f978cb57d8cee817",
+  "allowed_paths": [
+    "scripts/wp08_release_github.py",
+    "skill-system/tests/test_wp08_release_retirement.py"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "a title-scoped search finds an old valid ReleaseRun ledger that generic repository pagination would miss",
+      "the existing exhausted failed-run retirement path still closes its exact issue and never dispatches WP-08"
+    ],
+    "counterexamples": [
+      "incomplete GitHub search results fail closed",
+      "more than 1000 scoped ReleaseRun candidates fail closed",
+      "non-Release titles and invalid bodies never become authority"
+    ],
+    "regression": [
+      "WP-08 retirement, recovery, coordinator, reconciler, and full skill-control-plane tests remain green"
+    ],
+    "negative_path": [
+      "the repair does not use the generic repository issue enumeration endpoint",
+      "the repair does not alter workflow dispatch, issue transition, authorization, retry, or production closure semantics"
+    ]
+  },
+  "baseline_source_fingerprint": "da7c0d069ce048374f0d322f66fe1769ca624e116b92270fc81ba569a693a995",
+  "baseline_workspace_fingerprint": "c31bc82db2e3f81ba871cfe59e342e4032f4a0f83acce6bfb1f80d9f9062d1a8",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "f31930f88c04ddc909fdd5872f22fb53146246ec49c88104e5b5e258c140fd03"
+}

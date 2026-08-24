@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "permit_digest": "f31930f88c04ddc909fdd5872f22fb53146246ec49c88104e5b5e258c140fd03",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "da7c0d069ce048374f0d322f66fe1769ca624e116b92270fc81ba569a693a995",
+  "candidate_source_fingerprint": "1da1f17df6d7bfd172357b86e1515a6e1c0fec7832326416040bbc86e6991f31",
+  "changed_paths": [
+    "scripts/wp08_release_github.py",
+    "skill-system/tests/test_wp08_release_retirement.py"
+  ],
+  "added_paths": [],
+  "modified_paths": [
+    "scripts/wp08_release_github.py",
+    "skill-system/tests/test_wp08_release_retirement.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": [
+    "Scoped GitHub search replaces only the defective acquisition path; state parsing and transition owners remain unchanged.",
+    "Focused and complete skill-control-plane tests pass without skipped or weakened tests."
+  ]
+}

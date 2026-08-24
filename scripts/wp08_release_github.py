@@ -18,6 +18,8 @@ from wp08_release_state import (
 WP08_WORKFLOW_FILE = "wp08-certification.yml"
 QUALITY_WORKFLOW_FILE = "quality.yml"
 MAIN_BRANCH = "main"
+RELEASE_ISSUE_TITLE_PREFIX = "[WP08 Release] "
+MAX_RELEASE_ISSUE_RESULTS = 1000
 
 
 class GitHubCoordinatorError(RuntimeError):
@@ -82,16 +84,55 @@ class GitHubAPI:
             ) from exc
 
     def list_issues(self, *, state: str = "open") -> list[dict[str, Any]]:
+        if state not in {"open", "closed"}:
+            raise GitHubCoordinatorError("release issue state must be open or closed")
+        query = (
+            f'repo:{self.repository} is:issue is:{state} '
+            f'in:title "{RELEASE_ISSUE_TITLE_PREFIX.strip()}"'
+        )
         result: list[dict[str, Any]] = []
+        expected_total: int | None = None
+        expected_pages = 1
         for page in range(1, 11):
+            encoded = parse.urlencode({
+                "q": query,
+                "sort": "created",
+                "order": "desc",
+                "per_page": "100",
+                "page": str(page),
+            })
             _, payload = self._request(
                 "GET",
-                f"/repos/{self.repository}/issues?state={parse.quote(state)}&per_page=100&page={page}",
+                f"/search/issues?{encoded}",
             )
-            rows = payload if isinstance(payload, list) else []
-            result.extend(row for row in rows if isinstance(row, dict) and "pull_request" not in row)
-            if len(rows) < 100:
+            if not isinstance(payload, dict):
+                raise GitHubCoordinatorError("release issue search payload is invalid")
+            if payload.get("incomplete_results") is not False:
+                raise GitHubCoordinatorError("release issue search results are incomplete")
+            total_count = payload.get("total_count")
+            if not isinstance(total_count, int) or isinstance(total_count, bool) or total_count < 0:
+                raise GitHubCoordinatorError("release issue search total_count is invalid")
+            if total_count > MAX_RELEASE_ISSUE_RESULTS:
+                raise GitHubCoordinatorError("release issue search exceeds the bounded result limit")
+            if expected_total is None:
+                expected_total = total_count
+                expected_pages = max(1, (total_count + 99) // 100)
+            elif total_count != expected_total:
+                raise GitHubCoordinatorError("release issue search changed during pagination")
+            rows = payload.get("items")
+            if not isinstance(rows, list) or len(rows) > 100 or any(not isinstance(row, dict) for row in rows):
+                raise GitHubCoordinatorError("release issue search items are invalid")
+            for row in rows:
+                if "pull_request" in row:
+                    raise GitHubCoordinatorError("release issue search returned a pull request")
+                if str(row.get("title") or "").startswith(RELEASE_ISSUE_TITLE_PREFIX):
+                    result.append(dict(row))
+            if page >= expected_pages:
                 break
+        if expected_total is None or page < expected_pages:
+            raise GitHubCoordinatorError("release issue search could not prove complete pagination")
+        if expected_total != sum(1 for _ in result):
+            raise GitHubCoordinatorError("release issue search returned out-of-scope candidates")
         return result
 
     def create_issue(self, *, title: str, body: str) -> dict[str, Any]:

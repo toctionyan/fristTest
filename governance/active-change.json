@@ -1,15 +1,14 @@
 {
   "schema_version": 1,
-  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
   "target_kind": "repair",
-  "goal": "Align repository onboarding with the current B28 release-manifest identity and normal GitHub checkout metadata without weakening any WP-08 or production authority gate.",
+  "goal": "Repair WP-08 ReleaseRun discovery so exact old ledgers remain visible beyond unrelated issue pagination and all incomplete results fail closed.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
     "skill-system/**",
     "governance/**",
     "scripts/**",
-    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
     ".agents/**",
     ".claude/**",
     ".codex/**",
@@ -53,16 +52,16 @@
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/counterexamples.md",
-      "evidence_sha256": "c71068e7bb3e785c4bbead05ae9624231abf3013d14ebb894bd750cf21830f7d",
-      "recorded_at": "2026-08-24T06:42:11.730427+00:00"
+      "evidence": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/counterexamples.md",
+      "evidence_sha256": "c4ba672264ca2c8f1a124cf1881bbbf07755132f35eed285d66db2169874c848",
+      "recorded_at": "2026-08-24T07:28:03.469690+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-stage5-onboarding-current-workspace-v1/verification.json",
-      "evidence_sha256": "69771101c8c3b576c1dcfa8377abc67b4980f1904c8e112cb5f278ef94f669ed",
-      "recorded_at": "2026-08-24T06:47:19.971570+00:00"
+      "evidence": ".quality/skill-control-plane/repair-wp08-exact-ledger-discovery-v1/verification.json",
+      "evidence_sha256": "c71f88f2a33b08c9c273e565438a0748f02750a046fdb4a57aba258ba133bf97",
+      "recorded_at": "2026-08-24T07:33:57.034375+00:00"
     }
   ],
   "decision_record": null,
@@ -70,17 +69,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-stage5-onboarding-current-workspace-v1/verification.json",
-    "sha256": "69771101c8c3b576c1dcfa8377abc67b4980f1904c8e112cb5f278ef94f669ed",
-    "source_fingerprint": "9642c2251371d9d41062e78f14f3fc49f4e2d5b09256e7344b1a093d9e300ff8",
-    "source_file_count": 1257,
-    "verified_at": "2026-08-24T06:47:19.970915+00:00"
+    "path": ".quality/skill-control-plane/repair-wp08-exact-ledger-discovery-v1/verification.json",
+    "sha256": "c71f88f2a33b08c9c273e565438a0748f02750a046fdb4a57aba258ba133bf97",
+    "source_fingerprint": "309c75a1a95387af7464dcf872953726025cde8fbc69f22baf44a8367146ff1a",
+    "source_file_count": 1271,
+    "verified_at": "2026-08-24T07:33:57.033699+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1",
-  "repair_governance_consumed_at": "2026-08-24T06:47:26.980861+00:00",
-  "created_at": "2026-08-24T06:37:53.095373+00:00",
+  "repair_governance": "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1",
+  "repair_governance_consumed_at": "2026-08-24T07:34:07.646388+00:00",
+  "created_at": "2026-08-24T07:24:20.543380+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "76ccd95ebdcb5e56ac0b25d7458c8f622c408c9d9c621369efeae824d99d3412",
-  "closed_at": "2026-08-24T06:47:26.980879+00:00"
+  "repair_governance_permit_digest": "f31930f88c04ddc909fdd5872f22fb53146246ec49c88104e5b5e258c140fd03",
+  "closed_at": "2026-08-24T07:34:07.646405+00:00"
 }

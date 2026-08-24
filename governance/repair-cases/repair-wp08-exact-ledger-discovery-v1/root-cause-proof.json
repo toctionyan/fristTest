@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-wp08-exact-ledger-discovery-v1",
+  "failure_case_sha256": "b93a05982233509ef166cb57b9438c652587e1d4caf5dd43afb59a8bc28c6736",
+  "decision": "PROVEN",
+  "root_cause": "scripts/wp08_release_github.py implements ReleaseRun discovery by listing all open repository issues through only ten 100-row pages. GitHub caps this unfiltered query before historical issue #696, while release_issues() treats the truncated result as complete and find_release_issue() interprets absence as no active authority. The issue-comment controller therefore returns successfully without acting, and authorize() can also miss the same live ledger.",
+  "causal_chain": [
+    "The repository has more than 1000 newer open issue/PR rows than ReleaseRun ledger #696.",
+    "GitHubAPI.list_issues() requests only pages 1 through 10 and does not constrain the query to WP-08 ReleaseRun ledgers.",
+    "Page 10 ends at issue #958 and GitHub rejects page 11, so #696 is absent from the returned collection.",
+    "release_issues() and find_release_issue() accept the bounded generic collection as complete.",
+    "handle_issue_comment() finds no active ledger and returns without executing the exact authorized retirement command.",
+    "The same false absence can bypass authorize()'s single-active-run guard."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-wp08-exact-ledger-discovery-v1/evidence/red-baseline.md",
+    "scripts/wp08_release_github.py",
+    "scripts/wp08_release_recovery.py",
+    "skill-system/tests/test_wp08_release_retirement.py"
+  ],
+  "rejected_hypotheses": [
+    "The retirement command text or run ID was malformed; rejected because the posted comment exactly matches the repository regex and current run ID.",
+    "The commenter lacked authority; rejected because the authenticated actor was repository owner toctionyan.",
+    "The underlying WP-08 run was nonterminal or successful; rejected because run 31716787445 is completed with conclusion failure.",
+    "Manually edit and close issue #696; rejected because the issue explicitly forbids hand editing and the coordinator owns ReleaseRun transitions.",
+    "Start a second ReleaseRun while #696 remains open; rejected because it violates the single-active-run hard invariant."
+  ],
+  "affected_boundaries": [
+    "bounded GitHub ReleaseRun discovery",
+    "exact issue-comment state transition",
+    "single active authorization authority",
+    "fail-closed pagination"
+  ]
+}
