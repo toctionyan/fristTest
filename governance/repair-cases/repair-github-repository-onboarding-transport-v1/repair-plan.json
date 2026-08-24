@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "root_cause_proof_sha256": "dea1283816a621460550e1f95ddbf8c1ae3a3e7eb4727d4f340facecce25b68c",
+  "status": "APPROVED",
+  "strategy": "Add one read-only GitHub repository-onboarding transport in front of the existing deterministic repository_onboarding_preflight. The transport queries one configured repository over HTTPS, collects only repository identity, default branch, visibility, caller permission booleans, protected-main presence, Environment names, Environment secret names, and an exact remote workspace marker. It writes a closed digest-sealed metadata artifact and exposes collect/preflight operations through root skillctl. The preflight command imports and calls the existing evaluator unchanged; it cannot start WP-08, read secret values, configure GitHub, deploy, release, merge, or set production_closed.",
+  "changes": [
+    {"path": "skill-system/controller/github_repository_onboarding_transport.py", "responsibility": "collect, validate, sanitize, seal, persist, and revalidate live GitHub onboarding metadata", "reason": "no integration currently owns the live metadata input required by the existing preflight"},
+    {"path": "skill-system/controller/repository_onboarding_cli.py", "responsibility": "expose bounded collect and preflight commands using one configured repository and token environment-variable reference", "reason": "operators need one canonical process boundary rather than hand-authored JSON"},
+    {"path": "skill-system/tests/test_github_repository_onboarding_transport.py", "responsibility": "prove endpoint binding, pagination, names-only secret handling, remote marker identity, sealed persistence, CLI delegation, preflight reuse, and failure behavior", "reason": "repository admission metadata is a security and release-readiness boundary"},
+    {"path": "skillctl.py", "responsibility": "route repository-onboarding through the canonical root control plane", "reason": "all supported Hosts and operators must invoke the same command"},
+    {"path": "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md", "responsibility": "document metadata endpoints, artifact contract, public-repository approval, preflight handoff, and authority exclusions", "reason": "WP-08 operators need a precise safe onboarding procedure"}
+  ],
+  "unchanged_boundaries": [
+    "scripts/repository_onboarding_preflight.py remains the sole repository readiness decision owner",
+    "GitHub remains the authority for repository, permission, protection, Environment, and names-only secret metadata",
+    "protected-environment-preflight remains the owner of real secret-value and endpoint validation inside the protected Job",
+    "WP-08 release coordinator remains the only owner of ReleaseRun authorization and execution",
+    "TaskRun, Quality, release, deployment, production closure, write, and merge authorities remain unchanged",
+    "customer-agent product source, services, web, contracts, and runtime dependencies remain unchanged"
+  ],
+  "forbidden_repairs": [
+    "Do not accept a repository, default branch, marker, permission, protection, Environment, or secret-name claim that was not returned by the configured GitHub API transport.",
+    "Do not read, request, persist, hash, echo, or validate any GitHub Environment secret value.",
+    "Do not treat a missing/forbidden API response as absence; ambiguous permission or pagination failures must fail closed.",
+    "Do not let API payloads select another repository, API origin, output path, or preflight policy.",
+    "Do not allow a public repository without the existing explicit --allow-public decision.",
+    "Do not mutate GitHub repository settings, create Environments, write secrets, dispatch WP-08, deploy, release, merge, or set production_closed.",
+    "Do not change services, web, contracts, product dependencies, or the existing onboarding evaluator."
+  ],
+  "required_invariants": [
+    "all API requests are HTTPS, repository-bound, credential-redacted, and limited to read-only metadata endpoints",
+    "Environment secrets are represented only by unique names returned from the names-only listing endpoint",
+    "nonempty repository identity is derived from exact decoded remote PHASE_CANDIDATE_MANIFEST.json and release/MANIFEST.json bytes",
+    "the persisted metadata artifact has a closed schema and a canonical SHA-256 seal",
+    "reloading persisted metadata revalidates its seal and cannot broaden permissions or readiness",
+    "collect never returns PASS for onboarding and preflight delegates its decision to the existing evaluator",
+    "public repository use remains blocked unless --allow-public is explicitly supplied",
+    "every result keeps authority_effect=false, deploy_allowed=false, and production_closed=false"
+  ],
+  "required_tests": {
+    "focused": [
+      "valid private repository metadata with protected main, required Environment, secret names, and matching remote marker is sealed and passes the existing preflight",
+      "root collect and preflight commands use the same transport and deterministic evaluator",
+      "paginated Environment and secret-name responses are collected without values"
+    ],
+    "counterexamples": [
+      "wrong repository identity, non-main default, missing permissions/protection/Environment/secrets, malformed content encoding, marker mismatch, and seal tampering fail closed",
+      "HTTP/auth/permission/pagination ambiguity cannot be converted to a negative metadata claim",
+      "public repository remains blocked without explicit approval"
+    ],
+    "regression": [
+      "existing repository onboarding tests and complete skill-control-plane remain green"
+    ],
+    "negative_path": [
+      "no API mutation method or workflow dispatch endpoint exists",
+      "no secret value appears in durable artifacts, output, exception messages, or test evidence",
+      "WP-08 and production_closed remain unchanged"
+    ]
+  },
+  "risks": [
+    "GitHub permission scopes may block branch-protection or Environment metadata; this must be reported as a transport block, not interpreted as missing configuration.",
+    "Public repositories require a separate explicit approval because production Environment metadata and future credentials have a different exposure profile.",
+    "GitHub contents responses are base64 encoded; exact bytes and digest must be verified before building the remote workspace marker.",
+    "A passing repository preflight is admission evidence only and does not prove production credentials, model calls, PostgreSQL, browser execution, or release closure."
+  ],
+  "rollback_plan": "Remove the GitHub repository-onboarding transport, CLI route, focused tests, and architecture document; retain the existing fail-closed repository_onboarding_preflight.py metadata-input boundary and BLOCKED WP-08 state."
+}

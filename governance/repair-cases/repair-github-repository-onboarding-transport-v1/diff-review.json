@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "permit_digest": "af47ac62522e12d8d6e5cdc8d7c87bb53328cc03888d63ffcde58cff7bb7821c",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "1cd22e04bcda329f0b1f191dbe56310af5eaaf118856a4baf7a17349e275846f",
+  "candidate_source_fingerprint": "e18bdf28eb2bff551f2198ba92132a09e0a0e0d98bd809484cb67370fc852d26",
+  "changed_paths": [
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/controller/repository_onboarding_cli.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "skillctl.py"
+  ],
+  "added_paths": [
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/controller/repository_onboarding_cli.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py"
+  ],
+  "modified_paths": [
+    "skillctl.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": [
+    "Read-only transport reuses the existing deterministic readiness evaluator and adds no peer authority.",
+    "Credential material and secret values cannot enter persisted evidence or output.",
+    "Repository, API origin, endpoint path, pagination, remote marker, and artifact identity are fail-closed and exact."
+  ]
+}

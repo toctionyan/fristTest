@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "failure_case_sha256": "a3fd039a96e996f319db8aa4f833273c2a0bc27feaefc3611a5c6ca5f6870eb7",
+  "decision": "PROVEN",
+  "root_cause": "B28 deliberately made repository onboarding fail closed on absent repository metadata, but stopped at a static metadata-input boundary because no accessible target repository existed at that time. The repository is now selected and connected, yet no runtime integration collects the exact GitHub metadata that the existing preflight consumes.",
+  "causal_chain": [
+    "repository_onboarding_preflight.evaluate owns the readiness decision and treats missing metadata as BLOCKED_BY_ENVIRONMENT.",
+    "The example metadata file is not evidence from a live repository and cannot be trusted as an authority input.",
+    "GitHub repository, protection, Environment, secret-name, and remote marker APIs are not called by any current controller.",
+    "Consequently WP-08 cannot distinguish a correctly configured selected repository from missing, stale, or fabricated metadata through a canonical command."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/red-baseline.md",
+    "scripts/repository_onboarding_preflight.py",
+    "skill-system/tests/test_repository_onboarding_preflight.py",
+    "governance/task-ledger.json"
+  ],
+  "rejected_hypotheses": [
+    "The example JSON may be copied and edited; rejected because it has no live GitHub provenance and can overstate protection or credential presence.",
+    "The preflight should directly own network calls; rejected because its stdlib-only deterministic evaluation boundary is intentionally independent from Provider transport.",
+    "Secret values should be tested during repository onboarding; rejected because this stage needs names/presence only and protected runtime preflight already owns value validation.",
+    "WP-08 should be launched immediately; rejected because repository onboarding must pass first and the selected public repository still requires explicit public-use approval."
+  ],
+  "affected_boundaries": [
+    "GitHub metadata integration",
+    "repository onboarding evidence",
+    "WP-08 admission preflight",
+    "secret non-disclosure"
+  ]
+}

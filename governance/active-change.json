@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
-  "change_id": "repair-provider-webhook-external-event-transport-v1",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
   "target_kind": "repair",
-  "goal": "Integrate one authenticated GitHub workflow_run webhook listener and replay-safe external event transport into the concrete Host without changing Scheduler, Workflow, TaskRun, Quality, write, completion, release, or merge authority.",
+  "goal": "Integrate one read-only GitHub repository onboarding metadata transport with the existing deterministic WP-08 preflight without changing release, deployment, production, write, completion, or merge authority.",
   "profile": "skill-only",
   "allowed_paths": [
     "architecture-skill/**",
     "skill-system/**",
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
     "governance/**",
     "scripts/**",
     ".agents/**",
@@ -23,9 +24,6 @@
     "B18_STAGE_SUMMARY.json",
     "Makefile",
     "skillctl.py",
-    "docs/architecture/PROVIDER_WEBHOOK_EXTERNAL_EVENT_TRANSPORT_V1.md",
-    "docs/architecture/SCHEDULER_EXTERNAL_EVENT_WAKEUP_BOOTSTRAP_V1.md",
-    "docs/architecture/CONCRETE_HOST_BOOTSTRAP_INITIALIZER_V1.md",
     "release/**"
   ],
   "forbidden_paths": [
@@ -55,23 +53,23 @@
     {
       "role": "scope-planner",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/diff-review.json",
-      "evidence_sha256": "77ba33170b0ac51e5fc5b812ba3b85df8a9b561ebafbdfe281b523ab9a3adb6d",
-      "recorded_at": "2026-08-24T05:17:50.818632+00:00"
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/diff-review.json",
+      "evidence_sha256": "554c444240e9267f526211e72f5b9de10fc61b799bbc41e34c7771927aec43b4",
+      "recorded_at": "2026-08-24T05:56:51.850014+00:00"
     },
     {
       "role": "adversarial-reviewer",
       "decision": "PASS",
-      "evidence": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1/evidence/counterexamples.md",
-      "evidence_sha256": "3868cf63f5440d7c9219df81eb53e0c24b017587b7d600b31872ec62f2c8980d",
-      "recorded_at": "2026-08-24T05:17:51.057506+00:00"
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/counterexamples.md",
+      "evidence_sha256": "548dcf8964cb867cb1322c842352ffedc7fe1e5ca3cc2a7a9800260936f842cf",
+      "recorded_at": "2026-08-24T05:56:51.937724+00:00"
     },
     {
       "role": "release-judge",
       "decision": "PASS",
-      "evidence": ".quality/skill-control-plane/repair-provider-webhook-external-event-transport-v1/verification.json",
-      "evidence_sha256": "82669d30c343b1ce368fee643e37decfd0c0e9efdf1c2295546f32c9aef3f58d",
-      "recorded_at": "2026-08-24T05:18:33.071062+00:00"
+      "evidence": ".quality/skill-control-plane/repair-github-repository-onboarding-transport-v1/verification.json",
+      "evidence_sha256": "fe09f95c5878172a67764e4b2b52c6828e7838e7fa63ea5593f44aa26c2efe3e",
+      "recorded_at": "2026-08-24T05:58:41.919794+00:00"
     }
   ],
   "decision_record": null,
@@ -79,17 +77,17 @@
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": {
-    "path": ".quality/skill-control-plane/repair-provider-webhook-external-event-transport-v1/verification.json",
-    "sha256": "82669d30c343b1ce368fee643e37decfd0c0e9efdf1c2295546f32c9aef3f58d",
-    "source_fingerprint": "b7ad63c735129bfa23c45eed7820b1d07cb7dd423bd42933d47df6a6b3f93b46",
-    "source_file_count": 1226,
-    "verified_at": "2026-08-24T05:18:33.070461+00:00"
+    "path": ".quality/skill-control-plane/repair-github-repository-onboarding-transport-v1/verification.json",
+    "sha256": "fe09f95c5878172a67764e4b2b52c6828e7838e7fa63ea5593f44aa26c2efe3e",
+    "source_fingerprint": "5e799ba4e795a60d6c5c55f8d37d98b9c9bc3b1e7dcf2e70f39feb98fc5eb6c9",
+    "source_file_count": 1242,
+    "verified_at": "2026-08-24T05:58:41.919176+00:00"
   },
-  "repair_governance": "governance/repair-cases/repair-provider-webhook-external-event-transport-v1",
-  "repair_governance_consumed_at": "2026-08-24T05:18:41.096898+00:00",
-  "created_at": "2026-08-24T05:01:42.012254+00:00",
+  "repair_governance": "governance/repair-cases/repair-github-repository-onboarding-transport-v1",
+  "repair_governance_consumed_at": "2026-08-24T05:58:50.373172+00:00",
+  "created_at": "2026-08-24T05:41:33.205623+00:00",
   "status": "closed",
   "result": "CONVERGED",
-  "repair_governance_permit_digest": "778bc8c96791373e56d748c1f7391ea19e2406369df9620e742a897ccc6e1f66",
-  "closed_at": "2026-08-24T05:18:41.096916+00:00"
+  "repair_governance_permit_digest": "af47ac62522e12d8d6e5cdc8d7c87bb53328cc03888d63ffcde58cff7bb7821c",
+  "closed_at": "2026-08-24T05:58:50.373204+00:00"
 }
