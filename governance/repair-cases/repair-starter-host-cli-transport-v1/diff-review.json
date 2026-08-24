@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "permit_digest": "13419ba0432908f55310d59525909c842ec7a45c04f9639adacb7af6ed20f2e3",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "88d5cf0f6edabefa795c3104e75b6b03e880614ec7a4dbfa7cf2a179706d9f0a",
+  "candidate_source_fingerprint": "ce4703a91ca63122f46538bce9b78893c1d0e81daad7156e42fefd0bd2b7a803",
+  "changed_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "skill-system/controller/starter_host_cli.py",
+    "skill-system/controller/starter_host_transport.py",
+    "skill-system/schemas/starter-host-command.schema.json",
+    "skill-system/tests/test_starter_host_transport.py",
+    "skillctl.py"
+  ],
+  "added_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+    "skill-system/controller/starter_host_cli.py",
+    "skill-system/controller/starter_host_transport.py",
+    "skill-system/schemas/starter-host-command.schema.json",
+    "skill-system/tests/test_starter_host_transport.py"
+  ],
+  "modified_paths": [
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+    "skillctl.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": [
+    "Host transport adds one fixed dispatcher and root CLI only; no product, Runtime, Guard, completion, or merge authority changed.",
+    "Request schema and implementation reject unexpected operations/fields/types before trusted factory loading."
+  ]
+}

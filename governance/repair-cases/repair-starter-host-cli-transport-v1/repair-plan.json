@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "root_cause_proof_sha256": "8bbca3d7753385510727db84d3777e4084fda82ff1f3cc86de8241442b7b71df",
+  "status": "APPROVED",
+  "strategy": "Add one closed starter-host-command@1 JSON transport above StarterHostOrchestrator and one root `skillctl.py host` stdio/file CLI. The transport validates exact fields and operation-specific payloads, dispatches only to existing Orchestrator methods, and returns a closed response containing the canonical session and next action. The CLI loads an explicitly operator-selected trusted factory outside the request envelope; it never performs semantic routing or constructs substitute execution authority.",
+  "changes": [
+    {
+      "path": "skill-system/controller/starter_host_transport.py",
+      "responsibility": "validate the closed command envelope, map fixed operations to existing Orchestrator transitions, and project closed success/error responses",
+      "reason": "all Host wrappers need one shared transport contract instead of duplicating dispatch logic"
+    },
+    {
+      "path": "skill-system/controller/starter_host_cli.py",
+      "responsibility": "provide a deterministic JSON stdin/file CLI and load one explicitly trusted Orchestrator factory",
+      "reason": "ChatGPT and Codex require a stable process boundary that can be invoked without importing internal controllers"
+    },
+    {
+      "path": "skill-system/schemas/starter-host-command.schema.json",
+      "responsibility": "publish closed request/response envelopes and fixed non-authority policy",
+      "reason": "Host integrations need a versioned reviewable wire contract"
+    },
+    {
+      "path": "skillctl.py",
+      "responsibility": "forward the canonical root `host` command to the new CLI",
+      "reason": "all supported Hosts must use the same root control plane"
+    },
+    {
+      "path": "skill-system/tests/test_starter_host_transport.py",
+      "responsibility": "prove every operation mapping, exact payload closure, revision propagation, factory isolation, error redaction, and root CLI behavior",
+      "reason": "the new external boundary must fail closed under malformed or hostile commands"
+    },
+    {
+      "path": "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+      "responsibility": "document natural-language and explicit-command interaction, bootstrap injection, wait/resume, extension, and standalone output boundaries",
+      "reason": "operators need concrete examples for ChatGPT, Codex, and project-specific adapters"
+    },
+    {
+      "path": "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md",
+      "responsibility": "link the completed CLI transport while retaining Orchestrator authority limits",
+      "reason": "the architecture record must match the executable integration layer"
+    }
+  ],
+  "unchanged_boundaries": [
+    "ChatGPT/Codex remains the semantic interpreter and selects only an exact verified Starter candidate",
+    "StarterHostOrchestrator remains session order and transition owner",
+    "StarterWorkflowRuntime and LangGraph remain Workflow execution authorities",
+    "DurableHostSkillBridge remains real Host Skill result and receipt transport",
+    "Provider adapters remain effect implementations selected through Capability activation",
+    "existing WriteAuthorityGuard remains the only mutating dispatch authorization boundary",
+    "TaskRun remains lifecycle and completion authority",
+    "external waits remain event-driven and Human Gates require explicit evidence",
+    "Graph END remains VALIDATING and no merge adapter or automatic merge is added",
+    "customer application source and runtime dependencies remain unchanged and independently runnable"
+  ],
+  "forbidden_repairs": [
+    "Do not add keyword, fuzzy, or model-independent natural-language routing.",
+    "Do not accept a factory/module/path from the untrusted JSON command envelope.",
+    "Do not expose arbitrary Python method names or generic reflection dispatch.",
+    "Do not auto-fill revisions, confirmations, evidence, correlation IDs, Host results, external events, or Human decisions.",
+    "Do not add a second Runtime, TaskRun writer, write guard, completion controller, release authority, or merge path.",
+    "Do not log secrets, factory objects, tracebacks, or arbitrary exception bodies in the wire response.",
+    "Do not modify customer Agent product code or generated standalone runtime dependencies.",
+    "Do not merge #2097 automatically."
+  ],
+  "required_invariants": [
+    "the command envelope is closed and binds schema, command ID, Host, operation, session, expected revision, payload, and authority_effect false",
+    "each operation accepts exactly its documented payload fields and required revision semantics",
+    "transport dispatch calls only the matching public StarterHostOrchestrator method",
+    "the response carries the canonical session and re-derived next_action without reinterpretation",
+    "the trusted factory is selected only by an explicit CLI option or operator environment outside the request",
+    "CLI failures are deterministic, non-authorizing, nonzero, and do not leak secrets or tracebacks",
+    "transport retries rely on Orchestrator CAS/reconcile and never blindly replay or rewrite revisions",
+    "selection and confirmation still grant no write authority and no automatic merge exists"
+  ],
+  "required_tests": {
+    "focused": [
+      "OPEN and READ commands preserve natural language and return the canonical selection/session",
+      "SELECT, CONFIRM, START, Host result, external event, Human decision, and RECONCILE map exact revisions and payloads to the corresponding Orchestrator methods",
+      "root skillctl host reads one JSON command and emits one closed JSON response through an injected trusted factory"
+    ],
+    "counterexamples": [
+      "unknown fields, operation, Host, schema, policy, missing or forbidden revision, and malformed operation payload are rejected before dispatch",
+      "factory identifiers inside the request, arbitrary method names, implicit selection, missing evidence, and wrong correlation shapes are rejected",
+      "factory load errors and Orchestrator errors produce bounded non-secret failures and nonzero exit status"
+    ],
+    "regression": [
+      "Host Orchestrator, Starter runtime, selection, Host bridge, Provider bootstrap, TaskRun, and root CLI suites remain green",
+      "complete Skill unit and all required skill-only profiles remain green"
+    ],
+    "negative_path": [
+      "transport never interprets user language or executes arbitrary commands",
+      "transport cannot grant write authority, complete a TaskRun, or merge a PR",
+      "external waits and Human Gates cannot advance without exact durable evidence",
+      "standalone customer application source and dependencies remain unchanged"
+    ]
+  },
+  "risks": [
+    "A trusted factory may be project-specific; selecting it is an operator/bootstrap responsibility and not part of untrusted request data.",
+    "One-shot CLI calls may lose stdout after a committed transition; the caller must READ and, only for claimed transitions, RECONCILE using the durable session revision.",
+    "The wire contract proves repository-visible validation and dispatch, not private model reasoning."
+  ],
+  "rollback_plan": "Remove the Host transport/CLI modules, schema, tests, root command mapping, and transport architecture record. StarterHostOrchestrator and all lower execution boundaries continue to operate through their existing Python APIs."
+}

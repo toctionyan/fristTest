@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "permit_digest": "13419ba0432908f55310d59525909c842ec7a45c04f9639adacb7af6ed20f2e3",
+  "diff_review_sha256": "2070d97a3f809a8dafcab4923c385b60834d5c25c3aa5826bc4208017074ca77",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "ce4703a91ca63122f46538bce9b78893c1d0e81daad7156e42fefd0bd2b7a803",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "afbe6e8c0b6129ad24e4a7b2096b234177c8434c0749cb5d13eb79cef8e72fcd"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/counterexamples.md",
+      "evidence_sha256": "932f15a065de928ff21be6a94042a0161155a7b13e41465566862a98b793ef56"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/diff-review.json",
+      "evidence_sha256": "2070d97a3f809a8dafcab4923c385b60834d5c25c3aa5826bc4208017074ca77"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/focused-tests.md",
+      "evidence_sha256": "894ab20df7ea3d0982b36594c477d4a89a551d69816ea9598644330164d0bb84"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/negative-paths.md",
+      "evidence_sha256": "0c1642fb776fe7089d359652ed4316bd44c297745e6894cc0ba262ec862b013c"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/red-baseline.md",
+      "evidence_sha256": "d0544f26e75cbe40c09c293f31305737a4e632acab167aa4b709597b100660a4"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/regression.md",
+      "evidence_sha256": "00dacc5512ebd0ad5221f505fd9459fc5d0f4bf5a656912c1f4e758d53cd54a7"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "1905b411f52f33fadbd504ae4764aa1fabfe289b610e25a33a414815e0ca1133"
+    }
+  ],
+  "residual_risks": []
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "repair_plan_sha256": "9bdd9e302e69260b67e1e3a69fcf360101a577cc9a55702ebbc97b9a79b5e2ed",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/starter_host_transport.py",
+    "skill-system/controller/starter_host_cli.py",
+    "skill-system/schemas/starter-host-command.schema.json",
+    "skill-system/tests/test_starter_host_transport.py",
+    "skillctl.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+  ],
+  "review_findings": [
+    "The new owner is only wire validation and fixed dispatch; it does not replace session, Workflow, TaskRun, evidence, effect, completion, or merge authorities.",
+    "Closed operation-specific payloads prevent arbitrary reflection and stop Host wrappers from inventing defaults.",
+    "Explicit factory selection outside the request preserves project extensibility without allowing an untrusted message to choose executable code.",
+    "Natural language is data only on OPEN; exact candidate selection remains a Host/model decision validated by existing Starter selection logic.",
+    "The customer application remains independent because all additions stay in Harness control-plane paths."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "One control plane",
+      "assessment": "ChatGPT, Codex, and other wrappers call the same root host CLI and transport dispatcher",
+      "evidence": "skillctl.py"
+    },
+    {
+      "rule": "Single lifecycle authority",
+      "assessment": "the transport delegates to StarterHostOrchestrator and never writes a session or TaskRun directly",
+      "evidence": "skill-system/controller/starter_host_transport.py"
+    },
+    {
+      "rule": "Selection is not authority",
+      "assessment": "the fixed response policy denies write, completion, release, and merge authority",
+      "evidence": "skill-system/schemas/starter-host-command.schema.json"
+    },
+    {
+      "rule": "Standalone product boundary",
+      "assessment": "the transport and its state remain development control-plane dependencies only",
+      "evidence": "docs/architecture/CHATGPT_CODEX_HOST_CLI_TRANSPORT_V1.md"
+    }
+  ]
+}

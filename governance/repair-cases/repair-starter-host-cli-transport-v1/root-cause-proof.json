@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-starter-host-cli-transport-v1",
+  "failure_case_sha256": "c4fb13d418455b1e22c8b843e85e0c510d2b002c25aa6b33786e95fd720f5f36",
+  "decision": "PROVEN",
+  "root_cause": "PR #2096 deliberately delivered a host-independent durable Orchestrator but left Host-specific wrappers as future work. There is therefore no single repository-owned validation and dispatch boundary between ChatGPT/Codex command messages and the Orchestrator methods, and no canonical root CLI transport.",
+  "causal_chain": [
+    "StarterHostOrchestrator exposes correct Python methods with exact revision and phase checks.",
+    "The root skillctl command does not expose those methods.",
+    "No closed command schema binds operation, Host, session, revision, and operation-specific payload.",
+    "A Host integration must consequently duplicate method mapping, error handling, and response projection.",
+    "Duplicated wrappers can omit correlation fields, accept unexpected inputs, or reinterpret authority even though the Orchestrator itself is safe."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-starter-host-cli-transport-v1/evidence/red-baseline.md",
+    "skillctl.py",
+    "skill-system/controller/starter_host_orchestrator.py",
+    "docs/architecture/CHATGPT_CODEX_HOST_ORCHESTRATOR_V1.md"
+  ],
+  "rejected_hypotheses": [
+    "Put natural-language routing in the CLI; semantic interpretation belongs to ChatGPT/Codex and exact selection validation already exists.",
+    "Let the CLI directly run Skills, Providers, or LangGraph; the existing Orchestrator and Runtime are their only control path.",
+    "Encode write permission in a command flag; only the existing injected WriteAuthorityGuard may authorize mutation.",
+    "Load an implementation factory named inside an untrusted command request; bootstrap code must be selected explicitly by the operator outside the request envelope.",
+    "Keep a long-lived model call open during external waits; sessions and checkpoints already provide durable resume."
+  ],
+  "affected_boundaries": [
+    "Host command validation",
+    "Orchestrator method dispatch",
+    "root CLI forwarding",
+    "transport response and failure representation"
+  ]
+}
