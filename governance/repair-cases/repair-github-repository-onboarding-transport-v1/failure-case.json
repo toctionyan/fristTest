@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A trusted operator can select one GitHub repository, collect names-only onboarding metadata through authenticated HTTPS, persist a sealed sanitized artifact, and invoke the existing repository-onboarding-preflight without hand-authoring authority inputs.",
+    "actual": "The existing preflight accepts only a caller-supplied JSON document. No live GitHub metadata collector or root command owns repository identity, permissions, protected-main, Environment, Environment-secret-name, and remote workspace-marker acquisition.",
+    "evidence_refs": [
+      "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/red-baseline.md",
+      "scripts/repository_onboarding_preflight.py",
+      "governance/repository-onboarding-metadata.example.json",
+      "governance/task-ledger.json"
+    ]
+  },
+  "violated_invariants": [
+    "WP-08 repository metadata must describe one explicit live repository and must not be guessed or hand-promoted from an example.",
+    "GitHub credentials are transport prerequisites only; secret values must never enter onboarding metadata or evidence.",
+    "The existing repository_onboarding_preflight.py remains the sole readiness decision owner."
+  ],
+  "affected_boundaries": [
+    "GitHub repository metadata transport",
+    "protected main and Environment discovery",
+    "names-only Environment secret discovery",
+    "remote workspace identity binding",
+    "WP-08 repository onboarding CLI"
+  ]
+}

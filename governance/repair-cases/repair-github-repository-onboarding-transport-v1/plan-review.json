@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "repair_plan_sha256": "a933e17160756a8513f4d4eaa2b2785d85f41b4b4be333b2ace46fd5980cfb15",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/controller/repository_onboarding_cli.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "skillctl.py",
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md"
+  ],
+  "review_findings": [
+    "The transport supplies live read-only GitHub evidence to the existing deterministic onboarding evaluator and does not become a second readiness authority.",
+    "The endpoint allowlist is repository-bound and excludes every mutation and workflow-dispatch operation.",
+    "Environment secrets are handled only as names; values are never requested, accepted, persisted, hashed, or displayed.",
+    "Ambiguous authorization, pagination, content, identity, or digest failures fail closed instead of being interpreted as absent configuration.",
+    "The sealed artifact cannot start WP-08, authorize release, deploy, merge, or set production_closed."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "One readiness decision owner",
+      "assessment": "the CLI delegates PASS/BLOCKED/FAIL to scripts/repository_onboarding_preflight.py unchanged",
+      "evidence": "scripts/repository_onboarding_preflight.py"
+    },
+    {
+      "rule": "Least-privilege external transport",
+      "assessment": "only bounded GitHub GET endpoints are exposed and all payload-selected routing is rejected",
+      "evidence": "skill-system/controller/github_repository_onboarding_transport.py"
+    },
+    {
+      "rule": "Secret-value isolation",
+      "assessment": "only unique secret names from the Environment listing endpoint enter the artifact",
+      "evidence": "skill-system/tests/test_github_repository_onboarding_transport.py"
+    },
+    {
+      "rule": "Independent release and completion authority",
+      "assessment": "all outputs retain authority_effect=false, deploy_allowed=false, and production_closed=false",
+      "evidence": "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md"
+    }
+  ]
+}

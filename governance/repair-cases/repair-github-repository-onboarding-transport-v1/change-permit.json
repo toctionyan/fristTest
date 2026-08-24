@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "repair_plan_sha256": "a933e17160756a8513f4d4eaa2b2785d85f41b4b4be333b2ace46fd5980cfb15",
+  "plan_review_sha256": "b1dbf7c565480b669adab961997c0e0bb698e42e4302b70522461793c8c3b87d",
+  "baseline_manifest_sha256": "d7b94d0be09a961c5654da84e11641cb39c4e812d92dd41a517ced159cf84965",
+  "allowed_paths": [
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/controller/repository_onboarding_cli.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "skillctl.py",
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "valid private repository metadata with protected main, required Environment, secret names, and matching remote marker is sealed and passes the existing preflight",
+      "root collect and preflight commands use the same transport and deterministic evaluator",
+      "paginated Environment and secret-name responses are collected without values"
+    ],
+    "counterexamples": [
+      "wrong repository identity, non-main default, missing permissions/protection/Environment/secrets, malformed content encoding, marker mismatch, and seal tampering fail closed",
+      "HTTP/auth/permission/pagination ambiguity cannot be converted to a negative metadata claim",
+      "public repository remains blocked without explicit approval"
+    ],
+    "regression": [
+      "existing repository onboarding tests and complete skill-control-plane remain green"
+    ],
+    "negative_path": [
+      "no API mutation method or workflow dispatch endpoint exists",
+      "no secret value appears in durable artifacts, output, exception messages, or test evidence",
+      "WP-08 and production_closed remain unchanged"
+    ]
+  },
+  "baseline_source_fingerprint": "1cd22e04bcda329f0b1f191dbe56310af5eaaf118856a4baf7a17349e275846f",
+  "baseline_workspace_fingerprint": "71fdfc91c06c5ccfd0b47e04c9ac5d25163937ede876740c39a810302abb4c88",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "af47ac62522e12d8d6e5cdc8d7c87bb53328cc03888d63ffcde58cff7bb7821c"
+}

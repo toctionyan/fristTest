@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-github-repository-onboarding-transport-v1",
+  "permit_digest": "af47ac62522e12d8d6e5cdc8d7c87bb53328cc03888d63ffcde58cff7bb7821c",
+  "diff_review_sha256": "554c444240e9267f526211e72f5b9de10fc61b799bbc41e34c7771927aec43b4",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "e18bdf28eb2bff551f2198ba92132a09e0a0e0d98bd809484cb67370fc852d26",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "be223686bf427d74983930fb0433f0bef19dc4148b33c606a91f4aea1789ac2c"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/counterexamples.md",
+      "evidence_sha256": "548dcf8964cb867cb1322c842352ffedc7fe1e5ca3cc2a7a9800260936f842cf"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/diff-review.json",
+      "evidence_sha256": "554c444240e9267f526211e72f5b9de10fc61b799bbc41e34c7771927aec43b4"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/focused-tests.md",
+      "evidence_sha256": "9bcdadc732c3dc57677073acd05d687483d62368b3834c99103c09484be4c2e6"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/negative-paths.md",
+      "evidence_sha256": "c34f0ddebc2587d814e6db5fb65c0462c8cbf0f0f44a2a09ced23edf74da3587"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/red-baseline.md",
+      "evidence_sha256": "5369e49a466a2cc21a6fc0da378ea4f70c0b8aa1a2504c28b22c1f8294fe9092"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/regression.md",
+      "evidence_sha256": "fe1cc440766bd9d9121194f0f19ad013b9420a12fe537bdfd2696238514edb97"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-github-repository-onboarding-transport-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "18e00010c95b7691e97a8f3de2c174ba87eeed3608e891a8d9d0aec6cbbd33f5"
+    }
+  ],
+  "residual_risks": [
+    "Live GitHub collection still requires a repository token with metadata, branch-protection, Environment, and Environment-secret-list access; ambiguous scope failures remain BLOCKED.",
+    "The historical standalone repository-onboarding pytest fixture expects a candidate manifest removed by B28; the canonical profile and explicit synthetic-workspace integration are green."
+  ]
+}
