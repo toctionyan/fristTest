@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "permit_digest": "76ccd95ebdcb5e56ac0b25d7458c8f622c408c9d9c621369efeae824d99d3412",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "b333f184ba2eb1af4acaf8a06c5d2499f18ea26399c7e76c1e4ef8db09ec8819",
+  "candidate_source_fingerprint": "6d5641ff2e3560a93731f4dbbf79134da8f800ece226c6d0cce28394a89a1592",
+  "changed_paths": [
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
+    "scripts/repository_onboarding_preflight.py",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "skill-system/tests/test_repository_onboarding_preflight.py"
+  ],
+  "added_paths": [],
+  "modified_paths": [
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md",
+    "scripts/repository_onboarding_preflight.py",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "skill-system/tests/test_repository_onboarding_preflight.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "reviewer_findings": [
+    "Current B28 identity is exact and no stale phase manifest is restored.",
+    "Only .git checkout metadata is ignored; runtime and secret-bearing paths remain fail closed.",
+    "No WP-08, release, deployment, merge, or production authority is added."
+  ]
+}

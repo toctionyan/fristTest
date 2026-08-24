@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "failure_case_sha256": "0ccb6123b07197465af7994dd6bc3771087501ef62079ca2f5f460530c58d0f1",
+  "decision": "PROVEN",
+  "root_cause": "B28 deleted the obsolete full-tree PHASE_CANDIDATE_MANIFEST.json and retained release/MANIFEST.json as the current versioned phase identity, but repository_onboarding_preflight.py still requires and hashes the deleted file. The later GitHub transport copied that stale assumption and its synthetic test workspace hid both the missing current file and the fact that every live GitHub checkout contains .git.",
+  "causal_chain": [
+    "B28 removes PHASE_CANDIDATE_MANIFEST.json from the authoritative source tree.",
+    "The onboarding evaluator still lists that path in REQUIRED_ROOT_FILES and reads it in _workspace_identity.",
+    "The live GitHub transport independently requests the same deleted path before it can build repository metadata.",
+    "The evaluator recursively classifies .git as a forbidden runtime directory even though GitHub Actions checkout creates it.",
+    "Therefore current main cannot pass the admission boundary even when repository protection, Environment, and secret presence are valid."
+  ],
+  "evidence_refs": [
+    "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/red-baseline.md",
+    "scripts/repository_onboarding_preflight.py",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "release/MANIFEST.json"
+  ],
+  "rejected_hypotheses": [
+    "Restore the obsolete 5,320-line B17i full-tree manifest; rejected because it describes an older source tree and would fabricate current identity.",
+    "Skip repository onboarding and dispatch WP-08 directly; rejected because the admission authority must remain fail closed.",
+    "Treat all runtime directories as valid; rejected because only trusted VCS metadata should be ignored while virtual environments, caches, node_modules, symlinks, and real .env files remain forbidden.",
+    "Use repository name alone as the remote marker; rejected because nonempty repositories require exact versioned workspace identity."
+  ],
+  "affected_boundaries": [
+    "current phase identity",
+    "remote content acquisition",
+    "workspace traversal exclusions",
+    "repository admission"
+  ]
+}

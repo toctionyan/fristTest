@@ -22,7 +22,7 @@ MODULE = _load()
 
 def _copy_workspace(tmp_path: Path) -> Path:
     target = tmp_path / "workspace"
-    files = set(MODULE.REQUIRED_ROOT_FILES) | set(MODULE.REQUIRED_WORKFLOWS) | {"release/MANIFEST.json"}
+    files = set(MODULE.REQUIRED_ROOT_FILES) | set(MODULE.REQUIRED_WORKFLOWS)
     for relative in files:
         source = ROOT / relative
         destination = target / relative
@@ -63,6 +63,57 @@ def test_private_empty_protected_repository_with_required_environment_is_ready(t
     assert result["errors"] == []
     assert result["blockers"] == []
     assert result["workspace_identity"]["production_closed"] is False
+
+
+def test_git_checkout_metadata_is_not_a_runtime_payload(tmp_path: Path) -> None:
+    workspace = _copy_workspace(tmp_path)
+    git_metadata = workspace / ".git/objects"
+    git_metadata.mkdir(parents=True)
+    (git_metadata / "placeholder").write_bytes(b"checkout metadata")
+    result = MODULE.evaluate(workspace, repository_metadata=_ready_metadata())
+    assert result["status"] == "PASS"
+    assert result["errors"] == []
+
+
+def test_current_identity_is_exact_release_manifest_bytes(tmp_path: Path) -> None:
+    workspace = _copy_workspace(tmp_path)
+    identity = MODULE._workspace_identity(workspace)
+    assert identity["phase"] == "B28"
+    assert identity["manifest_sha256"] == MODULE._sha256(workspace / "release/MANIFEST.json")
+    assert not (workspace / "PHASE_CANDIDATE_MANIFEST.json").exists()
+
+
+def test_runtime_directories_and_symlink_outside_git_remain_forbidden(tmp_path: Path) -> None:
+    workspace = _copy_workspace(tmp_path)
+    forbidden = [
+        "services/agent-service/.venv",
+        "services/agent-service/frontend/node_modules",
+        ".pytest_cache",
+        "scripts/__pycache__",
+    ]
+    for relative in forbidden:
+        (workspace / relative).mkdir(parents=True)
+    (workspace / "unsafe-link").symlink_to(workspace / "release/MANIFEST.json")
+    result = MODULE.evaluate(workspace, repository_metadata=_ready_metadata())
+    assert result["status"] == "FAIL"
+    assert {f"runtime_directory_forbidden:{relative}" for relative in forbidden} <= set(
+        result["errors"]
+    )
+    assert "symlink_forbidden:unsafe-link" in result["errors"]
+
+
+def test_missing_or_malformed_release_manifest_fails_closed(tmp_path: Path) -> None:
+    missing_workspace = _copy_workspace(tmp_path / "missing")
+    (missing_workspace / "release/MANIFEST.json").unlink()
+    missing = MODULE.evaluate(missing_workspace, repository_metadata=_ready_metadata())
+    assert missing["status"] == "FAIL"
+    assert "required_file_missing:release/MANIFEST.json" in missing["errors"]
+
+    malformed_workspace = _copy_workspace(tmp_path / "malformed")
+    (malformed_workspace / "release/MANIFEST.json").write_text("not-json\n", encoding="utf-8")
+    malformed = MODULE.evaluate(malformed_workspace, repository_metadata=_ready_metadata())
+    assert malformed["status"] == "FAIL"
+    assert "workspace_identity_invalid:json_invalid" in malformed["errors"]
 
 
 def test_public_repository_requires_explicit_approval(tmp_path: Path) -> None:

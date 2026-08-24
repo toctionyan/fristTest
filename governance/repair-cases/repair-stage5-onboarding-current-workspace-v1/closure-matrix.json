@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "permit_digest": "76ccd95ebdcb5e56ac0b25d7458c8f622c408c9d9c621369efeae824d99d3412",
+  "diff_review_sha256": "4107fb9ce3d48bd68c09e34c0e4683a0d6fc6a285d90bdafe2c49155767996c2",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "6d5641ff2e3560a93731f4dbbf79134da8f800ece226c6d0cce28394a89a1592",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/authority-boundary.md",
+      "evidence_sha256": "2fddcdda6753fb50ca7572467b20691b9bd78c0145f9c61f0d7ecc7649c1efec"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/counterexamples.md",
+      "evidence_sha256": "c71068e7bb3e785c4bbead05ae9624231abf3013d14ebb894bd750cf21830f7d"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/diff-review.json",
+      "evidence_sha256": "4107fb9ce3d48bd68c09e34c0e4683a0d6fc6a285d90bdafe2c49155767996c2"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/focused-tests.md",
+      "evidence_sha256": "fc04802ae685eedcbb2f0a9183c9cb38ad4aa237f3fee00cae755138f03d7e53"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/negative-paths.md",
+      "evidence_sha256": "f07cb0b1ad59c2558cf62e13affc36b934bc49cdcef22d2f69ecac2a3238b4f9"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/red-baseline.md",
+      "evidence_sha256": "739c302061b6f7a4de7f2bc546f2aed4c1a5600a935750cc17718a62639eda36"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/regression.md",
+      "evidence_sha256": "7796528d09e0686b45e2095ef27626a1bc9fb844e0722cd26a11ad97203d10b2"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-stage5-onboarding-current-workspace-v1/evidence/runtime-trace.md",
+      "evidence_sha256": "c2ff9b1100ff287b352598ff9831c04429f2fb70ce17e955d5a96181f26721b8"
+    }
+  ],
+  "residual_risks": [
+    "A passing repository preflight is admission evidence only; live WP-08 model, PostgreSQL, RAG, recovery, and browser batches still require a new protected run.",
+    "The selected repository is public and still requires the explicit --allow-public operator decision before live onboarding."
+  ]
+}

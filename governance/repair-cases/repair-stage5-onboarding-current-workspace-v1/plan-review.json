@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-stage5-onboarding-current-workspace-v1",
+  "repair_plan_sha256": "59d5a5663e716df98e8203a90e9839923483abaa4945151f7884b9b0680991ca",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "approved_paths": [
+    "scripts/repository_onboarding_preflight.py",
+    "skill-system/controller/github_repository_onboarding_transport.py",
+    "skill-system/tests/test_repository_onboarding_preflight.py",
+    "skill-system/tests/test_github_repository_onboarding_transport.py",
+    "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md"
+  ],
+  "review_findings": [
+    "The plan repairs a proven mismatch between B28 current identity and the later transport without restoring stale B17i evidence.",
+    "Exact release-manifest bytes preserve a deterministic local/remote marker while exact candidate SHA remains single-owned by main Quality and the WP-08 coordinator.",
+    "Ignoring only .git recognizes the GitHub checkout substrate and does not permit virtual environments, dependency trees, caches, symlinks outside .git, or secret-bearing .env files.",
+    "Repository admission, public approval, protected Environment, names-only secret discovery, WP-08 authorization, and production closure authorities remain independent and fail closed."
+  ],
+  "skill_rule_mappings": [
+    {
+      "rule": "Current authoritative identity",
+      "assessment": "both sides hash the exact current release/MANIFEST.json bytes and compare the same closed marker fields",
+      "evidence": "release/MANIFEST.json"
+    },
+    {
+      "rule": "Single readiness owner",
+      "assessment": "the transport still only supplies evidence and repository_onboarding_preflight.evaluate still owns PASS/BLOCKED/FAIL",
+      "evidence": "scripts/repository_onboarding_preflight.py"
+    },
+    {
+      "rule": "Fail-closed workspace safety",
+      "assessment": "only trusted VCS metadata is excluded; runtime and secret-bearing artifacts remain explicit errors",
+      "evidence": "skill-system/tests/test_repository_onboarding_preflight.py"
+    },
+    {
+      "rule": "No release authority expansion",
+      "assessment": "the repair cannot dispatch WP-08, change repository settings, read secret values, deploy, or set production_closed",
+      "evidence": "docs/architecture/GITHUB_REPOSITORY_ONBOARDING_TRANSPORT_V1.md"
+    }
+  ]
+}

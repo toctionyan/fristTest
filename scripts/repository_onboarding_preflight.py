@@ -33,9 +33,9 @@ REQUIRED_ROOT_FILES = {
     "AGENTS.md",
     "CLAUDE.md",
     "VERSION",
-    "PHASE_CANDIDATE_MANIFEST.json",
     "governance/task-ledger.json",
     "deployment/ci/release-toolchain-lock.json",
+    "release/MANIFEST.json",
 }
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
@@ -65,16 +65,14 @@ def _sha256(path: Path) -> str:
 
 
 def _workspace_identity(workspace: Path) -> dict[str, Any]:
-    manifest_path = workspace / "PHASE_CANDIDATE_MANIFEST.json"
     release_path = workspace / "release/MANIFEST.json"
-    manifest = _json(manifest_path)
     release = _json(release_path)
     return {
         "workspace": str(release.get("workspace") or ""),
         "version": str(release.get("version") or ""),
         "skill_version": str((release.get("skill") or {}).get("version") or ""),
-        "phase": str(release.get("phase") or manifest.get("phase") or ""),
-        "manifest_sha256": _sha256(manifest_path),
+        "phase": str(release.get("phase") or ""),
+        "manifest_sha256": _sha256(release_path),
         "production_closed": bool(release.get("production_closed", False)),
     }
 
@@ -86,14 +84,17 @@ def _workspace_safety(workspace: Path) -> tuple[list[str], list[str]]:
         if not (workspace / relative).is_file():
             errors.append(f"required_file_missing:{relative}")
 
-    forbidden_dirs = {".git", ".venv", "venv", "node_modules", ".pytest_cache", "__pycache__"}
+    forbidden_dirs = {".venv", "venv", "node_modules", ".pytest_cache", "__pycache__"}
     for path in workspace.rglob("*"):
+        relative_path = path.relative_to(workspace)
+        if ".git" in relative_path.parts:
+            continue
         try:
             mode = path.lstat().st_mode
         except OSError:
-            errors.append(f"path_unreadable:{path.relative_to(workspace).as_posix()}")
+            errors.append(f"path_unreadable:{relative_path.as_posix()}")
             continue
-        relative = path.relative_to(workspace).as_posix()
+        relative = relative_path.as_posix()
         if stat.S_ISLNK(mode):
             errors.append(f"symlink_forbidden:{relative}")
         if path.is_dir() and path.name in forbidden_dirs:

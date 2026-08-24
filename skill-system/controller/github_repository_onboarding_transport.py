@@ -375,17 +375,15 @@ class GitHubRepositoryOnboardingTransport:
         return payload
 
     def _workspace_marker(self, *, branch: str) -> dict[str, str]:
-        manifest_raw = self._remote_file("PHASE_CANDIDATE_MANIFEST.json", branch=branch)
         release_raw = self._remote_file("release/MANIFEST.json", branch=branch)
-        manifest = self._json_file(manifest_raw, relative_path="PHASE_CANDIDATE_MANIFEST.json")
         release = self._json_file(release_raw, relative_path="release/MANIFEST.json")
         skill = release.get("skill") if isinstance(release.get("skill"), Mapping) else {}
         marker = {
             "workspace": _required_text(release.get("workspace"), field="release.workspace"),
             "version": _required_text(release.get("version"), field="release.version"),
             "skill_version": _required_text(skill.get("version"), field="release.skill.version"),
-            "phase": str(release.get("phase") or manifest.get("phase") or ""),
-            "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+            "phase": str(release.get("phase") or ""),
+            "manifest_sha256": hashlib.sha256(release_raw).hexdigest(),
         }
         return marker
 
