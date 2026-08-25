@@ -674,8 +674,8 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
   },
-  "generated_at": "2026-08-25T17:45:58Z",
-  "generated_from": "git:7736f055c3bc15f4facacc0844d58732a8cc8d11",
+  "generated_at": "2026-08-25T18:25:39Z",
+  "generated_from": "git:f6dec5358233df729df1259f5f34bfc3d7ee7b4b",
   "protected_roots": [
     "services",
     "web",
