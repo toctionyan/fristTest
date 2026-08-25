@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-v20.19-skill-goal-binding-oracle-cutover",
+  "permit_digest": "642b439edfd35995bdbeee7a54f22a3f52119e9e416d57efdcb292e26070eac3",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "2e3a4b1b993681fd49a5ecf1d10fbe930ab0be0d1b559d847538e79776c5fc8b",
+  "candidate_source_fingerprint": "6c6289f012b29f138e68b483f52fd61056d2a97c1e7e2f6bfce84792d26d158a",
+  "changed_paths": [
+    "skill-system/tests/test_wp08_post_attempt8_dependency_repair.py"
+  ],
+  "added_paths": [],
+  "modified_paths": [
+    "skill-system/tests/test_wp08_post_attempt8_dependency_repair.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "round_bookkeeping": [],
+  "reviewer_findings": []
+}

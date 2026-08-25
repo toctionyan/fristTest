@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-v20.19-skill-goal-binding-oracle-cutover",
+  "root_cause_proof_sha256": "0ebafb4dac0d6e7fe62575a16d2ad855097f6220d955dba4686ba2a053b1dab1",
+  "status": "APPROVED",
+  "strategy": "Migrate only the stale Skill oracle to assert the live input-binding protocol and read-only verifier boundary. Preserve the same unsupported-sibling and true-result-reference counterexamples, including explicit proof that historical catalog edges are translated before the live provider call.",
+  "changes": [
+    {
+      "path": "skill-system/tests/test_wp08_post_attempt8_dependency_repair.py",
+      "responsibility": "Skill dependency cutover oracle",
+      "reason": "replace retired live depends_on assertions with stronger input-binding single-authority assertions"
+    }
+  ],
+  "unchanged_boundaries": [
+    "No services product source is changed.",
+    "No Quality Policy, CI workflow, Judge or production state is changed.",
+    "Historical catalog compatibility remains test-only and read-only.",
+    "No PR, merge, WP-08 run or production activation is authorized."
+  ],
+  "forbidden_repairs": [
+    "Do not restore depends_on to the provider schema or prompt.",
+    "Do not delete or skip the stale tests.",
+    "Do not weaken shared-subject, unsupported-sibling or true-result-reference counterexamples.",
+    "Do not modify product source to satisfy a Skill oracle."
+  ],
+  "required_invariants": [
+    "Provider schema exposes input_bindings and no depends_on writer.",
+    "Declaration prompt assigns graph compilation only to Runtime.",
+    "Alignment verifier cannot compare or correct input bindings or edges.",
+    "Historical scripted catalogs cannot emit a raw edge at the live provider boundary."
+  ],
+  "required_tests": {
+    "focused": ["post-attempt8 dependency repair Skill test"],
+    "counterexamples": ["unsupported sibling remains independent", "true result reference emits current_goal_output"],
+    "regression": ["full skill-unit profile", "project compatibility profile"],
+    "negative_path": ["raw depends_on absent from live schema", "shared subject creates no current_goal_output binding"]
+  },
+  "rollback_plan": "Revert this single Skill test file; never roll back the live product input-binding protocol.",
+  "risks": [
+    "A wording-only assertion could pass while structural schema authority is wrong; therefore inspect the schema object directly.",
+    "Historical catalog assertions could accidentally authorize raw live edges; therefore inspect the emitted ScriptedChatModel call."
+  ]
+}
