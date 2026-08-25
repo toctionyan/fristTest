@@ -8,6 +8,8 @@ change plan progress, but must not rewrite this contract.
 """
 
 from copy import deepcopy
+from hashlib import sha256
+import json
 from typing import Any, Iterable
 
 from agent_core.context.reference_resolution import (
@@ -16,11 +18,15 @@ from agent_core.context.reference_resolution import (
 )
 from agent_core.kernel.semantic_contract import (
     FROZEN_SEMANTIC_CONTRACT_VERSION,
+    GOAL_INPUT_BINDING_AUTHORITY,
+    GOAL_INPUT_BINDING_VERSION,
     GOAL_TARGET_COMPATIBILITY_VERSION,
+    LEGACY_DEPENDENCY_COMPATIBILITY_AUTHORITY,
     assert_semantic_contract_integrity,
     compute_semantic_digest,
     derive_goal_target_identity,
     find_goal_dependency_cycle,
+    goal_dependency_ids,
     prove_goal_target_compatibility,
     semantic_contract_integrity,
     semantic_goals,
@@ -113,7 +119,65 @@ def normalize_requested_effect(raw: Any, *, description: str = "") -> dict[str, 
     return effect
 
 
-def _normalized_goal_base(goal: dict[str, Any]) -> dict[str, Any]:
+def _normalize_input_binding(
+    raw: Any,
+    *,
+    goal_id: str,
+    index: int,
+    user_text: str,
+) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError(f"goal_input_binding_invalid:{goal_id}:{index}")
+    port = _text(raw.get("port"), limit=240)
+    relation_kind = _text(raw.get("relation_kind"), limit=80)
+    expected_cardinality = _text(raw.get("expected_cardinality"), limit=40).casefold()
+    evidence_span = _text(raw.get("evidence_span"), limit=500)
+    source = raw.get("source") if isinstance(raw.get("source"), dict) else {}
+    source_kind = _text(source.get("kind"), limit=80)
+    if not port or not evidence_span or evidence_span not in user_text:
+        raise ValueError(f"goal_input_binding_evidence_invalid:{goal_id}:{index}")
+    if expected_cardinality not in {"single", "collection", "unknown"}:
+        raise ValueError(f"goal_input_binding_cardinality_invalid:{goal_id}:{index}")
+    normalized_source: dict[str, Any]
+    if source_kind == "current_goal_output":
+        producer_goal_id = _text(source.get("producer_goal_id"), limit=200)
+        output_id = _text(source.get("output_id"), limit=240).casefold()
+        if not producer_goal_id or not output_id:
+            raise ValueError(f"goal_input_binding_producer_incomplete:{goal_id}:{index}")
+        if relation_kind not in {"result_reference", "result_value_input"}:
+            raise ValueError(f"goal_input_binding_relation_invalid:{goal_id}:{index}")
+        normalized_source = {
+            "kind": source_kind,
+            "producer_goal_id": producer_goal_id,
+            "output_id": output_id,
+        }
+    elif source_kind == "current_text":
+        subject_ref = _text(source.get("subject_ref"), limit=500)
+        if not subject_ref or relation_kind != "shared_subject":
+            raise ValueError(f"goal_input_binding_current_text_invalid:{goal_id}:{index}")
+        normalized_source = {"kind": source_kind, "subject_ref": subject_ref}
+    elif source_kind == "visible_result_ref":
+        result_ref = _text(source.get("result_ref"), limit=500)
+        if not result_ref or relation_kind != "historical_result":
+            raise ValueError(f"goal_input_binding_visible_result_invalid:{goal_id}:{index}")
+        normalized_source = {"kind": source_kind, "result_ref": result_ref}
+    else:
+        raise ValueError(f"goal_input_binding_source_invalid:{goal_id}:{index}")
+    binding: dict[str, Any] = {
+        "version": GOAL_INPUT_BINDING_VERSION,
+        "port": port,
+        "source": normalized_source,
+        "relation_kind": relation_kind,
+        "expected_cardinality": expected_cardinality,
+        "evidence_span": evidence_span,
+    }
+    binding["binding_digest"] = sha256(
+        json.dumps(binding, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return binding
+
+
+def _normalized_goal_base(goal: dict[str, Any], *, user_text: str) -> dict[str, Any]:
     goal_id = _text(goal.get("goal_id"), limit=200)
     description = _text(goal.get("description"))
     evidence_span = _text(goal.get("evidence_span"))
@@ -131,12 +195,28 @@ def _normalized_goal_base(goal: dict[str, Any]) -> dict[str, Any]:
         "requested_effect": requested_effect,
         "expected_result_cardinality": _text(goal.get("expected_result_cardinality") or "none", limit=40),
         "required": bool(goal.get("required", True)),
-        "depends_on": [
+    }
+    if "input_bindings" in goal:
+        if "depends_on" in goal:
+            raise ValueError(f"raw_goal_dependency_forbidden:{goal_id}")
+        raw_bindings = goal.get("input_bindings")
+        if not isinstance(raw_bindings, list) or len(raw_bindings) > 8:
+            raise ValueError(f"goal_input_bindings_invalid:{goal_id}")
+        row["input_bindings"] = [
+            _normalize_input_binding(
+                value,
+                goal_id=goal_id,
+                index=index,
+                user_text=user_text,
+            )
+            for index, value in enumerate(raw_bindings)
+        ]
+    else:
+        row["depends_on"] = [
             _text(item, limit=200)
             for item in list(goal.get("depends_on") or [])
             if _text(item, limit=200)
-        ],
-    }
+        ]
     continuation_of = _text(goal.get("continuation_of"), limit=200)
     if continuation_of:
         row["continuation_of"] = continuation_of
@@ -215,11 +295,12 @@ def _normalize_condition(goal: dict[str, Any], *, known_goal_ids: set[str]) -> N
     if "condition" not in goal:
         return
     condition = normalize_condition_expression(goal["condition"], known_goal_ids=known_goal_ids)
-    required_dependencies = condition_goal_dependencies(condition)
-    declared = set(goal.get("depends_on") or [])
-    missing = sorted(required_dependencies - declared)
-    if missing:
-        raise ValueError(f"condition_dependency_not_declared:{goal['goal_id']}:{','.join(missing)}")
+    if "input_bindings" not in goal:
+        required_dependencies = condition_goal_dependencies(condition)
+        declared = set(goal.get("depends_on") or [])
+        missing = sorted(required_dependencies - declared)
+        if missing:
+            raise ValueError(f"condition_dependency_not_declared:{goal['goal_id']}:{','.join(missing)}")
     goal["condition"] = condition
 
 
@@ -235,15 +316,50 @@ def freeze_semantic_contract(
     blocker_resolutions: Iterable[dict[str, Any]] | None = None,
     focus_change: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    normalized_goals = [_normalized_goal_base(dict(goal)) for goal in goals]
+    raw_goals = [dict(goal) for goal in goals]
+    binding_modes = {"input_bindings" in goal for goal in raw_goals}
+    if len(binding_modes) > 1:
+        raise ValueError("mixed_goal_dependency_authorities_forbidden")
+    typed_bindings = binding_modes == {True}
+    normalized_goals = [
+        _normalized_goal_base(goal, user_text=user_text)
+        for goal in raw_goals
+    ]
     goal_ids = [goal["goal_id"] for goal in normalized_goals]
     if len(goal_ids) != len(set(goal_ids)):
         raise ValueError("duplicate_goal_id")
     known = set(goal_ids)
+    goal_order = {goal_id: index for index, goal_id in enumerate(goal_ids)}
+    outputs_by_goal = {
+        goal["goal_id"]: {
+            _text(row.get("output_id"), limit=240).casefold()
+            for row in list((goal.get("requested_effect") or {}).get("requested_outputs") or [])
+            if isinstance(row, dict) and _text(row.get("output_id"), limit=240)
+        }
+        for goal in normalized_goals
+    }
     for goal in normalized_goals:
-        unknown = [item for item in goal["depends_on"] if item not in known]
+        unknown = [item for item in goal_dependency_ids(goal) if item not in known]
         if unknown:
             raise ValueError(f"unknown_goal_dependency:{goal['goal_id']}:{','.join(unknown)}")
+        if typed_bindings:
+            ports: set[str] = set()
+            for binding in list(goal.get("input_bindings") or []):
+                port = str(binding.get("port") or "")
+                if port in ports:
+                    raise ValueError(f"goal_input_binding_port_duplicate:{goal['goal_id']}:{port}")
+                ports.add(port)
+                source = binding.get("source") if isinstance(binding.get("source"), dict) else {}
+                if source.get("kind") != "current_goal_output":
+                    continue
+                producer = str(source.get("producer_goal_id") or "")
+                if producer == goal["goal_id"]:
+                    raise ValueError(f"goal_input_binding_self_reference:{goal['goal_id']}")
+                if goal_order.get(producer, len(goal_ids)) >= goal_order[goal["goal_id"]]:
+                    raise ValueError(f"goal_input_binding_producer_must_precede_consumer:{goal['goal_id']}:{producer}")
+                output_id = str(source.get("output_id") or "")
+                if output_id not in outputs_by_goal.get(producer, set()):
+                    raise ValueError(f"goal_input_binding_output_unknown:{goal['goal_id']}:{producer}:{output_id}")
         _normalize_condition(goal, known_goal_ids=known)
         _normalize_reference_fields(goal, user_text=user_text)
     cycle = find_goal_dependency_cycle(normalized_goals)
@@ -258,6 +374,11 @@ def freeze_semantic_contract(
         "user_text": _text(user_text, limit=20_000),
         "summary": _text(summary),
         "goals": normalized_goals,
+        "dependency_authority": (
+            GOAL_INPUT_BINDING_AUTHORITY
+            if typed_bindings
+            else LEGACY_DEPENDENCY_COMPATIBILITY_AUTHORITY
+        ),
         "goal_changes": [deepcopy(row) for row in list(goal_changes or []) if isinstance(row, dict)],
         "blocker_resolutions": [
             deepcopy(row) for row in list(blocker_resolutions or []) if isinstance(row, dict)
@@ -296,8 +417,12 @@ def goal_declaration_projection_from_contract(contract: dict[str, Any]) -> dict[
             "requested_effect": deepcopy(goal["requested_effect"]),
             "expected_result_cardinality": goal.get("expected_result_cardinality") or "none",
             "required": bool(goal.get("required", True)),
-            "depends_on": list(goal.get("depends_on") or []),
         }
+        if isinstance(goal.get("input_bindings"), list):
+            row["input_bindings"] = deepcopy(goal["input_bindings"])
+            row["derived_dependency_goal_ids"] = goal_dependency_ids(goal)
+        else:
+            row["depends_on"] = list(goal.get("depends_on") or [])
         for key in (
             "condition",
             "reference_expression",

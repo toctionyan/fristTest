@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "permit_digest": "d0dfd19650a1f0c3b0f77dc1d1fb81ee0ba2cd5742642b067b38e47c2c89635b",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "47daf5c0e5d0e4a57bad716e1f47fbee9feb2f1984381f2da32d0a7e2a118342",
+  "candidate_source_fingerprint": "796ffca514e121a8f5154e000ed00e8aab6a617eae150edc0873edc02b874e25",
+  "changed_paths": [
+    "skill-system/controller/repair_governance.py"
+  ],
+  "added_paths": [],
+  "modified_paths": [
+    "skill-system/controller/repair_governance.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "round_bookkeeping": [],
+  "reviewer_findings": []
+}

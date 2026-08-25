@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "decision_id": "adr-v20.19-goal-input-binding-r4",
+  "change_id": "migration-v20.19-goal-input-binding-r4",
+  "problem": "Model-authored raw dependency edges, verifier judgments, frozen claims, typed graph edges and executable fixture oracles can disagree because no single deterministic component owns live current-turn dependency compilation. The repair-loop target must also permit its own required round counter without weakening product scope.",
+  "options": [
+    {
+      "id": "prompt-verifier-tuning",
+      "strategy": "conservative",
+      "name": "Keep raw edges and tune prompts",
+      "correctness": "Retains multiple probabilistic edge writers.",
+      "complexity": "Small patch but unbounded maintenance.",
+      "migration": "None.",
+      "rollback": "Simple.",
+      "verification": "Cannot prove unique typed edge provenance."
+    },
+    {
+      "id": "goal-input-binding-cutover",
+      "strategy": "evolutionary",
+      "name": "Compile verified input bindings into the existing Typed Goal Graph",
+      "correctness": "Deterministic code owns edges while model supplies semantic references.",
+      "complexity": "Bounded to existing semantic, graph, runtime and executable fixture owners.",
+      "migration": "Atomic new-contract and fixture cutover; historical snapshots stay read-only.",
+      "rollback": "Revert the complete writer/compiler/runtime projection together.",
+      "verification": "Structural oracle, negative identity tests, full Product Quick and later real-model certification."
+    },
+    {
+      "id": "new-planner-stack",
+      "strategy": "redesign",
+      "name": "Replace the semantic planner and graph stack",
+      "correctness": "Could be clean but duplicates stable authorities.",
+      "complexity": "High and cross-cutting.",
+      "migration": "Requires long-lived dual stacks.",
+      "rollback": "Complex and non-atomic.",
+      "verification": "Requires a separate full certification program."
+    }
+  ],
+  "selected_option": "goal-input-binding-cutover",
+  "selected_responsibilities": [
+    "Semantic Writer declares Goals and typed input sources.",
+    "FrozenSemanticContract validates and signs goal-input-binding@1.",
+    "Typed Goal Graph compiler owns current-turn dependency edges.",
+    "Runtime, workflow and executable semantic fixtures project from the sealed graph.",
+    "Portable repair governance recognizes only a baseline-bound numeric current-round change as bookkeeping."
+  ],
+  "preserved_hard_invariants": [
+    "Business Service owns business facts.",
+    "CapabilityGate and ExecutionPermit remain mandatory.",
+    "Transaction authorization is unchanged.",
+    "No keyword routing or nearest-match capability authority is added.",
+    "No policy, baseline, evidence, permit, Claim or Decision file is admitted as product repair scope."
+  ],
+  "cutover_strategy": "Remove raw depends_on from new provider input, freeze verified input_bindings, deterministically compile and seal edges, and migrate every executable new-turn fixture and runtime consumer in the same candidate. Historical contracts use an explicit read-only compatibility branch that cannot accept new writes or override a typed verdict. The Target remains outside product write scope; the validated repair-governance controller separately normalizes only its baseline-bound numeric current-round field.",
+  "acceptance_claims": [
+    "Provider schema requires input_bindings and contains no depends_on field.",
+    "Every current_goal_output binding creates exactly one traceable edge.",
+    "Shared subjects and historical visible references create no current-turn edge.",
+    "Identity, type, cardinality, scope and proof mismatches fail closed.",
+    "Executable fixture and smoke oracles compare the compiled graph.",
+    "Product Quick converges before any push or release."
+  ]
+}

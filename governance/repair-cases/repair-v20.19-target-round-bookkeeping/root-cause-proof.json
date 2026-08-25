@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "failure_case_sha256": "b3ed2972c0224dd413ffbfea68e6921636d3fc9e87ab027e35ff41997977674f",
+  "decision": "PROVEN",
+  "root_cause": "Repair governance fingerprints the raw Quality Target file but has no baseline-bound representation that separates its required numeric current-round counter from authoritative Target content.",
+  "causal_chain": [
+    "Quality Loop records a failed result and requires the Target 当前轮次 to advance.",
+    "The raw Target digest changes even though its goal, scope, acceptance and maximum round remain identical.",
+    "compute_diff_review sees the Target outside the ChangePermit and emits out_of_scope_change.",
+    "The candidate cannot obtain a PASS diff review even after the actual product defect is repaired."
+  ],
+  "evidence_refs": [
+    "skill-system/controller/repair_governance.py",
+    "skill-system/tests/test_repair_governance.py"
+  ],
+  "rejected_hypotheses": [
+    "Allowing governance/targets/** in product scope is safe; it would grant authority over the Target itself.",
+    "Ignoring the entire Target path is safe; it would hide scope or acceptance weakening.",
+    "Resetting or editing .quality state is a valid retry; it would rewrite durable evidence."
+  ],
+  "affected_boundaries": [
+    "baseline manifest authority",
+    "diff integrity review",
+    "Quality Loop convergence state"
+  ]
+}

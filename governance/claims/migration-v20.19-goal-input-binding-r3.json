@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.19-goal-input-binding-r3",
+  "claims": [
+    {
+      "id": "V2019.GOAL_INPUT_BINDING_SINGLE_AUTHORITY_R3",
+      "statement": "New live declarations cannot write raw depends_on; each compiled current-turn dependency has exactly one verified input-binding or Condition AST source and executable fixtures assert the compiled graph.",
+      "risk": "P0",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "adversarial-runtime-counterexamples"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/architecture/test_v2019_goal_input_binding_recovery_oracle.py::test_live_goal_schema_uses_input_bindings_not_raw_dependency_edges"
+      ],
+      "owner": "agent-runtime",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

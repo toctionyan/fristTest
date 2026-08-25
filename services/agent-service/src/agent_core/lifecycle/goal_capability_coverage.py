@@ -15,6 +15,7 @@ from typing import Any, Iterable
 
 from agent_core.goal_graph.capability_closure import build_typed_goal_capability_coverage
 from agent_core.kernel.capability_registry import CapabilityRegistry
+from agent_core.kernel.semantic_contract import goal_dependency_ids
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
 from agent_core.runtime.capability_effects import (
     canonical_effect_identity,
@@ -54,11 +55,7 @@ def _goal_rows(goals: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
                 "expected_result_cardinality": str(
                     raw.get("expected_result_cardinality") or "unknown"
                 ),
-                "depends_on": [
-                    str(value)
-                    for value in list(raw.get("depends_on") or [])
-                    if str(value)
-                ],
+                "depends_on": goal_dependency_ids(raw),
             }
         )
     return rows

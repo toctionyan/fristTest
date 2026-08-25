@@ -57,11 +57,15 @@ def test_reference_expression_contract_separates_history_from_same_turn_dependen
     schema_description = str(REFERENCE_EXPRESSION_SCHEMA.get("description") or "")
     function_description = str(DECLARE_TURN_GOALS_SCHEMA["function"].get("description") or "")
     for text in (schema_description, function_description):
-        assert "depends_on" in text
+        assert "current_goal_output" in text
         assert "当前轮" in text
         assert "历史" in text
+    goal_properties = DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]["items"]["properties"]
+    assert "input_bindings" in goal_properties
+    assert "depends_on" not in goal_properties
     smoke = (AGENT_ROOT / "scripts/verify_preprod_conversation_smoke.py").read_text(encoding="utf-8")
-    assert "同一当前轮中后续目标依赖前一目标时只用 depends_on" in smoke
+    assert "禁止输出 depends_on" in smoke
+    assert "source.kind=current_goal_output" in smoke
     assert "不能引用本轮尚未执行目标的未来结果" in smoke
 
 def test_unresolved_historical_reference_on_same_turn_dependency_stays_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:

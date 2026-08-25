@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "A Quality Target change limited to the required 当前轮次 counter is recorded as non-authoritative bookkeeping, while any other Target change remains out of scope.",
+    "actual": "compute_diff_review treats the required 当前轮次 update as an out_of_scope_change and cannot emit auditable round bookkeeping.",
+    "evidence_refs": [
+      "skill-system/tests/test_repair_governance.py"
+    ]
+  },
+  "violated_invariants": [
+    "The Quality Loop must be able to advance its required round without granting product implementers authority over the Target contract.",
+    "Diff review must remain fail closed for every Target mutation except the numeric current-round counter."
+  ],
+  "affected_boundaries": [
+    "repair governance baseline manifest",
+    "diff integrity reviewer",
+    "Quality Target round bookkeeping"
+  ]
+}

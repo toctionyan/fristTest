@@ -35,7 +35,7 @@ class ProductPortabilityTest(unittest.TestCase):
     def test_portable_host_files_and_commands_exist(self) -> None:
         self.assertEqual(verify_portable(), [])
 
-    def test_active_change_is_excluded_from_product_candidate_snapshot(self) -> None:
+    def test_dynamic_repair_governance_is_excluded_from_product_candidate_snapshot(self) -> None:
         import importlib.util
         module_path = ROOT / "scripts" / "quality_loop.py"
         spec = importlib.util.spec_from_file_location("quality_loop_snapshot_test", module_path)
@@ -44,6 +44,14 @@ class ProductPortabilityTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.assertTrue(module._snapshot_ignored(Path("governance/active-change.json")))
+        self.assertTrue(
+            module._snapshot_ignored(
+                Path("governance/repair-cases/change-1/diff-review.json")
+            )
+        )
+        self.assertFalse(
+            module._snapshot_ignored(Path("governance/decisions/change-1.json"))
+        )
         self.assertFalse(module._snapshot_ignored(Path("services/agent-service/src/example.py")))
 
 

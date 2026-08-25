@@ -16,6 +16,10 @@ from typing import Any
 from uuid import uuid4
 
 from agent_core.lifecycle.protocol import TERMINAL_TOOL_NAMES
+from agent_core.kernel.semantic_contract import (
+    GOAL_INPUT_BINDING_AUTHORITY,
+    goal_dependency_ids,
+)
 from agent_core.kernel.plan_projection_contract import (
     derive_plan_runtime_view,
     read_plan_projection,
@@ -167,6 +171,8 @@ def _goal_rows(*, state: dict[str, Any], user_text: str, effects: list[dict[str,
         current["goal_type"] = str(compatibility.get("legacy_goal_type") or "open")
         current["expected_tools"] = []
         current["semantic_source"] = "frozen_semantic_contract"
+        if isinstance(current.get("input_bindings"), list):
+            current["depends_on"] = goal_dependency_ids(current)
         output.append(current)
     return output
 
@@ -801,6 +807,29 @@ def validate_grounded_execution_plan(
             errors.append(
                 {"code": "PLAN_UNKNOWN_GOAL_DEPENDENCY", "goal_id": goal_id, "dependencies": unknown}
             )
+    if semantic.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY:
+        expected_dependencies = {
+            str(row.get("goal_id") or ""): goal_dependency_ids(row)
+            for row in semantic_goals(semantic)
+            if str(row.get("goal_id") or "")
+        }
+        actual_dependencies = {
+            str(row.get("goal_id") or ""): [
+                str(value)
+                for value in list(row.get("depends_on") or [])
+                if str(value)
+            ]
+            for row in goals
+            if str(row.get("goal_id") or "")
+        }
+        for goal_id, expected in expected_dependencies.items():
+            if actual_dependencies.get(goal_id, []) != expected:
+                errors.append({
+                    "code": "PLAN_TYPED_DEPENDENCY_PROJECTION_MISMATCH",
+                    "goal_id": goal_id,
+                    "expected_dependencies": expected,
+                    "actual_dependencies": actual_dependencies.get(goal_id, []),
+                })
 
     steps = [row for row in list(plan.get("steps") or []) if isinstance(row, dict)]
     step_ids = [str(row.get("step_id") or "") for row in steps]

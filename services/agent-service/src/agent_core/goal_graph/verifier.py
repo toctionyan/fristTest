@@ -13,6 +13,7 @@ from agent_core.kernel.semantic_contract import (
 from .contracts import (
     CANONICAL_GOAL_GRAPH_VERSION,
     GOAL_PORT_VERSION,
+    SEMANTIC_DEPENDENCY_EDGE_VERSION,
     TYPED_DATAFLOW_EDGE_VERSION,
     TYPED_TARGET_BINDING_VERSION,
     VERIFIED_ARTIFACT_REF_VERSION,
@@ -203,6 +204,82 @@ def _edge_errors(
     ports: dict[str, dict[str, Any]],
 ) -> list[str]:
     errors: list[str] = []
+    if str(edge.get("version") or "") == SEMANTIC_DEPENDENCY_EDGE_VERSION:
+        unsigned_edge = deepcopy(edge)
+        stored_edge_id = _text(unsigned_edge.pop("edge_id", None), limit=500)
+        expected_edge_id = f"semantic-dependency:{canonical_digest(unsigned_edge)[:24]}"
+        if not stored_edge_id or stored_edge_id != expected_edge_id:
+            errors.append("SEMANTIC_DEPENDENCY_EDGE_ID_INVALID")
+        if not bool(edge.get("verified")) or edge.get("symbolic_only") is not True:
+            errors.append("SEMANTIC_DEPENDENCY_EDGE_NOT_VERIFIED")
+        if edge.get("runtime_artifact_present") is not False:
+            errors.append("SEMANTIC_DEPENDENCY_RUNTIME_ARTIFACT_FORBIDDEN")
+        if edge.get("execution_authority_granted") is not False:
+            errors.append("SEMANTIC_DEPENDENCY_EXECUTION_AUTHORITY_FORBIDDEN")
+        if not _text(edge.get("source_proof_digest"), limit=256):
+            errors.append("SEMANTIC_DEPENDENCY_PROOF_REQUIRED")
+        if not _text(edge.get("evidence_span"), limit=500):
+            errors.append("SEMANTIC_DEPENDENCY_EVIDENCE_REQUIRED")
+        if edge.get("source_kind") not in {"current_goal_output", "condition_goal_output"}:
+            errors.append("SEMANTIC_DEPENDENCY_SOURCE_INVALID")
+        if edge.get("relation_kind") not in {
+            "result_reference",
+            "result_value_input",
+            "result_condition",
+        }:
+            errors.append("SEMANTIC_DEPENDENCY_RELATION_INVALID")
+        if normalize_scope(edge.get("scope") if isinstance(edge.get("scope"), dict) else {}) != normalize_scope(
+            graph.get("scope") if isinstance(graph.get("scope"), dict) else {}
+        ):
+            errors.append("SEMANTIC_DEPENDENCY_SCOPE_MISMATCH")
+        source_contract = graph.get("source_semantic_contract") if isinstance(graph.get("source_semantic_contract"), dict) else {}
+        if _text(edge.get("semantic_contract_id"), limit=500) != _text(source_contract.get("semantic_contract_id"), limit=500):
+            errors.append("SEMANTIC_DEPENDENCY_SEMANTIC_CONTRACT_MISMATCH")
+        if _text(edge.get("semantic_digest"), limit=128) != _text(source_contract.get("semantic_digest"), limit=128):
+            errors.append("SEMANTIC_DEPENDENCY_SEMANTIC_DIGEST_MISMATCH")
+
+        producer_port = ports.get(_text(edge.get("producer_port_id"), limit=500))
+        consumer_port = ports.get(_text(edge.get("consumer_port_id"), limit=500))
+        if producer_port is None:
+            errors.append("SEMANTIC_DEPENDENCY_PRODUCER_PORT_MISSING")
+        if consumer_port is None:
+            errors.append("SEMANTIC_DEPENDENCY_CONSUMER_PORT_MISSING")
+        producer_goal_id = _text(edge.get("producer_goal_id"), limit=200)
+        consumer_goal_id = _text(edge.get("consumer_goal_id"), limit=200)
+        if producer_port is not None:
+            if producer_port.get("direction") != "output":
+                errors.append("SEMANTIC_DEPENDENCY_PRODUCER_PORT_DIRECTION_INVALID")
+            if _text(producer_port.get("goal_id"), limit=200) != producer_goal_id:
+                errors.append("SEMANTIC_DEPENDENCY_PRODUCER_GOAL_MISMATCH")
+        if consumer_port is not None:
+            if consumer_port.get("direction") != "input":
+                errors.append("SEMANTIC_DEPENDENCY_CONSUMER_PORT_DIRECTION_INVALID")
+            if _text(consumer_port.get("goal_id"), limit=200) != consumer_goal_id:
+                errors.append("SEMANTIC_DEPENDENCY_CONSUMER_GOAL_MISMATCH")
+        if producer_goal_id == consumer_goal_id:
+            errors.append("SEMANTIC_DEPENDENCY_SELF_EDGE_FORBIDDEN")
+        if producer_port is not None and consumer_port is not None:
+            producer_type = _text(producer_port.get("type_name"), limit=200).casefold() or "unspecified"
+            consumer_type = _text(consumer_port.get("type_name"), limit=200).casefold() or "unspecified"
+            if producer_type != "unspecified" and consumer_type != "unspecified" and producer_type != consumer_type:
+                errors.append("SEMANTIC_DEPENDENCY_TYPE_MISMATCH")
+            if not _port_accepts_artifact(
+                consumer_port.get("cardinality"), producer_port.get("cardinality")
+            ):
+                errors.append("SEMANTIC_DEPENDENCY_CARDINALITY_MISMATCH")
+        if edge.get("source_kind") == "current_goal_output":
+            consumers = _goal_index(graph)
+            consumer = consumers.get(consumer_goal_id, {})
+            matching_bindings = [
+                binding
+                for binding in list(consumer.get("input_bindings") or [])
+                if isinstance(binding, dict)
+                and _text(binding.get("binding_digest"), limit=256)
+                == _text(edge.get("source_proof_digest"), limit=256)
+            ]
+            if len(matching_bindings) != 1:
+                errors.append("SEMANTIC_DEPENDENCY_BINDING_PROOF_NOT_UNIQUE")
+        return errors
     if str(edge.get("version") or "") != TYPED_DATAFLOW_EDGE_VERSION:
         return ["DATAFLOW_EDGE_VERSION_INVALID"]
     unsigned_edge = deepcopy(edge)
@@ -444,13 +521,29 @@ def dataflow_closure(
     for goal_id, goal in goals.items():
         binding = goal.get("target_binding") if isinstance(goal.get("target_binding"), dict) else None
         binding_verified = bool(binding and binding.get("verified") and binding.get("status") == "VERIFIED")
+        symbolic_sources_by_port = {
+            str(row.get("port") or "")
+            for row in list(goal.get("input_bindings") or [])
+            if isinstance(row, dict)
+            and isinstance(row.get("source"), dict)
+            and row["source"].get("kind") in {"current_text", "visible_result_ref"}
+            and str(row.get("port") or "")
+        }
         for port in list(goal.get("input_ports") or []):
             if not isinstance(port, dict) or not bool(port.get("required")):
                 continue
             port_id = _text(port.get("port_id"), limit=500)
             incoming = incoming_by_port.get(port_id, [])
             target_binding_applies = str(port.get("name") or "") == "target" and binding_verified
-            authority_count = (1 if target_binding_applies else 0) + len(incoming)
+            symbolic_source_applies = (
+                str(port.get("name") or "") in symbolic_sources_by_port
+                and not target_binding_applies
+            )
+            authority_count = (
+                (1 if target_binding_applies else 0)
+                + (1 if symbolic_source_applies else 0)
+                + len(incoming)
+            )
             if authority_count == 0:
                 errors.append(f"REQUIRED_INPUT_UNRESOLVED:{goal_id}:{port_id}")
             elif authority_count > 1:

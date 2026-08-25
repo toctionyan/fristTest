@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "migration-v20.19-goal-input-binding-r3",
+  "root_cause_proof_sha256": "26563fac2ec9b58e7966e30998a60d97c3401482e5b79bdb99d63e85cd4985a4",
+  "status": "APPROVED",
+  "strategy": "Cut over new semantic declarations atomically from raw dependency edges to goal-input-binding@1. The model declares typed source relationships; freeze validates them; the deterministic Goal Graph compiler derives edges; runtime and executable semantic fixtures read only that compiled authority. Historical depends_on remains bounded read-only compatibility.",
+  "changes": [
+    {"path": "services/agent-service/src/agent_core/lifecycle/protocol.py", "responsibility": "provider input-binding schema", "reason": "remove raw dependency writer"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py", "responsibility": "forced semantic writer protocol", "reason": "require structured bindings or fail closed"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/semantic_contract.py", "responsibility": "binding normalization and freeze", "reason": "sign typed references and strip new raw edges"},
+    {"path": "services/agent-service/src/agent_core/kernel/semantic_contract.py", "responsibility": "frozen integrity", "reason": "validate binding identities and legacy boundary"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py", "responsibility": "state mutation boundary", "reason": "forbid restoring depends_on through patches"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/goal_planning.py", "responsibility": "semantic audit", "reason": "remove verifier graph authority"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py", "responsibility": "dependency coverage", "reason": "project compiled dependencies"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/pretool_planner.py", "responsibility": "pre-tool plan", "reason": "derive from sealed graph"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py", "responsibility": "execution dependency authority", "reason": "reject shadow-plan dependency tampering"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/goal_outputs.py", "responsibility": "GoalOutputRef identity", "reason": "bind producer, output, target and cardinality"},
+    {"path": "services/agent-service/src/agent_core/lifecycle/workflow_runtime.py", "responsibility": "workflow dependency projection", "reason": "consume typed derived dependencies"},
+    {"path": "services/agent-service/src/agent_core/goal_graph/contracts.py", "responsibility": "typed binding contracts", "reason": "represent symbolic current-turn outputs"},
+    {"path": "services/agent-service/src/agent_core/goal_graph/compiler.py", "responsibility": "deterministic edge compiler", "reason": "compile binding and Condition AST sources"},
+    {"path": "services/agent-service/src/agent_core/goal_graph/verifier.py", "responsibility": "graph integrity", "reason": "fail closed on mismatches"},
+    {"path": "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py", "responsibility": "read-only legacy audit", "reason": "remove live edge authority"},
+    {"path": "services/agent-service/tests/architecture/test_v2019_goal_input_binding_recovery_oracle.py", "responsibility": "immutable RED oracle", "reason": "prove schema cutover"},
+    {"path": "services/agent-service/tests/architecture/test_typed_goal_graph_foundation.py", "responsibility": "graph architecture tests", "reason": "prove compile and tamper invariants"},
+    {"path": "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py", "responsibility": "binding counterexamples", "reason": "separate shared subjects from result consumption"},
+    {"path": "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py", "responsibility": "output identity tests", "reason": "reject cross-target and cardinality reuse"},
+    {"path": "services/agent-service/tests/runtime/test_pretool_execution_policy.py", "responsibility": "execution authority tests", "reason": "prove sealed graph ownership"},
+    {"path": "services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py", "responsibility": "dependency counterfactuals", "reason": "migrate from raw edges to bindings"},
+    {"path": "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py", "responsibility": "live contract regression", "reason": "prove typed cutover and provider preflight"},
+    {"path": "services/agent-service/tests/support/scripted_chat_model.py", "responsibility": "scripted live declarations", "reason": "emit input bindings instead of legacy edges"},
+    {"path": "services/agent-service/tests/support/conversation_case_runner.py", "responsibility": "semantic fixture oracle", "reason": "compare deterministic compiled dependencies"},
+    {"path": "services/agent-service/tests/integration/model_stub.py", "responsibility": "integration declaration stub", "reason": "submit the live input-binding schema"},
+    {"path": "services/agent-service/scripts/verify_preprod_conversation_smoke.py", "responsibility": "preproduction semantic smoke", "reason": "validate bindings and compiled graph"},
+    {"path": "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py", "responsibility": "historical release regression", "reason": "assert retired raw writer is absent"},
+    {"path": "docs/architecture/GOAL_INPUT_BINDING_V1.md", "responsibility": "authority migration record", "reason": "document ownership and compatibility deletion conditions"}
+  ],
+  "unchanged_boundaries": [
+    "Business Service remains the only business-fact authority.",
+    "CapabilityGate and ExecutionPermit remain mandatory for dispatch.",
+    "Draft/Grant/Attempt/Receipt remains the only write-transaction authority.",
+    "No WP-08 run, push, pull request or production activation is authorized."
+  ],
+  "forbidden_repairs": [
+    "Do not infer edges with language-specific keyword routing.",
+    "Do not keep depends_on and input_bindings as peer live writers.",
+    "Do not let model verification or test fixtures authorize execution edges.",
+    "Do not project collection to single without proof or clarification."
+  ],
+  "required_invariants": [
+    "Each current_goal_output binding creates exactly one deterministic edge.",
+    "Each current-turn edge traces to one verified binding or Condition AST operand.",
+    "Shared current text and historical visible results create no current-turn edge.",
+    "Target, type, cardinality, scope, identity or proof mismatch fails closed.",
+    "Runtime and executable semantic fixtures use the compiled graph for new contracts."
+  ],
+  "required_tests": {
+    "focused": ["provider schema RED-to-GREEN", "binding freeze and integrity", "typed graph compilation", "workflow and pre-tool projection"],
+    "counterexamples": ["result reference creates one edge", "shared subject creates no edge", "condition creates result_condition edge", "historical reference creates no current-turn edge"],
+    "regression": ["complete Agent pytest suite", "Business pytest suite", "frontend Vitest and build", "Product Quick"],
+    "negative_path": ["10002 output cannot authorize 10003", "collection cannot silently become single", "tamper is rejected", "free text cannot freeze semantics"]
+  },
+  "rollback_plan": "Revert protocol, freeze, compiler, runtime projection and fixture migration atomically. Never restore raw depends_on beside the typed writer.",
+  "risks": [
+    "Legacy scripted fixtures may omit canonical output identity and must fail rather than guess.",
+    "Condition and current_goal_output sources could duplicate an edge and must be deterministically reconciled.",
+    "Historical checkpoint compatibility must remain read-only and version gated."
+  ]
+}

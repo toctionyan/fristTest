@@ -8,6 +8,8 @@ candidate being present in JSON is never treated as proof that it executed.
 from __future__ import annotations
 
 from agent_core.lifecycle.semantic_contract import goal_declaration_projection_from_contract
+from agent_core.goal_graph.compiler import compile_frozen_semantic_contract
+from agent_core.goal_graph.verifier import dataflow_closure
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -161,7 +163,15 @@ def _trace_rows(executed: ExecutedConversationCase, tool_name: str | None = None
 
 
 
-def _assert_goal_oracle(*, case_id: str, contract: dict[str, Any], goal_plan: dict[str, Any], workflow: dict[str, Any]) -> None:
+def _assert_goal_oracle(
+    *,
+    case_id: str,
+    contract: dict[str, Any],
+    formal_contract: dict[str, Any],
+    goal_plan: dict[str, Any],
+    workflow: dict[str, Any],
+    scope: dict[str, Any],
+) -> None:
     """Compare the runtime declaration with an independent semantic oracle.
 
     ``model_steps`` are candidate inputs.  They cannot be the expected meaning
@@ -175,6 +185,10 @@ def _assert_goal_oracle(*, case_id: str, contract: dict[str, Any], goal_plan: di
     actual = [row for row in list(goal_plan.get("goals") or []) if isinstance(row, dict)]
     assert len(actual) == len(oracle), (case_id, "goal_count_mismatch", actual, oracle)
     actual_by_id = {str(row.get("goal_id") or ""): row for row in actual}
+    graph = compile_frozen_semantic_contract(formal_contract, scope=scope)
+    closure = dataflow_closure(graph, frozen_contract=formal_contract)
+    assert closure.get("ok") is True, (case_id, "compiled_goal_graph_not_closed", closure)
+    compiled_dependencies = closure.get("derived_dependencies") or {}
     workflow_by_id = {
         str(row.get("goal_id") or ""): row
         for row in list(workflow.get("goals") or [])
@@ -191,7 +205,9 @@ def _assert_goal_oracle(*, case_id: str, contract: dict[str, Any], goal_plan: di
         required_tools = {str(value) for value in expected.get("required_tools") or [] if str(value)}
         assert required_tools, (case_id, oracle_id, "oracle_required_tools_missing")
         dependencies = {str(value) for value in expected.get("depends_on") or [] if str(value)}
-        assert dependencies == {str(value) for value in row.get("depends_on") or [] if str(value)}, (case_id, oracle_id, row, expected)
+        projected = {str(value) for value in row.get("derived_dependency_goal_ids") or [] if str(value)}
+        compiled = {str(value) for value in compiled_dependencies.get(oracle_id) or [] if str(value)}
+        assert dependencies == projected == compiled, (case_id, oracle_id, row, expected, compiled_dependencies)
         covered = workflow_by_id.get(oracle_id)
         assert covered is not None, (case_id, "workflow_missing_goal", oracle_id, workflow)
         covered_step_ids = {str(value) for value in covered.get("covered_by_step_ids") or [] if str(value)}
@@ -284,7 +300,18 @@ def _assert_turn_contract(
     expected_goal_count = expected.get("goal_count")
     if expected_goal_count is not None:
         assert len(goal_plan.get("goals") or []) == int(expected_goal_count), (case_id, goal_plan)
-    _assert_goal_oracle(case_id=case_id, contract=contract, goal_plan=goal_plan, workflow=workflow)
+    _assert_goal_oracle(
+        case_id=case_id,
+        contract=contract,
+        formal_contract=formal_contract,
+        goal_plan=goal_plan,
+        workflow=workflow,
+        scope={
+            "tenant_id": str(result.get("tenant_id") or "fixture-tenant"),
+            "user_id": str(result.get("user_id") or "fixture-user"),
+            "thread_id": str(result.get("thread_id") or "fixture-thread"),
+        },
+    )
 
     public_kind = str(expected.get("public_interaction") or "")
     response_contract = result.get("response_contract") if isinstance(result.get("response_contract"), dict) else None

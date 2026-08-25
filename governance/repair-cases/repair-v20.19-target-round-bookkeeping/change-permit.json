@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "repair_plan_sha256": "49a8938ac1932e73961411d33df5f49c5abdfcd768ac4488c7e56ecfaabec5f9",
+  "plan_review_sha256": "7545ae7b15028967f47e24d76dfcb96054e2f91c75c32de18d715f8d18ccdac9",
+  "baseline_manifest_sha256": "cac0ad7b76ae7baa94544dfc6118fed38dcb36ce892421a65a2826521e31af3b",
+  "allowed_paths": [
+    "skill-system/controller/repair_governance.py",
+    "skill-system/tests/test_repair_governance.py"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "repair governance owning unit suite"
+    ],
+    "counterexamples": [
+      "Target acceptance text mutation remains rejected",
+      "out-of-range round remains rejected"
+    ],
+    "regression": [
+      "product portability and project compatibility suites"
+    ],
+    "negative_path": [
+      "non-round Target changes cannot disappear from changed_paths"
+    ]
+  },
+  "baseline_source_fingerprint": "47daf5c0e5d0e4a57bad716e1f47fbee9feb2f1984381f2da32d0a7e2a118342",
+  "baseline_workspace_fingerprint": "d71182ec8a0f8858d73bb34642b8449a758d1bb3ed88a4bdeba66aa2a2efc6ee",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "d0dfd19650a1f0c3b0f77dc1d1fb81ee0ba2cd5742642b067b38e47c2c89635b"
+}

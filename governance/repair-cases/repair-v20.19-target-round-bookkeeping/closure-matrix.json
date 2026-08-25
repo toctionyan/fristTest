@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "record_type": "closure-matrix",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "permit_digest": "d0dfd19650a1f0c3b0f77dc1d1fb81ee0ba2cd5742642b067b38e47c2c89635b",
+  "diff_review_sha256": "74e64f762a9e31eabb6cc65309c1f3dee8eac82a46854b6b54b693aea9e0988f",
+  "reviewer_role": "closure-arbiter",
+  "result": "CONVERGED",
+  "final_decision": "CLOSED_VERIFIED",
+  "loop_outcome": "CONVERGED",
+  "candidate_source_fingerprint": "796ffca514e121a8f5154e000ed00e8aab6a617eae150edc0873edc02b874e25",
+  "evidence": [
+    {
+      "dimension": "authority_boundary",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.19-target-round-bookkeeping/repair-plan.json",
+      "evidence_sha256": "49a8938ac1932e73961411d33df5f49c5abdfcd768ac4488c7e56ecfaabec5f9"
+    },
+    {
+      "dimension": "counterexamples",
+      "status": "PASS",
+      "evidence": "skill-system/tests/test_repair_governance.py",
+      "evidence_sha256": "088e7493c8e7c7d2458912c4bca5500b358e2e4fdab0e0d9a91d5fa484f9ab52"
+    },
+    {
+      "dimension": "diff_review",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.19-target-round-bookkeeping/diff-review.json",
+      "evidence_sha256": "74e64f762a9e31eabb6cc65309c1f3dee8eac82a46854b6b54b693aea9e0988f"
+    },
+    {
+      "dimension": "focused_tests",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.19-target-round-bookkeeping/evidence/verification.md",
+      "evidence_sha256": "3cf7285caad4b44e7156d40a2c13d47ed736efadce1037a163d5246aa179be4f"
+    },
+    {
+      "dimension": "negative_paths",
+      "status": "PASS",
+      "evidence": "skill-system/tests/test_repair_governance.py",
+      "evidence_sha256": "088e7493c8e7c7d2458912c4bca5500b358e2e4fdab0e0d9a91d5fa484f9ab52"
+    },
+    {
+      "dimension": "original_failure",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.19-target-round-bookkeeping/failure-case.json",
+      "evidence_sha256": "b3ed2972c0224dd413ffbfea68e6921636d3fc9e87ab027e35ff41997977674f"
+    },
+    {
+      "dimension": "regression",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.19-target-round-bookkeeping/evidence/verification.md",
+      "evidence_sha256": "3cf7285caad4b44e7156d40a2c13d47ed736efadce1037a163d5246aa179be4f"
+    },
+    {
+      "dimension": "runtime_trace",
+      "status": "PASS",
+      "evidence": "governance/repair-cases/repair-v20.19-target-round-bookkeeping/evidence/verification.md",
+      "evidence_sha256": "3cf7285caad4b44e7156d40a2c13d47ed736efadce1037a163d5246aa179be4f"
+    }
+  ],
+  "residual_risks": []
+}

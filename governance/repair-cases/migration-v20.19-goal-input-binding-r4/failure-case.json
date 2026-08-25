@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "migration-v20.19-goal-input-binding-r4",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "New live Goal declarations express result consumption through typed input_bindings; provider schema exposes no raw depends_on writer and executable semantic fixtures validate the deterministically compiled graph.",
+    "actual": "Exact origin/main aeb11e0a plus the two independently validated governance repairs and the immutable V20.19 RED oracle exposes depends_on as a required model-authored field and has no input_bindings field. The r4 product baseline records this expected RED state before product implementation.",
+    "evidence_refs": [
+      ".quality/product-code/migration-v20.19-goal-input-binding-r4/baseline/baseline-record.json",
+      ".quality/product-code/migration-v20.19-goal-input-binding-r4/baseline/run-summary.json",
+      "services/agent-service/tests/architecture/test_v2019_goal_input_binding_recovery_oracle.py",
+      "services/agent-service/src/agent_core/lifecycle/protocol.py",
+      "services/agent-service/src/agent_core/goal_graph/compiler.py"
+    ]
+  },
+  "violated_invariants": [
+    "A model may propose semantic Goals and references but may not directly write executable dependency graph edges.",
+    "Every live current-turn Goal dependency must have one typed InputBinding or Condition AST source.",
+    "Executable semantic fixtures and release smoke checks must exercise the same live declaration protocol as production."
+  ],
+  "affected_boundaries": [
+    "declare_turn_goals provider schema",
+    "semantic declaration normalization and freeze",
+    "Typed Goal Graph deterministic compiler",
+    "pre-tool and workflow dependency projection",
+    "scripted semantic fixtures and preproduction smoke oracle"
+  ]
+}

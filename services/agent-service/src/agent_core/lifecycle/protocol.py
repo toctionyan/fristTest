@@ -26,7 +26,7 @@ REFERENCE_EXPRESSION_SCHEMA: dict[str, Any] = {
         "只用于引用已经在更早轮次向客户可见的 ResultRef、历史轮次或其展示成员。reference_expression.expected_cardinality 描述被引用对象本身：指向一个可见对象/成员时用 single，指向将继续筛选/排序/比较的可见集合时用 collection；它不是 Goal 最终输出数量。"
         "reference_expression.evidence_span 必须只复制当前用户原话中真正承担历史指代的最小连续片段；它允许只是 Goal.evidence_span 的严格子串。对象状态、属性、筛选、比较、动作等其余问题文字仍属于 Goal 本身，禁止为了凑满 Goal 证据而扩大 reference_expression.evidence_span。"
         "同一当前轮中一个 Goal 依赖另一个尚未执行 Goal 的未来结果时禁止填写 reference_expression；"
-        "这种当前轮先后/结果依赖只能用 depends_on 表达。"
+        "这种当前轮结果消费只能用 source.kind=current_goal_output 的 input_binding 表达。"
     ),
     "oneOf": [
         {
@@ -121,6 +121,76 @@ TARGET_CANDIDATE_SCHEMA: dict[str, Any] = {
     "additionalProperties": True,
 }
 
+GOAL_INPUT_BINDING_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "声明本 Goal 的一个语义输入从哪里取得。只有 current_goal_output 表示消费本轮另一个尚未产生的 Goal 输出，"
+        "Runtime 才会确定性编译当前轮依赖边；共享当前原文对象和历史可见结果不产生当前轮边。"
+    ),
+    "properties": {
+        "port": {
+            "type": "string",
+            "description": "消费者语义输入端口，例如 target、value:amount；不是 Tool 参数名。",
+        },
+        "source": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"const": "current_goal_output"},
+                        "producer_goal_id": {"type": "string"},
+                        "output_id": {"type": "string"},
+                    },
+                    "required": ["kind", "producer_goal_id", "output_id"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"const": "current_text"},
+                        "subject_ref": {"type": "string"},
+                    },
+                    "required": ["kind", "subject_ref"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"const": "visible_result_ref"},
+                        "result_ref": {"type": "string"},
+                    },
+                    "required": ["kind", "result_ref"],
+                    "additionalProperties": False,
+                },
+            ]
+        },
+        "relation_kind": {
+            "enum": [
+                "result_reference",
+                "result_value_input",
+                "shared_subject",
+                "historical_result",
+            ]
+        },
+        "expected_cardinality": {
+            "enum": ["single", "collection", "unknown"],
+            "description": "该消费者输入端口要求的对象基数；集合到单对象不能隐式投影。",
+        },
+        "evidence_span": {
+            "type": "string",
+            "description": "当前用户原话中证明该输入来源关系的最小连续片段。",
+        },
+    },
+    "required": [
+        "port",
+        "source",
+        "relation_kind",
+        "expected_cardinality",
+        "evidence_span",
+    ],
+    "additionalProperties": False,
+}
+
 _GOAL_LIFECYCLE_ENUM = ["OPEN", "ACTIVE", "BLOCKED", "PAUSED", "COMPLETED", "CANCELLED", "SUPERSEDED"]
 _MODEL_SETTABLE_GOAL_LIFECYCLE_ENUM = ["ACTIVE", "PAUSED", "CANCELLED"]
 
@@ -154,7 +224,6 @@ GOAL_CHANGE_SCHEMA: dict[str, Any] = {
                         "target_candidate": deepcopy(TARGET_CANDIDATE_SCHEMA),
                         "input_candidates": {"type": "object", "additionalProperties": True},
                         "condition": condition_schema(depth=3),
-                        "depends_on": {"type": "array", "items": {"type": "string"}},
                     },
                     "minProperties": 1,
                     "additionalProperties": False,
@@ -237,9 +306,9 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
             "修改已有 Goal 或 Focus 时必须复制 ContextBundle 中当前 revision，并提供当前用户原话的连续 evidence_span；"
             "多 Goal 时，每个 Goal 的 evidence_span 必须是只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复复制给多个 Goal；每个证据片段必须能唯一归属到对应 Goal。"
             "显式引用已经向客户可见的历史结果、历史轮次或展示顺序成员时必须填写 reference_expression；Runtime 只接受 UNIQUE 解析证明，禁止用较新的同类结果替代。"
-            "同一当前轮内只有真实结果依赖才填写 depends_on：后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才依赖；并列、再/然后/另外、共享对象或共享主题本身不构成依赖。同一原话前文已明确对象或范围、后文真正省略重复对象（零指代）时继承该已明示范围，不依赖前一个 Goal 的执行结果；这种同轮继承不要求后一个 Goal 把前一个 Goal 的目标词复制进自己的局部 evidence_span，也不得把对象/成员名称伪装成 target_candidate.scope_constraints；局部 evidence_span 证明本 Goal 的业务效果，完整 USER_TEXT 中已明示的共享目标身份仍属于同轮语义上下文。只有真正缩小目标/结果人口的筛选、状态、阈值或比较才属于 scope_constraints；但后文若出现显式指代表达并指向前一个 Goal 尚未产生的本轮结果，这不是“仅省略重复对象”，真实结果依赖优先，必须 depends_on 前一个 Goal。即使执行时需要先查一次把已明示对象解析成订单号/ID/artifact handle，这也只是执行支持数据流，不是 Goal 语义依赖。不得为尚未执行的当前轮 Goal 的未来结果创建 reference_expression。"
+            "每个 Goal 必须用 input_bindings 声明其目标、值或历史输入来源。只有 source.kind=current_goal_output 表示消费本轮前一个 Goal 的未来结果；显式结果指代不是普通零指代省略，必须保留该结果消费关系。并列、顺序、共享对象或共享主题使用 current_text，不产生依赖边。历史可见结果使用 visible_result_ref，也不产生当前轮边。不得直接声明图边。"
             "能力缺失不能改变依赖图；unsupported/open Goal 若语义上可独立判断是否得到满足，就必须保持独立，后续由 Capability MatchProof 证明缺失。"
-            "depends_on 的完整图由独立 GoalAlignmentVerifier 结合当前声明做二次语义证明，每条保留边必须有位于依赖 Goal evidence_span 内的当前原文字面 basis；Runtime 只校验证明结构和图一致性，不用代词/关键词规则自行解释语言。GoalGranularityVerifier 只独立核验用户可验收结果的拆分/合并边界，不再二次裁决依赖图。"
+            "Runtime 只验证输入绑定、原文证据、类型和基数，并由确定性 Goal Graph 编译器生成边；GoalAlignmentVerifier 只能只读审计，不能写边或授予执行权限。"
             "requested_effect 变化不能 PATCH，必须新建 Goal 并显式 supersede 旧 Goal。此阶段看不到业务工具名。"
         ),
         "parameters": {
@@ -320,16 +389,11 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                                 "description": "本 Goal 最终经验证业务结果的人口基数；单个对象的状态/详情/单项结论用 single。它与 reference_expression.expected_cardinality 分离：后者描述历史被引用对象是单成员还是集合。",
                             },
                             "required": {"type": "boolean"},
-                            "depends_on": {
+                            "input_bindings": {
                                 "type": "array",
-                                "items": {"type": "string"},
-                                "description": (
-                                    "只表达当前轮 Goal 的真实结果依赖：只有后一个 Goal 的目标、输入、条件或可完成含义必须使用前一个 Goal 的结果时才填写。"
-                                    "并列、再/然后/另外等话语顺序、共享同一业务对象或同一主题本身都不是依赖；这些情况必须保持独立。"
-                                    "同一原话前文已明确业务对象或范围而后文真正省略重复对象（零指代）时，应继承该明示范围；这不是对前一个 Goal 执行结果的依赖。后一个 Goal 的 evidence_span 仍保持分支局部，不必重复前文目标身份；对象/成员名称属于目标身份而不是人口筛选，不能因为被零指代继承就要求写进 target_candidate.scope_constraints。执行时若仍需一次读取把该描述解析成稳定 ID/artifact handle，那只是支持步骤，不能反向制造 depends_on。判断依赖必须做结果反事实：假设前一个 Goal 的用户可见结果尚未产生，但保留当前原话中已经明示的对象、范围和业务约束；如果后一个 Goal 仍能独立确定自己要得到的业务结果并独立判断完成，则 depends_on 必须为空。只有拿掉前一个 Goal 的结果后，后一个 Goal 的目标、值输入、条件或可完成含义本身无法成立时，才存在真实结果依赖。"
-                                    "若后一个 Goal 用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，或其条件显式依赖前一个结果，则应填写依赖；这种显式结果指代不是普通零指代省略，并且优先于上一条省略规则。"
-                                    "系统不支持某个效果也不能因此制造依赖：能力缺失由后续 MatchProof 独立证明。"
-                                ),
+                                "maxItems": 8,
+                                "items": deepcopy(GOAL_INPUT_BINDING_SCHEMA),
+                                "description": "本 Goal 的全部语义输入来源；没有外部输入时使用空数组。",
                             },
                             "continuation_of": {
                                 "type": "string",
@@ -346,7 +410,7 @@ DECLARE_TURN_GOALS_SCHEMA: dict[str, Any] = {
                         },
                         "required": [
                             "goal_id", "description", "evidence_span", "requested_effect",
-                            "expected_result_cardinality", "required", "depends_on"
+                            "expected_result_cardinality", "required", "input_bindings"
                         ],
                         "additionalProperties": False,
                     },
