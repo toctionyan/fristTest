@@ -27,12 +27,14 @@ from agent_core.goal_graph.cutover_gate import (
     TYPED_DEPENDENCY_AUTHORITY,
 )
 from agent_core.goal_graph.dependency_authority import build_dependency_authority_attestation
+from agent_core.goal_graph.compiler import compile_frozen_semantic_contract
+from agent_core.goal_graph.verifier import dataflow_closure
 from agent_core.goal_graph.runtime_authority import (
     select_runtime_dependency_authority,
     selected_dependency_goal_ids,
 )
 from agent_core.kernel.capability_registry import CapabilityRegistry
-from agent_core.kernel.semantic_contract import semantic_goals
+from agent_core.kernel.semantic_contract import GOAL_INPUT_BINDING_AUTHORITY, semantic_goals
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
 from agent_core.lifecycle.plan_execution import (
     validate_frozen_plan_definition,
@@ -569,6 +571,61 @@ def build_pretool_execution_policy(
         ).items()
         if str(goal_id)
     }
+    frozen_contract = state.get("frozen_semantic_contract")
+    typed_contract = (
+        isinstance(frozen_contract, dict)
+        and frozen_contract.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY
+    )
+    if typed_contract:
+        authoritative_graph = compile_frozen_semantic_contract(
+            frozen_contract,
+            scope={
+                "tenant_id": state.get("current_tenant_id"),
+                "user_id": state.get("current_user_id"),
+                "thread_id": state.get("current_thread_id"),
+            },
+        )
+        authoritative_closure = dataflow_closure(
+            authoritative_graph,
+            frozen_contract=frozen_contract,
+        )
+        if not authoritative_closure.get("ok"):
+            raise ValueError(
+                "TYPED_RUNTIME_DEPENDENCY_GRAPH_INVALID:"
+                + ",".join(
+                    str(value) for value in list(authoritative_closure.get("errors") or [])
+                )
+            )
+        typed_dependencies_by_goal = {
+            str(goal_id): sorted(
+                {str(value) for value in list(values or []) if str(value)}
+            )
+            for goal_id, values in dict(
+                authoritative_closure.get("derived_dependencies") or {}
+            ).items()
+            if str(goal_id)
+        }
+        dependency_runtime_selection = {
+            "version": "typed-dependency-runtime-selection@1",
+            "authority": "deterministic_goal_input_binding_cutover",
+            "status": "TYPED_AUTHORITY_ACTIVE",
+            "selected_runtime_dependency_authority": TYPED_DEPENDENCY_AUTHORITY,
+            "selected_authority_count": 1,
+            "single_authority_invariant": True,
+            "explicit_activation_present": False,
+            "runtime_activation_authority_granted": True,
+            "cutover_performed": True,
+            "changes_current_dependency_blocking": True,
+            "changes_allowed_capability_tools": False,
+            "blocks_execution": False,
+            "creates_permit": False,
+            "dispatches_tools": False,
+            "mutates_semantics": False,
+            "errors": [],
+            "source_graph_id": authoritative_graph.get("graph_id"),
+            "source_graph_digest": authoritative_graph.get("graph_digest"),
+        }
+        selected_dependency_authority = TYPED_DEPENDENCY_AUTHORITY
 
     goal_policies: list[dict[str, Any]] = []
     allowed_tools: set[str] = set()
@@ -586,11 +643,15 @@ def build_pretool_execution_policy(
             if str(value)
         }
         typed_dependencies = set(typed_dependencies_by_goal.get(goal_id, []))
-        dependencies = set(
-            selected_dependency_goal_ids(
-                selection=dependency_runtime_selection,
-                legacy_dependency_goal_ids=legacy_dependencies,
-                typed_dependency_goal_ids=typed_dependencies,
+        dependencies = (
+            set(typed_dependencies)
+            if typed_contract
+            else set(
+                selected_dependency_goal_ids(
+                    selection=dependency_runtime_selection,
+                    legacy_dependency_goal_ids=legacy_dependencies,
+                    typed_dependency_goal_ids=typed_dependencies,
+                )
             )
         )
         completed_tools = set(completed_tools_by_goal.get(goal_id, set()))

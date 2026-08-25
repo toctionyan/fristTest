@@ -181,7 +181,7 @@ def _message_for(messages: list[object], tool_names: set[str] | None = None) -> 
                                 "goal_type": goal_type,
                                 "expected_result_cardinality": "single",
                                 "required": True,
-                                "depends_on": [],
+                                "input_bindings": [],
                             }
                         ],
                     },

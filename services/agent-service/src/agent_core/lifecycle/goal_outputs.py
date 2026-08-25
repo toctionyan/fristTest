@@ -16,7 +16,11 @@ from time import time
 from typing import Any, Iterable
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
-from agent_core.kernel.semantic_contract import semantic_goals
+from agent_core.kernel.semantic_contract import (
+    GOAL_INPUT_BINDING_AUTHORITY,
+    derive_goal_target_identity,
+    semantic_goals,
+)
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
 from agent_core.runtime.capability_effects import canonical_effect_identity, completion_effects_for_contract, support_effects_for_contract
 from agent_core.ledger import find_handle, scope_for_state
@@ -134,6 +138,57 @@ def validate_goal_output_ref(
     )
     if artifact is None:
         return {"ok": False, "code": "GOAL_OUTPUT_REF_ARTIFACT_INVALID"}
+    expected_target_binding = _target_binding(
+        artifact,
+        ledger=list(state.get("artifact_ledger") or []),
+        state=state,
+    )
+    if ref.get("target_binding") != expected_target_binding:
+        return {"ok": False, "code": "GOAL_OUTPUT_REF_TARGET_BINDING_MISMATCH"}
+    if contract.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY:
+        semantic_output_ids = ref.get("semantic_output_ids")
+        if not isinstance(semantic_output_ids, list) or not semantic_output_ids:
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_SEMANTIC_OUTPUT_REQUIRED"}
+        if any(not str(value or "").strip() for value in semantic_output_ids):
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_SEMANTIC_OUTPUT_INVALID"}
+        if str(ref.get("output_cardinality") or "") not in {
+            "single", "collection", "unknown"
+        }:
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_CARDINALITY_INVALID"}
+        target_identity = ref.get("producer_target_identity")
+        if not isinstance(target_identity, dict):
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_TARGET_IDENTITY_REQUIRED"}
+        producer_goal = next(
+            (
+                row
+                for row in semantic_goals(contract)
+                if str(row.get("goal_id") or "")
+                == str(ref.get("producer_goal_id") or "")
+            ),
+            None,
+        )
+        if producer_goal is None:
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_PRODUCER_GOAL_UNKNOWN"}
+        expected_semantic_outputs = sorted({
+            str(row.get("output_id") or "").strip().casefold()
+            for row in list(
+                (producer_goal.get("requested_effect") or {}).get("requested_outputs")
+                or []
+            )
+            if isinstance(row, dict) and str(row.get("output_id") or "").strip()
+        })
+        if sorted(str(value or "").casefold() for value in semantic_output_ids) != expected_semantic_outputs:
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_SEMANTIC_OUTPUT_MISMATCH"}
+        if str(ref.get("output_cardinality") or "") != str(
+            producer_goal.get("expected_result_cardinality") or "unknown"
+        ):
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_CARDINALITY_MISMATCH"}
+        if target_identity != derive_goal_target_identity(producer_goal):
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_TARGET_IDENTITY_MISMATCH"}
+        if str(ref.get("runtime_target_identity_digest") or "") != _digest(
+            expected_target_binding
+        ):
+            return {"ok": False, "code": "GOAL_OUTPUT_REF_RUNTIME_TARGET_DIGEST_INVALID"}
     return {"ok": True, "code": "GOAL_OUTPUT_REF_VALID", "ref": deepcopy(ref), "artifact": artifact}
 
 
@@ -265,6 +320,16 @@ def record_goal_outputs_from_tool_result(
         expires_at = min(expires_candidates) if expires_candidates else 0
         for goal_id in eligible_goals:
             effect_identity = canonical_effect_identity(formal_by_id[goal_id].get("requested_effect"))
+            semantic_output_ids = sorted({
+                str(row.get("output_id") or "").strip().casefold()
+                for row in list(
+                    (formal_by_id[goal_id].get("requested_effect") or {}).get(
+                        "requested_outputs"
+                    )
+                    or []
+                )
+                if isinstance(row, dict) and str(row.get("output_id") or "").strip()
+            })
             role = (
                 "completion" if effect_identity in completion_effects
                 else "support" if effect_identity in support_effects
@@ -278,6 +343,11 @@ def record_goal_outputs_from_tool_result(
                 # association.
                 if role != "completion" or str(output.name) != primary_completion_output:
                     continue
+            target_binding = _target_binding(
+                entry,
+                ledger=merged_ledger,
+                state=state,
+            )
             base = {
                 "version": GOAL_OUTPUT_REF_VERSION,
                 "status": _ACTIVE_STATUS,
@@ -290,6 +360,13 @@ def record_goal_outputs_from_tool_result(
                 "output_name": str(output.name),
                 "output_type": str(output.type_name),
                 "output_authority": str(output.authority),
+                "semantic_output_ids": semantic_output_ids,
+                "output_cardinality": str(
+                    formal_by_id[goal_id].get("expected_result_cardinality") or "unknown"
+                ),
+                "producer_target_identity": derive_goal_target_identity(
+                    formal_by_id[goal_id]
+                ),
                 "completion_proof_output_name": (
                     primary_completion_output if role == "completion" else None
                 ),
@@ -302,7 +379,8 @@ def record_goal_outputs_from_tool_result(
                     )
                 ),
                 "artifact_ref": artifact_ref,
-                "target_binding": _target_binding(entry, ledger=merged_ledger, state=state),
+                "target_binding": target_binding,
+                "runtime_target_identity_digest": _digest(target_binding),
                 "scope": deepcopy(entry.get("scope") or scope_for_state(state)),
                 "semantic_contract_id": str(semantic.get("semantic_contract_id") or ""),
                 "semantic_digest": str(semantic.get("semantic_digest") or ""),
@@ -350,6 +428,8 @@ def reusable_goal_outputs_for_goal(
     }
     consumer_goal_id = str(goal_plan.get("goal_id") or "")
     consumer_goal = formal_by_id.get(consumer_goal_id)
+    consumer_target_identity = derive_goal_target_identity(consumer_goal)
+    typed_contract = semantic.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY
     eligible_refs: list[dict[str, Any]] = []
     target_errors: list[str] = []
     for row in refs:
@@ -357,6 +437,33 @@ def reusable_goal_outputs_for_goal(
         if producer_goal_id not in dependency_goal_ids:
             continue
         producer_goal = formal_by_id.get(producer_goal_id)
+        if typed_contract:
+            matching_bindings = [
+                binding
+                for binding in list((consumer_goal or {}).get("input_bindings") or [])
+                if isinstance(binding, dict)
+                and isinstance(binding.get("source"), dict)
+                and binding["source"].get("kind") == "current_goal_output"
+                and str(binding["source"].get("producer_goal_id") or "")
+                == producer_goal_id
+                and str(binding["source"].get("output_id") or "").casefold()
+                in {
+                    str(value or "").casefold()
+                    for value in list(row.get("semantic_output_ids") or [])
+                }
+            ]
+            if len(matching_bindings) != 1:
+                target_errors.append("GOAL_OUTPUT_REF_INPUT_BINDING_MISMATCH")
+                continue
+            binding = matching_bindings[0]
+            produced_cardinality = str(row.get("output_cardinality") or "unknown")
+            required_cardinality = str(binding.get("expected_cardinality") or "unknown")
+            if (
+                required_cardinality not in {"unknown", produced_cardinality}
+                or produced_cardinality not in {"single", "collection", "unknown"}
+            ):
+                target_errors.append("GOAL_OUTPUT_REF_CARDINALITY_MISMATCH")
+                continue
         compatibility = prove_goal_target_compatibility(
             [goal for goal in (producer_goal, consumer_goal) if isinstance(goal, dict)]
         )
@@ -365,6 +472,28 @@ def reusable_goal_outputs_for_goal(
             eligible_refs.append(row)
         elif status == "DIFFERENT":
             target_errors.append("GOAL_OUTPUT_REF_TARGET_MISMATCH")
+        elif (
+            typed_contract
+            and (
+                (
+                    str(binding.get("port") or "") == "target"
+                    and str(binding.get("relation_kind") or "") == "result_reference"
+                )
+                or str(binding.get("relation_kind") or "") == "result_value_input"
+            )
+            and str(consumer_target_identity.get("status") or "") != "PROVEN"
+            and str((row.get("target_binding") or {}).get("resource_type") or "")
+            == str(
+                ((consumer_goal or {}).get("requested_effect") or {}).get("subject_type")
+                or ((consumer_goal or {}).get("requested_effect") or {}).get("object_type")
+                or ""
+            )
+            and str((row.get("target_binding") or {}).get("resource_id") or "")
+        ):
+            # The consumer deliberately receives its target identity from the
+            # producer output. Requiring a second independent target candidate
+            # here would make the symbolic binding impossible to execute.
+            eligible_refs.append(row)
         else:
             target_errors.append("GOAL_OUTPUT_REF_TARGET_UNPROVEN")
     errors = sorted(set([*errors, *target_errors]))

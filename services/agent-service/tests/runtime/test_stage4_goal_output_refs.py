@@ -62,6 +62,115 @@ def _state_and_output():
     return state, registry, order, eligibility
 
 
+def _typed_state_and_output(*, consumer_order_id: str | None = None):
+    from agent_core.lifecycle.goal_outputs import record_goal_outputs_from_tool_result
+    from agent_core.lifecycle.semantic_contract import freeze_semantic_contract
+    from agent_core.modules.registry import ModuleRegistry, configure_registry_providers
+    from agent_modules.ecommerce.module import EcommerceModule
+
+    state, _legacy_registry, order, eligibility = _state_and_output()
+    modules = ModuleRegistry([EcommerceModule()])
+    runtime_registry = modules.build_runtime_registry()
+    configure_registry_providers(
+        runtime_registry=lambda: runtime_registry,
+        module_registry=lambda: modules,
+    )
+    registry = runtime_registry.capabilities
+    consumer_text = (
+        f"按这个资格给订单{consumer_order_id}申请退款"
+        if consumer_order_id is not None
+        else "按这个资格申请退款"
+    )
+    consumer_bindings = [
+        {
+            "port": "eligibility_assessment",
+            "source": {
+                "kind": "current_goal_output",
+                "producer_goal_id": "eligibility",
+                "output_id": "refund.eligibility",
+            },
+            "relation_kind": "result_value_input",
+            "expected_cardinality": "single",
+            "evidence_span": "这个资格",
+        }
+    ]
+    if consumer_order_id is not None:
+        consumer_bindings.append({
+            "port": "target",
+            "source": {"kind": "current_text", "subject_ref": consumer_order_id},
+            "relation_kind": "shared_subject",
+            "expected_cardinality": "single",
+            "evidence_span": consumer_order_id,
+        })
+    consumer = {
+        "goal_id": "refund",
+        "description": consumer_text,
+        "evidence_span": consumer_text,
+        "requested_effect": {
+            "domain": "refund",
+            "operation": "create",
+            "object_type": "order",
+            "subject_type": "order",
+            "requested_outputs": [
+                {"output_id": "refund.request", "evidence_span": "申请退款"}
+            ],
+        },
+        "expected_result_cardinality": "single",
+        "required": True,
+        "input_bindings": consumer_bindings,
+    }
+    if consumer_order_id is not None:
+        consumer["target_candidate"] = {"order_id": consumer_order_id}
+    contract = freeze_semantic_contract(
+        turn=1,
+        user_text=f"核验订单10002能不能退款，再{consumer_text}",
+        summary="eligibility then refund",
+        goals=[
+            {
+                "goal_id": "eligibility",
+                "description": "核验订单10002能不能退款",
+                "evidence_span": "核验订单10002能不能退款",
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "evaluate_eligibility",
+                    "object_type": "order",
+                    "subject_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "refund.eligibility", "evidence_span": "能不能退款"}
+                    ],
+                },
+                "target_candidate": {"order_id": "10002"},
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {"kind": "current_text", "subject_ref": "10002"},
+                        "relation_kind": "shared_subject",
+                        "expected_cardinality": "single",
+                        "evidence_span": "10002",
+                    }
+                ],
+            },
+            consumer,
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+    state["frozen_semantic_contract"] = contract
+    state["goal_output_refs"] = record_goal_outputs_from_tool_result(
+        [],
+        state=state,
+        capability_registry=registry,
+        tool_name="evaluate_refund_eligibility",
+        goal_ids=["eligibility"],
+        effect_id="effect:eligibility",
+        result={"ok": True, "data": {"eligibility_handle": eligibility["handle"]}},
+        ledger_additions=[order, eligibility],
+        merged_ledger=state["artifact_ledger"],
+    )
+    return state, registry
+
+
 def test_completed_dependency_reuses_verified_typed_goal_output() -> None:
     from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
 
@@ -73,6 +182,50 @@ def test_completed_dependency_reuses_verified_typed_goal_output() -> None:
     assert by_goal["refund"]["completed_tools"] == ["evaluate_refund_eligibility"]
     assert len(by_goal["refund"]["reused_goal_output_ref_ids"]) == 1
     assert by_goal["refund"]["goal_output_evidence_errors"] == []
+
+
+def test_typed_binding_reuses_only_exact_semantic_output_and_runtime_target() -> None:
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+
+    state, registry = _typed_state_and_output()
+    policy = build_pretool_execution_policy(state=state, capability_registry=registry)
+    refund = {row["goal_id"]: row for row in policy["goal_policies"]}["refund"]
+
+    assert refund["allowed_tools"] == ["prepare_refund_from_eligibility"]
+    assert len(refund["reused_goal_output_ref_ids"]) == 1
+    assert refund["goal_output_evidence_errors"] == []
+    ref = state["goal_output_refs"][0]
+    assert ref["semantic_output_ids"] == ["refund.eligibility"]
+    assert ref["output_cardinality"] == "single"
+    assert ref["target_binding"]["resource_id"] == "10002"
+    assert ref["runtime_target_identity_digest"]
+
+
+def test_typed_binding_never_reuses_10002_output_for_10003_consumer() -> None:
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+
+    state, registry = _typed_state_and_output(consumer_order_id="10003")
+    policy = build_pretool_execution_policy(state=state, capability_registry=registry)
+    refund = {row["goal_id"]: row for row in policy["goal_policies"]}["refund"]
+
+    assert "prepare_refund_from_eligibility" not in refund["allowed_tools"]
+    assert refund["reused_goal_output_ref_ids"] == []
+    assert "GOAL_OUTPUT_REF_TARGET_MISMATCH" in refund["goal_output_evidence_errors"]
+
+
+def test_typed_goal_output_semantic_identity_tampering_fails_closed() -> None:
+    from agent_core.lifecycle.goal_outputs import _with_digest
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+
+    state, registry = _typed_state_and_output()
+    forged = deepcopy(state["goal_output_refs"][0])
+    forged["semantic_output_ids"] = ["order.details"]
+    state["goal_output_refs"] = [_with_digest(forged)]
+    policy = build_pretool_execution_policy(state=state, capability_registry=registry)
+    refund = {row["goal_id"]: row for row in policy["goal_policies"]}["refund"]
+
+    assert "prepare_refund_from_eligibility" not in refund["allowed_tools"]
+    assert "GOAL_OUTPUT_REF_SEMANTIC_OUTPUT_MISMATCH" in refund["goal_output_evidence_errors"]
 
 
 def test_goal_output_ref_is_bound_to_active_ledger_artifact_and_target() -> None:

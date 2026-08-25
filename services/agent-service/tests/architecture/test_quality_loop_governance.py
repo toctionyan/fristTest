@@ -232,6 +232,34 @@ def test_quality_loop_does_not_count_round_number_change_as_a_repair(tmp_path) -
     assert actual_repair != bookkeeping_only
 
 
+def test_quality_loop_excludes_repair_case_records_but_not_other_governance(
+    tmp_path: Path,
+) -> None:
+    controller = _load_script("quality_loop.py")
+    source = tmp_path / "src" / "runtime.py"
+    source.parent.mkdir()
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    baseline = {"workspace_snapshot": controller._workspace_snapshot(tmp_path)}
+
+    repair_case = tmp_path / "governance" / "repair-cases" / "change-1" / "diff-review.json"
+    repair_case.parent.mkdir(parents=True)
+    repair_case.write_text('{"decision": "PASS"}\n', encoding="utf-8")
+    assert controller._scope_violations(
+        tmp_path,
+        baseline=baseline,
+        allowed_paths=("src/**",),
+    ) == []
+
+    decision = tmp_path / "governance" / "decisions" / "change-1.json"
+    decision.parent.mkdir(parents=True)
+    decision.write_text('{"selected": "unsafe"}\n', encoding="utf-8")
+    assert controller._scope_violations(
+        tmp_path,
+        baseline=baseline,
+        allowed_paths=("src/**",),
+    ) == ["governance/decisions/change-1.json"]
+
+
 def test_version_consistency_static_checker_passes_current_release() -> None:
     root = workspace_root(__file__)
     report = _load_script("verify_version_consistency.py").verify(root)

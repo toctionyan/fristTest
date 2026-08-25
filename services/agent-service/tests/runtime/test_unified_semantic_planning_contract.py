@@ -760,6 +760,137 @@ def test_new_goal_declaration_schema_requires_open_requested_effect():
     assert "requested_effect" in goal_schema["required"]
 
 
+def test_live_goal_declaration_preserves_bindings_and_freezes_typed_authority(monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_core.goal_graph import compile_frozen_semantic_contract, dataflow_closure
+    from agent_core.modules.registry import ModuleRegistry, configure_registry_providers
+    from agent_modules.ecommerce.module import EcommerceModule
+
+    modules = ModuleRegistry([EcommerceModule()])
+    runtime_registry = modules.build_runtime_registry()
+    configure_registry_providers(
+        runtime_registry=lambda: runtime_registry,
+        module_registry=lambda: modules,
+    )
+    monkeypatch.setattr(
+        "agent_core.lifecycle.goal_planning.verify_goal_granularity",
+        lambda **_: SimpleNamespace(exact=True, as_dict=lambda: {"verdict": "exact"}),
+    )
+    result, plan = validate_goal_declaration(
+        state={
+            "current_user_input": "查订单10002，再看它能不能退款",
+            "turn_index": 21,
+            "goal_alignment_verifier": _ExactGoalVerifier(),
+        },
+        args={
+            "summary": "query then eligibility",
+            "goals": [
+                {
+                    "goal_id": "g1",
+                    "description": "查订单10002",
+                    "evidence_span": "查订单10002",
+                    "requested_effect": {
+                        "domain": "order",
+                        "operation": "details",
+                        "object_type": "order",
+                        "requested_outputs": [
+                            {"output_id": "order.details", "evidence_span": "查订单10002"}
+                        ],
+                    },
+                    "expected_result_cardinality": "single",
+                    "required": True,
+                    "input_bindings": [
+                        {
+                            "port": "target",
+                            "source": {"kind": "current_text", "subject_ref": "10002"},
+                            "relation_kind": "shared_subject",
+                            "expected_cardinality": "single",
+                            "evidence_span": "10002",
+                        }
+                    ],
+                },
+                {
+                    "goal_id": "g2",
+                    "description": "看它能不能退款",
+                    "evidence_span": "看它能不能退款",
+                    "requested_effect": {
+                        "domain": "refund",
+                        "operation": "eligibility",
+                        "object_type": "order",
+                        "requested_outputs": [
+                            {"output_id": "refund.eligibility", "evidence_span": "能不能退款"}
+                        ],
+                    },
+                    "expected_result_cardinality": "single",
+                    "required": True,
+                    "input_bindings": [
+                        {
+                            "port": "target",
+                            "source": {
+                                "kind": "current_goal_output",
+                                "producer_goal_id": "g1",
+                                "output_id": "order.details",
+                            },
+                            "relation_kind": "result_reference",
+                            "expected_cardinality": "single",
+                            "evidence_span": "它",
+                        }
+                    ],
+                },
+            ],
+        },
+        capability_registry=runtime_registry.capabilities,
+        require_canonical_output_identity=True,
+    )
+
+    assert result["ok"] is True
+    assert plan is not None
+    contract = plan["_frozen_semantic_contract"]
+    assert contract["dependency_authority"] == "typed_goal_input_bindings"
+    assert all("depends_on" not in goal for goal in contract["goals"])
+    graph = compile_frozen_semantic_contract(
+        contract,
+        scope={"tenant_id": "t", "user_id": "u", "thread_id": "h"},
+    )
+    assert dataflow_closure(graph, frozen_contract=contract)["derived_dependencies"]["g2"] == ["g1"]
+
+
+def test_declaration_preflight_rejects_provider_without_named_tool_choice(monkeypatch):
+    from agent_core.lifecycle.dialogue_runtime import agent_loop_node
+
+    class ContextBuilder:
+        def build(self, _state):
+            return {"context_health": {}}
+
+    monkeypatch.setattr(
+        "agent_core.lifecycle.dialogue_runtime.get_model_profile",
+        lambda: {
+            "provider": "incompatible-test-provider",
+            "model": "plain-tools-only",
+            "tool_choice_supported": False,
+        },
+    )
+    update = agent_loop_node(
+        {
+            "current_user_input": "查订单",
+            "turn_index": 1,
+            "agent_loop_step": 0,
+            "agent_loop_max_steps": 6,
+        },
+        context_bundle_builder=ContextBuilder(),
+        capability_registry=_empty_registry(),
+        model_resolver=lambda: (_ for _ in ()).throw(
+            AssertionError("provider model must not be invoked")
+        ),
+    )
+
+    assert update["status"] == "SemanticDeclarationProviderIncompatible"
+    assert update["phase"] == "final"
+    assert update["runtime_outcome"]["effects"] == "none"
+    assert update["tool_error"]["type"] == "ProviderProtocolIncompatible"
+
+
 def test_new_goal_declaration_rejects_goal_type_only_semantics():
     result, plan = validate_goal_declaration(
         state={

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "migration-v20.19-goal-input-binding-r4",
+  "failure_case_sha256": "fb28b7437ffee112978ffbd28b6d50970e38014bd4535b23ad6de4cb9975880e",
+  "decision": "PROVEN",
+  "root_cause": "The semantic writer owns a required raw depends_on array while the Typed Goal Graph compiler does not derive executable semantic edges from typed result consumption. Runtime and executable test fixtures therefore preserve multiple dependency representations without a single deterministic writer.",
+  "causal_chain": [
+    "DECLARE_TURN_GOALS_SCHEMA requires the model to emit depends_on and offers no current_goal_output input binding.",
+    "Frozen semantics preserve the raw claim while typed graph compilation cannot trace that claim to a typed input source.",
+    "Pre-tool, workflow and scripted smoke fixtures consume or assert legacy dependency arrays, so a cutover limited to production modules leaves executable alternate writers.",
+    "Probabilistic declarations and legacy fixture oracles can therefore add or omit edges independently of the deterministic graph."
+  ],
+  "evidence_refs": [
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/goal_graph/compiler.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py",
+    "services/agent-service/tests/support/scripted_chat_model.py",
+    "services/agent-service/tests/support/conversation_case_runner.py",
+    "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
+    ".quality/product-code/migration-v20.19-goal-input-binding-r4/baseline/baseline-record.json"
+  ],
+  "rejected_hypotheses": [
+    "This is not a phrase-specific pronoun defect because the raw dependency writer is structural for every provider declaration.",
+    "Another model verifier cannot establish deterministic execution authority because it would remain a second probabilistic graph writer.",
+    "Production-only cutover is insufficient because executable semantic fixtures still submit and compare the retired raw edge contract."
+  ],
+  "affected_boundaries": [
+    "semantic writer protocol",
+    "frozen semantic integrity",
+    "typed graph compilation",
+    "runtime dependency selection",
+    "executable semantic fixture and smoke validation"
+  ]
+}

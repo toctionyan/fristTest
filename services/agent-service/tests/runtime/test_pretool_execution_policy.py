@@ -158,6 +158,39 @@ def test_policy_blocks_dependent_goal_until_declared_dependency_completes() -> N
     assert "prepare_invoice" in completed["allowed_capability_tools"]
 
 
+def test_typed_policy_reprojects_dependencies_from_sealed_graph_not_shadow_arrays() -> None:
+    from copy import deepcopy
+
+    from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
+    from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
+    from tests.runtime.test_stage4_goal_output_refs import _typed_state_and_output
+
+    state, registry = _typed_state_and_output()
+    state["goal_records"] = [
+        {"goal_id": "eligibility", "lifecycle": "ACTIVE"},
+        {"goal_id": "refund", "lifecycle": "ACTIVE"},
+    ]
+    state["goal_output_refs"] = []
+    shadow = build_pretool_shadow_plan(state=state, capability_registry=registry)
+    forged = deepcopy(shadow)
+    refund_plan = {
+        row["goal_id"]: row for row in forged["goal_plans"]
+    }["refund"]
+    refund_plan["depends_on_goal_ids"] = []
+
+    policy = build_pretool_execution_policy(
+        state=state,
+        capability_registry=registry,
+        shadow_plan=forged,
+    )
+    refund = {row["goal_id"]: row for row in policy["goal_policies"]}["refund"]
+
+    assert policy["selected_dependency_authority"] == "verified_dataflow_edges_only"
+    assert refund["depends_on_goal_ids"] == ["eligibility"]
+    assert refund["status"] == "BLOCKED_BY_GOAL_DEPENDENCY"
+    assert refund["allowed_tools"] == []
+
+
 def test_policy_preserves_exact_unsupported_reporter_without_nearby_tool() -> None:
     from agent_core.lifecycle.pretool_execution_policy import build_pretool_execution_policy
 

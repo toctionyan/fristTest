@@ -17,15 +17,20 @@ def _oracle(case_id: str) -> dict[str, list[str]]:
     return {row["oracle_id"]: list(row.get("depends_on") or []) for row in rows}
 
 
-def test_depends_on_schema_requires_result_counterfactual_not_discourse_order() -> None:
+def test_input_binding_schema_distinguishes_result_consumption_from_shared_subject() -> None:
     goal_schema = DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]["items"]
-    description = goal_schema["properties"]["depends_on"]["description"]
-    assert "结果反事实" in description
-    assert "用户可见结果尚未产生" in description
-    assert "仍能独立确定自己要得到的业务结果并独立判断完成" in description
-    assert "再/然后/另外" in description
-    assert "evidence_span 仍保持分支局部" in description
-    assert "对象/成员名称属于目标身份而不是人口筛选" in description
+    assert "depends_on" not in goal_schema["properties"]
+    binding_schema = goal_schema["properties"]["input_bindings"]["items"]
+    description = binding_schema["description"]
+    source_kinds = {
+        row["properties"]["kind"]["const"]
+        for row in binding_schema["properties"]["source"]["oneOf"]
+    }
+    assert source_kinds == {"current_goal_output", "current_text", "visible_result_ref"}
+    assert "current_goal_output" in description
+    assert "共享当前原文对象" in description
+    assert "历史可见结果" in description
+    assert "不产生当前轮边" in description
     for forbidden in ("list_orders", "get_order_logistics", "prepare_refund"):
         assert forbidden not in description
 

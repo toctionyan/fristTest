@@ -17,6 +17,7 @@ from agent_core.goal_graph import (
 )
 from agent_core.goal_graph.contracts import canonical_digest
 from agent_core.kernel.semantic_contract import compute_semantic_digest
+from agent_core.lifecycle.semantic_contract import freeze_semantic_contract
 
 
 def _effect(output_id: str, *, subject_type: str = "order") -> dict:
@@ -162,6 +163,293 @@ def test_legacy_depends_on_is_not_promoted_to_fake_dataflow_edge() -> None:
     assert g2["target_binding"]["verified"] is False
 
 
+def test_current_goal_output_binding_deterministically_compiles_one_edge() -> None:
+    contract = freeze_semantic_contract(
+        turn=8,
+        user_text="查一下键盘订单，再看看它能不能退款",
+        summary="query then refund",
+        goals=[
+            {
+                "goal_id": "g1",
+                "description": "查一下键盘订单",
+                "evidence_span": "查一下键盘订单",
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "details",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "order.details", "evidence_span": "查一下键盘订单"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "看看它能不能退款",
+                "evidence_span": "看看它能不能退款",
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "eligibility",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "refund.eligibility", "evidence_span": "能不能退款"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {
+                            "kind": "current_goal_output",
+                            "producer_goal_id": "g1",
+                            "output_id": "order.details",
+                        },
+                        "relation_kind": "result_reference",
+                        "expected_cardinality": "single",
+                        "evidence_span": "它",
+                    }
+                ],
+            },
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+
+    assert "depends_on" not in contract["goals"][1]
+    graph = compile_frozen_semantic_contract(contract, scope=_scope())
+    assert graph["authority"] == "deterministic_goal_input_binding_compiler"
+    assert len(graph["edges"]) == 1
+    assert graph["edges"][0]["producer_goal_id"] == "g1"
+    assert graph["edges"][0]["consumer_goal_id"] == "g2"
+    assert graph_structural_integrity(graph, frozen_contract=contract)["ok"] is True
+    assert dataflow_closure(graph, frozen_contract=contract)["derived_dependencies"]["g2"] == ["g1"]
+
+
+def test_shared_current_text_subject_does_not_compile_dependency_edge() -> None:
+    contract = freeze_semantic_contract(
+        turn=9,
+        user_text="查一下鼠标物流，再告诉我快递员手机号",
+        summary="shared subject independent goals",
+        goals=[
+            {
+                "goal_id": goal_id,
+                "description": evidence,
+                "evidence_span": evidence,
+                "requested_effect": {
+                    "domain": domain,
+                    "operation": operation,
+                    "object_type": "order",
+                    "requested_outputs": [{"output_id": output_id, "evidence_span": evidence}],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {"kind": "current_text", "subject_ref": "鼠标"},
+                        "relation_kind": "shared_subject",
+                        "expected_cardinality": "single",
+                        "evidence_span": "鼠标",
+                    }
+                ],
+            }
+            for goal_id, evidence, domain, operation, output_id in (
+                ("g1", "查一下鼠标物流", "shipment", "query", "shipment.current_status"),
+                ("g2", "告诉我快递员手机号", "courier", "contact", "courier.contact_phone"),
+            )
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+
+    graph = compile_frozen_semantic_contract(contract, scope=_scope())
+    assert graph["edges"] == []
+    assert all(row["derived_dependency_goal_ids"] == [] for row in graph["goals"])
+
+
+def test_condition_ast_deterministically_compiles_result_condition_edge() -> None:
+    contract = freeze_semantic_contract(
+        turn=10,
+        user_text="查一下物流，如果已签收就申请退款",
+        summary="conditional refund",
+        goals=[
+            {
+                "goal_id": "g1",
+                "description": "查一下物流",
+                "evidence_span": "查一下物流",
+                "requested_effect": {
+                    "domain": "shipment",
+                    "operation": "query",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "shipment.current_status", "evidence_span": "物流"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "如果已签收就申请退款",
+                "evidence_span": "如果已签收就申请退款",
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "create",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "refund.request", "evidence_span": "申请退款"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [],
+                "condition": {
+                    "op": "eq",
+                    "left": {
+                        "source": "goal_output",
+                        "goal_id": "g1",
+                        "path": "shipment.current_status",
+                    },
+                    "right": {"source": "literal", "value": "已签收"},
+                },
+            },
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+
+    graph = compile_frozen_semantic_contract(contract, scope=_scope())
+
+    assert len(graph["edges"]) == 1
+    edge = graph["edges"][0]
+    assert edge["source_kind"] == "condition_goal_output"
+    assert edge["relation_kind"] == "result_condition"
+    assert dataflow_closure(graph, frozen_contract=contract)["derived_dependencies"]["g2"] == ["g1"]
+
+
+def test_collection_to_single_input_binding_fails_closed() -> None:
+    contract = freeze_semantic_contract(
+        turn=11,
+        user_text="查键盘订单，再给它退款",
+        summary="ambiguous collection projection",
+        goals=[
+            {
+                "goal_id": "g1",
+                "description": "查键盘订单",
+                "evidence_span": "查键盘订单",
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "list",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "order.collection", "evidence_span": "键盘订单"}
+                    ],
+                },
+                "expected_result_cardinality": "collection",
+                "required": True,
+                "input_bindings": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "给它退款",
+                "evidence_span": "给它退款",
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "create",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "refund.request", "evidence_span": "退款"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {
+                            "kind": "current_goal_output",
+                            "producer_goal_id": "g1",
+                            "output_id": "order.collection",
+                        },
+                        "relation_kind": "result_reference",
+                        "expected_cardinality": "single",
+                        "evidence_span": "它",
+                    }
+                ],
+            },
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+
+    with pytest.raises(ValueError, match="GOAL_INPUT_BINDING_CARDINALITY_MISMATCH"):
+        compile_frozen_semantic_contract(contract, scope=_scope())
+
+
+def test_semantic_edge_cannot_survive_binding_proof_tampering() -> None:
+    contract = freeze_semantic_contract(
+        turn=12,
+        user_text="查订单，再看它能否退款",
+        summary="tamper proof",
+        goals=[
+            {
+                "goal_id": "g1",
+                "description": "查订单",
+                "evidence_span": "查订单",
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "details",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "order.details", "evidence_span": "查订单"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "看它能否退款",
+                "evidence_span": "看它能否退款",
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "eligibility",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "refund.eligibility", "evidence_span": "能否退款"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {
+                            "kind": "current_goal_output",
+                            "producer_goal_id": "g1",
+                            "output_id": "order.details",
+                        },
+                        "relation_kind": "result_reference",
+                        "expected_cardinality": "single",
+                        "evidence_span": "它",
+                    }
+                ],
+            },
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+    graph = compile_frozen_semantic_contract(contract, scope=_scope())
+    tampered = deepcopy(graph)
+    tampered["edges"][0]["source_proof_digest"] = "forged"
+    tampered = seal_goal_graph(tampered)
+
+    integrity = graph_structural_integrity(tampered, frozen_contract=contract)
+
+    assert integrity["ok"] is False
+    assert "SEMANTIC_DEPENDENCY_BINDING_PROOF_NOT_UNIQUE" in integrity["errors"]
+
+
 def test_attempt8_root_shape_is_structurally_valid_but_dataflow_open() -> None:
     graph = compile_frozen_semantic_contract(
         _contract([
@@ -245,6 +533,18 @@ def test_unresolved_target_fails_closed_and_verified_frozen_reference_passes() -
     assert goal["target_binding"]["verified"] is True
     assert goal["target_binding"]["provenance"]["source"] == "frozen.resolved_reference"
     assert dataflow_closure(verified)["ok"] is True
+
+
+def test_verified_order_target_can_produce_a_shipment_result_without_type_conflation() -> None:
+    goal = _goal("g1", "shipment.tracking", reference=_verified_reference())
+    goal["requested_effect"] = _effect("shipment.tracking", subject_type="shipment")
+    graph = compile_frozen_semantic_contract(_contract([goal]), scope=_scope())
+
+    compiled = graph["goals"][0]
+    assert compiled["input_ports"][0]["type_name"] == "order"
+    assert compiled["target_binding"]["resource_type"] == "order"
+    assert compiled["output_ports"][0]["type_name"] == "shipment"
+    assert dataflow_closure(graph)["ok"] is True
 
 
 def test_missing_reference_proof_is_not_treated_as_verified_target() -> None:

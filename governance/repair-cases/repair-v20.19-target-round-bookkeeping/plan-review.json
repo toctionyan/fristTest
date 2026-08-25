@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "repair_plan_sha256": "49a8938ac1932e73961411d33df5f49c5abdfcd768ac4488c7e56ecfaabec5f9",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "skill_rule_mappings": [
+    {
+      "rule": "single-authority-cutover",
+      "plan_evidence": "Quality Loop retains sequencing authority; diff review only recognizes a baseline-bound representation change."
+    },
+    {
+      "rule": "fail-closed-diff-integrity",
+      "plan_evidence": "Goal, scope, acceptance, maximum round and all non-round text remain part of the normalized digest."
+    },
+    {
+      "rule": "counterexample-first",
+      "plan_evidence": "RED tests cover round-only success, text tamper rejection and invalid round rejection."
+    }
+  ],
+  "approved_paths": [
+    "skill-system/controller/repair_governance.py",
+    "skill-system/tests/test_repair_governance.py"
+  ]
+}

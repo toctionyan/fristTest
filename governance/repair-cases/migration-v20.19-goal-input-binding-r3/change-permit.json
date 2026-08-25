@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "migration-v20.19-goal-input-binding-r3",
+  "repair_plan_sha256": "692904cc239704d7e86e1e7eba742a3c59ee20c527c9606d2e093263a6d95f6e",
+  "plan_review_sha256": "6d1857365ae1e7aad5fe2fb37ea2ff0f8078da59458770a55da1866921ae4d43",
+  "baseline_manifest_sha256": "9511604317a04999385c496408a638f8037732add05bc270700773373833cc09",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
+    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
+    "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
+    "services/agent-service/src/agent_core/lifecycle/workflow_runtime.py",
+    "services/agent-service/src/agent_core/goal_graph/contracts.py",
+    "services/agent-service/src/agent_core/goal_graph/compiler.py",
+    "services/agent-service/src/agent_core/goal_graph/verifier.py",
+    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
+    "services/agent-service/tests/architecture/test_v2019_goal_input_binding_recovery_oracle.py",
+    "services/agent-service/tests/architecture/test_typed_goal_graph_foundation.py",
+    "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py",
+    "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py",
+    "services/agent-service/tests/runtime/test_pretool_execution_policy.py",
+    "services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py",
+    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py",
+    "services/agent-service/tests/support/scripted_chat_model.py",
+    "services/agent-service/tests/support/conversation_case_runner.py",
+    "services/agent-service/tests/integration/model_stub.py",
+    "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
+    "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py",
+    "docs/architecture/GOAL_INPUT_BINDING_V1.md"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "scripts/quality_control/**",
+    "trusted-judge/**",
+    "services/business-service/**",
+    "web/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "provider schema RED-to-GREEN",
+      "binding freeze and integrity",
+      "typed graph compilation",
+      "workflow and pre-tool projection"
+    ],
+    "counterexamples": [
+      "result reference creates one edge",
+      "shared subject creates no edge",
+      "condition creates result_condition edge",
+      "historical reference creates no current-turn edge"
+    ],
+    "regression": [
+      "complete Agent pytest suite",
+      "Business pytest suite",
+      "frontend Vitest and build",
+      "Product Quick"
+    ],
+    "negative_path": [
+      "10002 output cannot authorize 10003",
+      "collection cannot silently become single",
+      "tamper is rejected",
+      "free text cannot freeze semantics"
+    ]
+  },
+  "baseline_source_fingerprint": "63641f89474dd8271e6a85f88e264e41a585035c42f2b66e716f7650e388a0ca",
+  "baseline_workspace_fingerprint": "601f8a0138801bdb3c7df6f80cdbe07c50c44aa28a032a1ea0b9c815092a7df5",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "50007e9effeccef41424294a6c9246e2810800d7f462c9edb840760e54c763ac"
+}

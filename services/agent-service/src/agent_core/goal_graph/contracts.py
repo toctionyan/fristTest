@@ -17,6 +17,7 @@ CANONICAL_GOAL_GRAPH_VERSION = "canonical-goal-graph@1"
 GOAL_PORT_VERSION = "goal-port@1"
 TYPED_TARGET_BINDING_VERSION = "typed-target-binding@1"
 TYPED_DATAFLOW_EDGE_VERSION = "typed-dataflow-edge@1"
+SEMANTIC_DEPENDENCY_EDGE_VERSION = "semantic-dependency-edge@1"
 VERIFIED_ARTIFACT_REF_VERSION = "verified-artifact-ref@1"
 
 _CARDINALITY_ALIASES = {
@@ -317,6 +318,54 @@ def make_verified_dataflow_edge(
     return edge
 
 
+def make_semantic_dependency_edge(
+    *,
+    graph: dict[str, Any],
+    producer_goal_id: str,
+    producer_port_id: str,
+    consumer_goal_id: str,
+    consumer_port_id: str,
+    source_kind: str,
+    relation_kind: str,
+    evidence_span: str,
+    source_proof_digest: str,
+) -> dict[str, Any]:
+    """Create a sealed symbolic edge without claiming a runtime artifact exists."""
+
+    normalized_source = _text(source_kind, limit=80)
+    normalized_relation = _text(relation_kind, limit=80)
+    normalized_proof = _text(source_proof_digest, limit=256)
+    if normalized_source not in {"current_goal_output", "condition_goal_output"}:
+        raise ValueError("SEMANTIC_DEPENDENCY_SOURCE_INVALID")
+    if normalized_relation not in {"result_reference", "result_value_input", "result_condition"}:
+        raise ValueError("SEMANTIC_DEPENDENCY_RELATION_INVALID")
+    if not normalized_proof:
+        raise ValueError("SEMANTIC_DEPENDENCY_PROOF_REQUIRED")
+    source = graph.get("source_semantic_contract") if isinstance(graph.get("source_semantic_contract"), dict) else {}
+    edge_base = {
+        "version": SEMANTIC_DEPENDENCY_EDGE_VERSION,
+        "verified": True,
+        "symbolic_only": True,
+        "producer_goal_id": _text(producer_goal_id, limit=200),
+        "producer_port_id": _text(producer_port_id, limit=500),
+        "consumer_goal_id": _text(consumer_goal_id, limit=200),
+        "consumer_port_id": _text(consumer_port_id, limit=500),
+        "source_kind": normalized_source,
+        "relation_kind": normalized_relation,
+        "evidence_span": _text(evidence_span, limit=500),
+        "source_proof_digest": normalized_proof,
+        "scope": normalize_scope(graph.get("scope") if isinstance(graph.get("scope"), dict) else {}),
+        "semantic_contract_id": _text(source.get("semantic_contract_id"), limit=500),
+        "semantic_digest": _text(source.get("semantic_digest"), limit=128),
+        "runtime_artifact_present": False,
+        "execution_authority_granted": False,
+    }
+    identity = canonical_digest(edge_base)
+    edge = deepcopy(edge_base)
+    edge["edge_id"] = f"semantic-dependency:{identity[:24]}"
+    return edge
+
+
 def _graph_digest_payload(graph: dict[str, Any]) -> dict[str, Any]:
     payload = deepcopy(graph)
     payload.pop("graph_digest", None)
@@ -349,10 +398,12 @@ __all__ = [
     "GOAL_PORT_VERSION",
     "TYPED_TARGET_BINDING_VERSION",
     "TYPED_DATAFLOW_EDGE_VERSION",
+    "SEMANTIC_DEPENDENCY_EDGE_VERSION",
     "VERIFIED_ARTIFACT_REF_VERSION",
     "artifact_ref_contains_business_payload",
     "canonical_digest",
     "make_goal_port",
+    "make_semantic_dependency_edge",
     "make_unresolved_target_binding",
     "make_verified_artifact_ref",
     "make_verified_dataflow_edge",

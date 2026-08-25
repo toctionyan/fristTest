@@ -14,7 +14,7 @@ from typing import Any, Iterable
 
 _MODEL_SETTABLE_LIFECYCLES = {"ACTIVE", "PAUSED", "CANCELLED"}
 _ACTIVE_GOAL_LIFECYCLES = {"OPEN", "ACTIVE", "BLOCKED", "PAUSED"}
-_PATCHABLE_GOAL_FIELDS = {"target_candidate", "input_candidates", "condition", "depends_on"}
+_PATCHABLE_GOAL_FIELDS = {"target_candidate", "input_candidates", "condition"}
 _GOAL_CHANGE_OPERATIONS = {"SET_GOAL_LIFECYCLE", "PATCH_GOAL", "SUPERSEDE_GOAL"}
 _FOCUS_CHANGE_OPERATIONS = {"SET_GOAL_FOCUS", "SET_INTERACTION_FOCUS", "CLEAR_FOCUS"}
 
@@ -84,7 +84,6 @@ def validate_goal_changes(
         if _text(row.get("goal_id"), limit=200)
     }
     proposed = {_text(value, limit=200) for value in proposal_goal_ids if _text(value, limit=200)}
-    known_dependencies = set(by_id) | proposed
     normalized: list[dict[str, Any]] = []
     errors: list[str] = []
     seen_goal_ids: set[str] = set()
@@ -163,23 +162,6 @@ def validate_goal_changes(
                 for key, value in patch.items()
                 if key in _PATCHABLE_GOAL_FIELDS
             }
-            if "depends_on" in normalized_patch:
-                raw_dependencies = normalized_patch.get("depends_on")
-                if not isinstance(raw_dependencies, list):
-                    errors.append(f"goal_patch_depends_on_must_be_array:{goal_id}")
-                    normalized_patch["depends_on"] = []
-                else:
-                    dependencies = list(dict.fromkeys(
-                        _text(value, limit=200)
-                        for value in raw_dependencies
-                        if _text(value, limit=200)
-                    ))
-                    for dependency in dependencies:
-                        if dependency == goal_id:
-                            errors.append(f"goal_patch_self_dependency:{goal_id}")
-                        elif dependency not in known_dependencies:
-                            errors.append(f"goal_patch_unknown_dependency:{goal_id}:{dependency}")
-                    normalized_patch["depends_on"] = dependencies
             normalized.append({**base, "patch": normalized_patch})
             continue
 

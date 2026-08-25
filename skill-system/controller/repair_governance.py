@@ -34,6 +34,11 @@ FINAL_PASS_DECISION = "CLOSED_VERIFIED"
 IGNORED_PARTS = {".git", ".quality", "__pycache__", ".pytest_cache", ".venv", "node_modules"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
 DYNAMIC_EXCLUSIONS = ("governance/repair-cases/**", "governance/active-change.json")
+TARGET_CURRENT_ROUND_RE = re.compile(
+    r"^(?P<prefix>\s*-\s*当前轮次\s*[:：]\s*)(?P<round>\d+)(?P<suffix>\s*)$",
+    re.MULTILINE,
+)
+TARGET_MAX_ROUNDS_RE = re.compile(r"^\s*-\s*最大轮次\s*[:：]\s*(?P<round>\d+)\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,72 @@ def payload_digest(value: dict[str, Any], *, exclude: Iterable[str] = ()) -> str
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _quality_target_round_record(
+    workspace: Path,
+    contract_payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    raw = contract_payload.get("quality_target")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    path = _safe_relative(workspace, raw, label="quality_target")
+    relative = path.relative_to(workspace.resolve()).as_posix()
+    if not relative.startswith("governance/targets/") or path.suffix.lower() != ".md":
+        raise ValueError("quality_target must be a workspace governance/targets/*.md file")
+    body = path.read_text(encoding="utf-8")
+    current_matches = list(TARGET_CURRENT_ROUND_RE.finditer(body))
+    maximum_matches = list(TARGET_MAX_ROUNDS_RE.finditer(body))
+    if len(current_matches) != 1 or len(maximum_matches) != 1:
+        raise ValueError("quality_target must declare exactly one 当前轮次 and 最大轮次")
+    current_round = int(current_matches[0].group("round"))
+    max_rounds = int(maximum_matches[0].group("round"))
+    normalized = TARGET_CURRENT_ROUND_RE.sub(
+        lambda match: f"{match.group('prefix')}<round>{match.group('suffix')}",
+        body,
+        count=1,
+    )
+    return {
+        "path": relative,
+        "normalized_sha256": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+        "current_round": current_round,
+        "max_rounds": max_rounds,
+    }
+
+
+def _round_bookkeeping_changes(
+    workspace: Path,
+    contract_payload: dict[str, Any],
+    baseline: dict[str, Any],
+    changed_paths: Iterable[str],
+) -> list[dict[str, Any]]:
+    frozen = baseline.get("quality_target_round_bookkeeping")
+    if not isinstance(frozen, dict):
+        return []
+    path = str(frozen.get("path") or "")
+    if path not in set(changed_paths) or contract_payload.get("quality_target") != path:
+        return []
+    try:
+        current = _quality_target_round_record(workspace, contract_payload)
+    except (OSError, UnicodeError, ValueError):
+        return []
+    if current is None:
+        return []
+    baseline_round = frozen.get("current_round")
+    current_round = current.get("current_round")
+    max_rounds = current.get("max_rounds")
+    if (
+        current.get("path") != path
+        or current.get("normalized_sha256") != frozen.get("normalized_sha256")
+        or max_rounds != frozen.get("max_rounds")
+        or not isinstance(baseline_round, int)
+        or not isinstance(current_round, int)
+        or not isinstance(max_rounds, int)
+        or current_round <= baseline_round
+        or not 1 <= current_round <= max_rounds
+    ):
+        return []
+    return [{"path": path, "baseline_round": baseline_round, "current_round": current_round}]
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -273,6 +344,23 @@ def _validate_baseline(payload: dict[str, Any]) -> None:
         raise ValueError("baseline workspace_fingerprint is invalid")
     if payload.get("source_fingerprint") != manifest_fingerprint(allowed_files):
         raise ValueError("baseline source_fingerprint is invalid")
+    bookkeeping = payload.get("quality_target_round_bookkeeping")
+    if bookkeeping is not None:
+        if not isinstance(bookkeeping, dict):
+            raise ValueError("baseline quality_target_round_bookkeeping must be an object")
+        path = str(bookkeeping.get("path") or "")
+        digest = str(bookkeeping.get("normalized_sha256") or "")
+        current_round = bookkeeping.get("current_round")
+        max_rounds = bookkeeping.get("max_rounds")
+        if (
+            not path.startswith("governance/targets/")
+            or not path.endswith(".md")
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or not isinstance(current_round, int)
+            or not isinstance(max_rounds, int)
+            or not 1 <= current_round <= max_rounds
+        ):
+            raise ValueError("baseline quality_target_round_bookkeeping is invalid")
 
 
 def _validate_permit(
@@ -447,6 +535,9 @@ def create_permit(workspace: Path, contract_payload: dict[str, Any]) -> Path:
         "source_fingerprint": manifest_fingerprint(allowed_files),
         "workspace_fingerprint": manifest_fingerprint(workspace_files),
     }
+    target_round = _quality_target_round_record(workspace, contract_payload)
+    if target_round is not None:
+        baseline["quality_target_round_bookkeeping"] = target_round
     paths["baseline"].write_text(json.dumps(baseline, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     permit = {
         "schema_version": 1,
@@ -559,7 +650,15 @@ def compute_diff_review(
     baseline_files = chain.baseline.get("workspace_files") or {}
     current_files = capture_workspace_manifest(workspace)
     all_paths = sorted(set(baseline_files) | set(current_files))
-    changed = [path for path in all_paths if baseline_files.get(path) != current_files.get(path)]
+    raw_changed = [path for path in all_paths if baseline_files.get(path) != current_files.get(path)]
+    round_bookkeeping = _round_bookkeeping_changes(
+        workspace,
+        contract_payload,
+        chain.baseline,
+        raw_changed,
+    )
+    bookkeeping_paths = {str(row["path"]) for row in round_bookkeeping}
+    changed = [path for path in raw_changed if path not in bookkeeping_paths]
     added = [path for path in changed if path not in baseline_files]
     deleted = [path for path in changed if path not in current_files]
     modified = [path for path in changed if path in baseline_files and path in current_files]
@@ -595,6 +694,7 @@ def compute_diff_review(
         "test_integrity_findings": [item for item in deterministic_findings if any(token in item for token in ("test_", "assertion", "skip_", "mock_"))],
         "forbidden_pattern_findings": [item for item in deterministic_findings if item.startswith(("forbidden_pattern", "invalid_forbidden_pattern"))],
         "deterministic_findings": deterministic_findings,
+        "round_bookkeeping": round_bookkeeping,
         "reviewer_findings": list(reviewer_findings or []),
     }
 
@@ -650,6 +750,7 @@ def validate_diff_review(
         "test_integrity_findings",
         "forbidden_pattern_findings",
         "deterministic_findings",
+        "round_bookkeeping",
     )
     for field in deterministic_fields:
         if payload.get(field) != recomputed.get(field):

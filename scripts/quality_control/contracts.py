@@ -433,6 +433,7 @@ def _allowed_change_paths(section: str, *, context: str) -> tuple[str, ...]:
 def _snapshot_ignored(relative: Path) -> bool:
     return (
         relative.as_posix() == "governance/active-change.json"
+        or relative.parts[:2] == ("governance", "repair-cases")
         or any(part in SNAPSHOT_IGNORED_PARTS for part in relative.parts)
         or is_runtime_artifact_path(relative)
         or relative.name in SNAPSHOT_IGNORED_NAMES
@@ -806,4 +807,3 @@ def _validate_replan_predecessor(
         "loop_status": "ARCHITECTURE_REPLAN_REQUIRED",
         "attestation_manifest_fingerprint": attestation.get("manifest_fingerprint"),
     }
-

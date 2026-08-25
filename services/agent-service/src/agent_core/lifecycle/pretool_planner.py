@@ -15,6 +15,8 @@ import json
 from typing import Any, Iterable
 
 from agent_core.goal_graph.compiler import compile_frozen_semantic_contract
+from agent_core.goal_graph.verifier import dataflow_closure
+from agent_core.kernel.semantic_contract import GOAL_INPUT_BINDING_AUTHORITY
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage
 from agent_core.lifecycle.semantic_contract import (
@@ -224,6 +226,26 @@ def build_pretool_shadow_plan(
     contract = state.get("frozen_semantic_contract")
     assert_semantic_contract_integrity(contract if isinstance(contract, dict) else None)
     goals = semantic_goals(state)
+    typed_goal_graph = compile_frozen_semantic_contract(
+        contract,
+        scope={
+            "tenant_id": state.get("current_tenant_id"),
+            "user_id": state.get("current_user_id"),
+            "thread_id": state.get("current_thread_id"),
+        },
+    )
+    typed_contract = contract.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY
+    typed_closure = dataflow_closure(typed_goal_graph, frozen_contract=contract)
+    if typed_contract and not typed_closure.get("ok"):
+        raise ValueError(
+            "TYPED_GOAL_DEPENDENCY_CLOSURE_INVALID:"
+            + ",".join(str(value) for value in list(typed_closure.get("errors") or []))
+        )
+    typed_dependencies = {
+        str(goal_id): [str(value) for value in list(values or []) if str(value)]
+        for goal_id, values in dict(typed_closure.get("derived_dependencies") or {}).items()
+        if str(goal_id)
+    }
     surface = discover_exact_effect_surface(capability_registry, goals)
     decisions = {
         str(row.get("goal_id") or ""): row
@@ -269,7 +291,11 @@ def build_pretool_shadow_plan(
         status = str(decision.get("status") or "absent_proven")
         if completion_tools and not any(row.get("status") == "closed" for row in paths):
             status = "contract_unresolved"
-        depends_on_goal_ids = [str(value) for value in list(goal.get("depends_on") or []) if str(value)]
+        depends_on_goal_ids = (
+            list(typed_dependencies.get(goal_id, []))
+            if typed_contract
+            else [str(value) for value in list(goal.get("depends_on") or []) if str(value)]
+        )
         for dependency in depends_on_goal_ids:
             dependency_edges.append({"from_goal_id": dependency, "to_goal_id": goal_id})
         goal_plans.append(
@@ -303,14 +329,6 @@ def build_pretool_shadow_plan(
     else:
         status = "MIGRATION_GAP_SHADOW"
 
-    typed_goal_graph = compile_frozen_semantic_contract(
-        contract,
-        scope={
-            "tenant_id": state.get("current_tenant_id"),
-            "user_id": state.get("current_user_id"),
-            "thread_id": state.get("current_thread_id"),
-        },
-    )
     global_coverage = build_goal_capability_coverage(
         goals=goals,
         goal_plans=goal_plans,

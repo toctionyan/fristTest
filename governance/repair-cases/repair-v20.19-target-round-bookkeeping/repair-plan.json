@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "repair-v20.19-target-round-bookkeeping",
+  "root_cause_proof_sha256": "f104021cb75ae54f0ead853645a9a64511b8d112a2067fb61b62773831a27482",
+  "status": "PROPOSED",
+  "strategy": "Freeze a normalized Target digest and round bounds in the permit baseline, then exempt a changed Target path only when its normalized digest and maximum round remain identical and its numeric current round advances within bounds.",
+  "changes": [
+    {
+      "path": "skill-system/controller/repair_governance.py",
+      "responsibility": "baseline-bound round bookkeeping and diff integrity decision",
+      "reason": "the current controller cannot distinguish a required round counter from an authoritative Target mutation"
+    },
+    {
+      "path": "skill-system/tests/test_repair_governance.py",
+      "responsibility": "round-only acceptance and Target tamper counterexamples",
+      "reason": "prove both the narrow exemption and fail-closed boundary"
+    }
+  ],
+  "unchanged_boundaries": [
+    "Product Quality Loop remains the sole owner of required_round sequencing.",
+    "Product ChangePermits still cannot allow governance Target paths.",
+    "Policy, Claim, evidence, closure and product runtime code remain unchanged."
+  ],
+  "forbidden_repairs": [
+    "Do not ignore governance/targets/** globally.",
+    "Do not admit arbitrary Target changes as bookkeeping.",
+    "Do not edit durable .quality state or prior evidence.",
+    "Do not weaken Change Contract product path validation."
+  ],
+  "forbidden_patterns": [],
+  "required_invariants": [
+    "Only the numeric 当前轮次 field may differ after normalization.",
+    "The current round must remain within the unchanged maximum round.",
+    "All other Target changes remain visible and out of scope."
+  ],
+  "required_tests": {
+    "focused": [
+      "repair governance owning unit suite"
+    ],
+    "counterexamples": [
+      "Target acceptance text mutation remains rejected",
+      "out-of-range round remains rejected"
+    ],
+    "regression": [
+      "product portability and project compatibility suites"
+    ],
+    "negative_path": [
+      "non-round Target changes cannot disappear from changed_paths"
+    ]
+  },
+  "rollback_plan": "Revert both files; existing baseline manifests without the optional round record remain fail closed and continue rejecting Target changes.",
+  "risks": [
+    "Over-broad normalization could hide a Target mutation.",
+    "A legacy baseline without the new record must not gain the exemption."
+  ]
+}

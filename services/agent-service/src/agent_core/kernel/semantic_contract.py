@@ -13,6 +13,9 @@ import math
 from typing import Any, Iterable
 
 FROZEN_SEMANTIC_CONTRACT_VERSION = "frozen-turn-semantic-contract@1"
+GOAL_INPUT_BINDING_VERSION = "goal-input-binding@1"
+GOAL_INPUT_BINDING_AUTHORITY = "typed_goal_input_bindings"
+LEGACY_DEPENDENCY_COMPATIBILITY_AUTHORITY = "legacy_depends_on_read_only"
 
 
 def _text(value: Any, *, limit: int = 2000) -> str:
@@ -175,6 +178,46 @@ def compute_semantic_digest(contract: dict[str, Any]) -> str:
     return sha256(digest_source.encode("utf-8")).hexdigest()
 
 
+def _condition_goal_dependencies(value: Any) -> set[str]:
+    if isinstance(value, dict):
+        dependencies = {
+            _text(value.get("goal_id"), limit=200)
+            if value.get("source") == "goal_output"
+            else ""
+        }
+        for child in value.values():
+            dependencies.update(_condition_goal_dependencies(child))
+        dependencies.discard("")
+        return dependencies
+    if isinstance(value, list):
+        result: set[str] = set()
+        for child in value:
+            result.update(_condition_goal_dependencies(child))
+        return result
+    return set()
+
+
+def goal_dependency_ids(goal: dict[str, Any] | None) -> list[str]:
+    """Project dependency IDs without creating a second semantic writer."""
+
+    row = goal if isinstance(goal, dict) else {}
+    if isinstance(row.get("input_bindings"), list):
+        values = [
+            _text((binding.get("source") or {}).get("producer_goal_id"), limit=200)
+            for binding in row["input_bindings"]
+            if isinstance(binding, dict)
+            and isinstance(binding.get("source"), dict)
+            and binding["source"].get("kind") == "current_goal_output"
+        ]
+        values.extend(sorted(_condition_goal_dependencies(row.get("condition"))))
+    else:
+        values = [
+            _text(value, limit=200)
+            for value in list(row.get("depends_on") or [])
+        ]
+    return list(dict.fromkeys(value for value in values if value))
+
+
 def find_goal_dependency_cycle(goals: list[dict[str, Any]]) -> list[str]:
     """Return one deterministic Goal dependency cycle, including its start twice.
 
@@ -202,7 +245,7 @@ def find_goal_dependency_cycle(goals: list[dict[str, Any]]) -> list[str]:
                 dependency
                 for dependency in (
                     _text(value, limit=200)
-                    for value in list(row.get("depends_on") or [])
+                    for value in goal_dependency_ids(row)
                 )
                 if dependency and dependency in goal_ids
             )
@@ -266,14 +309,85 @@ def semantic_contract_integrity(contract: dict[str, Any] | None) -> dict[str, An
     if any(not goal_id for goal_id in goal_ids) or len(goal_ids) != len(set(goal_ids)):
         return {"ok": False, "code": "SEMANTIC_CONTRACT_GOAL_IDS_INVALID"}
     known = set(goal_ids)
+    dependency_authority = _text(contract.get("dependency_authority"), limit=120)
+    typed_contract = dependency_authority == GOAL_INPUT_BINDING_AUTHORITY
+    legacy_contract = dependency_authority in {
+        "",
+        LEGACY_DEPENDENCY_COMPATIBILITY_AUTHORITY,
+    }
+    if not typed_contract and not legacy_contract:
+        return {"ok": False, "code": "SEMANTIC_CONTRACT_DEPENDENCY_AUTHORITY_INVALID"}
     for row in goals:
         goal_id = _text(row.get("goal_id"), limit=200)
+        if typed_contract:
+            if not isinstance(row.get("input_bindings"), list):
+                return {
+                    "ok": False,
+                    "code": "SEMANTIC_CONTRACT_INPUT_BINDINGS_REQUIRED",
+                    "goal_id": goal_id,
+                }
+            if "depends_on" in row:
+                return {
+                    "ok": False,
+                    "code": "SEMANTIC_CONTRACT_RAW_DEPENDENCY_FORBIDDEN",
+                    "goal_id": goal_id,
+                }
+            for binding in row["input_bindings"]:
+                if not isinstance(binding, dict) or binding.get("version") != GOAL_INPUT_BINDING_VERSION:
+                    return {
+                        "ok": False,
+                        "code": "SEMANTIC_CONTRACT_INPUT_BINDING_INVALID",
+                        "goal_id": goal_id,
+                    }
+                unsigned = deepcopy(binding)
+                stored_binding_digest = _text(unsigned.pop("binding_digest", None), limit=128)
+                expected_binding_digest = sha256(
+                    json.dumps(
+                        unsigned,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                if not stored_binding_digest or stored_binding_digest != expected_binding_digest:
+                    return {
+                        "ok": False,
+                        "code": "SEMANTIC_CONTRACT_INPUT_BINDING_DIGEST_INVALID",
+                        "goal_id": goal_id,
+                    }
+                source = binding.get("source") if isinstance(binding.get("source"), dict) else {}
+                kind = _text(source.get("kind"), limit=80)
+                relation = _text(binding.get("relation_kind"), limit=80)
+                if kind == "current_goal_output":
+                    if relation not in {"result_reference", "result_value_input"}:
+                        return {
+                            "ok": False,
+                            "code": "SEMANTIC_CONTRACT_INPUT_BINDING_RELATION_INVALID",
+                            "goal_id": goal_id,
+                        }
+                elif kind == "current_text":
+                    if relation != "shared_subject":
+                        return {
+                            "ok": False,
+                            "code": "SEMANTIC_CONTRACT_INPUT_BINDING_RELATION_INVALID",
+                            "goal_id": goal_id,
+                        }
+                elif kind == "visible_result_ref":
+                    if relation != "historical_result":
+                        return {
+                            "ok": False,
+                            "code": "SEMANTIC_CONTRACT_INPUT_BINDING_RELATION_INVALID",
+                            "goal_id": goal_id,
+                        }
+                else:
+                    return {
+                        "ok": False,
+                        "code": "SEMANTIC_CONTRACT_INPUT_BINDING_SOURCE_INVALID",
+                        "goal_id": goal_id,
+                    }
         unknown = [
             dependency
-            for dependency in (
-                _text(value, limit=200)
-                for value in list(row.get("depends_on") or [])
-            )
+            for dependency in goal_dependency_ids(row)
             if dependency and dependency not in known
         ]
         if unknown:
@@ -312,10 +426,14 @@ def semantic_goals(state_or_contract: dict[str, Any]) -> list[dict[str, Any]]:
 
 __all__ = [
     "FROZEN_SEMANTIC_CONTRACT_VERSION",
+    "GOAL_INPUT_BINDING_VERSION",
+    "GOAL_INPUT_BINDING_AUTHORITY",
+    "LEGACY_DEPENDENCY_COMPATIBILITY_AUTHORITY",
     "GOAL_TARGET_COMPATIBILITY_VERSION",
     "compute_semantic_digest",
     "derive_goal_target_identity",
     "find_goal_dependency_cycle",
+    "goal_dependency_ids",
     "prove_goal_target_compatibility",
     "semantic_contract_integrity",
     "assert_semantic_contract_integrity",

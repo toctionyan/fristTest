@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "repair-v20.19-skill-goal-binding-oracle-cutover",
+  "repair_plan_sha256": "5f5cd26628aeac545c3f80397f0ddc5b7b33e41beb328b8bedbd5b1de035c266",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "skill_rule_mappings": [
+    "The patch changes only one stale Skill oracle and cannot modify product behavior.",
+    "The replacement assertions strengthen the single-writer boundary instead of accepting both depends_on and input_bindings.",
+    "Historical fixture compatibility remains observable but loses no raw-edge rejection coverage.",
+    "All required Skill profiles remain mandatory before closure."
+  ],
+  "approved_paths": ["skill-system/tests/test_wp08_post_attempt8_dependency_repair.py"]
+}

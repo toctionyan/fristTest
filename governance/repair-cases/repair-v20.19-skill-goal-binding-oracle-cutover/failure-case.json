@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "repair-v20.19-skill-goal-binding-oracle-cutover",
+  "classification": "test-oracle-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "The Skill control-plane oracle verifies that live declarations cannot write depends_on and must express actual same-turn result consumption through typed input_bindings.",
+    "actual": "The post-attempt8 Skill oracle indexes goal.properties.depends_on and requires retired depends_on prompt text, producing one error and one failure after the live protocol cutover.",
+    "evidence_refs": [
+      "skill-system/tests/test_wp08_post_attempt8_dependency_repair.py",
+      "services/agent-service/src/agent_core/lifecycle/protocol.py",
+      "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py"
+    ]
+  },
+  "violated_invariants": [
+    "Skill tests must assert the current single dependency authority rather than require a retired writer.",
+    "Test migration may not delete the negative distinction between real result consumption, shared subject and unsupported sibling Goals."
+  ],
+  "affected_boundaries": [
+    "Skill control-plane unit profile",
+    "post-attempt8 dependency regression oracle"
+  ]
+}

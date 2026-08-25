@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "repair-v20.19-skill-goal-binding-oracle-cutover",
+  "repair_plan_sha256": "5f5cd26628aeac545c3f80397f0ddc5b7b33e41beb328b8bedbd5b1de035c266",
+  "plan_review_sha256": "aa0b59a0b880d0cc984d437625f022ba0d8aaedf4732689536035d9aefa9dcf0",
+  "baseline_manifest_sha256": "f25703417383e01f647d0fcc177264449f610be9c99868334823ce6f3a4c3166",
+  "allowed_paths": [
+    "skill-system/tests/test_wp08_post_attempt8_dependency_repair.py"
+  ],
+  "forbidden_paths": [
+    "services/**",
+    "web/**",
+    "contracts/**"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "post-attempt8 dependency repair Skill test"
+    ],
+    "counterexamples": [
+      "unsupported sibling remains independent",
+      "true result reference emits current_goal_output"
+    ],
+    "regression": [
+      "full skill-unit profile",
+      "project compatibility profile"
+    ],
+    "negative_path": [
+      "raw depends_on absent from live schema",
+      "shared subject creates no current_goal_output binding"
+    ]
+  },
+  "baseline_source_fingerprint": "2e3a4b1b993681fd49a5ecf1d10fbe930ab0be0d1b559d847538e79776c5fc8b",
+  "baseline_workspace_fingerprint": "015a4ca353d158695a27a512e4c571f4a89ca195e1a65087179082ee02f63727",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "642b439edfd35995bdbeee7a54f22a3f52119e9e416d57efdcb292e26070eac3"
+}

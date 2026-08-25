@@ -16,18 +16,23 @@ class PostAttempt8DependencyRepairTests(unittest.TestCase):
         from agent_core.lifecycle.protocol import DECLARE_TURN_GOALS_SCHEMA
 
         goal = DECLARE_TURN_GOALS_SCHEMA["function"]["parameters"]["properties"]["goals"]["items"]
-        description = goal["properties"]["depends_on"]["description"]
-        self.assertIn("真实结果依赖", description)
-        self.assertIn("再/然后/另外", description)
-        self.assertIn("共享同一业务对象", description)
-        self.assertIn("能力缺失", description)
-        self.assertIn("它/这个/其中某项", description)
+        properties = goal["properties"]
+        required = set(goal["required"])
+        self.assertNotIn("depends_on", properties)
+        self.assertIn("input_bindings", properties)
+        self.assertIn("input_bindings", required)
+        binding_schema = properties["input_bindings"]
+        binding_text = json.dumps(binding_schema, ensure_ascii=False)
+        self.assertIn("current_goal_output", binding_text)
+        self.assertIn("visible_result_ref", binding_text)
+        self.assertIn("current_text", binding_text)
 
     def test_planning_prompt_carries_the_same_dependency_boundary(self) -> None:
         source = (ROOT / "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py").read_text(encoding="utf-8")
-        self.assertIn("depends_on 只表示真实结果依赖", source)
+        self.assertIn("禁止输出 depends_on", source)
+        self.assertIn("Runtime 只从已验证 input_bindings 和 condition 确定性编译图边", source)
         self.assertIn("共享业务对象或共享主题只是话语顺序/共同范围", source)
-        self.assertIn("因 unsupported 状态附加依赖", source)
+        self.assertIn("系统没有对应能力时仍保留原 Goal", source)
 
     def test_independent_alignment_verifier_rejects_spurious_dependency_semantics(self) -> None:
         source = (ROOT / "services/agent-service/src/agent_core/lifecycle/goal_planning.py").read_text(encoding="utf-8")

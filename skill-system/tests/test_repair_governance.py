@@ -44,6 +44,27 @@ class RepairGovernanceTest(unittest.TestCase):
         )
         _write(self.root / "README.md", "baseline\n")
         self.change_id = "repair-example-001"
+        self.target_path = self.root / "governance/targets" / f"{self.change_id}.md"
+        _write(
+            self.target_path,
+            f"""# 目标
+
+- 目标 ID：{self.change_id}
+
+## 允许范围
+
+- 允许变更路径：`src/module.py`
+
+## 验收条件
+
+module tests pass
+
+## 修复轮次
+
+- 最大轮次：4
+- 当前轮次：1
+""",
+        )
         self.case_dir = self.root / "governance/repair-cases" / self.change_id
         self.contract = {
             "schema_version": 1,
@@ -51,6 +72,7 @@ class RepairGovernanceTest(unittest.TestCase):
             "target_kind": "repair",
             "allowed_paths": ["src/module.py", "tests/test_module.py", "tests/test_new.py"],
             "forbidden_paths": ["governance/**", ".quality/**"],
+            "quality_target": self.target_path.relative_to(self.root).as_posix(),
             "repair_governance": self.case_dir.relative_to(self.root).as_posix(),
         }
         self._write_prerequisites()
@@ -171,6 +193,54 @@ class RepairGovernanceTest(unittest.TestCase):
         review = compute_diff_review(self.root, self.contract)
         self.assertEqual(review["decision"], "REJECT")
         self.assertIn("README.md", review["out_of_scope_paths"])
+
+    def test_diff_review_accepts_only_current_round_bookkeeping(self) -> None:
+        self._permit()
+        self._valid_candidate()
+        target = self.target_path.read_text(encoding="utf-8")
+        _write(self.target_path, target.replace("当前轮次：1", "当前轮次：2"))
+
+        review = compute_diff_review(self.root, self.contract)
+
+        self.assertEqual(review["decision"], "PASS")
+        self.assertNotIn(self.target_path.relative_to(self.root).as_posix(), review["changed_paths"])
+        self.assertEqual(
+            review["round_bookkeeping"],
+            [{
+                "path": self.target_path.relative_to(self.root).as_posix(),
+                "baseline_round": 1,
+                "current_round": 2,
+            }],
+        )
+
+    def test_diff_review_rejects_target_text_change_beside_round(self) -> None:
+        self._permit()
+        self._valid_candidate()
+        target = self.target_path.read_text(encoding="utf-8")
+        target = target.replace("当前轮次：1", "当前轮次：2")
+        target = target.replace("module tests pass", "weakened acceptance")
+        _write(self.target_path, target)
+
+        review = compute_diff_review(self.root, self.contract)
+
+        target_rel = self.target_path.relative_to(self.root).as_posix()
+        self.assertEqual(review["decision"], "REJECT")
+        self.assertIn(target_rel, review["changed_paths"])
+        self.assertIn(target_rel, review["out_of_scope_paths"])
+        self.assertEqual(review["round_bookkeeping"], [])
+
+    def test_diff_review_rejects_invalid_round_bookkeeping(self) -> None:
+        self._permit()
+        self._valid_candidate()
+        target = self.target_path.read_text(encoding="utf-8")
+        _write(self.target_path, target.replace("当前轮次：1", "当前轮次：9"))
+
+        review = compute_diff_review(self.root, self.contract)
+
+        target_rel = self.target_path.relative_to(self.root).as_posix()
+        self.assertEqual(review["decision"], "REJECT")
+        self.assertIn(target_rel, review["out_of_scope_paths"])
+        self.assertEqual(review["round_bookkeeping"], [])
 
     def test_test_integrity_rejects_skip_and_assertion_reduction(self) -> None:
         self._permit()

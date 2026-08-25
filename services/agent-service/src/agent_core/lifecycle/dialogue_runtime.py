@@ -77,7 +77,7 @@ def _goal_declaration_protocol_repair_rule(state: dict[str, Any]) -> str | None:
         return None
     return (
         "上一次统一语义声明没有产生且仅产生一次 declare_turn_goals 调用；纯文本回答不能建立本轮正式语义，也不会发送给用户。"
-        "本次仍处于同一个用户回合的语义声明阶段，必须只调用一次 declare_turn_goals，重新完整声明当前用户原话中的 Goal、条件和依赖；"
+        "本次仍处于同一个用户回合的语义声明阶段，必须只调用一次 declare_turn_goals，重新完整声明当前用户原话中的 Goal、条件和输入绑定；"
         "不得直接回答用户、不得调用业务能力、不得根据上一次纯文本自行冻结语义。"
     )
 
@@ -608,7 +608,7 @@ def _loop_runtime_prompt(
         )
     elif planning_phase:
         planning_rule = (
-            "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出能力无关 requested_effect(domain/operation/object_type + requested_outputs)、字面 evidence_span、对象/输入候选、封闭 condition 和依赖。domain/operation/object_type 仅保持开放语义兼容形状；requested_outputs 从当前能力无关语义输出词汇选择并作为冻结后的精确输出合同，没有对应概念时使用 open，绝不能按已安装能力改写。depends_on 只表示真实结果依赖：只有后一个 Goal 的目标、输入、条件或完成含义必须使用前一个 Goal 的结果才依赖；并列、再/然后/另外、共享业务对象或共享主题只是话语顺序/共同范围，不得据此制造依赖。同一用户原话中前文已明确业务对象或范围、后文真正省略重复对象（零指代）时，应继承这个已明示范围作为省略语义，不得因此依赖前一个 Goal 的执行结果；即使后续执行需要先做一次读取把这个已明示对象解析成稳定 ID/artifact handle，那也是执行支持数据流，不是 Goal 语义依赖。若后一个 Goal 使用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，或条件显式依赖前一个结果，则应声明 depends_on；这种显式结果指代不是普通零指代省略，并且优先于上一条省略规则。显式引用历史结果、历史轮次或展示顺序成员时必须给出 reference_expression，由 Runtime 解析并只接受 UNIQUE 证明。对于没有明确要求回到更早结果的承接式历史引用，由你根据对话语义判断是否承接最近一次客户可见结果；若是，应提出 temporal_visible_result/latest 关系。更早的可见结果仍保留给显式回看，但它们仅仅存在并不会自动让最近结果的承接变成歧义；Runtime 仍不会自动选择目标。系统没有对应能力时仍保留原 Goal且保持原本的独立/依赖关系，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力或因 unsupported 状态附加依赖。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
+            "当前处于统一语义声明阶段：只能调用 declare_turn_goals。先完整理解当前原话与公开上下文，再按用户可独立判断完成与否的业务效果拆 Goal；不要按接口、Tool 或现有能力数量拆，也不要把筛选、输入、前置校验、政策读取、Draft 或展示步骤提升为 Goal。每个 Goal 必须给出能力无关 requested_effect(domain/operation/object_type + requested_outputs)、字面 evidence_span、对象/输入候选、封闭 condition 和 input_bindings。domain/operation/object_type 仅保持开放语义兼容形状；requested_outputs 从当前能力无关语义输出词汇选择并作为冻结后的精确输出合同，没有对应概念时使用 open，绝不能按已安装能力改写。禁止输出 depends_on，Runtime 只从已验证 input_bindings 和 condition 确定性编译图边。只有后一个 Goal 的目标或值输入明确消费前一个 Goal 尚未产生的输出时，才添加 source.kind=current_goal_output，并精确填写 producer_goal_id、output_id、relation_kind、expected_cardinality 和字面 evidence_span。并列、再/然后/另外、共享业务对象或共享主题只是话语顺序/共同范围；两个 Goal 直接共享当前原文对象时分别使用 current_text，不得把共享对象改写成结果消费。同一用户原话中前文已明确业务对象或范围、后文真正省略重复对象（零指代）时，应继承这个已明示范围作为 current_text 语义，不得消费前一个 Goal 的执行结果；即使执行需要读取稳定 ID/artifact handle，也只是执行支持数据流。若后一个 Goal 使用显式指代表达（例如它/这个/其中某项）指向本轮前一个 Goal 尚未产生的结果，则使用 current_goal_output；若 condition 的操作数显式引用前一个 Goal 输出，只在 condition AST 中声明，Runtime 会从该操作数编译 result_condition 边，不要重复添加输入绑定。显式引用历史结果、历史轮次或展示顺序成员时使用 reference_expression 和 visible_result_ref；它不是当前轮 Goal 数据边。任何 collection→single、类型、目标身份或 scope 投影都不得猜测，无法精确证明时必须澄清。系统没有对应能力时仍保留原 Goal及其原始引用关系，后续由 Capability MatchProof 证明缺失，禁止改写成相近能力。goal_type 只在旧能力合同确实需要时作为兼容提示，不是正式语义。"
             + (
                 " 当前存在一个或多个 Goal Blocker：只处理本轮明确涉及的 blocker，可同时解决一个 blocker、新建独立 Goal、暂停或替换另一个 Goal。使用 blocker_resolutions/goal_changes 表达具体状态操作；已有 Goal/Focus 的 expected_revision 必须复制 ContextBundle 当前值，evidence_span 必须是本轮原话连续片段；requested_effect 变化必须新建 Goal 并 supersede，不能 PATCH 偷换。不得强迫整轮采用一个全局 disposition；只提交 goal_changes 和 blocker_resolutions。"
                 if blocker_context is not None else ""
@@ -714,7 +714,12 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
     if alignment and str(alignment.get("verdict") or "") != "exact":
         reason_code = str(alignment.get("reason_code") or "")
         if reason_code == "goal_alignment_dependency_graph_mismatch":
-            field = "depends_on"
+            details = alignment.get("details") if isinstance(alignment.get("details"), dict) else {}
+            field = (
+                "depends_on"
+                if str(details.get("dependency_authority") or "") == "independent_goal_alignment"
+                else "input_bindings"
+            )
         for value in list(alignment.get("missing_spans") or []):
             span = str(value or "").strip()
             if span and span not in spans:
@@ -740,8 +745,8 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
         field = violation_field
     elif authority == "candidate_blind_goal_inventory":
         field = "goal_inventory"
-    elif authority == "independent_goal_alignment":
-        field = "depends_on"
+    elif authority == "independent_goal_alignment" and field != "depends_on":
+        field = "input_bindings"
     for key in ("uncovered_outcome_spans", "invalid_scope_constraint_spans", "invalid_requested_output_spans"):
         for value in list(feedback.get(key) or []):
             span = str(value or "").strip()
@@ -755,7 +760,7 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
             if span and span not in spans:
                 spans.append(span)
 
-    if field == "depends_on" and reason_code == "goal_alignment_dependency_graph_mismatch":
+    if field in {"depends_on", "input_bindings"} and reason_code == "goal_alignment_dependency_graph_mismatch":
         # Keep raw verifier graph replacement out of the diagnostic feedback.
         # A reducer-sealed relation delta, when available, travels separately in
         # repair_contract.authoritative_dependency_delta. The diagnostic still
@@ -804,12 +809,31 @@ def _semantic_writer_declaration_result_projection(result: dict[str, Any]) -> di
             writer_constraints.insert(0,
                 "rederive_requested_outputs_from_current_user_input_and_semantic_vocabulary_use_open_when_no_exact_registered_meaning_exists"
             )
+        elif field == "input_bindings":
+            dependency_constraints = [
+                "rederive_input_bindings_from_current_user_input_without_copying_a_verifier_graph",
+                "explicit_same_turn_result_reference_or_result_value_input_uses_current_goal_output",
+                "result_condition_is_expressed_once_in_condition_ast",
+                "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_current_goal_output_bindings",
+                "runtime_deterministically_compiles_edges_and_verifier_feedback_has_no_graph_write_authority",
+            ]
+            if dependency_delta_kind == "missing_grounded_relation":
+                dependency_constraints.insert(0,
+                    "candidate_is_missing_at_least_one_grounded_relation_rederive_and_add_only_relations_proved_by_current_user_input"
+                )
+            elif dependency_delta_kind == "unproved_declared_relation":
+                dependency_constraints.insert(0,
+                    "candidate_contains_at_least_one_unproved_relation_rederive_and_remove_only_relations_not_proved_by_current_user_input"
+                )
+            elif dependency_delta_kind == "mixed_relation_delta":
+                dependency_constraints.insert(0,
+                    "candidate_both_omits_and_asserts_dependency_relations_rederive_the_complete_graph_from_current_user_input"
+                )
+            writer_constraints = [*dependency_constraints, *writer_constraints]
         elif field == "depends_on":
             dependency_constraints = [
-                "apply_repair_contract_authoritative_dependency_delta_exactly_when_present_otherwise_rederive_depends_on_from_current_user_input",
                 "explicit_same_turn_result_reference_result_condition_or_result_value_input_requires_depends_on",
                 "sequence_shared_topic_zero_anaphora_and_execution_support_dataflow_do_not_create_depends_on",
-                "diagnostic_dependency_delta_kind_is_not_write_authority_only_repair_contract_authoritative_dependency_delta_is",
             ]
             if dependency_delta_kind == "missing_grounded_relation":
                 dependency_constraints.insert(0,
@@ -1115,8 +1139,37 @@ def agent_loop_node(
             "decision_chain": _append_decision(state, stage="agent_loop", decision="loop_budget_exhausted", details={"max_steps": state.get("agent_loop_max_steps")}),
         }
     try:
-        model = model_resolver()
         planning_phase = not goal_plan_ready(state)
+        model_profile = get_model_profile()
+        if planning_phase and not bool(model_profile.get("tool_choice_supported", True)):
+            safe = "当前模型提供方不支持强制结构化目标声明，系统未执行任何业务操作。请稍后重试。"
+            return {
+                "current_final_answer": safe,
+                "runtime_outcome": outcome(
+                    "system_unavailable",
+                    correlation_id=str(state.get("correlation_id") or "") or None,
+                    customer_safe_summary=safe,
+                    next_interaction="retry_later",
+                    payload={"reason": "semantic_declaration_tool_choice_unsupported"},
+                ).as_dict(),
+                "phase": "final",
+                "status": "SemanticDeclarationProviderIncompatible",
+                "tool_error": {
+                    "type": "ProviderProtocolIncompatible",
+                    "message": "declare_turn_goals requires provider-enforced named tool_choice",
+                },
+                "decision_chain": _append_decision(
+                    state,
+                    stage="agent_loop",
+                    decision="semantic_declaration_provider_incompatible",
+                    details={
+                        "provider": model_profile.get("provider"),
+                        "model": model_profile.get("model"),
+                        "required_tool_name": "declare_turn_goals",
+                    },
+                ),
+            }
+        model = model_resolver()
         declaration_clarification_mode = planning_phase and _declaration_clarification_required(state)
         pre_model_budget = compute_loop_budget(state)
         history_recall_ready = (

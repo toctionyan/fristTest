@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "repair-v20.19-skill-goal-binding-oracle-cutover",
+  "failure_case_sha256": "ad75548eda7ec181dbab2f2155b2bb1bef88c43619bb24497fa2e4fa992d0ee4",
+  "decision": "PROVEN",
+  "root_cause": "The product migration updated the provider schema and declaration instruction, but one Skill unit oracle still treats the retired depends_on field and prompt wording as required live behavior.",
+  "causal_chain": [
+    "The live provider schema removes goal.properties.depends_on and requires input_bindings.",
+    "The dialogue declaration instruction forbids depends_on and assigns deterministic compilation to Runtime.",
+    "The stale Skill oracle directly indexes the removed property and searches for the retired prompt sentence.",
+    "The Skill control-plane profile therefore fails before the Playwright quality job can start."
+  ],
+  "evidence_refs": [
+    "skill-system/tests/test_wp08_post_attempt8_dependency_repair.py",
+    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py"
+  ],
+  "rejected_hypotheses": [
+    "Restoring depends_on to the provider schema is forbidden because it recreates a second live graph writer.",
+    "Deleting the Skill test is forbidden because it would remove historical multi-goal counterexamples.",
+    "Skipping skill-control-plane is forbidden because it is a required CI predecessor."
+  ],
+  "affected_boundaries": ["Skill oracle", "live declaration protocol assertion"]
+}

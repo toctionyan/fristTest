@@ -29,6 +29,8 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage  # 
 from agent_core.config import get_model, get_model_profile  # noqa: E402
 from agent_core.lifecycle.protocol import planning_schemas  # noqa: E402
 from agent_core.lifecycle.goal_planning import validate_goal_declaration  # noqa: E402
+from agent_core.goal_graph.compiler import compile_frozen_semantic_contract  # noqa: E402
+from agent_core.goal_graph.verifier import dataflow_closure  # noqa: E402
 from agent_core.lifecycle.dialogue_runtime import (  # noqa: E402
     _semantic_writer_declaration_result_projection,
 )
@@ -215,6 +217,7 @@ def _match_oracle(
     oracle: list[dict[str, Any]],
     goals: list[dict[str, Any]],
     registered_effect_identities: set[str] | None = None,
+    declared: dict[str, Any] | None = None,
 ) -> None:
     """Match only canonical requested outputs; legacy triplets are non-authoritative."""
 
@@ -281,13 +284,33 @@ def _match_oracle(
         raise RuntimeError(f"{case_id}: model emitted undeclared extra goals")
 
     goals_by_id = {str(row.get("goal_id") or ""): row for row in goals}
+    compiled_dependencies: dict[str, list[str]] | None = None
+    if isinstance(declared, dict):
+        frozen = declared.get("_frozen_semantic_contract")
+        if not isinstance(frozen, dict):
+            raise RuntimeError(f"{case_id}: production declaration did not retain FrozenSemanticContract")
+        graph = compile_frozen_semantic_contract(
+            frozen,
+            scope={"tenant_id": "preprod", "user_id": "preprod", "thread_id": case_id},
+        )
+        closure = dataflow_closure(graph, frozen_contract=frozen)
+        if not closure.get("ok"):
+            raise RuntimeError(f"{case_id}: compiled dependency graph is not closed: {closure!r}")
+        compiled_dependencies = dict(closure.get("derived_dependencies") or {})
     for expected in oracle:
         expected_dependencies = {
             oracle_to_goal.get(str(value), "<unmatched>")
             for value in expected.get("depends_on") or []
         }
         goal = goals_by_id[oracle_to_goal[str(expected["oracle_id"])]]
-        actual_dependencies = {str(value) for value in goal.get("depends_on") or []}
+        actual_dependencies = {
+            str(value)
+            for value in (
+                compiled_dependencies.get(str(goal.get("goal_id") or ""), [])
+                if compiled_dependencies is not None
+                else goal.get("depends_on") or []
+            )
+        }
         if actual_dependencies != expected_dependencies:
             raise RuntimeError(
                 f"{case_id}: goal dependency mismatch for oracle {expected['oracle_id']}; "
@@ -699,7 +722,7 @@ def main() -> int:
         )
         evidence: list[dict[str, Any]] = []
         system = SystemMessage(content=(
-            "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和依赖。"
+            "只执行目标声明：调用 declare_turn_goals，完整保留用户的每一个目标、条件和输入来源。"
             "Goal 只表示用户可独立判断完成与否的业务效果；筛选、选目标、输入、前置校验、政策读取、Draft 和展示都只是实现步骤，不能单独提升为 Goal。"
             "requested_effect.requested_outputs 是新轮语义身份的唯一权威；每个 output_id 必须从下面的 capability-independent semantic vocabulary 精确选择。"
             "domain、operation、object_type 仍按用户开放业务语义填写，但只是非权威兼容元数据，不能覆盖 requested_outputs。"
@@ -708,13 +731,13 @@ def main() -> int:
             "能力词汇中没有精确身份的分支也必须保留成独立 Goal；不能把不支持分支吞掉，也不能用相似能力代替。"
             "evidence_span 必须来自用户原话；requested_outputs[].evidence_span 也必须是该 Goal 原话中的直接连续证据。"
             "多目标时，每个 Goal 的 evidence_span 必须只覆盖该 Goal 的局部连续原文，不能把整句或兄弟 Goal 的文字重复给多个 Goal。局部 evidence_span 只证明该 Goal 的业务效果；若后续独立 Goal 以零指代继承同句前文已经明示的目标身份，不要求把前文目标词复制进后续 evidence_span，也不得把对象/成员身份伪装成 target_candidate.scope_constraints。只有真正缩小目标/结果人口的筛选、状态、阈值或比较才属于 scope_constraints；完整用户原话中的共享目标身份仍可直接作为同轮语义上下文。"
-            "同一当前轮中后续目标依赖前一目标时只用 depends_on；前文已明示对象而后文真正省略重复对象（零指代）只是共享范围，不产生依赖；判断依赖必须做结果反事实：假设前一 Goal 的用户可见结果尚未产生，但保留当前原话已经明示的对象、范围和约束；若后一 Goal 仍可独立确定自己的业务结果并独立判断完成，则 depends_on 必须为空，不能因为再/然后等顺序表达、共享主题或执行时需要解析稳定 ID 而制造依赖。只有拿掉前一 Goal 的结果后，后一 Goal 的目标、值输入、条件或可完成含义本身无法成立时才依赖；但后文若用显式指代表达指向前一个 Goal 尚未产生的本轮结果，则这不是普通省略，真实结果依赖优先，必须 depends_on 前一个 Goal。reference_expression 只用于已经在更早轮次向客户展示的历史结果，"
+            "禁止输出 depends_on。只有后一 Goal 的目标或值输入明确消费前一 Goal 尚未产生的输出时，才声明 input_bindings，source.kind=current_goal_output，并精确填写 producer_goal_id、output_id、relation_kind、expected_cardinality 与字面 evidence_span；Runtime 从它确定性编译依赖边。前文已明示对象而后文真正省略重复对象（零指代）只是共享 current_text 范围，不产生依赖；不能因为再/然后等顺序表达、共享主题或执行时需要解析稳定 ID 而制造 current_goal_output。显式指代前一 Goal 本轮结果才是 result_reference。条件若引用前一 Goal 输出，只写 Condition AST 的 goal_output 操作数，不重复添加 binding。reference_expression 与 visible_result_ref 只用于已经在更早轮次向客户展示的历史结果，"
             "不能引用本轮尚未执行目标的未来结果。"
         ))
         # The normal declaration budget remains two attempts. Each accepted
-        # declaration is checked by both independent model validators: alignment
-        # owns the complete grounded dependency graph, while candidate-blind
-        # granularity owns only outcome decomposition. The optional third call is
+        # declaration is checked by independent semantic auditors, but neither
+        # owns or repairs the dependency graph; deterministic compilation of the
+        # accepted input bindings is the only dependency authority. The optional third call is
         # declaration-only and is reachable only after two pure literal-grounding
         # failures, which return before either verifier runs. Its worst case is
         # therefore 2 declaration failures + (1 declaration + 2 alignment +
@@ -736,6 +759,7 @@ def main() -> int:
                     case_id=case["id"],
                     oracle=oracle,
                     goals=goals,
+                    declared=declared,
                 )
                 trace = declaration_evidence["trace"]
                 attestation = declaration_evidence["attestation"]
