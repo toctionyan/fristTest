@@ -477,6 +477,7 @@ def goal_effect_match_proof(
         requested_effect = (goal or {}).get("requested_effect")
         identity = canonical_effect_identity(requested_effect)
         semantic_identity = canonical_semantic_effect_identity(requested_effect)
+        typed_request = _typed_effect_request(requested_effect)
         role = "none"
         is_v2 = contract is not None and str(getattr(contract, "contract_version", "")) == "2"
         declared_v2 = {
@@ -484,11 +485,12 @@ def goal_effect_match_proof(
             for value in tuple(getattr(contract, "semantic_effects_v2", ()) or ())
             if str(value)
         } if is_v2 else set()
-        if is_v2 and semantic_identity and semantic_identity in declared_v2:
+        if is_v2 and typed_request and semantic_identity and semantic_identity in declared_v2:
             role = "completion"
             has_completion = True
         elif (
             is_v2
+            and not typed_request
             and not declared_v2
             and contract is not None
             and identity in completion_effects_for_contract(contract)
@@ -498,10 +500,33 @@ def goal_effect_match_proof(
             # contracts publish non-empty declarations and remain strict.
             role = "completion"
             has_completion = True
+        elif (
+            is_v2
+            and not typed_request
+            and contract is not None
+            and identity in completion_effects_for_contract(contract)
+        ):
+            # Legacy goal payloads remain readable through the old exact
+            # alias vocabulary, including semantic-output aliases compiled
+            # from the module-owned migration snapshot.
+            role = "completion"
+            has_completion = True
         elif not is_v2 and contract is not None and identity in _matching_effects_for_contract(contract):
             role = "completion"
             has_completion = True
-        elif is_v2 and contract is not None and semantic_identity in _matching_effects_for_contract(contract, support=True):
+        elif (
+            is_v2
+            and typed_request
+            and contract is not None
+            and semantic_identity in _matching_effects_for_contract(contract, support=True)
+        ):
+            role = "support"
+        elif (
+            is_v2
+            and not typed_request
+            and contract is not None
+            and identity in support_effects_for_contract(contract)
+        ):
             role = "support"
         elif not is_v2 and contract is not None and identity in _matching_effects_for_contract(contract, support=True):
             role = "support"
@@ -536,7 +561,9 @@ def goal_effect_match_proof(
         rows.append(
             {
                 "goal_id": goal_id,
-                "requested_effect_identity": (semantic_identity if is_v2 else identity) or None,
+                "requested_effect_identity": (
+                    semantic_identity if is_v2 and typed_request else identity
+                ) or None,
                 "role": role,
                 "completion_proof_output": completion_proof_output,
                 "multi_goal_completion_proof_required": multi_goal_completion_proof_required,
