@@ -16,13 +16,16 @@ used as formal capability identity.
 
 from copy import deepcopy
 from functools import lru_cache
+from hashlib import sha256
 from itertools import combinations
+import json
 from typing import Any, Iterable
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.kernel.semantic_contract import semantic_goals
 
 CAPABILITY_EFFECT_INDEX_VERSION = "capability-effect-index@2"
+SEMANTIC_EFFECT_IDENTITY_VERSION = "semantic-effect@2"
 
 
 def _clean(value: Any) -> str:
@@ -72,6 +75,24 @@ def canonical_effect_identity(raw: Any) -> str:
     operation = _clean(row.get("operation"))
     object_type = _clean(row.get("object_type")) or "unspecified"
     return f"{domain}.{operation}:{object_type}" if operation else ""
+
+
+def canonical_semantic_effect_identity(raw: Any) -> str:
+    """Return a collision-resistant v2 identity without changing legacy aliases."""
+    row = raw if isinstance(raw, dict) else {}
+    outputs = tuple(sorted(requested_semantic_output_ids(row)))
+    payload = {
+        "effect_kind": _clean(row.get("effect_kind")),
+        "domain": _clean(row.get("domain")),
+        "operation": _clean(row.get("operation")),
+        "object_type": _clean(row.get("object_type")),
+        "subject_type": _clean(row.get("subject_type") or row.get("object_type")),
+        "requested_output_set": list(outputs),
+    }
+    if not any(payload.values()):
+        return ""
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"{SEMANTIC_EFFECT_IDENTITY_VERSION}:{sha256(encoded.encode('utf-8')).hexdigest()}"
 
 
 def effect_identity(domain: str, operation: str, object_type: str) -> str:

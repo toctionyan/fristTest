@@ -16,14 +16,23 @@ from typing import Any
 
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.runtime.capability_effects import (
+    canonical_semantic_effect_identity,
     canonical_effect_identity,
     completion_effects_for_contract,
 )
 
 from .contracts import normalize_cardinality, normalize_scope
+from .target_evidence import validate_target_evidence
+from .verified_input_evidence import (
+    VERIFIED_INPUT_EVIDENCE_VERSION,
+    validate_verified_input_evidence,
+)
 from .verifier import dataflow_closure, graph_structural_integrity
 
-TYPED_GOAL_CAPABILITY_COVERAGE_VERSION = "typed-goal-capability-coverage@1"
+TYPED_GOAL_CAPABILITY_COVERAGE_VERSION = "typed-goal-capability-coverage@2"
+LEGACY_TYPED_GOAL_CAPABILITY_COVERAGE_VERSION = "typed-goal-capability-coverage@1"
+TARGET_EVIDENCE_VERSION = "typed-target-evidence@2"
+EXACT_EFFECT_IDENTITY_VERSION = "semantic-effect@2"
 _INTERACTIVE_INPUT_SOURCES = {"user_input", "structured_interaction"}
 _UPSTREAM_INPUT_SOURCES = {"capability_output"}
 
@@ -48,6 +57,47 @@ def _authority_matches(required: str, actual: str) -> bool:
     required_value = _text(required, limit=200)
     actual_value = _text(actual, limit=200)
     return bool(required_value and actual_value and required_value == actual_value)
+
+
+def _exact_effect_match(goal: dict[str, Any], contract: Any) -> dict[str, Any]:
+    """Prove v2 effect compatibility while retaining the legacy alias path."""
+    requested = goal.get("requested_effect") if isinstance(goal.get("requested_effect"), dict) else {}
+    requested_v2 = canonical_semantic_effect_identity(requested)
+    declared = getattr(contract, "semantic_effects_v2", None)
+    if declared is None:
+        declared = getattr(contract, "effect_identities_v2", None)
+    declared_values = {
+        canonical_semantic_effect_identity(value) if isinstance(value, dict) else str(value)
+        for value in tuple(declared or ())
+        if str(value)
+    }
+    if requested_v2 and requested_v2 in declared_values:
+        return {
+            "status": "EXACT_V2",
+            "identity": requested_v2,
+            "version": EXACT_EFFECT_IDENTITY_VERSION,
+            "legacy_alias_used": False,
+        }
+    legacy = canonical_effect_identity(requested)
+    completion = set(completion_effects_for_contract(contract))
+    if legacy and legacy in completion:
+        return {
+            "status": "LEGACY_EFFECT_COMPAT_ONLY",
+            "identity": requested_v2 or legacy,
+            "version": EXACT_EFFECT_IDENTITY_VERSION,
+            "legacy_alias_used": True,
+        }
+    return {
+        "status": "EFFECT_IDENTITY_UNPROVEN",
+        "identity": requested_v2 or legacy or None,
+        "version": EXACT_EFFECT_IDENTITY_VERSION,
+        "legacy_alias_used": False,
+    }
+
+
+def _contract_effect_compatible(goal: dict[str, Any], contract: Any) -> bool:
+    proof = _exact_effect_match(goal, contract)
+    return proof["status"] in {"EXACT_V2", "LEGACY_EFFECT_COMPAT_ONLY"}
 
 
 def _freshness_reason(
@@ -114,7 +164,14 @@ def _cardinality_compatible(*, expected: str, actual: str) -> bool:
     return False
 
 
-def _target_evidence(goal: dict[str, Any], graph: dict[str, Any]) -> dict[str, Any]:
+def _target_evidence(
+    goal: dict[str, Any],
+    graph: dict[str, Any],
+    *,
+    target_contract: Any | None = None,
+    evaluation_time: float | None = None,
+    issuer_validator: Any | None = None,
+) -> dict[str, Any]:
     """Return one deterministic target authority for a graph Goal.
 
     A verified frozen historical binding is already a target-resolver proof.
@@ -133,6 +190,54 @@ def _target_evidence(goal: dict[str, Any], graph: dict[str, Any]) -> dict[str, A
             "resource_type": None,
             "cardinality": "none",
             "proof_refs": [],
+        }
+
+    typed = goal.get("target_evidence")
+    if isinstance(typed, dict):
+        source = graph.get("source_semantic_contract") if isinstance(graph.get("source_semantic_contract"), dict) else {}
+        validation = validate_target_evidence(
+            typed,
+            expected_scope=graph.get("scope") if isinstance(graph.get("scope"), dict) else {},
+            expected_resource_type=(next(iter(tuple(getattr(target_contract, "resource_types", ()) or ())), None) if target_contract is not None else None),
+            expected_logical_type_name=None,
+            expected_cardinality=getattr(target_contract, "cardinality", None) if target_contract is not None else None,
+            expected_semantic_contract_id=source.get("semantic_contract_id"),
+            expected_semantic_digest=source.get("semantic_digest"),
+            evaluation_time=evaluation_time,
+            issuer_validator=issuer_validator,
+        )
+        if not validation.get("ok"):
+            return {
+                "status": "UNRESOLVED",
+                "available_source_types": [],
+                "preferred_source_types": [],
+                "resource_type": _text(typed.get("resource_type"), limit=200).casefold() or None,
+                "logical_type_name": _text(typed.get("logical_type_name"), limit=240) or None,
+                "cardinality": normalize_cardinality(typed.get("cardinality")),
+                "proof_refs": [_text(typed.get("proof_ref"), limit=500)] if _text(typed.get("proof_ref"), limit=500) else [],
+                "evidence_version": validation.get("version") or TARGET_EVIDENCE_VERSION,
+                "validation": validation,
+            }
+        variant_source = typed.get("source") if isinstance(typed.get("source"), dict) else {}
+        selected_source = {
+            "historical_visible_result": "visible_result_ref",
+            "deterministic_target_resolver_projection": "target_resolver",
+            "same_turn_verified_capability_output": "capability_output",
+        }.get(str(typed.get("variant") or ""), "")
+        return {
+            "status": "VERIFIED",
+            "available_source_types": [selected_source] if selected_source else [],
+            "preferred_source_types": [selected_source] if selected_source else [],
+            "resource_type": _text(typed.get("resource_type"), limit=200).casefold() or None,
+            "logical_type_name": _text(typed.get("logical_type_name"), limit=240) or None,
+            "cardinality": normalize_cardinality(typed.get("cardinality")),
+            "authority_by_source": {selected_source: _text(typed.get("authority"), limit=200)} if selected_source else {},
+            "expires_at": typed.get("expires_at"),
+            "proof_refs": [_text(typed.get("proof_ref"), limit=500)],
+            "provenance": "validated_typed_target_evidence",
+            "evidence_version": validation.get("version") or TARGET_EVIDENCE_VERSION,
+            "validation": validation,
+            "source": variant_source,
         }
 
     authorities: list[dict[str, Any]] = []
@@ -214,8 +319,21 @@ def _target_evidence(goal: dict[str, Any], graph: dict[str, Any]) -> dict[str, A
     }
 
 
-def _prove_target_contract(goal: dict[str, Any], graph: dict[str, Any], target_contract: Any) -> dict[str, Any]:
-    evidence = _target_evidence(goal, graph)
+def _prove_target_contract(
+    goal: dict[str, Any],
+    graph: dict[str, Any],
+    target_contract: Any,
+    *,
+    target_issuer_validator: Any | None = None,
+    evaluation_time: float | None = None,
+) -> dict[str, Any]:
+    evidence = _target_evidence(
+        goal,
+        graph,
+        target_contract=target_contract,
+        evaluation_time=evaluation_time,
+        issuer_validator=target_issuer_validator,
+    )
     expected_cardinality = normalize_cardinality(getattr(target_contract, "cardinality", "unknown"))
     allowed_types = {
         _text(value, limit=200).casefold()
@@ -290,21 +408,30 @@ def _typed_input_evidence_matches(
     type_name: str,
     source_types: set[str],
     available_input_evidence: tuple[dict[str, Any], ...],
+    evaluation_time: float | None = None,
+    issuer_validator: Any | None = None,
 ) -> list[dict[str, Any]]:
     graph_scope = normalize_scope(graph.get("scope") if isinstance(graph.get("scope"), dict) else {})
+    source = graph.get("source_semantic_contract") if isinstance(graph.get("source_semantic_contract"), dict) else {}
     matches: list[dict[str, Any]] = []
     for row in available_input_evidence:
-        if not isinstance(row, dict) or not bool(row.get("verified")):
+        if not isinstance(row, dict):
             continue
         if _text(row.get("type_name"), limit=240) != type_name:
             continue
         if _text(row.get("source_type"), limit=120) not in source_types:
             continue
-        if not _text(row.get("proof_ref"), limit=500):
-            continue
-        if normalize_scope(row.get("scope") if isinstance(row.get("scope"), dict) else {}) != graph_scope:
-            continue
-        matches.append(row)
+        validation = validate_verified_input_evidence(
+            row,
+            expected_scope=graph_scope,
+            expected_type_name=type_name,
+            expected_semantic_contract_id=source.get("semantic_contract_id"),
+            expected_semantic_digest=source.get("semantic_digest"),
+            evaluation_time=evaluation_time,
+            issuer_validator=issuer_validator,
+        )
+        if validation.get("ok"):
+            matches.append({**row, "validation": validation})
     return matches
 
 
@@ -316,6 +443,8 @@ def _prove_required_inputs(
     target_proof: dict[str, Any],
     available_input_evidence: tuple[dict[str, Any], ...],
     evaluation_time: float | None,
+    input_issuer_validator: Any | None = None,
+    target_issuer_validator: Any | None = None,
 ) -> dict[str, Any]:
     goal_id = _text(goal.get("goal_id"), limit=200)
     target_sources = {
@@ -406,6 +535,8 @@ def _prove_required_inputs(
                 type_name=type_name,
                 source_types=sources,
                 available_input_evidence=available_input_evidence,
+                evaluation_time=evaluation_time,
+                issuer_validator=input_issuer_validator,
             )
             if len(evidence_matches) == 1:
                 evidence_authority = _text(evidence_matches[0].get("authority"), limit=200)
@@ -469,12 +600,14 @@ def _candidate_proof(
     contract: Any,
     available_input_evidence: tuple[dict[str, Any], ...],
     evaluation_time: float | None,
+    input_issuer_validator: Any | None = None,
+    target_issuer_validator: Any | None = None,
 ) -> dict[str, Any]:
     requested_identity = canonical_effect_identity(goal.get("requested_effect"))
-    completion = set(completion_effects_for_contract(contract))
     reasons: list[str] = []
-    if not requested_identity or requested_identity not in completion:
+    if not requested_identity or not _contract_effect_compatible(goal, contract):
         reasons.append("CAPABILITY_EFFECT_MISMATCH")
+    effect_proof = _exact_effect_match(goal, contract)
 
     planning = getattr(contract, "planning_contract", None)
     if str(getattr(contract, "contract_version", "")) != "2" or planning is None:
@@ -488,7 +621,13 @@ def _candidate_proof(
             "readiness": "BLOCKED",
         }
     else:
-        target_proof = _prove_target_contract(goal, graph, planning.target)
+        target_proof = _prove_target_contract(
+            goal,
+            graph,
+            planning.target,
+            target_issuer_validator=target_issuer_validator,
+            evaluation_time=evaluation_time,
+        )
         if not target_proof["ok"]:
             reasons.extend(target_proof["reasons"])
         input_proof = _prove_required_inputs(
@@ -498,6 +637,8 @@ def _candidate_proof(
             target_proof=target_proof,
             available_input_evidence=available_input_evidence,
             evaluation_time=evaluation_time,
+            input_issuer_validator=input_issuer_validator,
+            target_issuer_validator=target_issuer_validator,
         )
         if not input_proof["ok"]:
             reasons.append("CAPABILITY_REQUIRED_INPUTS_UNCLOSED")
@@ -527,6 +668,7 @@ def _candidate_proof(
         "tool_name": tool_name,
         "capability_key": _text(getattr(contract, "key", ""), limit=300) or None,
         "requested_effect_identity": requested_identity or None,
+        "exact_effect_proof": effect_proof,
         "status": status,
         "semantic_compatible": semantic_compatible,
         "target_proof": target_proof,
@@ -556,6 +698,8 @@ def build_typed_goal_capability_coverage(
     frozen_contract: dict[str, Any] | None = None,
     available_input_evidence: tuple[dict[str, Any], ...] = (),
     evaluation_time: float | None = None,
+    input_issuer_validator: Any | None = None,
+    target_issuer_validator: Any | None = None,
 ) -> dict[str, Any]:
     """Build a typed compatibility proof without selecting or dispatching Tools."""
 
@@ -580,6 +724,9 @@ def build_typed_goal_capability_coverage(
             "semantic_contract_id": source.get("semantic_contract_id"),
             "semantic_digest": source.get("semantic_digest"),
             "capability_registry_version": capability_registry.version,
+            "target_evidence_version": TARGET_EVIDENCE_VERSION,
+            "verified_input_evidence_version": VERIFIED_INPUT_EVIDENCE_VERSION,
+            "exact_effect_identity_version": EXACT_EFFECT_IDENTITY_VERSION,
             "evaluation_time": evaluation_time,
             "coverage_status": "STRUCTURAL_INVALID",
             "dataflow_status": closure.get("code"),
@@ -608,7 +755,7 @@ def build_typed_goal_capability_coverage(
                 "clarification_read",
             }:
                 continue
-            if requested_identity not in set(completion_effects_for_contract(contract)):
+            if not _contract_effect_compatible(goal, contract):
                 continue
             candidates.append(
                 _candidate_proof(
@@ -618,13 +765,15 @@ def build_typed_goal_capability_coverage(
                     contract=contract,
                     available_input_evidence=tuple(available_input_evidence or ()),
                     evaluation_time=evaluation_time,
+                    input_issuer_validator=input_issuer_validator,
+                    target_issuer_validator=target_issuer_validator,
                 )
             )
 
-        usable = [row for row in candidates if row["status"] in {"READY", "NEEDS_INTERACTION"}]
+        usable = [row for row in candidates if row["status"] == "READY"]
         ready = [row for row in candidates if row["status"] == "READY"]
         needs_interaction = [row for row in candidates if row["status"] == "NEEDS_INTERACTION"]
-        if usable and bool(goal.get("required", True)):
+        if ready and bool(goal.get("required", True)):
             covered_required.add(goal_id)
         if ready:
             ready_goal_ids.append(goal_id)
@@ -642,7 +791,8 @@ def build_typed_goal_capability_coverage(
                     else "EFFECT_MATCH_BUT_TYPED_UNCLOSED" if candidates
                     else "UNCOVERED"
                 ),
-                "closed_capability_tools": [row["tool_name"] for row in usable],
+                "closed_capability_tools": [row["tool_name"] for row in ready],
+                "collectable_capability_tools": [row["tool_name"] for row in needs_interaction],
                 "candidate_proofs": candidates,
             }
         )
@@ -661,6 +811,9 @@ def build_typed_goal_capability_coverage(
         "semantic_contract_id": source.get("semantic_contract_id"),
         "semantic_digest": source.get("semantic_digest"),
         "capability_registry_version": capability_registry.version,
+        "target_evidence_version": TARGET_EVIDENCE_VERSION,
+        "verified_input_evidence_version": VERIFIED_INPUT_EVIDENCE_VERSION,
+        "exact_effect_identity_version": EXACT_EFFECT_IDENTITY_VERSION,
         "evaluation_time": evaluation_time,
         "coverage_status": coverage_status,
         "dataflow_status": closure.get("code"),
@@ -676,12 +829,62 @@ def build_typed_goal_capability_coverage(
         "mutates_graph": False,
         "mutates_semantics": False,
         "model_target_selection_authority": False,
+        "execution_authority_granted": False,
     }
     payload["coverage_digest"] = _digest(payload)
     return payload
 
 
+def replay_typed_goal_capability_coverage(coverage: Any) -> dict[str, Any]:
+    """Replay a v2 shadow coverage envelope without consulting runtime state."""
+    source = coverage if isinstance(coverage, dict) else {}
+    errors: list[str] = []
+    if source.get("version") != TYPED_GOAL_CAPABILITY_COVERAGE_VERSION:
+        errors.append("COVERAGE_SCHEMA_VERSION_INVALID")
+    expected_digest = _text(source.get("coverage_digest"), limit=128)
+    unsigned = deepcopy(source)
+    unsigned.pop("coverage_digest", None)
+    actual_digest = _digest(unsigned)
+    if not expected_digest or expected_digest != actual_digest:
+        errors.append("COVERAGE_DIGEST_MISMATCH")
+    for field, expected in (
+        ("must_not_dispatch", True),
+        ("creates_permit", False),
+        ("mutates_graph", False),
+        ("mutates_semantics", False),
+        ("model_target_selection_authority", False),
+        ("execution_authority_granted", False),
+    ):
+        if source.get(field) is not expected:
+            errors.append(f"COVERAGE_{field.upper()}_INVARIANT_FAILED")
+    required = {
+        str(value)
+        for value in list(source.get("required_goal_ids") or [])
+        if str(value)
+    }
+    ready = {str(value) for value in list(source.get("ready_goal_ids") or []) if str(value)}
+    interactive = {str(value) for value in list(source.get("interaction_goal_ids") or []) if str(value)}
+    if ready.intersection(interactive):
+        errors.append("COVERAGE_READY_AND_INTERACTIVE_GOAL_OVERLAP")
+    if source.get("coverage_status") == "COMPLETE" and not required.issubset(ready):
+        errors.append("COVERAGE_COMPLETE_REQUIRES_ALL_REQUIRED_GOALS_READY")
+    for row in list(source.get("goals") or []):
+        if not isinstance(row, dict):
+            errors.append("COVERAGE_GOAL_ROW_INVALID")
+            continue
+    return {
+        "ok": not errors,
+        "version": source.get("version"),
+        "expected_digest": expected_digest,
+        "actual_digest": actual_digest,
+        "errors": sorted(set(errors)),
+    }
+
+
 __all__ = [
+    "EXACT_EFFECT_IDENTITY_VERSION",
+    "LEGACY_TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
     "TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
     "build_typed_goal_capability_coverage",
+    "replay_typed_goal_capability_coverage",
 ]
