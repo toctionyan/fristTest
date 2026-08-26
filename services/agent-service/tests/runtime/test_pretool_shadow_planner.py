@@ -231,7 +231,7 @@ def test_typed_verification_failure_does_not_raise_or_add_dependencies() -> None
                         },
                         "relation_kind": "result_reference",
                         "expected_cardinality": "single",
-                        "evidence_span": "它",
+                        "evidence_span": "test user text",
                     }
                 ],
             },
