@@ -209,7 +209,10 @@ def test_typed_verification_failure_does_not_raise_or_replace_legacy_dependencie
 
     contract = _contract(
         [
-            _goal("lookup", domain="order", operation="query_logistics"),
+            {
+                **_goal("lookup", domain="order", operation="query_logistics"),
+                "input_bindings": [],
+            },
             {
                 **_goal(
                     "refund",
