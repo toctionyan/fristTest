@@ -55,6 +55,19 @@ def _digest(value: Any) -> str:
     return sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _registry_snapshot(registry: Any) -> Any:
+    builder = getattr(registry, "planning_contract_snapshot", None)
+    if callable(builder):
+        return builder()
+    return [
+        {
+            "tool_name": str(tool_name),
+            "capability_key": str(getattr(registry.contract_for_tool(tool_name), "key", "")),
+        }
+        for tool_name in sorted(registry.tool_names())
+    ]
+
+
 def _authority_matches(required: str, actual: str) -> bool:
     required_value = _text(required, limit=200)
     actual_value = _text(actual, limit=200)
@@ -841,9 +854,7 @@ def build_typed_goal_capability_coverage(
             "semantic_contract_id": source.get("semantic_contract_id"),
             "semantic_digest": source.get("semantic_digest"),
             "capability_registry_version": capability_registry.version,
-            "capability_registry_snapshot_digest": _digest(
-                capability_registry.planning_contract_snapshot()
-            ),
+            "capability_registry_snapshot_digest": _digest(_registry_snapshot(capability_registry)),
             "target_evidence_version": TARGET_EVIDENCE_VERSION,
             "verified_input_evidence_version": VERIFIED_INPUT_EVIDENCE_VERSION,
             "exact_effect_identity_version": EXACT_EFFECT_IDENTITY_VERSION,
@@ -944,9 +955,7 @@ def build_typed_goal_capability_coverage(
         "semantic_contract_id": source.get("semantic_contract_id"),
         "semantic_digest": source.get("semantic_digest"),
         "capability_registry_version": capability_registry.version,
-        "capability_registry_snapshot_digest": _digest(
-            capability_registry.planning_contract_snapshot()
-        ),
+        "capability_registry_snapshot_digest": _digest(_registry_snapshot(capability_registry)),
         "target_evidence_version": TARGET_EVIDENCE_VERSION,
         "verified_input_evidence_version": VERIFIED_INPUT_EVIDENCE_VERSION,
         "exact_effect_identity_version": EXACT_EFFECT_IDENTITY_VERSION,
