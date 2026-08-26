@@ -674,7 +674,9 @@
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
     "services/agent-service/src/agent_core/goal_graph/verification_contract.py": "b9d1947ae104adc44b145c3f8a09e077b602a40f474d3958911b487f2e89b7ed",
-    "services/agent-service/tests/architecture/test_typed_goal_graph_verification_contract.py": "d4c098a7ebf8c87d17273d6abe69f18ba7357b79cc84db28d42598ac4138330d"
+    "services/agent-service/tests/architecture/test_typed_goal_graph_verification_contract.py": "d4c098a7ebf8c87d17273d6abe69f18ba7357b79cc84db28d42598ac4138330d",
+    ".github/workflows/governed-ci-failure-sweeper.yml": "9788bb1280501c3feded2400c203a5426f14ef414047b3f848c9b5f71cc802b0",
+    "skill-system/tests/test_governed_ci_failure_sweeper_workflow.py": "5a3a23e56fb417c7d5674430e8b4f56b2eca074ae4953ad368623a49d6b97863"
   },
   "generated_at": "2026-08-25T18:25:39Z",
   "generated_from": "git:f6dec5358233df729df1259f5f34bfc3d7ee7b4b",

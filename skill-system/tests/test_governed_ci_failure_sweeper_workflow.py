@@ -50,6 +50,18 @@ def test_heartbeat_and_failure_receipt_precede_untrusted_processing() -> None:
     assert text.count("gh issue create") == 2
 
 
+def test_issue_commands_have_explicit_repository_context() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "GH_REPO: ${{ github.repository }}" in text
+    commands = [
+        line.strip()
+        for line in text.splitlines()
+        if "gh issue " in line
+    ]
+    assert commands
+    assert all('--repo "${GH_REPO}"' in line for line in commands)
+
+
 def test_discovery_fetches_full_run_before_reading_pr_binding() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     fetch = text.index('gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"')
