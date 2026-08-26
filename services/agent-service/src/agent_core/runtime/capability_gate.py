@@ -479,13 +479,20 @@ def _pretool_frontier_proof(
             else:
                 for goal_id in sorted(expected_goal_ids):
                     proof_row = coverage_proofs.get(goal_id) or {}
+                    requested_effect = (formal_by_id.get(goal_id) or {}).get("requested_effect")
+                    typed_request = (
+                        isinstance(requested_effect, dict)
+                        and bool(str(requested_effect.get("effect_kind") or "").strip())
+                        and bool(str(requested_effect.get("subject_type") or "").strip())
+                        and isinstance(requested_effect.get("requested_outputs"), list)
+                    )
                     expected_effect = (
                         canonical_semantic_effect_identity(
-                            (formal_by_id.get(goal_id) or {}).get("requested_effect")
+                            requested_effect
                         )
-                        if contract is not None and contract.contract_version == "2"
+                        if contract is not None and contract.contract_version == "2" and typed_request
                         else canonical_effect_identity(
-                            (formal_by_id.get(goal_id) or {}).get("requested_effect")
+                            requested_effect
                         )
                     )
                     if (

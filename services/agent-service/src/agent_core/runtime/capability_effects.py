@@ -491,24 +491,12 @@ def goal_effect_match_proof(
         elif (
             is_v2
             and not typed_request
-            and not declared_v2
             and contract is not None
             and identity in completion_effects_for_contract(contract)
         ):
-            # Older v2 contract fixtures predate the explicit semantic hash
-            # fields.  Keep this migration proof readable; production v2
-            # contracts publish non-empty declarations and remain strict.
-            role = "completion"
-            has_completion = True
-        elif (
-            is_v2
-            and not typed_request
-            and contract is not None
-            and identity in completion_effects_for_contract(contract)
-        ):
-            # Legacy goal payloads remain readable through the old exact
-            # alias vocabulary, including semantic-output aliases compiled
-            # from the module-owned migration snapshot.
+            # Legacy goal payloads remain readable through exact aliases,
+            # including semantic-output aliases compiled from the module
+            # migration snapshot. Explicitly typed requests never use this.
             role = "completion"
             has_completion = True
         elif not is_v2 and contract is not None and identity in _matching_effects_for_contract(contract):
