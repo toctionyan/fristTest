@@ -28,9 +28,13 @@ TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION = "typed-goal-capability-shadow-
 
 
 def _typed_effect_request(raw: Any) -> bool:
-    """Recognize an explicitly typed effect without inferring one."""
+    """Recognize a complete explicitly typed v2 effect without inferring one."""
     row = raw if isinstance(raw, dict) else {}
-    return any(key in row for key in ("effect_kind", "subject_type", "requested_outputs"))
+    return bool(
+        str(row.get("effect_kind") or "").strip()
+        and str(row.get("subject_type") or "").strip()
+        and isinstance(row.get("requested_outputs"), list)
+    )
 
 
 def _legacy_or_typed_completion_match(

@@ -239,9 +239,13 @@ def _legacy_effects_for_contract(contract: Any, *, support: bool = False) -> tup
 
 
 def _typed_effect_request(raw: Any) -> bool:
-    """Recognize an explicitly typed v2 request without inferring one."""
+    """Recognize a complete explicitly typed v2 request without inferring one."""
     row = raw if isinstance(raw, dict) else {}
-    return any(key in row for key in ("effect_kind", "subject_type", "requested_outputs"))
+    return bool(
+        str(row.get("effect_kind") or "").strip()
+        and str(row.get("subject_type") or "").strip()
+        and isinstance(row.get("requested_outputs"), list)
+    )
 
 
 def _surface_identity_for_contract(requested: dict[str, Any], contract: Any) -> str:
