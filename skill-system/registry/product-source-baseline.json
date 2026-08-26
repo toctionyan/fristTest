@@ -1,5 +1,5 @@
 {
-  "file_count": 672,
+  "file_count": 674,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21",
@@ -180,7 +180,7 @@
     "services/agent-service/src/agent_core/lifecycle/nodes.py": "2b0af02c3edbecc2caff386024da9161cdd8372b51cdae2777088b239003992c",
     "services/agent-service/src/agent_core/lifecycle/plan_execution.py": "86d2b2adcf2770c7caa7502864dd2d2fdd31341c0054e2105a1f80a1e4b316d4",
     "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py": "26a6736784bd038c112532c396687a4ea2243431ae492d780e61ab47e8f2b303",
-    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py": "1a817347ec7ca65c5647a450e167f06f48aec0261e06a541964a4b61b244821f",
+    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py": "0f384dd9ac9179ad8e413aeec854fc80a8ff0f0235da39c8e06eb5f3f412c997",
     "services/agent-service/src/agent_core/lifecycle/protocol.py": "4a89823682cebcec75f84f610f4fe532929061cf5859c78f8b1f8568793982f5",
     "services/agent-service/src/agent_core/lifecycle/publish_runtime.py": "38a866c2163db808f5954d787403d70ea3814c986dc8f201a9850085fe0f7838",
     "services/agent-service/src/agent_core/lifecycle/semantic_contract.py": "10cf8f8f2d0aa5e9166e9c337c4d268e16cd7339695b734c9a4fd8c69656c388",
@@ -672,7 +672,9 @@
     "services/business-service/tests/test_main.py": "a94446ebb8c9b45836b96da8a50e1e4ff262fa3e023467d55b85da5916b04aa2",
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
-    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d"
+    "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
+    "services/agent-service/src/agent_core/goal_graph/verification_contract.py": "dc3fa61fa3b6ec429c91b299366d0812617c4ea78a938aa9c7e124b3e43e9fec",
+    "services/agent-service/tests/architecture/test_typed_goal_graph_verification_contract.py": "d4c098a7ebf8c87d17273d6abe69f18ba7357b79cc84db28d42598ac4138330d"
   },
   "generated_at": "2026-08-25T18:25:39Z",
   "generated_from": "git:f6dec5358233df729df1259f5f34bfc3d7ee7b4b",
