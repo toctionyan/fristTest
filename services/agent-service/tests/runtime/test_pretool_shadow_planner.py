@@ -16,7 +16,7 @@ def _contract(goals):
 
 
 def _goal(goal_id: str, *, domain: str, operation: str, object_type: str = "order", depends_on=()):
-    return {
+    row = {
         "goal_id": goal_id,
         "description": f"{domain}.{operation}",
         "evidence_span": "test user text",
