@@ -499,6 +499,7 @@ def _pretool_frontier_proof(
                         str(proof_row.get("requested_effect_identity") or "") != expected_effect
                         or str(proof_row.get("output_name") or "") != primary_output.name
                         or str(proof_row.get("output_type") or "") != primary_output.type_name
+                        or str(proof_row.get("output_authority") or "") != str(primary_output.authority or "")
                     ):
                         errors.append(f"multi_goal_binding_completion_proof_mismatch:{goal_id}")
             shared_binding_check = {

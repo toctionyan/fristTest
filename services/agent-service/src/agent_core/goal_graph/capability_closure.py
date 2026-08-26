@@ -914,15 +914,7 @@ def build_typed_goal_capability_coverage(
         # Interaction is collectable evidence, never closed coverage.  The
         # legacy flag may preserve the envelope version for old diagnostics,
         # but it cannot promote NEEDS_INTERACTION into COMPLETE.
-        usable = [
-            row
-            for row in candidates
-            if row["status"] == "READY"
-            or (
-                legacy_shadow_compatibility
-                and row["status"] == "NEEDS_INTERACTION"
-            )
-        ]
+        usable = [row for row in candidates if row["status"] == "READY"]
         ready = [row for row in candidates if row["status"] == "READY"]
         needs_interaction = [row for row in candidates if row["status"] == "NEEDS_INTERACTION"]
         if usable and bool(goal.get("required", True)):

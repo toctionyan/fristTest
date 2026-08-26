@@ -261,6 +261,36 @@ def test_verified_historical_target_closes_target_and_missing_reason_is_collecta
     assert proof["permit_created"] is False
 
 
+def test_legacy_shadow_never_counts_needs_interaction_as_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = compile_frozen_semantic_contract(
+        _contract([_goal("g1", "refund.request", reference=_verified_reference())]),
+        scope=_scope(),
+    )
+    capability = _refund_capability(
+        extra_inputs=(
+            _Input(
+                "refund_reason",
+                "RefundReason",
+                ("user_input", "structured_interaction"),
+                "candidate_then_structured",
+            ),
+        )
+    )
+
+    coverage = build_typed_goal_capability_coverage(
+        graph=graph,
+        capability_registry=_Registry(capability),
+        legacy_shadow_compatibility=True,
+    )
+    goal = coverage["goals"][0]
+
+    assert coverage["coverage_status"] == "INCOMPLETE"
+    assert goal["status"] == "TYPED_COVERED_NEEDS_INTERACTION"
+    assert goal["closed_capability_tools"] == []
+    assert goal["collectable_capability_tools"] == ["prepare_demo_refund"]
+
+
 def test_capability_target_resource_type_mismatch_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_effects(monkeypatch)
     graph = compile_frozen_semantic_contract(
