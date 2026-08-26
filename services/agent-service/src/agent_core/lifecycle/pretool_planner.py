@@ -19,7 +19,6 @@ from agent_core.goal_graph.verifier import dataflow_closure, verify_goal_graph
 from agent_core.goal_graph.verification_contract import (
     build_verification_evidence,
 )
-from agent_core.kernel.semantic_contract import GOAL_INPUT_BINDING_AUTHORITY
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage
 from agent_core.lifecycle.semantic_contract import (
@@ -245,15 +244,11 @@ def build_pretool_shadow_plan(
         graph=typed_goal_graph,
         frozen_contract=contract,
     )
-    typed_contract = contract.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY
+    # Verification is diagnostic evidence only.  A malformed or open typed
+    # projection must not block, reorder, or otherwise alter the legacy plan.
     typed_closure = typed_goal_graph_verification.get("dataflow")
     if not isinstance(typed_closure, dict):
         typed_closure = dataflow_closure(typed_goal_graph, frozen_contract=contract)
-    if typed_contract and not typed_closure.get("ok"):
-        raise ValueError(
-            "TYPED_GOAL_DEPENDENCY_CLOSURE_INVALID:"
-            + ",".join(str(value) for value in list(typed_closure.get("errors") or []))
-        )
     typed_dependencies = {
         str(goal_id): [str(value) for value in list(values or []) if str(value)]
         for goal_id, values in dict(typed_closure.get("derived_dependencies") or {}).items()
@@ -304,11 +299,12 @@ def build_pretool_shadow_plan(
         status = str(decision.get("status") or "absent_proven")
         if completion_tools and not any(row.get("status") == "closed" for row in paths):
             status = "contract_unresolved"
-        depends_on_goal_ids = (
-            list(typed_dependencies.get(goal_id, []))
-            if typed_contract
-            else [str(value) for value in list(goal.get("depends_on") or []) if str(value)]
-        )
+        # Preserve the pre-existing semantic-contract dependency surface.
+        # Typed dependencies remain attached as evidence above, never as a
+        # planner input or an execution-order authority.
+        depends_on_goal_ids = [
+            str(value) for value in list(goal.get("depends_on") or []) if str(value)
+        ]
         for dependency in depends_on_goal_ids:
             dependency_edges.append({"from_goal_id": dependency, "to_goal_id": goal_id})
         goal_plans.append(

@@ -258,12 +258,26 @@ def replay_verification_evidence(evidence: dict[str, Any] | None) -> dict[str, A
     source = evidence if isinstance(evidence, dict) else {}
     expected = _text(source.get("verification_digest"), limit=128)
     actual = canonical_verification_digest(source)
+    errors: list[str] = []
+    if source.get("schema_version") != VERIFICATION_CONTRACT_VERSION:
+        errors.append("VERIFICATION_SCHEMA_VERSION_INVALID")
+    if source.get("digest_algorithm") != VERIFICATION_DIGEST_ALGORITHM:
+        errors.append("VERIFICATION_DIGEST_ALGORITHM_INVALID")
+    if source.get("authority") != VERIFICATION_AUTHORITY:
+        errors.append("VERIFICATION_AUTHORITY_INVALID")
+    if source.get("execution_authority_granted") is not False:
+        errors.append("VERIFICATION_EXECUTION_AUTHORITY_FORBIDDEN")
+    if source.get("tool_dispatch") is not False:
+        errors.append("VERIFICATION_TOOL_DISPATCH_FORBIDDEN")
+    if source.get("business_payload_included") is not False:
+        errors.append("VERIFICATION_BUSINESS_PAYLOAD_FORBIDDEN")
     return {
-        "ok": bool(expected) and expected == actual,
+        "ok": bool(expected) and expected == actual and not errors,
         "schema_version": _text(source.get("schema_version"), limit=120),
         "digest_algorithm": _text(source.get("digest_algorithm"), limit=160),
         "expected_digest": expected,
         "actual_digest": actual,
+        "errors": errors,
     }
 
 
