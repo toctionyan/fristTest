@@ -95,6 +95,67 @@ def canonical_semantic_effect_identity(raw: Any) -> str:
     return f"{SEMANTIC_EFFECT_IDENTITY_VERSION}:{sha256(encoded.encode('utf-8')).hexdigest()}"
 
 
+def semantic_effect_identities_for_legacy_effects(
+    values: Iterable[str],
+    semantic_output_definitions: Iterable[Any],
+) -> tuple[str, ...]:
+    """Compile immutable exact v2 declarations from module-owned definitions.
+
+    Legacy aliases are used only when a module publishes its migration
+    snapshot. The v2 matcher compares the resulting hash, including every
+    structured effect field and the complete requested output set.
+    """
+    definitions = {
+        _clean(getattr(row, "output_id", "")): row
+        for row in semantic_output_definitions
+        if _clean(getattr(row, "output_id", ""))
+    }
+    identities: list[str] = []
+    for raw in _contract_effects(values):
+        operation_identity, separator, object_type = raw.partition(":")
+        domain, dot, operation = operation_identity.partition(".")
+        if not separator or not dot or not domain or not operation:
+            continue
+        matching = [
+            row for row in definitions.values()
+            if raw in {
+                _clean(alias)
+                for alias in tuple(getattr(row, "legacy_effect_aliases", ()) or ())
+            }
+        ]
+        grouped: dict[tuple[str, str], list[str]] = {}
+        for row in matching:
+            output_id = _clean(getattr(row, "output_id", ""))
+            subject = _clean(getattr(row, "subject_type", ""))
+            for effect_kind in tuple(getattr(row, "effect_kinds", ()) or ()):
+                kind = _clean(effect_kind)
+                if not output_id or not subject or not kind:
+                    continue
+                grouped.setdefault((kind, subject), []).append(output_id)
+        for (effect_kind, subject), output_ids in grouped.items():
+            unique_ids = tuple(sorted(dict.fromkeys(output_ids)))
+            for size in range(1, len(unique_ids) + 1):
+                for subset in combinations(unique_ids, size):
+                    identities.append(canonical_semantic_effect_identity({
+                        "effect_kind": effect_kind,
+                        "domain": domain,
+                        "operation": operation,
+                        "object_type": object_type,
+                        "subject_type": subject,
+                        "requested_outputs": [{"output_id": value} for value in subset],
+                    }))
+                    # The v2 semantic writer may intentionally omit the
+                    # legacy domain/operation/object fields.  Publish that
+                    # exact output-semantic form separately; it still binds
+                    # effect kind, subject type and the complete output set.
+                    identities.append(canonical_semantic_effect_identity({
+                        "effect_kind": effect_kind,
+                        "subject_type": subject,
+                        "requested_outputs": [{"output_id": value} for value in subset],
+                    }))
+    return tuple(dict.fromkeys(identity for identity in identities if identity))
+
+
 def effect_identity(domain: str, operation: str, object_type: str) -> str:
     return canonical_effect_identity(
         {"domain": domain, "operation": operation, "object_type": object_type}
@@ -159,6 +220,18 @@ def support_effects_for_contract(contract: Any) -> tuple[str, ...]:
     return tuple(dict.fromkeys((*legacy, *semantic)))
 
 
+def _matching_effects_for_contract(contract: Any, *, support: bool = False) -> tuple[str, ...]:
+    """Return only the version-appropriate immutable effect declaration."""
+    if str(getattr(contract, "contract_version", "")) == "2":
+        field = "semantic_support_effects_v2" if support else "semantic_effects_v2"
+        return tuple(
+            str(value or "").strip()
+            for value in tuple(getattr(contract, field, ()) or ())
+            if str(value or "").strip()
+        )
+    return support_effects_for_contract(contract) if support else completion_effects_for_contract(contract)
+
+
 def _effect_semantic_guidance(contract: Any) -> dict[str, Any]:
     """Project bounded module-owned semantics without granting execution authority."""
     planning = getattr(contract, "planning_contract", None)
@@ -185,13 +258,13 @@ def capability_effect_index(registry: CapabilityRegistry) -> dict[str, Any]:
         contract = registry.contract_for_tool(tool_name)
         if contract is None or contract.execution_kind in {"unsupported", "clarification_read"}:
             continue
-        for identity in completion_effects_for_contract(contract):
+        for identity in _matching_effects_for_contract(contract):
             row = grouped.setdefault(identity, _effect_index_row())
             row["completion_tools"].append(tool_name)
             guidance = _effect_semantic_guidance(contract)
             if guidance not in row["semantic_guidance"]:
                 row["semantic_guidance"].append(guidance)
-        for identity in support_effects_for_contract(contract):
+        for identity in _matching_effects_for_contract(contract, support=True):
             grouped.setdefault(identity, _effect_index_row())["support_tools"].append(tool_name)
     return {
         "version": CAPABILITY_EFFECT_INDEX_VERSION,
@@ -243,7 +316,8 @@ def discover_exact_effect_surface(
         requested = deepcopy(raw_goal.get("requested_effect")) if isinstance(
             raw_goal.get("requested_effect"), dict
         ) else {}
-        identity = canonical_effect_identity(requested)
+        is_v2 = str(getattr(contract, "contract_version", "")) == "2" if contract is not None else False
+        identity = canonical_semantic_effect_identity(requested) if is_v2 else canonical_effect_identity(requested)
         completion: list[str] = []
         support: list[str] = []
         for name in sorted(registry.tool_names()):
@@ -253,9 +327,9 @@ def discover_exact_effect_surface(
                 "clarification_read",
             }:
                 continue
-            if identity and identity in completion_effects_for_contract(contract):
+            if identity and identity in _matching_effects_for_contract(contract):
                 completion.append(name)
-            if identity and identity in support_effects_for_contract(contract):
+            if identity and identity in _matching_effects_for_contract(contract, support=True):
                 support.append(name)
 
         hinted: list[str] = []
@@ -263,9 +337,10 @@ def discover_exact_effect_surface(
             contract = registry.contract_for_tool(str(name or ""))
             if contract is None:
                 continue
-            if identity in {
-                *completion_effects_for_contract(contract),
-                *support_effects_for_contract(contract),
+            hinted_identity = identity
+            if hinted_identity in {
+                *_matching_effects_for_contract(contract),
+                *_matching_effects_for_contract(contract, support=True),
             }:
                 hinted.append(str(name))
 
@@ -340,12 +415,25 @@ def goal_effect_match_proof(
 
     for goal_id in requested_ids:
         goal = formal.get(goal_id)
-        identity = canonical_effect_identity((goal or {}).get("requested_effect"))
+        requested_effect = (goal or {}).get("requested_effect")
+        identity = canonical_effect_identity(requested_effect)
+        semantic_identity = canonical_semantic_effect_identity(requested_effect)
         role = "none"
-        if contract is not None and identity in completion_effects_for_contract(contract):
+        is_v2 = contract is not None and str(getattr(contract, "contract_version", "")) == "2"
+        declared_v2 = {
+            str(value)
+            for value in tuple(getattr(contract, "semantic_effects_v2", ()) or ())
+            if str(value)
+        } if is_v2 else set()
+        if is_v2 and semantic_identity and semantic_identity in declared_v2:
             role = "completion"
             has_completion = True
-        elif contract is not None and identity in support_effects_for_contract(contract):
+        elif not is_v2 and contract is not None and identity in _matching_effects_for_contract(contract):
+            role = "completion"
+            has_completion = True
+        elif is_v2 and contract is not None and semantic_identity in _matching_effects_for_contract(contract, support=True):
+            role = "support"
+        elif not is_v2 and contract is not None and identity in _matching_effects_for_contract(contract, support=True):
             role = "support"
         elif contract is not None and contract.execution_kind == "unsupported":
             decision = surface_by_goal.get(goal_id, {})
@@ -378,7 +466,7 @@ def goal_effect_match_proof(
         rows.append(
             {
                 "goal_id": goal_id,
-                "requested_effect_identity": identity or None,
+                "requested_effect_identity": (semantic_identity if is_v2 else identity) or None,
                 "role": role,
                 "completion_proof_output": completion_proof_output,
                 "multi_goal_completion_proof_required": multi_goal_completion_proof_required,

@@ -79,10 +79,13 @@ class CapabilityTargetContract:
     cardinality: str
     binding_sources: tuple[str, ...] = ("target_resolver",)
     argument_projection: CapabilityTargetArgumentProjection | None = None
+    logical_type_name: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "resource_types", _unique(self.resource_types, field="target resource type"))
         object.__setattr__(self, "binding_sources", _unique(self.binding_sources, field="target binding source"))
+        if self.logical_type_name is not None:
+            object.__setattr__(self, "logical_type_name", _clean(self.logical_type_name, field="target logical type"))
         if self.cardinality not in {"none", "exactly_one", "one_or_collection", "collection"}:
             raise ValueError(f"invalid target cardinality: {self.cardinality!r}")
         if self.cardinality != "none" and not self.resource_types:
@@ -93,6 +96,7 @@ class CapabilityTargetContract:
             "resource_types": list(self.resource_types),
             "cardinality": self.cardinality,
             "binding_sources": list(self.binding_sources),
+            "logical_type_name": self.logical_type_name,
             "argument_projection": (
                 self.argument_projection.as_dict()
                 if self.argument_projection is not None
@@ -109,12 +113,18 @@ class CapabilityInputContract:
     required: bool = True
     authority: str = "candidate"
     freshness_seconds: int | None = None
+    resource_type: str | None = None
+    cardinality: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", _clean(self.name, field="required input name"))
         object.__setattr__(self, "type_name", _clean(self.type_name, field="required input type"))
         object.__setattr__(self, "source_types", _unique(self.source_types, field="required input source"))
         object.__setattr__(self, "authority", _clean(self.authority, field="required input authority"))
+        if self.resource_type is not None:
+            object.__setattr__(self, "resource_type", _clean(self.resource_type, field="required input resource type"))
+        if self.cardinality is not None:
+            object.__setattr__(self, "cardinality", _clean(self.cardinality, field="required input cardinality"))
         if not self.source_types:
             raise ValueError(f"required input {self.name!r} must declare source_types")
         if self.freshness_seconds is not None and int(self.freshness_seconds) <= 0:
@@ -128,6 +138,8 @@ class CapabilityInputContract:
             "required": self.required,
             "authority": self.authority,
             "freshness_seconds": self.freshness_seconds,
+            "resource_type": self.resource_type,
+            "cardinality": self.cardinality,
         }
 
 
@@ -340,6 +352,11 @@ class ToolCapabilityContract:
     goal_support_types: tuple[str, ...] = ()
     completion_effects: tuple[str, ...] = ()
     support_effects: tuple[str, ...] = ()
+    # v2 effect identities are an immutable module-owned declaration.  Legacy
+    # completion_effects remain readable for migration and diagnostics, but
+    # they are never sufficient for a v2 compatibility proof.
+    semantic_effects_v2: tuple[str, ...] = ()
+    semantic_support_effects_v2: tuple[str, ...] = ()
     discovery_examples: tuple[str, ...] = ()
     exclusion_examples: tuple[str, ...] = ()
     contract_version: str = "1"
@@ -352,8 +369,31 @@ class ToolCapabilityContract:
             if self.planning_contract is None:
                 raise ValueError(f"capability {self.tool_name} contract v2 requires a planning contract")
             self.planning_contract.validate(tool_name=self.tool_name, execution_kind=self.execution_kind)
+            declared = tuple(str(value or "").strip() for value in self.semantic_effects_v2 if str(value or "").strip())
+            if len(set(declared)) != len(declared):
+                raise ValueError(f"capability {self.tool_name} has duplicate semantic_effects_v2")
+            object.__setattr__(self, "semantic_effects_v2", declared)
+            support_declared = tuple(
+                str(value or "").strip()
+                for value in self.semantic_support_effects_v2
+                if str(value or "").strip()
+            )
+            if len(set(support_declared)) != len(support_declared):
+                raise ValueError(f"capability {self.tool_name} has duplicate semantic_support_effects_v2")
+            object.__setattr__(self, "semantic_support_effects_v2", support_declared)
         elif self.planning_contract is not None:
             raise ValueError(f"capability {self.tool_name} planning contract requires contract_version='2'")
+        else:
+            object.__setattr__(
+                self,
+                "semantic_effects_v2",
+                tuple(str(value or "").strip() for value in self.semantic_effects_v2 if str(value or "").strip()),
+            )
+            object.__setattr__(
+                self,
+                "semantic_support_effects_v2",
+                tuple(str(value or "").strip() for value in self.semantic_support_effects_v2 if str(value or "").strip()),
+            )
 
     def planning_snapshot(self) -> dict[str, Any] | None:
         if self.planning_contract is None:
@@ -365,5 +405,7 @@ class ToolCapabilityContract:
             "execution_kind": self.execution_kind,
             "completion_effects": list(self.completion_effects),
             "support_effects": list(self.support_effects),
+            "semantic_effects_v2": list(self.semantic_effects_v2),
+            "semantic_support_effects_v2": list(self.semantic_support_effects_v2),
             **self.planning_contract.as_dict(),
         }

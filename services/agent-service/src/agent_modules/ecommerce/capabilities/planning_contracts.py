@@ -41,6 +41,7 @@ def verified_read_contract(
             resource_types=resource_types,
             cardinality=cardinality,
             binding_sources=target_sources,
+            logical_type_name=target_type,
         ),
         requires=(
             CapabilityInputContract(
@@ -122,6 +123,7 @@ def action_draft_contract(
             resource_types=("order",),
             cardinality="exactly_one",
             binding_sources=_ORDER_SOURCES,
+            logical_type_name="ResolvedOrderBinding",
         ),
         requires=(
             CapabilityInputContract(

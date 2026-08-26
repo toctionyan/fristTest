@@ -70,6 +70,7 @@ def validate_verified_input_evidence(
     expected_semantic_contract_id: str | None = None,
     expected_semantic_digest: str | None = None,
     evaluation_time: float | None = None,
+    max_age_seconds: float | None = None,
     issuer_validator: IssuerValidator | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
@@ -132,6 +133,18 @@ def validate_verified_input_evidence(
         errors.append("VERIFIED_INPUT_EVIDENCE_EVALUATED_AT_INVALID")
     if issued_at is not None and expires_at is not None and issued_at >= expires_at:
         errors.append("VERIFIED_INPUT_EVIDENCE_TIME_WINDOW_INVALID")
+    if issued_at is not None and evaluated_at is not None and issued_at > evaluated_at:
+        errors.append("VERIFIED_INPUT_EVIDENCE_EVALUATED_BEFORE_ISSUED")
+    if evaluated_at is not None and expires_at is not None and evaluated_at >= expires_at:
+        errors.append("VERIFIED_INPUT_EVIDENCE_EVALUATED_AFTER_EXPIRY")
+    if evaluation_time is not None and evaluated_at is not None and float(evaluation_time) != evaluated_at:
+        errors.append("VERIFIED_INPUT_EVIDENCE_EVALUATION_TIME_MISMATCH")
+    if max_age_seconds is not None:
+        max_age = _number(max_age_seconds)
+        if max_age is None or max_age <= 0:
+            errors.append("VERIFIED_INPUT_EVIDENCE_MAX_AGE_INVALID")
+        elif issued_at is not None and evaluated_at is not None and evaluated_at - issued_at > max_age:
+            errors.append("VERIFIED_INPUT_EVIDENCE_MAX_AGE_EXCEEDED")
     if evaluation_time is not None and expires_at is not None and float(evaluation_time) >= expires_at:
         errors.append("VERIFIED_INPUT_EVIDENCE_EXPIRED")
 

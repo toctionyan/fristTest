@@ -9,7 +9,14 @@ from agent_core.goal_graph import (
     validate_target_evidence,
     validate_verified_input_evidence,
 )
+from agent_core.goal_graph.capability_closure import (
+    _contract_effect_compatible,
+    _digest,
+    _target_evidence,
+    replay_typed_goal_capability_coverage,
+)
 from agent_core.goal_graph.contracts import canonical_digest
+from agent_core.kernel.capability import ToolCapabilityContract, CapabilityTargetContract
 from agent_core.runtime.capability_effects import (
     canonical_semantic_effect_identity,
 )
@@ -133,3 +140,100 @@ def test_v2_effect_identity_does_not_collapse_same_output_id() -> None:
     second = deepcopy(first)
     second["operation"] = "refund"
     assert canonical_semantic_effect_identity(first) != canonical_semantic_effect_identity(second)
+
+
+def test_legacy_effect_alias_cannot_enter_v2_compatibility() -> None:
+    requested = {
+        "effect_kind": "read",
+        "domain": "order",
+        "operation": "list",
+        "object_type": "order",
+        "subject_type": "order",
+        "requested_outputs": [{"output_id": "order.collection"}],
+    }
+    contract = ToolCapabilityContract(
+        key="demo.legacy-only",
+        tool_name="legacy_only",
+        category="query",
+        writes_business_data=False,
+        evidence_sources=("demo",),
+        planner_rule="demo",
+        unavailable_response="unavailable",
+        completion_effects=("order.list:order",),
+    )
+    assert _contract_effect_compatible({"requested_effect": requested}, contract) is False
+
+
+def test_v2_target_cannot_fall_back_to_legacy_binding() -> None:
+    scope = _scope()
+    result = _target_evidence(
+        {
+            "goal_id": "g1",
+            "input_ports": [{
+                "name": "target",
+                "type_name": "ResolvedOrderBinding",
+                "cardinality": "exactly_one",
+            }],
+            "target_binding": {
+                "verified": True,
+                "status": "VERIFIED",
+                "resource_type": "order",
+                "cardinality": "exactly_one",
+            },
+        },
+        {"scope": scope},
+        target_contract=CapabilityTargetContract(
+            resource_types=("order",),
+            cardinality="exactly_one",
+            logical_type_name="ResolvedOrderBinding",
+        ),
+        strict_v2=True,
+    )
+    assert result["status"] == "UNRESOLVED"
+    assert result["validation"]["errors"] == ["TYPED_TARGET_EVIDENCE_REQUIRED"]
+
+
+def test_v2_replay_rejects_recomputed_digest_with_unknown_nested_field() -> None:
+    coverage = {
+        "version": "typed-goal-capability-coverage@2",
+        "authority": "read_only_typed_compatibility_not_execution_authority",
+        "matching": "exact_effect_plus_typed_target_and_input_contracts",
+        "graph_id": "graph:1",
+        "graph_digest": "graph-digest",
+        "semantic_contract_id": "semantic:1",
+        "semantic_digest": "a" * 64,
+        "capability_registry_version": "registry@1",
+        "capability_registry_snapshot_digest": "b" * 64,
+        "target_evidence_version": TARGET_EVIDENCE_VERSION,
+        "verified_input_evidence_version": VERIFIED_INPUT_EVIDENCE_VERSION,
+        "exact_effect_identity_version": "semantic-effect@2",
+        "evaluation_time": None,
+        "coverage_status": "INCOMPLETE",
+        "dataflow_status": "GOAL_GRAPH_DATAFLOW_CLOSED",
+        "dataflow_errors": [],
+        "derived_dependencies": {},
+        "required_goal_ids": ["g1"],
+        "uncovered_goal_ids": ["g1"],
+        "ready_goal_ids": [],
+        "interaction_goal_ids": [],
+        "goals": [{
+            "goal_id": "g1",
+            "required": True,
+            "requested_effect_identity": None,
+            "status": "UNCOVERED",
+            "closed_capability_tools": [],
+            "collectable_capability_tools": [],
+            "candidate_proofs": [],
+        }],
+        "must_not_dispatch": True,
+        "creates_permit": False,
+        "mutates_graph": False,
+        "mutates_semantics": False,
+        "model_target_selection_authority": False,
+        "execution_authority_granted": False,
+    }
+    coverage["goals"][0]["nested_unknown"] = True
+    coverage["coverage_digest"] = _digest(coverage)
+    result = replay_typed_goal_capability_coverage(coverage)
+    assert result["ok"] is False
+    assert "COVERAGE_GOAL_UNKNOWN_FIELD:nested_unknown" in result["errors"]

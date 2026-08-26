@@ -19,6 +19,7 @@ from agent_core.kernel.semantic_contract import goal_dependency_ids
 from agent_core.lifecycle.semantic_contract import prove_goal_target_compatibility
 from agent_core.runtime.capability_effects import (
     canonical_effect_identity,
+    canonical_semantic_effect_identity,
     completion_effects_for_contract,
 )
 
@@ -156,7 +157,15 @@ def _proof_rows_for_shared_binding(
     proofs: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     for goal_id in goal_ids:
-        identity = str((by_goal.get(goal_id) or {}).get("requested_effect_identity") or "")
+        goal = by_goal.get(goal_id) or {}
+        identity = str(
+            (
+                canonical_semantic_effect_identity(goal.get("requested_effect"))
+                if contract.contract_version == "2"
+                else goal.get("requested_effect_identity")
+            )
+            or ""
+        )
         if not identity:
             errors.append(f"per_goal_completion_effect_missing:{goal_id}")
             continue

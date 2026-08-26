@@ -29,6 +29,8 @@ from agent_core.goal_graph.cutover_gate import (
 from agent_core.goal_graph.dependency_authority import build_dependency_authority_attestation
 from agent_core.goal_graph.compiler import compile_frozen_semantic_contract
 from agent_core.goal_graph.verifier import dataflow_closure
+from agent_core.goal_graph.capability_closure import TYPED_GOAL_CAPABILITY_COVERAGE_VERSION
+from agent_core.goal_graph.capability_closure import replay_typed_goal_capability_coverage
 from agent_core.goal_graph.runtime_authority import (
     select_runtime_dependency_authority,
     selected_dependency_goal_ids,
@@ -562,15 +564,24 @@ def build_pretool_execution_policy(
         if isinstance(global_coverage.get("typed_goal_capability_shadow"), dict)
         else {}
     )
-    typed_dependencies_by_goal = {
-        str(goal_id): sorted(
-            {str(value) for value in list(values or []) if str(value)}
-        )
-        for goal_id, values in dict(
-            typed_dependency_shadow.get("derived_dependencies") or {}
-        ).items()
-        if str(goal_id)
-    }
+    typed_shadow_replay = replay_typed_goal_capability_coverage(typed_dependency_shadow)
+    typed_shadow_usable = (
+        typed_dependency_shadow.get("version") == TYPED_GOAL_CAPABILITY_COVERAGE_VERSION
+        and typed_shadow_replay.get("ok") is True
+    )
+    typed_dependencies_by_goal = (
+        {
+            str(goal_id): sorted(
+                {str(value) for value in list(values or []) if str(value)}
+            )
+            for goal_id, values in dict(
+                typed_dependency_shadow.get("derived_dependencies") or {}
+            ).items()
+            if str(goal_id)
+        }
+        if typed_shadow_usable
+        else {}
+    )
     frozen_contract = state.get("frozen_semantic_contract")
     typed_contract = (
         isinstance(frozen_contract, dict)

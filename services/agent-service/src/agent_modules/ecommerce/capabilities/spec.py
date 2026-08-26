@@ -9,6 +9,10 @@ from agent_core.kernel.capability import (
     CapabilityTargetArgumentProjection,
     ToolCapabilityContract,
 )
+from agent_core.runtime.capability_effects import (
+    semantic_effect_identities_for_legacy_effects,
+)
+from agent_modules.ecommerce.semantic_vocabulary import SEMANTIC_OUTPUTS
 
 Executor = Callable[..., dict[str, Any]]
 
@@ -39,6 +43,8 @@ class EcommerceCapabilityDefinition:
     goal_support_types: tuple[str, ...] = ()
     completion_effects: tuple[str, ...] = ()
     support_effects: tuple[str, ...] = ()
+    semantic_effects_v2: tuple[str, ...] = ()
+    semantic_support_effects_v2: tuple[str, ...] = ()
     discovery_examples: tuple[str, ...] = ()
     exclusion_examples: tuple[str, ...] = ()
     contract_version: str = "1"
@@ -74,6 +80,20 @@ class EcommerceCapabilityDefinition:
             goal_support_types=self.goal_support_types,
             completion_effects=self.completion_effects,
             support_effects=self.support_effects,
+            semantic_effects_v2=(
+                self.semantic_effects_v2
+                or semantic_effect_identities_for_legacy_effects(
+                    self.completion_effects,
+                    SEMANTIC_OUTPUTS,
+                )
+            ),
+            semantic_support_effects_v2=(
+                self.semantic_support_effects_v2
+                or semantic_effect_identities_for_legacy_effects(
+                    self.support_effects,
+                    SEMANTIC_OUTPUTS,
+                )
+            ),
             discovery_examples=self.discovery_examples,
             exclusion_examples=self.exclusion_examples,
             contract_version=self.contract_version,
