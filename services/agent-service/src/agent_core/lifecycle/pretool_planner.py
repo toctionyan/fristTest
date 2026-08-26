@@ -16,6 +16,9 @@ from typing import Any, Iterable
 
 from agent_core.goal_graph.compiler import compile_frozen_semantic_contract
 from agent_core.goal_graph.verifier import dataflow_closure, verify_goal_graph
+from agent_core.goal_graph.verification_contract import (
+    build_verification_evidence,
+)
 from agent_core.kernel.semantic_contract import GOAL_INPUT_BINDING_AUTHORITY
 from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.lifecycle.goal_capability_coverage import build_goal_capability_coverage
@@ -234,8 +237,12 @@ def build_pretool_shadow_plan(
             "thread_id": state.get("current_thread_id"),
         },
     )
-    typed_goal_graph_verification = verify_goal_graph(
-        typed_goal_graph,
+    typed_goal_graph_verification = build_verification_evidence(
+        verify_goal_graph(
+            typed_goal_graph,
+            frozen_contract=contract,
+        ),
+        graph=typed_goal_graph,
         frozen_contract=contract,
     )
     typed_contract = contract.get("dependency_authority") == GOAL_INPUT_BINDING_AUTHORITY
@@ -356,7 +363,7 @@ def build_pretool_shadow_plan(
         "goal_dependency_edges": dependency_edges,
         "typed_goal_graph": typed_goal_graph,
         "typed_goal_graph_verification": deepcopy(typed_goal_graph_verification),
-        "typed_goal_graph_verification_digest": _digest(typed_goal_graph_verification),
+        "typed_goal_graph_verification_digest": typed_goal_graph_verification["verification_digest"],
         "global_goal_capability_coverage": global_coverage,
         "generated_before_model_tool_call": True,
         "observed_model_tool_calls": [],
