@@ -223,10 +223,10 @@ def build_verification_evidence(
     )
     structural = _summary(source.get("structural"), path="structural")
     dataflow = _summary(source.get("dataflow"), path="dataflow")
-    failures = sorted(
-        [*structural["failures"], *dataflow["failures"]],
-        key=lambda row: (str(row["path"]), str(row["code"])),
-    )
+    # Keep verifier stages in contract order: structural invariants first,
+    # followed by dataflow closure diagnostics.  Each stage is already sorted
+    # canonically by _summary, so this preserves stable semantic precedence.
+    failures = [*structural["failures"], *dataflow["failures"]]
     evidence: dict[str, Any] = {
         "schema_version": VERIFICATION_CONTRACT_VERSION,
         "digest_algorithm": VERIFICATION_DIGEST_ALGORITHM,
