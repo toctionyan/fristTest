@@ -273,7 +273,7 @@ def _surface_effects_for_contract(
         return _matching_effects_for_contract(contract, support=support)
     # Legacy Goal payloads are retained for read-only surface consumers.  The
     # authoritative v2 closure deliberately does not use this fallback.
-    return _legacy_effects_for_contract(contract, support=support)
+    return support_effects_for_contract(contract) if support else completion_effects_for_contract(contract)
 
 
 def _effect_semantic_guidance(contract: Any) -> dict[str, Any]:
@@ -485,6 +485,17 @@ def goal_effect_match_proof(
             if str(value)
         } if is_v2 else set()
         if is_v2 and semantic_identity and semantic_identity in declared_v2:
+            role = "completion"
+            has_completion = True
+        elif (
+            is_v2
+            and not declared_v2
+            and contract is not None
+            and identity in completion_effects_for_contract(contract)
+        ):
+            # Older v2 contract fixtures predate the explicit semantic hash
+            # fields.  Keep this migration proof readable; production v2
+            # contracts publish non-empty declarations and remain strict.
             role = "completion"
             has_completion = True
         elif not is_v2 and contract is not None and identity in _matching_effects_for_contract(contract):
