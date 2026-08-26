@@ -142,3 +142,14 @@ def test_tampering_is_detected_by_replay_digest() -> None:
     tampered["dataflow"]["ok"] = not tampered["dataflow"]["ok"]
 
     assert replay_verification_evidence(tampered)["ok"] is False
+
+
+def test_replay_rejects_recomputed_digest_with_invalid_metadata() -> None:
+    evidence = _verification()
+    evidence["authority"] = "execution_authority"
+    evidence["verification_digest"] = canonical_verification_digest(evidence)
+
+    replay = replay_verification_evidence(evidence)
+
+    assert replay["ok"] is False
+    assert "VERIFICATION_AUTHORITY_INVALID" in replay["errors"]

@@ -364,8 +364,10 @@ def compile_frozen_semantic_contract(
             else "shadow_typed_dataflow_projection"
         ),
         "immutable": True,
-        "shadow_only": not typed_authority,
-        "runtime_behavior_change": typed_authority,
+        # Stage 1 is diagnostic only, including when typed input-binding authority is present.
+        # The typed graph must never advertise or introduce runtime behavior changes.
+        "shadow_only": True,
+        "runtime_behavior_change": False,
         "source_semantic_contract": {
             "version": _text(semantic.get("version"), limit=200),
             "semantic_contract_id": semantic_contract_id,

@@ -16,7 +16,7 @@ def _contract(goals):
 
 
 def _goal(goal_id: str, *, domain: str, operation: str, object_type: str = "order", depends_on=()):
-    return {
+    row = {
         "goal_id": goal_id,
         "description": f"{domain}.{operation}",
         "evidence_span": "test user text",
@@ -28,8 +28,10 @@ def _goal(goal_id: str, *, domain: str, operation: str, object_type: str = "orde
         },
         "expected_result_cardinality": "single",
         "required": True,
-        "depends_on": list(depends_on),
     }
+    if depends_on:
+        row["depends_on"] = list(depends_on)
+    return row
 
 
 def _registry():
@@ -202,3 +204,59 @@ def test_shadow_plan_is_not_injected_into_model_prompt() -> None:
         capability_registry=_registry(),
     )
     assert "SHADOW_MUST_NOT_ENTER_PROMPT" not in prompt
+
+
+def test_typed_verification_failure_does_not_raise_or_add_dependencies() -> None:
+    from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
+
+    contract = _contract(
+        [
+            {
+                **_goal("lookup", domain="order", operation="query_logistics"),
+                "requested_effect": {
+                    **_goal(
+                        "lookup",
+                        domain="order",
+                        operation="query_logistics",
+                    )["requested_effect"],
+                    "requested_outputs": [
+                        {
+                            "output_id": "query_logistics",
+                            "evidence_span": "test user text",
+                        }
+                    ],
+                },
+                "input_bindings": [],
+            },
+            {
+                **_goal(
+                    "refund",
+                    domain="refund",
+                    operation="create",
+                ),
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {
+                            "kind": "current_goal_output",
+                            "producer_goal_id": "lookup",
+                            "output_id": "query_logistics",
+                        },
+                        "relation_kind": "result_reference",
+                        "expected_cardinality": "single",
+                        "evidence_span": "test user text",
+                    }
+                ],
+            },
+        ]
+    )
+
+    plan = build_pretool_shadow_plan(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=_registry(),
+    )
+    by_goal = {row["goal_id"]: row for row in plan["goal_plans"]}
+
+    assert by_goal["refund"]["depends_on_goal_ids"] == []
+    assert plan["must_not_dispatch"] is True
+    assert plan["creates_permit"] is False

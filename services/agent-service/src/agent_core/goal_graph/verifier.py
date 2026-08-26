@@ -91,6 +91,8 @@ def _artifact_ref_errors(
     resource_type = _text(ref.get("resource_type"), limit=200).casefold() or "unspecified"
     if resource_type == "unspecified":
         errors.append("VERIFIED_ARTIFACT_REF_RESOURCE_TYPE_UNPROVEN")
+    if not _cardinality_valid(ref.get("cardinality")):
+        errors.append("VERIFIED_ARTIFACT_REF_CARDINALITY_INVALID")
     cardinality = normalize_cardinality(ref.get("cardinality"))
     if cardinality not in {"exactly_one", "collection"}:
         errors.append("VERIFIED_ARTIFACT_REF_CARDINALITY_UNPROVEN")
@@ -142,6 +144,8 @@ def _target_binding_errors(
     if _text(binding.get("semantic_digest"), limit=128) != _text(source.get("semantic_digest"), limit=128):
         errors.append("TARGET_BINDING_SEMANTIC_DIGEST_MISMATCH")
 
+    if not _cardinality_valid(binding.get("cardinality")):
+        errors.append("TARGET_BINDING_CARDINALITY_INVALID")
     if bool(binding.get("verified")):
         if str(binding.get("status") or "") != "VERIFIED":
             errors.append("TARGET_BINDING_STATUS_INVALID")
@@ -407,6 +411,305 @@ def _source_identity_errors(
     return errors
 
 
+_VALID_CARDINALITY_SPELLINGS = frozenset(
+    {
+        "",
+        "unknown",
+        "unspecified",
+        "none",
+        "zero",
+        "single",
+        "one",
+        "exactly_one",
+        "one_or_collection",
+        "collection",
+        "many",
+        "set",
+    }
+)
+
+_GRAPH_KEYS = frozenset(
+    {
+        "version",
+        "authority",
+        "immutable",
+        "shadow_only",
+        "runtime_behavior_change",
+        "source_semantic_contract",
+        "scope",
+        "goals",
+        "edges",
+        "compiler_guarantees",
+        "graph_digest",
+        "graph_id",
+    }
+)
+_SOURCE_KEYS = frozenset({"version", "semantic_contract_id", "semantic_digest", "turn"})
+_SCOPE_KEYS = frozenset({"tenant_id", "user_id", "thread_id"})
+_GUARANTEE_KEYS = frozenset(
+    {
+        "input_authority",
+        "semantic_rewrite_used",
+        "target_guessing_used",
+        "execution_authority_granted",
+        "dependency_authority",
+    }
+)
+_GOAL_KEYS = frozenset(
+    {
+        "goal_id",
+        "required",
+        "requested_effect",
+        "evidence_span",
+        "input_ports",
+        "output_ports",
+        "target_binding",
+        "input_bindings",
+        "derived_dependency_goal_ids",
+        "compatibility",
+    }
+)
+_PORT_KEYS = frozenset(
+    {
+        "version",
+        "port_id",
+        "goal_id",
+        "name",
+        "direction",
+        "type_name",
+        "cardinality",
+        "required",
+        "semantic_output_id",
+    }
+)
+_COMPATIBILITY_KEYS = frozenset(
+    {
+        "legacy_dependency_claims",
+        "dependency_claims_authoritative",
+        "target_candidate_authoritative",
+        "target_candidate_claim",
+    }
+)
+_TARGET_BINDING_KEYS = frozenset(
+    {
+        "version",
+        "status",
+        "verified",
+        "reason_code",
+        "goal_id",
+        "resource_type",
+        "cardinality",
+        "binding_source",
+        "result_ref",
+        "member_handles",
+        "proof_digest",
+        "scope",
+        "semantic_contract_id",
+        "semantic_digest",
+        "provenance",
+        "position",
+        "binding_digest",
+    }
+)
+_PROVENANCE_KEYS = frozenset({"source", "authority", "business_facts_copied"})
+_INPUT_BINDING_KEYS = frozenset(
+    {
+        "version",
+        "port",
+        "source",
+        "relation_kind",
+        "expected_cardinality",
+        "evidence_span",
+        "binding_digest",
+        "proof_digest",
+    }
+)
+_SEMANTIC_EDGE_KEYS = frozenset(
+    {
+        "version",
+        "verified",
+        "symbolic_only",
+        "producer_goal_id",
+        "producer_port_id",
+        "consumer_goal_id",
+        "consumer_port_id",
+        "source_kind",
+        "relation_kind",
+        "evidence_span",
+        "source_proof_digest",
+        "scope",
+        "semantic_contract_id",
+        "semantic_digest",
+        "runtime_artifact_present",
+        "execution_authority_granted",
+        "edge_id",
+    }
+)
+_DATAFLOW_EDGE_KEYS = frozenset(
+    {
+        "version",
+        "verified",
+        "producer_goal_id",
+        "producer_port_id",
+        "consumer_goal_id",
+        "consumer_port_id",
+        "artifact_ref",
+        "scope",
+        "semantic_contract_id",
+        "semantic_digest",
+        "verification_proof_digest",
+        "projection",
+        "edge_id",
+    }
+)
+_ARTIFACT_KEYS = frozenset(
+    {
+        "version",
+        "status",
+        "verified",
+        "artifact_ref",
+        "type_name",
+        "resource_type",
+        "cardinality",
+        "authority",
+        "producer_goal_id",
+        "scope",
+        "semantic_contract_id",
+        "semantic_digest",
+        "source_ref_id",
+        "proof_digest",
+        "provenance",
+        "expires_at",
+        "ref_digest",
+    }
+)
+_PROJECTION_KEYS = frozenset(
+    {"kind", "proof_digest", "source_result_ref", "member_handle"}
+)
+
+
+def _unknown_key_errors(
+    value: dict[str, Any],
+    *,
+    allowed: frozenset[str],
+    prefix: str,
+) -> list[str]:
+    return [
+        f"{prefix}:{key}"
+        for key in sorted(set(str(key) for key in value) - set(allowed))
+    ]
+
+
+def _cardinality_valid(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value.strip().casefold() in _VALID_CARDINALITY_SPELLINGS
+    )
+
+
+def _schema_errors(graph: dict[str, Any]) -> list[str]:
+    errors = _unknown_key_errors(graph, allowed=_GRAPH_KEYS, prefix="GOAL_GRAPH_UNKNOWN_FIELD")
+    for field in ("source_semantic_contract", "scope", "compiler_guarantees"):
+        if not isinstance(graph.get(field), dict):
+            errors.append(f"GOAL_GRAPH_{field.upper()}_OBJECT_REQUIRED")
+    source = graph.get("source_semantic_contract")
+    if isinstance(source, dict):
+        errors.extend(_unknown_key_errors(source, allowed=_SOURCE_KEYS, prefix="GOAL_GRAPH_SOURCE_UNKNOWN_FIELD"))
+    scope = graph.get("scope")
+    if isinstance(scope, dict):
+        errors.extend(_unknown_key_errors(scope, allowed=_SCOPE_KEYS, prefix="GOAL_GRAPH_SCOPE_UNKNOWN_FIELD"))
+    guarantees = graph.get("compiler_guarantees")
+    if isinstance(guarantees, dict):
+        errors.extend(_unknown_key_errors(guarantees, allowed=_GUARANTEE_KEYS, prefix="GOAL_GRAPH_GUARANTEES_UNKNOWN_FIELD"))
+
+    goals = graph.get("goals")
+    if not isinstance(goals, list):
+        errors.append("GOAL_GRAPH_GOALS_LIST_REQUIRED")
+        goals = []
+    for goal in goals:
+        if not isinstance(goal, dict):
+            errors.append("GOAL_GRAPH_GOAL_ROW_OBJECT_REQUIRED")
+            continue
+        errors.extend(_unknown_key_errors(goal, allowed=_GOAL_KEYS, prefix="GOAL_GRAPH_GOAL_UNKNOWN_FIELD"))
+        for field in ("input_ports", "output_ports", "input_bindings", "derived_dependency_goal_ids"):
+            if not isinstance(goal.get(field), list):
+                errors.append(f"GOAL_GRAPH_GOAL_{field.upper()}_LIST_REQUIRED")
+        if not isinstance(goal.get("requested_effect"), dict):
+            errors.append("GOAL_GRAPH_REQUESTED_EFFECT_OBJECT_REQUIRED")
+        compatibility = goal.get("compatibility")
+        if not isinstance(compatibility, dict):
+            errors.append("GOAL_GRAPH_COMPATIBILITY_OBJECT_REQUIRED")
+        else:
+            errors.extend(_unknown_key_errors(compatibility, allowed=_COMPATIBILITY_KEYS, prefix="GOAL_GRAPH_COMPATIBILITY_UNKNOWN_FIELD"))
+        target_binding = goal.get("target_binding")
+        if target_binding is not None and not isinstance(target_binding, dict):
+            errors.append("GOAL_GRAPH_TARGET_BINDING_OBJECT_REQUIRED")
+        if isinstance(target_binding, dict):
+            errors.extend(_unknown_key_errors(target_binding, allowed=_TARGET_BINDING_KEYS, prefix="GOAL_GRAPH_TARGET_BINDING_UNKNOWN_FIELD"))
+            if not isinstance(target_binding.get("scope"), dict):
+                errors.append("GOAL_GRAPH_TARGET_BINDING_SCOPE_OBJECT_REQUIRED")
+            provenance = target_binding.get("provenance")
+            if not isinstance(provenance, dict):
+                errors.append("GOAL_GRAPH_TARGET_BINDING_PROVENANCE_OBJECT_REQUIRED")
+            else:
+                errors.extend(_unknown_key_errors(provenance, allowed=_PROVENANCE_KEYS, prefix="GOAL_GRAPH_TARGET_BINDING_PROVENANCE_UNKNOWN_FIELD"))
+        for field in ("input_ports", "output_ports"):
+            ports = goal.get(field)
+            if not isinstance(ports, list):
+                continue
+            for port in ports:
+                if not isinstance(port, dict):
+                    errors.append("GOAL_PORT_OBJECT_REQUIRED")
+                    continue
+                errors.extend(_unknown_key_errors(port, allowed=_PORT_KEYS, prefix="GOAL_PORT_UNKNOWN_FIELD"))
+                if not _cardinality_valid(port.get("cardinality")):
+                    errors.append("GOAL_PORT_CARDINALITY_INVALID")
+        bindings = goal.get("input_bindings")
+        if isinstance(bindings, list):
+            for binding in bindings:
+                if not isinstance(binding, dict):
+                    errors.append("GOAL_INPUT_BINDING_OBJECT_REQUIRED")
+                else:
+                    errors.extend(_unknown_key_errors(binding, allowed=_INPUT_BINDING_KEYS, prefix="GOAL_INPUT_BINDING_UNKNOWN_FIELD"))
+
+    edges = graph.get("edges")
+    if not isinstance(edges, list):
+        errors.append("GOAL_GRAPH_EDGES_LIST_REQUIRED")
+        edges = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            errors.append("GOAL_GRAPH_EDGE_ROW_OBJECT_REQUIRED")
+            continue
+        version = str(edge.get("version") or "")
+        allowed = (
+            _SEMANTIC_EDGE_KEYS
+            if version == SEMANTIC_DEPENDENCY_EDGE_VERSION
+            else _DATAFLOW_EDGE_KEYS
+        )
+        errors.extend(_unknown_key_errors(edge, allowed=allowed, prefix="GOAL_GRAPH_EDGE_UNKNOWN_FIELD"))
+        if version != SEMANTIC_DEPENDENCY_EDGE_VERSION:
+            artifact = edge.get("artifact_ref")
+            if not isinstance(artifact, dict):
+                errors.append("DATAFLOW_EDGE_ARTIFACT_OBJECT_REQUIRED")
+            else:
+                errors.extend(_unknown_key_errors(artifact, allowed=_ARTIFACT_KEYS, prefix="VERIFIED_ARTIFACT_REF_UNKNOWN_FIELD"))
+                if not _cardinality_valid(artifact.get("cardinality")):
+                    errors.append("VERIFIED_ARTIFACT_REF_CARDINALITY_INVALID")
+                provenance = artifact.get("provenance")
+                if not isinstance(provenance, dict):
+                    errors.append("VERIFIED_ARTIFACT_REF_PROVENANCE_OBJECT_REQUIRED")
+                else:
+                    errors.extend(_unknown_key_errors(provenance, allowed=_PROVENANCE_KEYS, prefix="VERIFIED_ARTIFACT_REF_PROVENANCE_UNKNOWN_FIELD"))
+            projection = edge.get("projection")
+            if not isinstance(projection, dict):
+                errors.append("DATAFLOW_EDGE_PROJECTION_OBJECT_REQUIRED")
+            else:
+                errors.extend(_unknown_key_errors(projection, allowed=_PROJECTION_KEYS, prefix="DATAFLOW_EDGE_PROJECTION_UNKNOWN_FIELD"))
+        if not isinstance(edge.get("scope"), dict):
+            errors.append("GOAL_GRAPH_EDGE_SCOPE_OBJECT_REQUIRED")
+    return errors
+
+
 def graph_structural_integrity(
     graph: dict[str, Any] | None,
     *,
@@ -415,6 +718,7 @@ def graph_structural_integrity(
     if not isinstance(graph, dict):
         return _result(ok=False, code="GOAL_GRAPH_REQUIRED", errors=["GOAL_GRAPH_REQUIRED"])
     errors: list[str] = []
+    errors.extend(_schema_errors(graph))
     if str(graph.get("version") or "") != CANONICAL_GOAL_GRAPH_VERSION:
         errors.append("GOAL_GRAPH_VERSION_INVALID")
     if not bool(graph.get("immutable")):
@@ -430,7 +734,12 @@ def graph_structural_integrity(
     if _text(graph.get("graph_id"), limit=500) != expected_id:
         errors.append("GOAL_GRAPH_ID_INVALID")
 
-    goal_rows = [row for row in list(graph.get("goals") or []) if isinstance(row, dict)]
+    goal_rows = [
+        row for row in (graph.get("goals") if isinstance(graph.get("goals"), list) else [])
+        if isinstance(row, dict)
+    ]
+    if not goal_rows:
+        errors.append("GOAL_GRAPH_GOALS_REQUIRED")
     goal_ids = [_text(row.get("goal_id"), limit=200) for row in goal_rows]
     if any(not value for value in goal_ids) or len(goal_ids) != len(set(goal_ids)):
         errors.append("GOAL_GRAPH_GOAL_IDS_INVALID")
@@ -446,8 +755,11 @@ def graph_structural_integrity(
                     errors.append("GOAL_PORT_VERSION_INVALID")
                     continue
                 port_id = _text(port.get("port_id"), limit=500)
+                expected_port_id = f"{goal_id}:{direction}:{_text(port.get("name"), limit=240)}"
                 if not port_id or port_id in seen_ports:
                     errors.append("GOAL_PORT_ID_INVALID")
+                if port_id != expected_port_id:
+                    errors.append("GOAL_PORT_ID_CANONICAL_INVALID")
                 seen_ports.add(port_id)
                 if _text(port.get("goal_id"), limit=200) != goal_id:
                     errors.append("GOAL_PORT_OWNER_MISMATCH")
@@ -473,7 +785,10 @@ def graph_structural_integrity(
                 errors.append("DEPENDENCY_CLAIM_UNKNOWN_GOAL")
 
     ports = _port_index(graph)
-    edge_rows = [row for row in list(graph.get("edges") or []) if isinstance(row, dict)]
+    edge_rows = [
+        row for row in (graph.get("edges") if isinstance(graph.get("edges"), list) else [])
+        if isinstance(row, dict)
+    ]
     edge_ids = [_text(row.get("edge_id"), limit=500) for row in edge_rows]
     if any(not value for value in edge_ids) or len(edge_ids) != len(set(edge_ids)):
         errors.append("DATAFLOW_EDGE_IDS_INVALID")
@@ -482,6 +797,40 @@ def graph_structural_integrity(
     cycle = _edge_cycle(edge_rows, known_goals)
     if cycle:
         errors.append(f"DATAFLOW_EDGE_CYCLE:{'->'.join(cycle)}")
+
+    if edge_rows and known_goals:
+        outgoing = {goal_id: set() for goal_id in known_goals}
+        incoming = {goal_id: set() for goal_id in known_goals}
+        for edge in edge_rows:
+            producer = _text(edge.get("producer_goal_id"), limit=200)
+            consumer = _text(edge.get("consumer_goal_id"), limit=200)
+            if producer not in known_goals:
+                errors.append("GOAL_GRAPH_EDGE_PRODUCER_GOAL_UNKNOWN")
+                continue
+            if consumer not in known_goals:
+                errors.append("GOAL_GRAPH_EDGE_CONSUMER_GOAL_UNKNOWN")
+                continue
+            outgoing[producer].add(consumer)
+            incoming[consumer].add(producer)
+        isolated = sorted(
+            goal_id
+            for goal_id in known_goals
+            if not outgoing[goal_id] and not incoming[goal_id]
+        )
+        errors.extend(f"GOAL_GRAPH_GOAL_ISOLATED:{goal_id}" for goal_id in isolated)
+        roots = sorted(goal_id for goal_id in known_goals if not incoming[goal_id])
+        reachable: set[str] = set()
+        pending = list(roots)
+        while pending:
+            goal_id = pending.pop()
+            if goal_id in reachable:
+                continue
+            reachable.add(goal_id)
+            pending.extend(sorted(outgoing[goal_id] - reachable))
+        errors.extend(
+            f"GOAL_GRAPH_GOAL_UNREACHABLE:{goal_id}"
+            for goal_id in sorted(known_goals - reachable)
+        )
 
     return _result(
         ok=not errors,
@@ -505,7 +854,10 @@ def dataflow_closure(
         )
     assert isinstance(graph, dict)
     goals = _goal_index(graph)
-    edges = [row for row in list(graph.get("edges") or []) if isinstance(row, dict)]
+    edges = [
+        row for row in (graph.get("edges") if isinstance(graph.get("edges"), list) else [])
+        if isinstance(row, dict)
+    ]
     incoming_by_port: dict[str, list[dict[str, Any]]] = {}
     derived_dependencies: dict[str, list[str]] = {goal_id: [] for goal_id in goals}
     for edge in edges:
