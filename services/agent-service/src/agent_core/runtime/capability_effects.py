@@ -232,6 +232,46 @@ def _matching_effects_for_contract(contract: Any, *, support: bool = False) -> t
     return support_effects_for_contract(contract) if support else completion_effects_for_contract(contract)
 
 
+def _legacy_effects_for_contract(contract: Any, *, support: bool = False) -> tuple[str, ...]:
+    """Return the old alias vocabulary for non-authoritative diagnostics."""
+    field = "support_effects" if support else "completion_effects"
+    return _contract_effects(getattr(contract, field, ()) or ())
+
+
+def _typed_effect_request(raw: Any) -> bool:
+    """Recognize an explicitly typed v2 request without inferring one."""
+    row = raw if isinstance(raw, dict) else {}
+    return any(key in row for key in ("effect_kind", "subject_type", "requested_outputs"))
+
+
+def _surface_identity_for_contract(requested: dict[str, Any], contract: Any) -> str:
+    """Select the exact surface identity for one request/contract pair.
+
+    A typed request can only use a v2 declaration.  A legacy request remains
+    readable by this diagnostic surface so existing pre-v2 projections keep
+    working; authoritative v2 closure uses its own strict matcher.
+    """
+    if str(getattr(contract, "contract_version", "")) == "2" and _typed_effect_request(requested):
+        return canonical_semantic_effect_identity(requested)
+    if _typed_effect_request(requested):
+        return ""
+    return canonical_effect_identity(requested)
+
+
+def _surface_effects_for_contract(
+    requested: dict[str, Any],
+    contract: Any,
+    *,
+    support: bool = False,
+) -> tuple[str, ...]:
+    """Return the exact declarations usable by this compatibility surface."""
+    if _typed_effect_request(requested):
+        return _matching_effects_for_contract(contract, support=support)
+    # Legacy Goal payloads are retained for read-only surface consumers.  The
+    # authoritative v2 closure deliberately does not use this fallback.
+    return _legacy_effects_for_contract(contract, support=support)
+
+
 def _effect_semantic_guidance(contract: Any) -> dict[str, Any]:
     """Project bounded module-owned semantics without granting execution authority."""
     planning = getattr(contract, "planning_contract", None)
@@ -258,13 +298,23 @@ def capability_effect_index(registry: CapabilityRegistry) -> dict[str, Any]:
         contract = registry.contract_for_tool(tool_name)
         if contract is None or contract.execution_kind in {"unsupported", "clarification_read"}:
             continue
-        for identity in _matching_effects_for_contract(contract):
+        # Keep legacy aliases in this non-authoritative index for migration
+        # readers.  Runtime v2 proof never consumes these aliases.
+        completion_identities = tuple(dict.fromkeys(
+            (*_legacy_effects_for_contract(contract),
+             *_matching_effects_for_contract(contract))
+        ))
+        support_identities = tuple(dict.fromkeys(
+            (*_legacy_effects_for_contract(contract, support=True),
+             *_matching_effects_for_contract(contract, support=True))
+        ))
+        for identity in completion_identities:
             row = grouped.setdefault(identity, _effect_index_row())
             row["completion_tools"].append(tool_name)
             guidance = _effect_semantic_guidance(contract)
             if guidance not in row["semantic_guidance"]:
                 row["semantic_guidance"].append(guidance)
-        for identity in _matching_effects_for_contract(contract, support=True):
+        for identity in support_identities:
             grouped.setdefault(identity, _effect_index_row())["support_tools"].append(tool_name)
     return {
         "version": CAPABILITY_EFFECT_INDEX_VERSION,
@@ -316,8 +366,7 @@ def discover_exact_effect_surface(
         requested = deepcopy(raw_goal.get("requested_effect")) if isinstance(
             raw_goal.get("requested_effect"), dict
         ) else {}
-        is_v2 = str(getattr(contract, "contract_version", "")) == "2" if contract is not None else False
-        identity = canonical_semantic_effect_identity(requested) if is_v2 else canonical_effect_identity(requested)
+        requested_identity = canonical_semantic_effect_identity(requested) if _typed_effect_request(requested) else canonical_effect_identity(requested)
         completion: list[str] = []
         support: list[str] = []
         for name in sorted(registry.tool_names()):
@@ -327,9 +376,12 @@ def discover_exact_effect_surface(
                 "clarification_read",
             }:
                 continue
-            if identity and identity in _matching_effects_for_contract(contract):
+            identity = _surface_identity_for_contract(requested, contract)
+            if identity and identity in _surface_effects_for_contract(requested, contract):
                 completion.append(name)
-            if identity and identity in _matching_effects_for_contract(contract, support=True):
+            if identity and identity in _surface_effects_for_contract(
+                requested, contract, support=True
+            ):
                 support.append(name)
 
         hinted: list[str] = []
@@ -337,10 +389,10 @@ def discover_exact_effect_surface(
             contract = registry.contract_for_tool(str(name or ""))
             if contract is None:
                 continue
-            hinted_identity = identity
+            hinted_identity = _surface_identity_for_contract(requested, contract)
             if hinted_identity in {
-                *_matching_effects_for_contract(contract),
-                *_matching_effects_for_contract(contract, support=True),
+                *_surface_effects_for_contract(requested, contract),
+                *_surface_effects_for_contract(requested, contract, support=True),
             }:
                 hinted.append(str(name))
 
@@ -364,7 +416,7 @@ def discover_exact_effect_surface(
             {
                 "goal_id": goal_id,
                 "requested_effect": requested,
-                "requested_effect_identity": identity or None,
+                "requested_effect_identity": requested_identity or None,
                 "status": status,
                 "candidate_tools": list(dict.fromkeys(candidates)),
                 "completion_tools": list(dict.fromkeys(completion)),
