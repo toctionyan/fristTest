@@ -674,7 +674,7 @@
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
-    "services/agent-service/src/agent_core/goal_graph/verification_contract.py": "563bcacfd34306dea6a4d9ffc0f1c7881cc7e1d735a25230942c0ff85ceabaa2",
+    "services/agent-service/src/agent_core/goal_graph/verification_contract.py": "563bcacfd34306dea6a4d9ffc0c1c7881cc7e1d735a25230942c0ff85ceabaa2",
     "services/agent-service/tests/architecture/test_typed_goal_graph_target_evidence.py": "8c846d7115c3a1dbd31185b078319d1e6b78299114602c8590b481e18b71d8c7",
     "services/agent-service/tests/architecture/test_typed_goal_graph_verification_contract.py": "0ead2ec6d908792bfdeadf9f03e90f59d1a49e6609cbf3702ba212510212b583"
   },
