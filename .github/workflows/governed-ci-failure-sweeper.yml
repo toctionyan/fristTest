@@ -63,7 +63,7 @@ jobs:
             gh issue edit "${EXISTING}" --body "${BODY}" --repo "${GH_REPO}"
             ISSUE_NUMBER="${EXISTING}"
           else
-            ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}") --repo "${GH_REPO}"
+            ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}" --repo "${GH_REPO}")
             ISSUE_NUMBER="${ISSUE_URL##*/}"
           fi
           [[ "${ISSUE_NUMBER}" =~ ^[0-9]+$ ]]
@@ -167,7 +167,7 @@ jobs:
           candidate checkout, artifact download, log parsing, or TaskRun creation.
           EOF
           )
-          ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}") --repo "${GH_REPO}"
+          ISSUE_URL=$(gh issue create --title "${TITLE}" --body "${BODY}" --repo "${GH_REPO}")
           ISSUE_NUMBER="${ISSUE_URL##*/}"
           [[ "${ISSUE_NUMBER}" =~ ^[0-9]+$ ]]
           echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"

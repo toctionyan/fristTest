@@ -60,6 +60,8 @@ def test_issue_commands_have_explicit_repository_context() -> None:
     ]
     assert commands
     assert all('--repo "${GH_REPO}"' in line for line in commands)
+    assert ") --repo" not in text
+    assert text.count(' --repo "${GH_REPO}")') == 2
 
 
 def test_discovery_fetches_full_run_before_reading_pr_binding() -> None:
