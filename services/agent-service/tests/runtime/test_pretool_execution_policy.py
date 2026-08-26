@@ -604,3 +604,70 @@ def test_capability_gate_frontier_rejects_forged_cross_target_shared_binding() -
 
     assert proof["allowed"] is False
     assert "multi_goal_target_mismatch" in proof["errors"]
+
+
+
+def test_stage1_stage2a_shadow_graph_is_attached_to_mainline_loop_without_authority(
+    monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from agent_core.lifecycle.dialogue_runtime import agent_loop_node
+
+    contract = _contract(
+        [_goal("logistics", domain="order", operation="query_logistics")]
+    )
+
+    class ContextBuilder:
+        def build(self, _state):
+            return {"context_health": {}}
+
+    class CapturingModel:
+        def __init__(self):
+            self.bound_names = []
+
+        def bind_tools(self, schemas, **_kwargs):
+            self.bound_names = [
+                str((schema.get("function") or {}).get("name") or "")
+                for schema in schemas
+            ]
+            return self
+
+    model = CapturingModel()
+    monkeypatch.setattr(
+        "agent_core.lifecycle.dialogue_runtime.invoke_model",
+        lambda **_kwargs: (SimpleNamespace(content="", tool_calls=[]), {"status": "test"}),
+    )
+
+    update = agent_loop_node(
+        {
+            "current_user_input": "查询物流",
+            "frozen_semantic_contract": contract,
+            "turn_index": 1,
+            "agent_loop_step": 0,
+            "agent_loop_max_steps": 6,
+            "loop_plans": [],
+            "goal_records": [],
+            "artifact_ledger": [],
+        },
+        context_bundle_builder=ContextBuilder(),
+        capability_registry=_registry(),
+        model_resolver=lambda: model,
+    )
+
+    shadow = update["pretool_shadow_plan"]
+    graph = shadow["typed_goal_graph"]
+
+    assert shadow["generated_before_model_tool_call"] is True
+    assert shadow["authority"] == "shadow_only_not_execution_authority"
+    assert shadow["must_not_dispatch"] is True
+    assert shadow["creates_permit"] is False
+    assert shadow["mutates_semantics"] is False
+    assert shadow["observed_model_tool_calls"] == []
+
+    assert graph["shadow_only"] is True
+    assert graph["runtime_behavior_change"] is False
+    assert graph["compiler_guarantees"]["execution_authority_granted"] is False
+
+    assert update["pretool_execution_policy"]["creates_permit"] is False
+    assert "get_order_logistics" in model.bound_names
