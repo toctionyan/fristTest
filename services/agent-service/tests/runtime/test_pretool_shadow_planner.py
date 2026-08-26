@@ -202,3 +202,44 @@ def test_shadow_plan_is_not_injected_into_model_prompt() -> None:
         capability_registry=_registry(),
     )
     assert "SHADOW_MUST_NOT_ENTER_PROMPT" not in prompt
+
+
+def test_typed_verification_failure_does_not_raise_or_replace_legacy_dependencies() -> None:
+    from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
+
+    contract = _contract(
+        [
+            _goal("lookup", domain="order", operation="query_logistics"),
+            {
+                **_goal(
+                    "refund",
+                    domain="refund",
+                    operation="create",
+                    depends_on=("lookup",),
+                ),
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {
+                            "kind": "current_goal_output",
+                            "producer_goal_id": "lookup",
+                            "output_id": "open:query_logistics",
+                        },
+                        "relation_kind": "result_reference",
+                        "expected_cardinality": "single",
+                        "evidence_span": "它",
+                    }
+                ],
+            },
+        ]
+    )
+
+    plan = build_pretool_shadow_plan(
+        state={"frozen_semantic_contract": contract},
+        capability_registry=_registry(),
+    )
+    by_goal = {row["goal_id"]: row for row in plan["goal_plans"]}
+
+    assert by_goal["refund"]["depends_on_goal_ids"] == ["lookup"]
+    assert plan["must_not_dispatch"] is True
+    assert plan["creates_permit"] is False

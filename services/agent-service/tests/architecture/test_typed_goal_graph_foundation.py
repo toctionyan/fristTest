@@ -907,3 +907,96 @@ def test_graph_scope_must_be_complete_and_cannot_validate_as_all_empty() -> None
     assert "GOAL_GRAPH_SCOPE_REQUIRED:tenant_id" in check["errors"]
     assert "GOAL_GRAPH_SCOPE_REQUIRED:user_id" in check["errors"]
     assert "GOAL_GRAPH_SCOPE_REQUIRED:thread_id" in check["errors"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        (lambda graph: graph.update({"goals": []}), "GOAL_GRAPH_GOALS_REQUIRED"),
+        (lambda graph: graph.update({"goals": [None]}), "GOAL_GRAPH_GOAL_ROW_OBJECT_REQUIRED"),
+        (lambda graph: graph.update({"edges": [None]}), "GOAL_GRAPH_EDGE_ROW_OBJECT_REQUIRED"),
+        (lambda graph: graph.update({"unexpected": True}), "GOAL_GRAPH_UNKNOWN_FIELD:unexpected"),
+        (
+            lambda graph: graph["goals"][0].update({"unexpected": True}),
+            "GOAL_GRAPH_GOAL_UNKNOWN_FIELD:unexpected",
+        ),
+        (
+            lambda graph: graph["goals"][0]["output_ports"][0].update({"port_id": "forged"}),
+            "GOAL_PORT_ID_CANONICAL_INVALID",
+        ),
+        (
+            lambda graph: graph["goals"][0]["output_ports"][0].update({"cardinality": "typo"}),
+            "GOAL_PORT_CARDINALITY_INVALID",
+        ),
+    ],
+)
+def test_structural_verifier_fails_closed_after_resealing(
+    mutation,
+    expected_error: str,
+) -> None:
+    graph = compile_frozen_semantic_contract(
+        _contract([_goal("g1", "order.details")]),
+        scope=_scope(),
+    )
+    mutation(graph)
+    check = graph_structural_integrity(seal_goal_graph(graph))
+    assert check["ok"] is False
+    assert expected_error in check["errors"]
+
+
+def test_typed_authority_graph_remains_shadow_only() -> None:
+    contract = freeze_semantic_contract(
+        turn=13,
+        user_text="查订单，再看它能否退款",
+        summary="typed authority stays diagnostic",
+        goals=[
+            {
+                "goal_id": "g1",
+                "description": "查订单",
+                "evidence_span": "查订单",
+                "requested_effect": {
+                    "domain": "order",
+                    "operation": "details",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "order.details", "evidence_span": "订单"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [],
+            },
+            {
+                "goal_id": "g2",
+                "description": "看它能否退款",
+                "evidence_span": "看它能否退款",
+                "requested_effect": {
+                    "domain": "refund",
+                    "operation": "eligibility",
+                    "object_type": "order",
+                    "requested_outputs": [
+                        {"output_id": "refund.eligibility", "evidence_span": "退款"}
+                    ],
+                },
+                "expected_result_cardinality": "single",
+                "required": True,
+                "input_bindings": [
+                    {
+                        "port": "target",
+                        "source": {
+                            "kind": "current_goal_output",
+                            "producer_goal_id": "g1",
+                            "output_id": "order.details",
+                        },
+                        "relation_kind": "result_reference",
+                        "expected_cardinality": "single",
+                        "evidence_span": "它",
+                    }
+                ],
+            },
+        ],
+        alignment_proof={"verdict": "exact"},
+    )
+    graph = compile_frozen_semantic_contract(contract, scope=_scope())
+    assert graph["shadow_only"] is True
+    assert graph["runtime_behavior_change"] is False
