@@ -671,12 +671,19 @@ def _candidate_proof(
     input_issuer_validator: Any | None = None,
     target_issuer_validator: Any | None = None,
     strict_v2: bool = True,
+    allow_legacy_effect_compatibility: bool = False,
 ) -> dict[str, Any]:
     requested_identity = canonical_effect_identity(goal.get("requested_effect"))
     reasons: list[str] = []
-    if not requested_identity or not _contract_effect_compatible(goal, contract):
-        reasons.append("CAPABILITY_EFFECT_MISMATCH")
     effect_proof = _exact_effect_match(goal, contract)
+    effect_compatible = _contract_effect_compatible(goal, contract)
+    if (
+        allow_legacy_effect_compatibility
+        and effect_proof["status"] == "LEGACY_EFFECT_COMPAT_ONLY"
+    ):
+        effect_compatible = True
+    if not requested_identity or not effect_compatible:
+        reasons.append("CAPABILITY_EFFECT_MISMATCH")
 
     planning = getattr(contract, "planning_contract", None)
     if str(getattr(contract, "contract_version", "")) != "2" or planning is None:
@@ -871,6 +878,7 @@ def build_typed_goal_capability_coverage(
                         not legacy_shadow_compatibility
                         and isinstance(contract, ToolCapabilityContract)
                     ),
+                    allow_legacy_effect_compatibility=legacy_shadow_compatibility,
                 )
             )
 

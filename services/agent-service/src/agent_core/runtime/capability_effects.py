@@ -366,7 +366,10 @@ def discover_exact_effect_surface(
         requested = deepcopy(raw_goal.get("requested_effect")) if isinstance(
             raw_goal.get("requested_effect"), dict
         ) else {}
-        requested_identity = canonical_semantic_effect_identity(requested) if _typed_effect_request(requested) else canonical_effect_identity(requested)
+        # Keep the public diagnostic identity backwards-compatible.  The
+        # per-contract surface below still uses the typed v2 identity when
+        # the request explicitly carries typed fields.
+        requested_identity = canonical_effect_identity(requested)
         completion: list[str] = []
         support: list[str] = []
         for name in sorted(registry.tool_names()):

@@ -27,6 +27,35 @@ GOAL_CAPABILITY_COVERAGE_VERSION = "goal-capability-coverage@2"
 TYPED_GOAL_CAPABILITY_SHADOW_COMPARISON_VERSION = "typed-goal-capability-shadow-comparison@1"
 
 
+def _typed_effect_request(raw: Any) -> bool:
+    """Recognize an explicitly typed effect without inferring one."""
+    row = raw if isinstance(raw, dict) else {}
+    return any(key in row for key in ("effect_kind", "subject_type", "requested_outputs"))
+
+
+def _legacy_or_typed_completion_match(
+    row: dict[str, Any],
+    contract: Any,
+) -> bool:
+    """Match legacy coverage while honoring real v2 declarations when present."""
+    requested = row.get("requested_effect") if isinstance(row.get("requested_effect"), dict) else {}
+    semantic_declarations = tuple(getattr(contract, "semantic_effects_v2", ()) or ())
+    if (
+        _typed_effect_request(requested)
+        and str(getattr(contract, "contract_version", "")) == "2"
+        and semantic_declarations
+    ):
+        requested_v2 = canonical_semantic_effect_identity(requested)
+        declared = {
+            canonical_semantic_effect_identity(value) if isinstance(value, dict) else str(value)
+            for value in semantic_declarations
+            if str(value)
+        }
+        return bool(requested_v2 and requested_v2 in declared)
+    legacy_identity = str(row.get("requested_effect_identity") or "")
+    return bool(legacy_identity and legacy_identity in completion_effects_for_contract(contract))
+
+
 def _digest(value: Any) -> str:
     payload = json.dumps(
         value,
@@ -158,12 +187,16 @@ def _proof_rows_for_shared_binding(
     errors: list[str] = []
     for goal_id in goal_ids:
         goal = by_goal.get(goal_id) or {}
+        requested = goal.get("requested_effect")
+        has_v2_declaration = bool(getattr(contract, "semantic_effects_v2", ()) or ())
         identity = str(
-            (
-                canonical_semantic_effect_identity(goal.get("requested_effect"))
-                if contract.contract_version == "2"
-                else goal.get("requested_effect_identity")
+            canonical_semantic_effect_identity(requested)
+            if (
+                _typed_effect_request(requested)
+                and contract.contract_version == "2"
+                and has_v2_declaration
             )
+            else goal.get("requested_effect_identity")
             or ""
         )
         if not identity:
@@ -545,12 +578,10 @@ def build_goal_capability_coverage(
         contract = capability_registry.contract_for_tool(tool_name)
         if contract is None or contract.execution_kind in {"unsupported", "clarification_read"}:
             continue
-        completion = set(completion_effects_for_contract(contract))
         matched = [
             row["goal_id"]
             for row in goal_rows
-            if row["requested_effect_identity"]
-            and row["requested_effect_identity"] in completion
+            if _legacy_or_typed_completion_match(row, contract)
         ]
         if not matched:
             continue
