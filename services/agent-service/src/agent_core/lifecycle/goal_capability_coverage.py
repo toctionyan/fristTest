@@ -668,6 +668,7 @@ def build_goal_capability_coverage(
             frozen_contract=frozen_contract,
             available_input_evidence=tuple(available_input_evidence or ()),
             evaluation_time=evaluation_time,
+            legacy_shadow_compatibility=True,
         )
         payload["typed_goal_capability_shadow"] = typed_shadow
         payload["typed_shadow_comparison"] = _typed_shadow_comparison(

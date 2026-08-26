@@ -700,8 +700,15 @@ def build_typed_goal_capability_coverage(
     evaluation_time: float | None = None,
     input_issuer_validator: Any | None = None,
     target_issuer_validator: Any | None = None,
+    legacy_shadow_compatibility: bool = False,
 ) -> dict[str, Any]:
     """Build a typed compatibility proof without selecting or dispatching Tools."""
+
+    coverage_version = (
+        LEGACY_TYPED_GOAL_CAPABILITY_COVERAGE_VERSION
+        if legacy_shadow_compatibility
+        else TYPED_GOAL_CAPABILITY_COVERAGE_VERSION
+    )
 
     structural = graph_structural_integrity(graph, frozen_contract=frozen_contract)
     closure = (
@@ -717,7 +724,7 @@ def build_typed_goal_capability_coverage(
     source = graph.get("source_semantic_contract") if isinstance(graph.get("source_semantic_contract"), dict) else {}
     if not structural.get("ok"):
         payload = {
-            "version": TYPED_GOAL_CAPABILITY_COVERAGE_VERSION,
+            "version": coverage_version,
             "authority": "read_only_typed_compatibility_not_execution_authority",
             "graph_id": graph.get("graph_id"),
             "graph_digest": graph.get("graph_digest"),
@@ -770,10 +777,15 @@ def build_typed_goal_capability_coverage(
                 )
             )
 
-        usable = [row for row in candidates if row["status"] == "READY"]
+        usable = [
+            row
+            for row in candidates
+            if row["status"] == "READY"
+            or (legacy_shadow_compatibility and row["status"] == "NEEDS_INTERACTION")
+        ]
         ready = [row for row in candidates if row["status"] == "READY"]
         needs_interaction = [row for row in candidates if row["status"] == "NEEDS_INTERACTION"]
-        if ready and bool(goal.get("required", True)):
+        if usable and bool(goal.get("required", True)):
             covered_required.add(goal_id)
         if ready:
             ready_goal_ids.append(goal_id)
@@ -791,7 +803,7 @@ def build_typed_goal_capability_coverage(
                     else "EFFECT_MATCH_BUT_TYPED_UNCLOSED" if candidates
                     else "UNCOVERED"
                 ),
-                "closed_capability_tools": [row["tool_name"] for row in ready],
+                "closed_capability_tools": [row["tool_name"] for row in usable],
                 "collectable_capability_tools": [row["tool_name"] for row in needs_interaction],
                 "candidate_proofs": candidates,
             }
@@ -803,7 +815,7 @@ def build_typed_goal_capability_coverage(
         coverage_status = "DATAFLOW_OPEN"
 
     payload = {
-        "version": TYPED_GOAL_CAPABILITY_COVERAGE_VERSION,
+        "version": coverage_version,
         "authority": "read_only_typed_compatibility_not_execution_authority",
         "matching": "exact_effect_plus_typed_target_and_input_contracts",
         "graph_id": graph.get("graph_id"),
