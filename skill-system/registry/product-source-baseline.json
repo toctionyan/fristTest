@@ -1,5 +1,5 @@
 {
-  "file_count": 674,
+  "file_count": 676,
   "files": {
     "contracts/BUSINESS_API_GUIDE.md": "0bfd912755f586c20dcf4f7db5144b659247875245a3b7abf3ecf6b17d6fa4be",
     "contracts/business-api.contract.json": "cd05a3433fb4b59567153ec5357afaedaec3962c466b7a600788f40472d6fc21",
@@ -130,11 +130,12 @@
     "services/agent-service/src/agent_core/context/referent_sets.py": "6f35dd5fc3004e54aa8c1f46da5050725542d9064c5108143b5d8998b6d16963",
     "services/agent-service/src/agent_core/context/state_projection.py": "52a1bcf40b9d299804bf1562a21e420bd385a85793bfe8ab8161bb819e8707f7",
     "services/agent-service/src/agent_core/context/visible_result_refs.py": "c564d6f24ad7c7d9b379544924047eccb360097ca4555f2d9f5c9ed5760695cb",
-    "services/agent-service/src/agent_core/goal_graph/__init__.py": "fefd6fcb92ea47d5b9df6003180692976add48c09dc3b9bfec3f1c0e9203a903",
+    "services/agent-service/src/agent_core/goal_graph/__init__.py": "edd12c1ad86d5d8615eec207f4112fd9691188f03af658545dd41e66f919f01b",
     "services/agent-service/src/agent_core/goal_graph/activation_preflight.py": "6d6963b6e61d5d413e0c5a88e08a1a9bc568982e21657418f65efdcd676f1620",
     "services/agent-service/src/agent_core/goal_graph/capability_closure.py": "e5bad498c8933e331af76a67343e1a10b2fc4eead53033fddd6ba1177fc4c0b9",
     "services/agent-service/src/agent_core/goal_graph/compiler.py": "f972222397bb2967ccfa0e879c3f1ff9f27a2ab5898a1de77025a6f9fc5900c4",
-    "services/agent-service/src/agent_core/goal_graph/contracts.py": "73afd13321aff7d92e56b82130d41002675d520faca51232c09b11fcb57d1246",
+    "services/agent-service/src/agent_core/goal_graph/contracts.py": "b643c6eada3149ec030c63016c2b3719a94c3af2cc472a4efb03cb249325a556",
+    "services/agent-service/src/agent_core/goal_graph/target_evidence.py": "bd23ba5e37366aa5cc345e4b038b54cc0d6810136461b77e99281cbe2c8dbba1",
     "services/agent-service/src/agent_core/goal_graph/cutover_gate.py": "4d65e9c617464cd121042906d2ae16d9e71d0c329b2908fdf61d5e6e1b7c8b6b",
     "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py": "b50555e378b2fa26f1fec485f08730e812e55e0b385d607f2c76b29da6a505ff",
     "services/agent-service/src/agent_core/goal_graph/dependency_authority.py": "0e427db0e1b1c1b4886cbb50c98603585a236421530685cadb10029f1b61141c",
@@ -673,7 +674,8 @@
     "services/business-service/tests/test_postgres_production_persistence.py": "68c14738c3f033f7d6d96301c3c8265f7ebaa428585df8daeeac93e26b758ea5",
     "services/business-service/tests/test_stage4_identity_security.py": "3458c665fce9c55acbedd13aedbf4be3234ba426b94264af530b03d6fc480e05",
     "services/business-service/uv.lock": "4ae2494fa1000c2908789e47cdefa333bd20de7ad14dfb8846bed19d357ff46d",
-    "services/agent-service/src/agent_core/goal_graph/verification_contract.py": "523ec0dbe47b0429553086f39692d8c51f691f57acfea63d3d9b1937ce49c996",
+    "services/agent-service/src/agent_core/goal_graph/verification_contract.py": "563bcacfd34306dea6a4d9ffc0f1c7881cc7e1d735a25230942c0ff85ceabaa2",
+    "services/agent-service/tests/architecture/test_typed_goal_graph_target_evidence.py": "8c846d7115c3a1dbd31185b078319d1e6b78299114602c8590b481e18b71d8c7",
     "services/agent-service/tests/architecture/test_typed_goal_graph_verification_contract.py": "0ead2ec6d908792bfdeadf9f03e90f59d1a49e6609cbf3702ba212510212b583"
   },
   "generated_at": "2026-08-25T18:25:39Z",

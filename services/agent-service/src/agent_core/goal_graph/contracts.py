@@ -19,6 +19,10 @@ TYPED_TARGET_BINDING_VERSION = "typed-target-binding@1"
 TYPED_DATAFLOW_EDGE_VERSION = "typed-dataflow-edge@1"
 SEMANTIC_DEPENDENCY_EDGE_VERSION = "semantic-dependency-edge@1"
 VERIFIED_ARTIFACT_REF_VERSION = "verified-artifact-ref@1"
+# Parallel v2 contracts are opt-in; the v1 constructors and graph digest remain
+# unchanged until a later Stage 2A integration PR wires them to a compiler.
+TYPED_TARGET_EVIDENCE_VERSION = "typed-target-evidence@2"
+VERIFIED_ARTIFACT_REF_V2_VERSION = "verified-artifact-ref@2"
 
 _CARDINALITY_ALIASES = {
     "": "unknown",

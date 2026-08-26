@@ -51,14 +51,25 @@ from .contracts import (
     CANONICAL_GOAL_GRAPH_VERSION,
     GOAL_PORT_VERSION,
     TYPED_DATAFLOW_EDGE_VERSION,
+    TYPED_TARGET_EVIDENCE_VERSION,
     TYPED_TARGET_BINDING_VERSION,
     VERIFIED_ARTIFACT_REF_VERSION,
+    VERIFIED_ARTIFACT_REF_V2_VERSION,
     make_verified_artifact_ref,
     make_verified_dataflow_edge,
     seal_goal_graph,
     with_verified_dataflow_edge,
 )
 from .verifier import dataflow_closure, graph_structural_integrity, verify_goal_graph
+from .target_evidence import (
+    LEGACY_TARGET_EVIDENCE_VERSION,
+    TARGET_EVIDENCE_VARIANTS,
+    TARGET_EVIDENCE_VERSION,
+    target_evidence_proof_payload,
+    validate_target_evidence,
+    validate_target_evidence_versions,
+)
+from .verification_contract import VERIFICATION_CONTRACT_V2_VERSION
 
 __all__ = [
     "CANONICAL_GOAL_GRAPH_VERSION",
@@ -66,7 +77,13 @@ __all__ = [
     "TYPED_DATAFLOW_EDGE_VERSION",
     "TYPED_TARGET_BINDING_VERSION",
     "VERIFIED_ARTIFACT_REF_VERSION",
+    "TYPED_TARGET_EVIDENCE_VERSION",
+    "VERIFIED_ARTIFACT_REF_V2_VERSION",
+    "TARGET_EVIDENCE_VERSION",
+    "LEGACY_TARGET_EVIDENCE_VERSION",
+    "TARGET_EVIDENCE_VARIANTS",
     "TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
+    "VERIFICATION_CONTRACT_V2_VERSION",
     "DEPENDENCY_ACTIVATION_PREFLIGHT_AUTHORITY",
     "DEPENDENCY_ACTIVATION_PREFLIGHT_VERSION",
     "DEPENDENCY_ACTIVATION_REQUEST_AUTHORITY",
@@ -106,4 +123,7 @@ __all__ = [
     "seal_goal_graph",
     "verify_goal_graph",
     "with_verified_dataflow_edge",
+    "target_evidence_proof_payload",
+    "validate_target_evidence",
+    "validate_target_evidence_versions",
 ]

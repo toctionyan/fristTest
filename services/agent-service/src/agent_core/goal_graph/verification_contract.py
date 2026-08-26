@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 VERIFICATION_CONTRACT_VERSION = "typed-goal-graph-verification@1"
+VERIFICATION_CONTRACT_V2_VERSION = "typed-goal-graph-verification@2"
 VERIFICATION_DIGEST_ALGORITHM = "sha256-canonical-semantic-json@1"
 VERIFICATION_AUTHORITY = "shadow_only_diagnostic"
 
