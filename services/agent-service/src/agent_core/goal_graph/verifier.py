@@ -514,6 +514,7 @@ _TARGET_BINDING_KEYS = frozenset(
 _PROVENANCE_KEYS = frozenset({"source", "authority", "business_facts_copied"})
 _INPUT_BINDING_KEYS = frozenset(
     {
+        "version",
         "port",
         "source",
         "relation_kind",
