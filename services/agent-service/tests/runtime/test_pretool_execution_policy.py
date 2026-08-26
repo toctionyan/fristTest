@@ -642,6 +642,9 @@ def test_stage1_stage2a_shadow_graph_is_attached_to_mainline_loop_without_author
     update = agent_loop_node(
         {
             "current_user_input": "查询物流",
+            "current_tenant_id": "tenant-1",
+            "current_user_id": "u001",
+            "current_thread_id": "web-u001-shadow",
             "frozen_semantic_contract": contract,
             "turn_index": 1,
             "agent_loop_step": 0,
