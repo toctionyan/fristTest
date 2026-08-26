@@ -28,8 +28,10 @@ def _goal(goal_id: str, *, domain: str, operation: str, object_type: str = "orde
         },
         "expected_result_cardinality": "single",
         "required": True,
-        "depends_on": list(depends_on),
     }
+    if depends_on:
+        row["depends_on"] = list(depends_on)
+    return row
 
 
 def _registry():
