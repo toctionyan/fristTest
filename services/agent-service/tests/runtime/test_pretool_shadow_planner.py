@@ -204,7 +204,7 @@ def test_shadow_plan_is_not_injected_into_model_prompt() -> None:
     assert "SHADOW_MUST_NOT_ENTER_PROMPT" not in prompt
 
 
-def test_typed_verification_failure_does_not_raise_or_replace_legacy_dependencies() -> None:
+def test_typed_verification_failure_does_not_raise_or_add_dependencies() -> None:
     from agent_core.lifecycle.pretool_planner import build_pretool_shadow_plan
 
     contract = _contract(
@@ -218,7 +218,6 @@ def test_typed_verification_failure_does_not_raise_or_replace_legacy_dependencie
                     "refund",
                     domain="refund",
                     operation="create",
-                    depends_on=("lookup",),
                 ),
                 "input_bindings": [
                     {
@@ -243,6 +242,6 @@ def test_typed_verification_failure_does_not_raise_or_replace_legacy_dependencie
     )
     by_goal = {row["goal_id"]: row for row in plan["goal_plans"]}
 
-    assert by_goal["refund"]["depends_on_goal_ids"] == ["lookup"]
+    assert by_goal["refund"]["depends_on_goal_ids"] == []
     assert plan["must_not_dispatch"] is True
     assert plan["creates_permit"] is False
