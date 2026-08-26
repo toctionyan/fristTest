@@ -669,5 +669,16 @@ def test_stage1_stage2a_shadow_graph_is_attached_to_mainline_loop_without_author
     assert graph["runtime_behavior_change"] is False
     assert graph["compiler_guarantees"]["execution_authority_granted"] is False
 
+    verification = shadow["typed_goal_graph_verification"]
+    assert verification["ok"] is True
+    assert verification["structural"]["ok"] is True
+    assert verification["dataflow"]["ok"] is True
+    assert shadow["typed_goal_graph_verification_digest"]
+
+    from agent_core.lifecycle.pretool_execution_policy import execution_policy_prompt_projection
+
+    prompt_projection = execution_policy_prompt_projection(update["pretool_execution_policy"])
+    assert "typed_goal_graph_verification" not in prompt_projection
+
     assert update["pretool_execution_policy"]["creates_permit"] is False
     assert "get_order_logistics" in model.bound_names
