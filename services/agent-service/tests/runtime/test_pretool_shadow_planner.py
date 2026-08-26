@@ -213,6 +213,19 @@ def test_typed_verification_failure_does_not_raise_or_add_dependencies() -> None
         [
             {
                 **_goal("lookup", domain="order", operation="query_logistics"),
+                "requested_effect": {
+                    **_goal(
+                        "lookup",
+                        domain="order",
+                        operation="query_logistics",
+                    )["requested_effect"],
+                    "requested_outputs": [
+                        {
+                            "output_id": "query_logistics",
+                            "evidence_span": "test user text",
+                        }
+                    ],
+                },
                 "input_bindings": [],
             },
             {
@@ -227,7 +240,7 @@ def test_typed_verification_failure_does_not_raise_or_add_dependencies() -> None
                         "source": {
                             "kind": "current_goal_output",
                             "producer_goal_id": "lookup",
-                            "output_id": "open:query_logistics",
+                            "output_id": "query_logistics",
                         },
                         "relation_kind": "result_reference",
                         "expected_cardinality": "single",
