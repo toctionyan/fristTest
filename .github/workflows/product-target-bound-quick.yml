@@ -104,6 +104,9 @@ jobs:
             --base-sha '${{ inputs.base_sha }}'
           TARGET_PATH=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["target_path"])' target-bound/binding.json)
           echo "TARGET_PATH=${TARGET_PATH}" >> "$GITHUB_ENV"
+          mkdir -p candidate/.quality target-bound/baseline/.quality
+          "${pythonLocation}/bin/python" -c 'from pathlib import Path; import secrets; Path("candidate/.quality/quality-evidence.key").write_text(secrets.token_hex(32) + "\n", encoding="utf-8")'
+          ln -s "$PWD/candidate/.quality/quality-evidence.key" target-bound/baseline/.quality/quality-evidence.key
           ln -s "$PWD/candidate/services/agent-service/.venv" target-bound/baseline/services/agent-service/.venv
           ln -s "$PWD/candidate/services/business-service/.venv" target-bound/baseline/services/business-service/.venv
           ln -s "$PWD/candidate/services/agent-service/frontend/node_modules" target-bound/baseline/services/agent-service/frontend/node_modules
