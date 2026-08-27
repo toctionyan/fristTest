@@ -133,6 +133,8 @@ def _read_gate_artifact(workspace: Path, raw_path: str | Path, *, field: str) ->
     path = Path(raw_path)
     if not path.is_absolute():
         path = workspace / path
+    if path.is_symlink():
+        raise StageAcceptanceWriteError(f"{field} is missing or unsafe")
     path = path.resolve()
     try:
         relative = path.relative_to(workspace.resolve()).as_posix()
