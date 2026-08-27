@@ -1,0 +1,208 @@
+name: governed-stage2b1-acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact successful workflow run that produced the acceptance input artifact
+        required: true
+        type: string
+      source_run_attempt:
+        description: Exact attempt for source_run_id
+        required: false
+        default: '1'
+        type: string
+      acceptance_artifact_id:
+        description: Exact artifact ID named stage2b1-acceptance-inputs
+        required: true
+        type: string
+      change_contract_digest:
+        description: sha256 digest of the supplied ChangeContract JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.acceptance_artifact_id }}
+  cancel-in-progress: false
+
+jobs:
+  record-stage2b1-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Require dispatch from main
+        run: |
+          set -euo pipefail
+          [[ "${GITHUB_REF}" == "refs/heads/main" ]]
+
+      - name: Checkout trusted control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve the explicitly supplied source run and artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          ACCEPTANCE_ARTIFACT_ID: ${{ inputs.acceptance_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${ACCEPTANCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p incoming
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
+          jq -e \
+            --arg run_id "${SOURCE_RUN_ID}" \
+            --arg attempt "${SOURCE_RUN_ATTEMPT}" \
+            '(.id|tostring) == $run_id and
+             .run_attempt == ($attempt|tonumber) and
+             .status == "completed" and
+             .conclusion == "success"' \
+            incoming/source-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}" > incoming/artifact.json
+          jq -e \
+            --arg artifact_id "${ACCEPTANCE_ARTIFACT_ID}" \
+            --arg run_id "${SOURCE_RUN_ID}" \
+            '(.id|tostring) == $artifact_id and
+             .name == "stage2b1-acceptance-inputs" and
+             .expired == false and
+             (.workflow_run.id|tostring) == $run_id' \
+            incoming/artifact.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}/zip" > incoming/acceptance-inputs.zip
+
+      - name: Extract an exact, non-link input package
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+        run: |
+          set -euo pipefail
+          python - incoming/acceptance-inputs.zip incoming/acceptance <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          archive = pathlib.Path(sys.argv[1])
+          destination = pathlib.Path(sys.argv[2])
+          required = {
+              "manifest.json",
+              "task-run.json",
+              "decision.json",
+              "expected-binding.json",
+              "change-contract.json",
+              "human-gate.json",
+              "human-decision.json",
+          }
+          destination.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(archive) as source:
+              entries = source.infolist()
+              names = []
+              for entry in entries:
+                  name = pathlib.PurePosixPath(entry.filename)
+                  if entry.filename.endswith("/") or name.is_absolute() or ".." in name.parts or len(name.parts) != 1:
+                      raise SystemExit("acceptance artifact contains an unsafe path")
+                  file_mode = (entry.external_attr >> 16) & 0o170000
+                  if file_mode == 0o120000:
+                      raise SystemExit("acceptance artifact contains a symlink")
+                  names.append(name.name)
+              if len(names) != len(set(names)) or set(names) != required:
+                  raise SystemExit("acceptance artifact must contain exactly the required files")
+              for filename in sorted(required):
+                  (destination / filename).write_bytes(source.read(filename))
+          PY
+          jq -e \
+            --arg run_id "${SOURCE_RUN_ID}" \
+            --arg attempt "${SOURCE_RUN_ATTEMPT}" \
+            '(keys|sort) == ["files","schema","source_run_attempt","source_run_id","stage_id"]' \
+            incoming/acceptance/manifest.json >/dev/null
+          jq -e \
+            --arg run_id "${SOURCE_RUN_ID}" \
+            --arg attempt "${SOURCE_RUN_ATTEMPT}" \
+            '.schema == "stage2b1-acceptance-inputs@1" and
+             .stage_id == "stage2b1" and
+             (.source_run_id|tostring) == $run_id and
+             (.source_run_attempt|tostring) == $attempt and
+             (.files|sort) == ["change-contract.json","decision.json","expected-binding.json","human-decision.json","human-gate.json","task-run.json"]' \
+            incoming/acceptance/manifest.json >/dev/null
+
+      - name: Record the pre-run governance fingerprint
+        run: |
+          set -euo pipefail
+          sha256sum control/governance/active-change.json > incoming/active-change.before.sha256
+
+      - name: Invoke the explicit Stage2B1 acceptance command
+        id: acceptance
+        continue-on-error: true
+        env:
+          CHANGE_CONTRACT_DIGEST: ${{ inputs.change_contract_digest }}
+        run: |
+          set -u
+          mkdir -p incoming/acceptance-output
+          python -B control/scripts/stage2b1_acceptance.py \
+            --workspace incoming/acceptance \
+            --task-run incoming/acceptance/task-run.json \
+            --decision incoming/acceptance/decision.json \
+            --expected-binding incoming/acceptance/expected-binding.json \
+            --change-contract incoming/acceptance/change-contract.json \
+            --change-contract-digest "${CHANGE_CONTRACT_DIGEST}" \
+            --human-gate incoming/acceptance/human-gate.json \
+            --human-decision incoming/acceptance/human-decision.json \
+            > incoming/acceptance-output/acceptance-result.json \
+            2> incoming/acceptance-output/acceptance-error.txt
+          rc=$?
+          jq -n \
+            --arg source_run_id "${{ inputs.source_run_id }}" \
+            --arg source_run_attempt "${{ inputs.source_run_attempt }}" \
+            --arg acceptance_artifact_id "${{ inputs.acceptance_artifact_id }}" \
+            --argjson cli_exit_code "${rc}" \
+            '{schema:"stage2b1-acceptance-workflow@1",
+              source_run_id:($source_run_id|tonumber),
+              source_run_attempt:($source_run_attempt|tonumber),
+              acceptance_artifact_id:($acceptance_artifact_id|tonumber),
+              cli_exit_code:$cli_exit_code}' \
+            > incoming/acceptance-output/command-status.json
+          cp incoming/acceptance/task-run.json incoming/acceptance-output/task-run.json
+          exit "${rc}"
+
+      - name: Prove the command did not change governance state
+        if: steps.acceptance.outcome == 'success'
+        run: |
+          set -euo pipefail
+          sha256sum control/governance/active-change.json > incoming/active-change.after.sha256
+          cmp incoming/active-change.before.sha256 incoming/active-change.after.sha256
+          test -z "$(git -C control status --porcelain=v1 --untracked-files=all)"
+          jq -e '
+            .status != "COMPLETED" and
+            .status != "FAILED" and
+            .status != "CANCELLED" and
+            .conditions["stage-accepted"].satisfied == true
+          ' incoming/acceptance-output/task-run.json >/dev/null
+
+      - name: Upload explicit acceptance output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stage2b1-acceptance-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: incoming/acceptance-output
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Preserve the CLI failure as a failed workflow
+        if: steps.acceptance.outcome != 'success'
+        run: |
+          set -euo pipefail
+          cat incoming/acceptance-output/acceptance-error.txt >&2 || true
+          exit 1
