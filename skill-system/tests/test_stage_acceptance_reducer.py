@@ -51,7 +51,28 @@ class StageAcceptanceReducerTests(unittest.TestCase):
         )
 
     def reduce(self, receipts, ids=("artifact-a",)):
-        return reduce_stage_acceptance(receipts, required_receipt_ids=ids)
+        expected = {
+            artifact_id: {
+                "artifact": {
+                    "id": artifact_id,
+                    "digest": "sha256:" + ("d" if artifact_id == "artifact-a" else "e") * 64,
+                },
+                "workflow_run_attempt": {"run_id": 2185, "attempt": 1},
+                "policy": "stage2b1-p3-evidence-receipt@1",
+            }
+            for artifact_id in ids
+        }
+        return reduce_stage_acceptance(
+            receipts,
+            required_receipt_ids=ids,
+            stage_id="STAGE-2B1-P3",
+            accepted_state_id="accepted-state-17",
+            product_source_ref="git-commit-sha1:" + "a" * 40,
+            protected_snapshot_digest="sha256:" + "b" * 64,
+            control_plane_ref="git-commit-sha1:" + "c" * 40,
+            execution_repo_ref="toctionyan/fristTest@main",
+            expected_receipt_bindings=expected,
+        )
 
     def test_complete_explicit_receipts_are_only_acceptable_preview(self) -> None:
         decision = self.reduce([self.receipt("artifact-a")])
@@ -101,6 +122,12 @@ class StageAcceptanceReducerTests(unittest.TestCase):
         decision = reduce_stage_acceptance(
             [receipt],
             required_receipt_ids=("artifact-a",),
+            stage_id="STAGE-2B1-P3",
+            accepted_state_id="accepted-state-17",
+            product_source_ref="git-commit-sha1:" + "a" * 40,
+            protected_snapshot_digest="sha256:" + "b" * 64,
+            control_plane_ref="git-commit-sha1:" + "c" * 40,
+            execution_repo_ref="toctionyan/fristTest@main",
             expected_receipt_bindings={
                 "artifact-a": {
                     "artifact": {"id": "artifact-a", "digest": "sha256:" + "e" * 64},
@@ -113,6 +140,21 @@ class StageAcceptanceReducerTests(unittest.TestCase):
         self.assertIn("receipt_binding_mismatch:artifact:artifact-a", decision["reasons"])
         self.assertIn("receipt_binding_mismatch:workflow_run_attempt:artifact-a", decision["reasons"])
         self.assertIn("receipt_binding_mismatch:policy:artifact-a", decision["reasons"])
+
+    def test_missing_expected_contract_is_blocked(self) -> None:
+        decision = reduce_stage_acceptance(
+            [self.receipt("artifact-a")],
+            required_receipt_ids=("artifact-a",),
+            stage_id="STAGE-2B1-P3",
+            accepted_state_id="accepted-state-17",
+            product_source_ref="git-commit-sha1:" + "a" * 40,
+            protected_snapshot_digest="sha256:" + "b" * 64,
+            control_plane_ref="git-commit-sha1:" + "c" * 40,
+            execution_repo_ref="toctionyan/fristTest@main",
+            expected_receipt_bindings={},
+        )
+        self.assertEqual(decision["status"], BLOCKED)
+        self.assertIn("expected_receipt_binding_missing:artifact-a", decision["reasons"])
 
     def test_duplicate_id_and_same_id_content_mismatch_are_blocked(self) -> None:
         one = self.receipt("artifact-a")

@@ -24,11 +24,8 @@ _COMMON_FIELDS = (
     "protected_snapshot_digest",
     "control_plane_ref",
     "execution_repo_ref",
-    "policy",
 )
-_EXPECTED_BINDING_FIELDS = frozenset(
-    {"artifact", "workflow_run_attempt", "policy", "artifact_digest"}
-)
+_EXPECTED_BINDING_FIELDS = frozenset({"artifact", "workflow_run_attempt", "policy"})
 
 
 def _digest(value: bytes) -> str:
@@ -148,7 +145,12 @@ def _check_expected_binding(
     expected: Mapping[str, Any],
     reasons: list[str],
 ) -> None:
+    missing = _EXPECTED_BINDING_FIELDS - set(expected)
     unknown = set(expected) - _EXPECTED_BINDING_FIELDS
+    reasons.extend(
+        f"expected_binding_missing:{receipt_id}:{field}"
+        for field in sorted(missing)
+    )
     reasons.extend(
         f"expected_binding_unknown:{receipt_id}:{field}"
         for field in sorted(unknown)
@@ -156,8 +158,6 @@ def _check_expected_binding(
     for field in sorted(set(expected) & _EXPECTED_BINDING_FIELDS):
         expected_value = expected[field]
         actual_value = _binding_value(receipt, field)
-        if field == "artifact_digest":
-            actual_value = _binding_value(receipt, "artifact_digest")
         if _stable_json(actual_value) != _stable_json(expected_value):
             reasons.append(f"receipt_binding_mismatch:{field}:{receipt_id}")
 
@@ -172,15 +172,13 @@ def reduce_stage_acceptance(
     protected_snapshot_digest: str | None = None,
     control_plane_ref: str | None = None,
     execution_repo_ref: str | None = None,
-    policy: str | None = None,
-    expected_receipt_bindings: Mapping[str, Mapping[str, Any]] | None = None,
+    expected_receipt_bindings: Mapping[str, Mapping[str, Any]] | None,
 ) -> dict[str, Any]:
     """Reduce explicitly supplied receipts into a read-only acceptance preview.
 
     Receipt identity is the P3-bound ``artifact.id``.  Every required identity
-    must be supplied by the caller.  ``expected_receipt_bindings`` can pin the
-    per-receipt artifact digest, workflow run/attempt, and policy when those
-    values are part of the stage's explicit acceptance contract.
+    must be supplied by the caller.  Each required receipt must also have an
+    explicit binding for its artifact, workflow run/attempt, and policy.
     """
 
     raw_receipts: Sequence[object]
@@ -199,7 +197,6 @@ def reduce_stage_acceptance(
         "protected_snapshot_digest": protected_snapshot_digest,
         "control_plane_ref": control_plane_ref,
         "execution_repo_ref": execution_repo_ref,
-        "policy": policy,
     }
     input_digest = _input_digest(
         raw_receipts,
@@ -209,6 +206,11 @@ def reduce_stage_acceptance(
     )
 
     reasons: list[str] = []
+    reasons.extend(
+        f"expected_common_binding_missing:{field}"
+        for field, value in common.items()
+        if value is None
+    )
     required_ids: list[str] = []
     for index, value in enumerate(required_receipt_ids):
         if not isinstance(value, str) or not value.strip():
@@ -256,10 +258,20 @@ def reduce_stage_acceptance(
         for value in sorted(missing, key=lambda item: item.encode("utf-8"))
     )
 
-    if expected_receipt_bindings is not None:
+    if not isinstance(expected_receipt_bindings, Mapping):
+        reasons.append("expected_receipt_bindings_required")
+        expected_receipt_bindings = {}
+    else:
         for key in expected_receipt_bindings:
             if key not in required_ids:
                 reasons.append(f"expected_receipt_id_unrequired:{key}")
+        reasons.extend(
+            f"expected_receipt_binding_missing:{value}"
+            for value in sorted(
+                set(required_ids) - set(expected_receipt_bindings),
+                key=lambda item: item.encode("utf-8"),
+            )
+        )
 
     for receipt_id in sorted(actual_by_id, key=lambda item: item.encode("utf-8")):
         receipt = actual_by_id[receipt_id]
@@ -269,10 +281,11 @@ def reduce_stage_acceptance(
         if receipt.get("result") != "PASS":
             reasons.append(f"receipt_result_not_pass:{receipt_id}:{receipt.get('result')}")
 
-        if expected_receipt_bindings is not None:
-            expected = expected_receipt_bindings.get(receipt_id)
-            if expected is not None:
-                _check_expected_binding(receipt, receipt_id, expected, reasons)
+        expected = expected_receipt_bindings.get(receipt_id)
+        if not isinstance(expected, Mapping):
+            reasons.append(f"expected_receipt_binding_invalid:{receipt_id}")
+        else:
+            _check_expected_binding(receipt, receipt_id, expected, reasons)
 
     # With no explicit common binding, all receipts still must agree on it.
     for field in _COMMON_FIELDS:
