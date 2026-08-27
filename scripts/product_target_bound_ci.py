@@ -4,7 +4,9 @@
 The helper deliberately keeps the candidate's governance records while
 resetting only the frozen product paths in a disposable baseline workspace.
 This lets CI create a real transition baseline without trusting an uploaded or
-stale local ``.quality`` directory.
+stale local ``.quality`` directory.  Candidate source files explicitly named
+as claim evidence are retained so a new regression test can run against the
+pre-change product implementation.
 """
 from __future__ import annotations
 
@@ -73,6 +75,52 @@ def _target_identity(candidate: Path, target: Path) -> dict[str, str]:
     }
 
 
+def _claim_evidence_paths(candidate: Path, claim_manifest: Path) -> set[str]:
+    """Return candidate source paths needed to execute the target's claims.
+
+    A transition target commonly adds its regression tests together with the
+    implementation.  Those tests are the executable definition of the
+    expected transition and must therefore be run against the base product
+    code when recording the baseline.  The old implementation removed every
+    allowed path that was absent from base, which deleted precisely those
+    tests before the quality controller could validate the claim manifest.
+    """
+    payload = json.loads(claim_manifest.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("claim manifest must be an object")
+    claims = payload.get("claims")
+    if not isinstance(claims, list):
+        raise ValueError("claim manifest must contain a claims array")
+    paths: set[str] = set()
+    for index, claim in enumerate(claims, start=1):
+        if not isinstance(claim, dict):
+            raise ValueError(f"claim #{index} must be an object")
+        refs = claim.get("evidence_refs")
+        if not isinstance(refs, list):
+            raise ValueError(f"claim #{index} must contain evidence_refs")
+        for raw_ref in refs:
+            ref = str(raw_ref).strip()
+            if not ref or ref.startswith("gate-log:"):
+                continue
+            path_text = ref.split("::", 1)[0].strip()
+            relative = Path(path_text)
+            if (
+                not path_text
+                or relative.is_absolute()
+                or ".." in relative.parts
+            ):
+                raise ValueError(f"claim evidence ref is not a safe workspace path: {ref}")
+            resolved = (candidate / relative).resolve()
+            try:
+                resolved.relative_to(candidate.resolve())
+            except ValueError as exc:
+                raise ValueError(f"claim evidence ref escapes the candidate workspace: {ref}") from exc
+            if not resolved.is_file():
+                raise ValueError(f"claim evidence ref does not exist in candidate: {ref}")
+            paths.add(relative.as_posix())
+    return paths
+
+
 def prepare_baseline(candidate_raw: str, base_raw: str, baseline_raw: str, output_raw: str, candidate_sha: str, base_sha: str) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{40}", candidate_sha) or not re.fullmatch(r"[0-9a-f]{40}", base_sha):
         raise ValueError("candidate_sha and base_sha must be full lowercase commit SHAs")
@@ -97,9 +145,14 @@ def prepare_baseline(candidate_raw: str, base_raw: str, baseline_raw: str, outpu
         raise ValueError("quality target ID does not match active contract change_id")
     if contract["minimum_quality_mode"] != "quick":
         raise ValueError("Stage2B1 target-bound CI requires minimum_quality_mode=quick")
+    claim_evidence_paths = _claim_evidence_paths(
+        candidate, candidate / identity["claim_manifest"]
+    )
 
     for raw_path in contract["allowed_paths"]:
         relative = Path(raw_path)
+        if relative.as_posix() in claim_evidence_paths:
+            continue
         source = base / relative
         destination = baseline / relative
         if source.is_file():
