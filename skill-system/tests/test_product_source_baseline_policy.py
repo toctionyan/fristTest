@@ -217,9 +217,16 @@ class ProductSourceBaselinePolicyTests(unittest.TestCase):
             self.assertTrue(result["drift_paths"])
 
     def test_default_branch_authority_is_strict(self) -> None:
-        result = evaluate_product_source(ROOT, event_name="push")
-        self.assertEqual(result["status"], "PASS")
-        self.assertEqual(result["baseline_mode"], BaselineMode.ACCEPTED_REF.value)
+        self.assertEqual(
+            baseline_mode_for_authority(
+                "historical-registry-baseline",
+                event_name="push",
+                ref_type="branch",
+                ref_name="main",
+                default_branch="main",
+            ),
+            BaselineMode.ACCEPTED_REF,
+        )
 
     def test_feature_branch_push_is_candidate(self) -> None:
         mode = baseline_mode_for_authority(

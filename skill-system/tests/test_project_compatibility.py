@@ -55,14 +55,24 @@ class ProjectCompatibilityCanonicalSnapshotTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_clean_checkout_uses_v3_historical_registry(self) -> None:
-        result = evaluate(self.root)
+        with patch.dict(
+            os.environ,
+            {"GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "", "GITHUB_REF_NAME": "", "GITHUB_EVENT_PATH": ""},
+            clear=False,
+        ):
+            result = evaluate(self.root)
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["baseline_authority"], "historical-registry-baseline")
         self.assertEqual(result["baseline_mode"], "accepted_ref")
 
     def test_uncommitted_product_bytes_are_not_git_object_authority(self) -> None:
         _write(self.root / "services/app.py", "VALUE = 2\n")
-        result = evaluate(self.root)
+        with patch.dict(
+            os.environ,
+            {"GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "", "GITHUB_REF_NAME": "", "GITHUB_EVENT_PATH": ""},
+            clear=False,
+        ):
+            result = evaluate(self.root)
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["drift_paths"], [])
 
@@ -70,7 +80,12 @@ class ProjectCompatibilityCanonicalSnapshotTests(unittest.TestCase):
         _write(self.root / "services/app.py", "VALUE = 2\n")
         _git(self.root, "add", "services/app.py")
         _git(self.root, "commit", "-qm", "product drift")
-        result = evaluate(self.root)
+        with patch.dict(
+            os.environ,
+            {"GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "", "GITHUB_REF_NAME": "", "GITHUB_EVENT_PATH": ""},
+            clear=False,
+        ):
+            result = evaluate(self.root)
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("services/app.py", result["drift_paths"])
 

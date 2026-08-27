@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -34,6 +35,24 @@ def _load(name: str, path: Path):
 
 
 class ProductSourceBaselineBindingTests(unittest.TestCase):
+    SOURCE_SHA = "6c41cb862ba065e474aa3a7f213209d1eacfef45"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        present = subprocess.run(
+            ["git", "-C", str(ROOT), "cat-file", "-e", f"{cls.SOURCE_SHA}^{{commit}}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if present.returncode != 0:
+            subprocess.run(
+                ["git", "-C", str(ROOT), "fetch", "--no-tags", "origin", cls.SOURCE_SHA],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
     def test_registry_is_the_v3_accepted_authority(self) -> None:
         document = load_baseline_document(ROOT)
         rebuilt = build_canonical_product_snapshot(
