@@ -74,6 +74,7 @@ jobs:
           -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
 
       - name: Install locked candidate environments and verify Chromium
+        shell: bash
         run: |
           set -euo pipefail
           cd candidate/services/agent-service && uv sync --locked --all-groups
@@ -90,6 +91,7 @@ jobs:
           NODE
 
       - name: Prepare exact target-bound baseline
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p target-bound
@@ -135,6 +137,7 @@ jobs:
           --state-dir "${RUNNER_TEMP}/product-target-bound/candidate-state"
 
       - name: Validate target identity and convergence
+        shell: bash
         run: |
           set -euo pipefail
           "${pythonLocation}/bin/python" -B control/scripts/product_target_bound_ci.py validate \
