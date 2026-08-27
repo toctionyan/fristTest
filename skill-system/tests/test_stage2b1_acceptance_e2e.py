@@ -21,6 +21,9 @@ from stage_acceptance_reducer import reduce_stage_acceptance  # noqa: E402
 from stage_acceptance_taskrun import project_stage_acceptance_to_taskrun  # noqa: E402
 from stage_acceptance_writer import contract_digest  # noqa: E402
 from stage_evidence_receipt import build_stage_evidence_receipt  # noqa: E402
+from stage2b1_acceptance_inputs import (  # noqa: E402
+    package_stage2b1_acceptance_inputs,
+)
 from task_run import TaskRunStore  # noqa: E402
 
 
@@ -148,6 +151,19 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
             json.dumps(decision, ensure_ascii=False, sort_keys=True),
             encoding="utf-8",
         )
+        self.package_path = self.root / "acceptance-inputs"
+        package_stage2b1_acceptance_inputs(
+            source_run_id="901",
+            source_run_attempt="1",
+            task_run=self.task_path,
+            decision=self.decision_path,
+            expected_binding=self.binding_path,
+            change_contract=self.contract_path,
+            human_gate=self.gate_path,
+            human_decision=self.human_decision_path,
+            output_dir=self.package_path,
+        )
+        self.acceptance_task_path = self.package_path / "task-run.json"
 
     def _invoke(self) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -155,21 +171,21 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
                 sys.executable,
                 str(ROOT / "scripts" / "stage2b1_acceptance.py"),
                 "--workspace",
-                str(self.root),
+                str(self.package_path),
                 "--task-run",
-                str(self.task_path),
+                str(self.package_path / "task-run.json"),
                 "--decision",
-                str(self.decision_path),
+                str(self.package_path / "decision.json"),
                 "--expected-binding",
-                str(self.binding_path),
+                str(self.package_path / "expected-binding.json"),
                 "--change-contract",
-                str(self.contract_path),
+                str(self.package_path / "change-contract.json"),
                 "--change-contract-digest",
                 self.contract_digest,
                 "--human-gate",
-                str(self.gate_path),
+                str(self.package_path / "human-gate.json"),
                 "--human-decision",
-                str(self.human_decision_path),
+                str(self.package_path / "human-decision.json"),
             ],
             cwd=ROOT,
             text=True,
@@ -191,8 +207,8 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
         self.assertFalse(first_result["task_completed"])
 
         persisted = TaskRunStore(
-            self.task_path,
-            json.loads(self.task_path.read_text(encoding="utf-8")),
+            self.acceptance_task_path,
+            json.loads(self.acceptance_task_path.read_text(encoding="utf-8")),
         )
         self.assertTrue(
             persisted.payload["conditions"]["stage-accepted"]["satisfied"]
