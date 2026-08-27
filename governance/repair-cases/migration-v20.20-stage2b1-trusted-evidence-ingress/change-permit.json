@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "record_type": "change-permit",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "repair_plan_sha256": "b86b6d87f0d71bcf716ba2a18ec785b3c238bc41d1e0f8e577a2fccc401de434",
+  "plan_review_sha256": "16fb9298552a7df75bc7197cf2f3ddcb8af941c546c775e2f0241492a6cd12f1",
+  "baseline_manifest_sha256": "c15f9a3944fa7c3b2bf40fabdec871eff07a99241091432e550794a331dc9ba2",
+  "allowed_paths": [
+    "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py",
+    "services/agent-service/src/agent_core/runtime/deps.py",
+    "services/agent-service/src/agent_core/lifecycle/graph.py",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py"
+  ],
+  "forbidden_paths": [
+    "skill-system/**",
+    "architecture-skill/**",
+    "governance/quality-loop-policy.json",
+    "governance/evidence/**",
+    ".quality/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "forbidden_patterns": [],
+  "required_tests": {
+    "focused": [
+      "resolver fail-closed and valid ingress tests",
+      "node runtime dependency admission test",
+      "pretool-to-typed-coverage forwarding test"
+    ],
+    "counterexamples": [
+      "state-supplied resolver is ignored",
+      "missing validator/time cannot produce ready ingress",
+      "resolver error remains fail-closed"
+    ],
+    "regression": [
+      "Agent targeted pytest suite",
+      "existing typed capability closure and pretool shadow tests",
+      "Product Quick"
+    ],
+    "negative_path": [
+      "malformed evidence envelope is rejected",
+      "issuer validators are mandatory",
+      "empty default provider rejects every envelope"
+    ]
+  },
+  "baseline_source_fingerprint": "3adf83234b74d579e676cc655995bd5bb8a207a305f8916ade2fe69c8c0cdef0",
+  "baseline_workspace_fingerprint": "9180ee4686fe4b42c7cb6f4583bc0ffe262d8fe4601a91685a097e42c13fab9e",
+  "issued_by": "repair-plan-reviewer",
+  "expires_after": "single-verification",
+  "status": "ACTIVE",
+  "permit_digest": "9bbfcbcbd76548bd87a49e06e41cd64ae879a7de6c9b0aa286f69bd93ca71d5e"
+}

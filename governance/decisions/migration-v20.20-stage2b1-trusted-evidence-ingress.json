@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "decision_id": "adr-migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "problem": "Typed Goal validators already require application-owned evidence, trusted evaluation time and issuer validation, but the real pretool shadow caller supplied none of them.",
+  "options": [
+    {
+      "id": "retain-diagnostic-only",
+      "strategy": "conservative",
+      "name": "Keep the current diagnostic-only call",
+      "correctness": "Preserves behavior but leaves the real shadow path unable to exercise trusted evidence validation.",
+      "complexity": "Low.",
+      "migration": "None.",
+      "rollback": "None.",
+      "verification": "Existing structural tests only."
+    },
+    {
+      "id": "explicit-runtime-ingress",
+      "strategy": "evolutionary",
+      "name": "Add one application-composed trusted evidence resolver",
+      "correctness": "Connects existing validators to the real shadow call while preserving legacy selection and shadow-only authority.",
+      "complexity": "Bounded to runtime dependency composition, ingress validation and focused regression tests.",
+      "migration": "Use an explicit empty fail-closed provider until a real evidence authority is composed.",
+      "rollback": "Remove the resolver seam and its shadow-only projection.",
+      "verification": "Focused ingress tests, typed coverage tests and Product Quick."
+    },
+    {
+      "id": "typed-capability-cutover",
+      "strategy": "redesign",
+      "name": "Cut over Typed Coverage to execution authority now",
+      "correctness": "Could complete a later authority migration but exceeds 2B1 and mixes Permit/dispatch risk.",
+      "complexity": "High and cross-boundary.",
+      "migration": "Requires atomic MatchProof and ExecutionPermit certification.",
+      "rollback": "Requires a coordinated execution rollback.",
+      "verification": "Separate high-model 2C certification."
+    }
+  ],
+  "selected_option": "explicit-runtime-ingress",
+  "selected_responsibilities": [
+    "Application composition owns the resolver and trust roots.",
+    "Typed Goal validators remain the sole evidence admissibility authority.",
+    "Pretool shadow remains read-only and non-executable."
+  ],
+  "preserved_hard_invariants": [
+    "Business Service and transaction authorities are unchanged.",
+    "Legacy capability selection is unchanged.",
+    "Missing or invalid trust roots fail closed.",
+    "production_closed remains false."
+  ],
+  "cutover_strategy": "Introduce the resolver seam, validate its closed-world shape, pass its values into the existing typed coverage validator, and expose only safe ingress metadata in the shadow record. Keep the default composition explicitly empty and issuer-rejecting until a later authority supplies real evidence.",
+  "acceptance_claims": [
+    "Real pretool shadow receives the resolver output.",
+    "State values cannot replace the resolver.",
+    "Issuer and time absence cannot produce ready typed evidence.",
+    "No Permit or dispatch behavior changes."
+  ]
+}

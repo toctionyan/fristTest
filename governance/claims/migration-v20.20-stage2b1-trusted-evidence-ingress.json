@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "target_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "claims": [
+    {
+      "id": "STAGE2B1-TRUSTED-EVIDENCE-INGRESS-001",
+      "statement": "The real pretool shadow path receives application-owned evidence, evaluation time and issuer validators through a fail-closed runtime dependency seam, without changing legacy selection or execution authority.",
+      "risk": "P1",
+      "required_mode": "quick",
+      "evidence_kind": "counterexample",
+      "required_gates": [
+        "python-test-suites"
+      ],
+      "evidence_refs": [
+        "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py::test_application_resolver_supplies_only_validated_trust_roots",
+        "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py::test_incomplete_application_trust_root_cannot_make_shadow_evidence_ready",
+        "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py::test_shadow_planner_forwards_ingress_to_typed_coverage"
+      ],
+      "owner": "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py",
+      "closure_requirement": "regression-transition"
+    }
+  ]
+}

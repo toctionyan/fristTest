@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "record_type": "current-state-truth-review",
+  "change_id": "truth-lock-d6efac057ac4",
+  "reviewed_commit": "d6efac057ac4a3c7328b71f3ebaca17e6a6f6f0a",
+  "decision": "PASS",
+  "findings": [
+    {
+      "id": "CURRENT-BASELINE-001",
+      "statement": "The working tree is clean and main is at d6efac057ac4; production_closed remains false.",
+      "evidence": "git status --short --branch; git rev-parse HEAD; governance/production-closure.json"
+    },
+    {
+      "id": "EXISTING-CONTRACT-001",
+      "statement": "Goal authority, scope, digest and freshness validation already exist in the typed capability closure and are not duplicated by Stage 2B1.",
+      "evidence": "services/agent-service/src/agent_core/goal_graph/capability_closure.py; services/agent-service/src/agent_core/goal_graph/verified_input_evidence.py; services/agent-service/src/agent_core/goal_graph/target_evidence.py"
+    },
+    {
+      "id": "MISSING-INGRESS-001",
+      "statement": "The real pretool shadow caller did not receive application-owned verified evidence, evaluation time or issuer validators.",
+      "evidence": "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py; services/agent-service/src/agent_core/lifecycle/pretool_planner.py"
+    },
+    {
+      "id": "CUTOVER-BOUNDARY-001",
+      "statement": "Typed capability remains shadow-only in this change; Permit, dispatch, transaction authority and production closure are unchanged.",
+      "evidence": "pretool shadow payload invariants and governance/task-ledger.json"
+    }
+  ],
+  "required_followup": "Create a new current-baseline product migration contract for Stage 2B1 before product source edits.",
+  "reviewer": "codex-5.6-sor-high-architecture-review"
+}

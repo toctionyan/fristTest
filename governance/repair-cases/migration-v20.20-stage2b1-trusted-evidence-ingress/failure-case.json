@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "record_type": "failure-case",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "classification": "architecture-defect",
+  "reproduction": {
+    "status": "REPRODUCED",
+    "expected": "The real pretool shadow call passes application-owned available input evidence, evaluation time and issuer validators into Typed Coverage.",
+    "actual": "The real pretool shadow call invoked build_pretool_shadow_plan with only state and capability_registry, so typed validators always saw empty evidence, no trusted time and no issuer validators.",
+    "evidence_refs": [
+      "governance/reviews/stage2b1-current-state-truth-lock.json",
+      "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+      "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+      "services/agent-service/src/agent_core/goal_graph/capability_closure.py"
+    ]
+  },
+  "violated_invariants": [
+    "Typed evidence must be supplied only by an application-owned trust root.",
+    "A typed shadow result must be comparable to a real pretool invocation.",
+    "Missing trust roots must fail closed without widening capability selection."
+  ],
+  "affected_boundaries": [
+    "Lifecycle runtime dependency composition",
+    "pretool shadow planning",
+    "global typed coverage projection",
+    "issuer and freshness validation"
+  ]
+}

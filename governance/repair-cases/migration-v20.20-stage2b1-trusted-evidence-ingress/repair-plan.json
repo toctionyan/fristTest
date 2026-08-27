@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "record_type": "repair-plan",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "root_cause_proof_sha256": "1cc858b6a44966752741b328798e839bfc9e4a0b1e6d08c2ea37b67bf01d31f5",
+  "status": "APPROVED",
+  "strategy": "Add a single explicit application-composed resolver for trusted Typed Goal evidence. Validate its closed-world shape and trust roots, pass the resulting values through pretool shadow planning into typed coverage, and record only safe ingress metadata. Provide a rejecting empty provider in the current application composition until a real evidence authority is certified.",
+  "changes": [
+    {
+      "path": "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/src/agent_core/runtime/deps.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/graph.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/nodes.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/app/services/agent_service.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    },
+    {
+      "path": "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py",
+      "responsibility": "Stage 2B1 trusted evidence ingress",
+      "reason": "Bind the existing typed evidence validators to the real pretool shadow path without changing execution authority."
+    }
+  ],
+  "unchanged_boundaries": [
+    "Permit creation and MatchProof dispatch remain unchanged.",
+    "Legacy capability selection remains unchanged.",
+    "Business Service, transaction and production closure authorities remain unchanged."
+  ],
+  "forbidden_repairs": [
+    "Do not read trust roots from checkpoint or model state.",
+    "Do not treat an empty provider as ready evidence.",
+    "Do not promote Typed Coverage to execution authority.",
+    "Do not weaken issuer, scope, digest or freshness validators."
+  ],
+  "required_invariants": [
+    "Resolver shape is closed-world and fail-closed.",
+    "Raw evidence is not exposed in observability metadata.",
+    "The real shadow caller passes all four typed inputs.",
+    "Existing shadow-only flags remain false for dispatch, Permit and semantic mutation."
+  ],
+  "required_tests": {
+    "focused": [
+      "resolver fail-closed and valid ingress tests",
+      "node runtime dependency admission test",
+      "pretool-to-typed-coverage forwarding test"
+    ],
+    "counterexamples": [
+      "state-supplied resolver is ignored",
+      "missing validator/time cannot produce ready ingress",
+      "resolver error remains fail-closed"
+    ],
+    "regression": [
+      "Agent targeted pytest suite",
+      "existing typed capability closure and pretool shadow tests",
+      "Product Quick"
+    ],
+    "negative_path": [
+      "malformed evidence envelope is rejected",
+      "issuer validators are mandatory",
+      "empty default provider rejects every envelope"
+    ]
+  },
+  "rollback_plan": "Remove the resolver field and forwarding seam as one change; no execution or transaction rollback is required because this stage is shadow-only.",
+  "risks": [
+    "A later real evidence source must preserve the resolver contract.",
+    "Provider closures must not capture mutable user/model state as a trust root.",
+    "The current environment may lack the verified Agent test runtime."
+  ]
+}

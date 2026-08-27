@@ -1,38 +1,19 @@
 {
   "schema_version": 1,
-  "change_id": "migration-v20.19-goal-input-binding-r4",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
   "target_kind": "migration",
-  "goal": "Replace model-authored raw Goal dependency edges with verified Goal input bindings and deterministic Typed Goal Graph compilation as the sole dependency authority for new turns, including migration of executable semantic fixtures.",
+  "goal": "Connect application-owned trusted Typed Goal evidence, evaluation time and issuer validators to the real pretool shadow path while preserving legacy and execution boundaries.",
   "profile": "product-migration",
   "allowed_paths": [
-    "services/agent-service/src/agent_core/lifecycle/protocol.py",
+    "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py",
+    "services/agent-service/src/agent_core/runtime/deps.py",
+    "services/agent-service/src/agent_core/lifecycle/graph.py",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py",
     "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
-    "services/agent-service/src/agent_core/lifecycle/semantic_contract.py",
-    "services/agent-service/src/agent_core/kernel/semantic_contract.py",
-    "services/agent-service/src/agent_core/lifecycle/semantic_state_changes.py",
-    "services/agent-service/src/agent_core/lifecycle/goal_planning.py",
-    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
     "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
-    "services/agent-service/src/agent_core/lifecycle/pretool_execution_policy.py",
-    "services/agent-service/src/agent_core/lifecycle/goal_outputs.py",
-    "services/agent-service/src/agent_core/lifecycle/workflow_runtime.py",
-    "services/agent-service/src/agent_core/goal_graph/contracts.py",
-    "services/agent-service/src/agent_core/goal_graph/compiler.py",
-    "services/agent-service/src/agent_core/goal_graph/verifier.py",
-    "services/agent-service/src/agent_core/goal_graph/dependency_alignment.py",
-    "services/agent-service/tests/architecture/test_v2019_goal_input_binding_recovery_oracle.py",
-    "services/agent-service/tests/architecture/test_typed_goal_graph_foundation.py",
-    "services/agent-service/tests/runtime/test_goal_binding_counterexamples.py",
-    "services/agent-service/tests/runtime/test_stage4_goal_output_refs.py",
-    "services/agent-service/tests/runtime/test_pretool_execution_policy.py",
-    "services/agent-service/tests/runtime/test_semantic_dependency_counterfactual_contract.py",
-    "services/agent-service/tests/runtime/test_unified_semantic_planning_contract.py",
-    "services/agent-service/tests/support/scripted_chat_model.py",
-    "services/agent-service/tests/support/conversation_case_runner.py",
-    "services/agent-service/tests/integration/model_stub.py",
-    "services/agent-service/scripts/verify_preprod_conversation_smoke.py",
-    "services/agent-service/tests/runtime/test_wp08_attempt4_graph_semantic_repair.py",
-    "docs/architecture/GOAL_INPUT_BINDING_V1.md"
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py"
   ],
   "forbidden_paths": [
     "skill-system/**",
@@ -44,17 +25,13 @@
     ".claude/**",
     ".codex/**",
     "AGENTS.md",
-    "CLAUDE.md",
-    "scripts/quality_control/**",
-    "trusted-judge/**",
-    "services/business-service/**",
-    "web/**"
+    "CLAUDE.md"
   ],
   "invariants": [
-    "Every live current-turn Goal dependency has exactly one verified InputBinding or Condition AST source.",
-    "New declarations cannot write raw depends_on edges; legacy depends_on is read-only compatibility only.",
-    "Type, cardinality, target identity, scope, semantic digest, or proof mismatch fails closed.",
-    "Business Service, CapabilityGate, and Draft/Grant/Attempt/Receipt authorities remain unchanged."
+    "the approved product scope is the only writable product scope",
+    "quality Target, Claims, baseline, Judge and evidence are not modified to make a candidate pass",
+    "the final result is bound to current source and current product Quality Loop evidence",
+    "one writable implementer owns the candidate worktree"
   ],
   "required_profiles": [
     "product-contract",
@@ -70,29 +47,29 @@
   ],
   "review_attestations": [],
   "affected_modules": [
-    "agent_core.lifecycle.semantic_contract",
-    "agent_core.goal_graph",
-    "agent_core.lifecycle.pretool_execution_policy"
+    "agent_core.runtime.typed_goal_evidence_ingress",
+    "agent_core.lifecycle.pretool_planner",
+    "agent_core.lifecycle.dialogue_runtime"
   ],
   "minimum_quality_mode": "quick",
-  "quality_target": "governance/targets/migration-v20.19-goal-input-binding-r4.md",
-  "baseline_evidence": ".quality/product-code/migration-v20.19-goal-input-binding-r4/baseline",
-  "initial_source_fingerprint": "23aca7cfc6513255e73713faf8a0f2a6e1e97bdcd086ca517d9d024cdd2e1e66",
-  "initial_source_file_count": 27,
+  "quality_target": "governance/targets/migration-v20.20-stage2b1-trusted-evidence-ingress.md",
+  "baseline_evidence": ".quality/product-code/migration-v20.20-stage2b1-trusted-evidence-ingress/baseline",
+  "initial_source_fingerprint": "30d1ce7bd519d5396d18d6e8ffbf27153e532b58e00807886d157d85c4ed2516",
+  "initial_source_file_count": 9,
   "product_validation": {
-    "baseline": ".quality/product-code/migration-v20.19-goal-input-binding-r4/baseline",
+    "baseline": ".quality/product-code/migration-v20.20-stage2b1-trusted-evidence-ingress/baseline",
     "baseline_mode": "quick",
-    "recorded_at": "2026-08-24T14:02:42.044095+00:00"
+    "recorded_at": "2026-08-27T06:58:35.426332+00:00"
   },
-  "decision_record": "governance/decisions/migration-v20.19-goal-input-binding-r4.json",
+  "decision_record": "governance/decisions/migration-v20.20-stage2b1-trusted-evidence-ingress.json",
   "variance_records": [],
   "architecture_policy_delta": null,
   "baseline_policy_id": null,
   "verification": null,
-  "repair_governance": "governance/repair-cases/migration-v20.19-goal-input-binding-r4",
+  "repair_governance": "governance/repair-cases/migration-v20.20-stage2b1-trusted-evidence-ingress",
   "repair_governance_consumed_at": null,
-  "created_at": "2026-08-24T13:55:22.442317+00:00",
+  "created_at": "2026-08-27T02:19:47.876627+00:00",
   "status": "implementing",
   "result": "PENDING",
-  "repair_governance_permit_digest": "28db7f74ef30bfab1304ba61cc1149ad86f1b6225b998e7a98e8a9cb84cbfcc8"
+  "repair_governance_permit_digest": "9bbfcbcbd76548bd87a49e06e41cd64ae879a7de6c9b0aa286f69bd93ca71d5e"
 }

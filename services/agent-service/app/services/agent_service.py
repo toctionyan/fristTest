@@ -35,6 +35,7 @@ from app.services.dependency_authority_composition import (
     build_dependency_authority_control_composition,
 )
 from agent_core.runtime.deps import lifecycle_runtime_deps
+from agent_core.runtime.typed_goal_evidence_ingress import disabled_typed_goal_evidence_resolver
 from agent_core.config import clear_checkpointer_cache
 class AgentService:
     # Process-local locks preserve request arrival order within one ASGI process.
@@ -56,6 +57,7 @@ class AgentService:
             business_port=get_business_port(),
             trace_logger=self.trace_logger,
             dependency_authority_control_resolver=dependency_authority_control_resolver(provider),
+            typed_goal_evidence_resolver=disabled_typed_goal_evidence_resolver,
         )
 
     def __init__(self):

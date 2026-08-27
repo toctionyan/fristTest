@@ -16,6 +16,7 @@ from agent_core.lifecycle.context_runtime import build_context_bundle_node, prep
 from agent_core.lifecycle.dialogue_runtime import agent_loop_node as _dialogue_agent_loop_node
 from agent_core.lifecycle.transaction_workflow_projection import project_pending_transaction_interaction
 from agent_core.lifecycle.pretool_execution_policy import TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY
+from agent_core.runtime.typed_goal_evidence_ingress import TRUSTED_TYPED_GOAL_EVIDENCE_RESOLVER_KEY, TypedGoalEvidenceResolver
 from agent_core.lifecycle.graph_routes import (
     finalize_agent_loop_turn_node,
     route_after_agent_loop,
@@ -56,12 +57,16 @@ def agent_loop_node(
     transactions: TransactionLifecycleRepository | None = None,
     model_resolver: Callable[[], Any] = get_model,
     dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None,
+    typed_goal_evidence_resolver: TypedGoalEvidenceResolver | None = None,
 ) -> dict[str, Any]:
     """Strip state injection; admit only application-composed RuntimeDeps."""
     runtime_state = dict(state)
     runtime_state.pop(TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY, None)
+    runtime_state.pop(TRUSTED_TYPED_GOAL_EVIDENCE_RESOLVER_KEY, None)
     if callable(dependency_authority_control_resolver):
         runtime_state[TRUSTED_DEPENDENCY_AUTHORITY_CONTROL_RESOLVER_KEY] = dependency_authority_control_resolver
+    if callable(typed_goal_evidence_resolver):
+        runtime_state[TRUSTED_TYPED_GOAL_EVIDENCE_RESOLVER_KEY] = typed_goal_evidence_resolver
     patch = _dialogue_agent_loop_node(runtime_state, context_bundle_builder=context_bundle_builder, capability_registry=capability_registry, model_resolver=model_resolver)
     return project_pending_transaction_interaction(state=runtime_state, patch=patch, capability_registry=capability_registry, transactions=transactions)
 

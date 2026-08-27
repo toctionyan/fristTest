@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "change_id": "migration-v20.19-goal-input-binding-r4",
+  "target_kind": "migration",
+  "goal": "Replace model-authored raw Goal dependency edges with verified Goal input bindings and deterministic Typed Goal Graph compilation as the sole dependency authority for new turns, including migration of executable semantic fixtures.",
+  "profile": "product-migration",
+  "status": "stale-active-snapshot",
+  "result": "SUPERSEDED_BY_CURRENT_STATE_TRUTH_LOCK",
+  "superseded_reason": "The active contract referenced an unavailable historical product baseline and did not represent the current d6efac057ac4 main baseline.",
+  "historical_active_contract": "governance/active-change.json",
+  "historical_baseline_evidence": ".quality/product-code/migration-v20.19-goal-input-binding-r4/baseline",
+  "historical_replacement": "governance/active-change.json"
+}

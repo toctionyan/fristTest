@@ -569,6 +569,8 @@ def build_goal_capability_coverage(
     frozen_contract: dict[str, Any] | None = None,
     available_input_evidence: tuple[dict[str, Any], ...] = (),
     evaluation_time: float | None = None,
+    input_issuer_validator: Any | None = None,
+    target_issuer_validator: Any | None = None,
 ) -> dict[str, Any]:
     """Build global exact coverage without optimizing away Goal identity."""
 
@@ -712,6 +714,8 @@ def build_goal_capability_coverage(
             frozen_contract=frozen_contract,
             available_input_evidence=tuple(available_input_evidence or ()),
             evaluation_time=evaluation_time,
+            input_issuer_validator=input_issuer_validator,
+            target_issuer_validator=target_issuer_validator,
             legacy_shadow_compatibility=True,
         )
         payload["typed_goal_capability_shadow"] = typed_shadow

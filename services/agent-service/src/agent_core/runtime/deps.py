@@ -16,6 +16,7 @@ from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.business import BusinessPort
 from agent_core.transaction.deps import TransactionExecutionDeps
 from agent_core.runtime.outcomes import outcome
+from agent_core.runtime.typed_goal_evidence_ingress import TypedGoalEvidenceResolver
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class LifecycleRuntimeDeps:
     # control. None remains the generic factory default; Stage 4I production
     # composition supplies an explicit disabled callable. Never checkpoint/user/model data.
     dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None
+    typed_goal_evidence_resolver: TypedGoalEvidenceResolver | None = None
 
 
 def lifecycle_runtime_deps(
@@ -42,6 +44,7 @@ def lifecycle_runtime_deps(
     trace_logger: Any | None = None,
     model_resolver: Callable[[], Any] | None = None,
     dependency_authority_control_resolver: Callable[[], dict[str, Any] | None] | None = None,
+    typed_goal_evidence_resolver: TypedGoalEvidenceResolver | None = None,
 ) -> LifecycleRuntimeDeps:
     if model_resolver is None:
         from agent_core.config import get_model
@@ -58,4 +61,5 @@ def lifecycle_runtime_deps(
         ),
         model_resolver=model_resolver,
         dependency_authority_control_resolver=dependency_authority_control_resolver,
+        typed_goal_evidence_resolver=typed_goal_evidence_resolver,
     )

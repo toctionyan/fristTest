@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "record_type": "root-cause-proof",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "failure_case_sha256": "5957b1b77453a693d522cf148d0d48ef257c55e192916af3be8b8006484ad56f",
+  "decision": "PROVEN",
+  "root_cause": "The existing typed evidence validators were implemented as pure consumers, but the application composition and lifecycle node had no explicit dependency carrying their evidence, trusted evaluation time or issuer validators into the real pretool shadow call.",
+  "causal_chain": [
+    "Typed Goal coverage accepts available_input_evidence, evaluation_time and issuer validators but the pretool planner invocation supplied only state and capability_registry.",
+    "Dialogue runtime therefore compiled every real shadow plan with empty evidence and no issuer trust root, making the typed evidence path diagnostic-only even when an application could provide trusted inputs.",
+    "State is not an acceptable trust root because checkpoint, user and model values are mutable projections and must not activate evidence validation."
+  ],
+  "evidence_refs": [
+    "governance/reviews/stage2b1-current-state-truth-lock.json",
+    "services/agent-service/src/agent_core/goal_graph/capability_closure.py",
+    "services/agent-service/src/agent_core/goal_graph/verified_input_evidence.py",
+    "services/agent-service/src/agent_core/goal_graph/target_evidence.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py"
+  ],
+  "rejected_hypotheses": [
+    "This is not a missing validator defect; the validators and freshness checks already exist.",
+    "This is not a Typed Capability cutover defect; Permit and dispatch remain intentionally out of scope.",
+    "This is not solved by copying evidence from state because state is not a trust root."
+  ],
+  "affected_boundaries": [
+    "application dependency composition",
+    "lifecycle node trust boundary",
+    "pretool shadow planner",
+    "typed evidence validation"
+  ]
+}

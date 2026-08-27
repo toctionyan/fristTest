@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "record_type": "plan-review",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "repair_plan_sha256": "b86b6d87f0d71bcf716ba2a18ec785b3c238bc41d1e0f8e577a2fccc401de434",
+  "reviewer_role": "repair-plan-reviewer",
+  "decision": "APPROVED",
+  "skill_rule_mappings": [
+    "Single application-owned ingress; no state injection.",
+    "Existing validators remain authoritative.",
+    "Shadow-only boundary and production closure are preserved.",
+    "Environment blockers remain explicit and cannot be converted into convergence."
+  ],
+  "approved_paths": [
+    "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py",
+    "services/agent-service/src/agent_core/runtime/deps.py",
+    "services/agent-service/src/agent_core/lifecycle/graph.py",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/tests/runtime/test_typed_goal_evidence_ingress.py"
+  ]
+}

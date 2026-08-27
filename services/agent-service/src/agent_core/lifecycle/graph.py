@@ -53,6 +53,7 @@ def build_lifecycle_graph(runtime_deps: LifecycleRuntimeDeps):
             capability_registry=runtime_deps.capability_registry,
             model_resolver=runtime_deps.model_resolver,
             dependency_authority_control_resolver=runtime_deps.dependency_authority_control_resolver,
+            typed_goal_evidence_resolver=runtime_deps.typed_goal_evidence_resolver,
         ),
         "validate_and_execute": lambda state: execute_agent_loop_calls_node(
             state,
