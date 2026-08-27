@@ -102,12 +102,14 @@ jobs:
             --output target-bound/binding.json \
             --candidate-sha '${{ inputs.candidate_sha }}' \
             --base-sha '${{ inputs.base_sha }}'
-          echo "TARGET_PATH=$(jq -r '.target_path' target-bound/binding.json)" >> "$GITHUB_ENV"
+          TARGET_PATH=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["target_path"])' target-bound/binding.json)
+          echo "TARGET_PATH=${TARGET_PATH}" >> "$GITHUB_ENV"
           ln -s "$PWD/candidate/services/agent-service/.venv" target-bound/baseline/services/agent-service/.venv
           ln -s "$PWD/candidate/services/business-service/.venv" target-bound/baseline/services/business-service/.venv
           ln -s "$PWD/candidate/services/agent-service/frontend/node_modules" target-bound/baseline/services/agent-service/frontend/node_modules
 
       - name: Record real pre-change baseline
+        shell: bash
         run: |
           set +e
           target-bound/baseline/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py \
@@ -120,8 +122,10 @@ jobs:
           rc=$?
           set -e
           test "$rc" -ne 0
-          test "$(jq -r '.run_kind' "$RUNNER_TEMP/product-target-bound/baseline/run-summary.json")" = baseline
-          test "$(jq -r '.loop_status' "$RUNNER_TEMP/product-target-bound/baseline/run-summary.json")" = BASELINE_RECORDED
+          baseline_run_kind=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["run_kind"])' "$RUNNER_TEMP/product-target-bound/baseline/run-summary.json")
+          baseline_loop_status=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["loop_status"])' "$RUNNER_TEMP/product-target-bound/baseline/run-summary.json")
+          test "$baseline_run_kind" = baseline
+          test "$baseline_loop_status" = BASELINE_RECORDED
 
       - name: Run exact candidate target-bound Product Quick
         env:
