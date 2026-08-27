@@ -1,0 +1,165 @@
+name: product-target-bound-quick
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact candidate commit SHA to validate
+        required: true
+        type: string
+      base_sha:
+        description: Exact pre-change commit SHA used to reconstruct the baseline
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  product-target-quick:
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --user 1001
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      SKILL_JUDGE_ROOT: ${{ github.workspace }}/control
+      SKILL_JUDGE_TRUST_MODE: external-readonly
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert exact candidate binding
+        run: test "$(git -C candidate rev-parse HEAD)" = "${{ inputs.candidate_sha }}"
+
+      - name: Checkout exact base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: base
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Assert exact base binding
+        run: test "$(git -C base rev-parse HEAD)" = "${{ inputs.base_sha }}"
+
+      - name: Checkout workflow control plane at dispatch SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Set up locked Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.18.0'
+          package-manager-cache: false
+
+      - name: Bootstrap locked uv
+        run: >-
+          "${pythonLocation}/bin/python" -m pip install --disable-pip-version-check
+          --require-hashes --only-binary=:all:
+          -r candidate/deployment/ci/uv-requirements-linux-x86_64.txt
+
+      - name: Install locked candidate environments and verify Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd candidate/services/agent-service && uv sync --locked --all-groups
+          cd ../business-service && uv sync --locked --all-groups
+          cd ../agent-service/frontend && npm ci --ignore-scripts=false
+          test "${PLAYWRIGHT_BROWSERS_PATH}" = "/ms-playwright"
+          node --input-type=module <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage();
+          await page.goto('data:text/html,<title>target-bound-quality</title>');
+          if (await page.title() !== 'target-bound-quality') process.exit(1);
+          await browser.close();
+          NODE
+
+      - name: Prepare exact target-bound baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target-bound
+          "${pythonLocation}/bin/python" -B control/scripts/product_target_bound_ci.py prepare-baseline \
+            --candidate candidate \
+            --base base \
+            --baseline target-bound/baseline \
+            --output target-bound/binding.json \
+            --candidate-sha '${{ inputs.candidate_sha }}' \
+            --base-sha '${{ inputs.base_sha }}'
+          TARGET_PATH=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["target_path"])' target-bound/binding.json)
+          echo "TARGET_PATH=${TARGET_PATH}" >> "$GITHUB_ENV"
+          mkdir -p candidate/.quality target-bound/baseline/.quality
+          "${pythonLocation}/bin/python" -c 'from pathlib import Path; import secrets; Path("candidate/.quality/quality-evidence.key").write_text(secrets.token_hex(32) + "\n", encoding="utf-8")'
+          ln -s "$PWD/candidate/.quality/quality-evidence.key" target-bound/baseline/.quality/quality-evidence.key
+          ln -s "$PWD/candidate/services/agent-service/.venv" target-bound/baseline/services/agent-service/.venv
+          ln -s "$PWD/candidate/services/business-service/.venv" target-bound/baseline/services/business-service/.venv
+          ln -s "$PWD/candidate/services/agent-service/frontend/node_modules" target-bound/baseline/services/agent-service/frontend/node_modules
+
+      - name: Record real pre-change baseline
+        shell: bash
+        run: |
+          set +e
+          target-bound/baseline/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py \
+            --workspace-root target-bound/baseline \
+            --mode quick \
+            --target "target-bound/baseline/${TARGET_PATH}" \
+            --baseline \
+            --evidence-dir "$RUNNER_TEMP/product-target-bound/baseline" \
+            --state-dir "$RUNNER_TEMP/product-target-bound/baseline-state"
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          baseline_run_kind=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["run_kind"])' "$RUNNER_TEMP/product-target-bound/baseline/run-summary.json")
+          baseline_loop_status=$("${pythonLocation}/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["loop_status"])' "$RUNNER_TEMP/product-target-bound/baseline/run-summary.json")
+          test "$baseline_run_kind" = baseline
+          test "$baseline_loop_status" = BASELINE_RECORDED
+
+      - name: Run exact candidate target-bound Product Quick
+        env:
+          SKILL_JUDGE_ROOT: ${{ github.workspace }}/control
+          SKILL_JUDGE_TRUST_MODE: external-readonly
+        run: >-
+          candidate/services/agent-service/.venv/bin/python -B control/scripts/quality_loop.py
+          --workspace-root candidate
+          --mode quick
+          --target "candidate/${TARGET_PATH}"
+          --baseline-evidence "${RUNNER_TEMP}/product-target-bound/baseline"
+          --evidence-dir "${RUNNER_TEMP}/product-target-bound/candidate"
+          --state-dir "${RUNNER_TEMP}/product-target-bound/candidate-state"
+
+      - name: Validate target identity and convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${pythonLocation}/bin/python" -B control/scripts/product_target_bound_ci.py validate \
+            --candidate candidate \
+            --evidence "$RUNNER_TEMP/product-target-bound/candidate" \
+            --binding target-bound/binding.json \
+            --output target-bound/result.json
+
+      - name: Upload target-bound evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: product-target-bound-quick-${{ inputs.candidate_sha }}
+          path: |
+            target-bound
+            ${{ runner.temp }}/product-target-bound
+          retention-days: 30
+          if-no-files-found: error
