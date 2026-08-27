@@ -241,6 +241,47 @@ class CanonicalProductSnapshotTests(unittest.TestCase):
         cls._git(root, "config", "user.name", "Snapshot Test")
         cls._git(root, "config", "user.email", "snapshot@example.com")
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        # The CI checkout is intentionally shallow; make the exact historical
+        # objects required by this Git-object test available without using the
+        # worktree or index as a fallback source.
+        for commit_sha in (cls.STAGE2B1_SHA, cls.STAGE2B1_MERGE_SHA):
+            present = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "cat-file",
+                    "-e",
+                    f"{commit_sha}^{{commit}}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if present.returncode == 0:
+                continue
+            subprocess.run(
+                ["git", "-C", str(ROOT), "fetch", "--no-tags", "origin", commit_sha],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "cat-file",
+                    "-e",
+                    f"{commit_sha}^{{commit}}",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
     def test_stage2b1_commits_have_same_protected_snapshot_digest(self) -> None:
         first = build_canonical_product_snapshot(
             ROOT, self.STAGE2B1_SHA, self.PROTECTED_ROOTS
