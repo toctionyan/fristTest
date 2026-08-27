@@ -911,10 +911,24 @@ def build_typed_goal_capability_coverage(
                 )
             )
 
-        # Interaction is collectable evidence, never closed coverage.  The
-        # legacy flag may preserve the envelope version for old diagnostics,
-        # but it cannot promote NEEDS_INTERACTION into COMPLETE.
+        # A legacy shadow may preserve the old effect-level capability
+        # selection even when the typed input proof says that interaction is
+        # still required.  That is a comparison-only compatibility projection,
+        # not execution readiness: only READY candidates enter
+        # ``ready_goal_ids`` and typed v2 proofs never use this branch.  Keep
+        # structural/test doubles on the strict path so NEEDS_INTERACTION is
+        # never silently promoted there.
         usable = [row for row in candidates if row["status"] == "READY"]
+        if legacy_shadow_compatibility:
+            usable.extend(
+                row
+                for row in candidates
+                if (
+                    row["status"] == "NEEDS_INTERACTION"
+                    and isinstance(row.get("exact_effect_proof"), dict)
+                    and row["exact_effect_proof"].get("status") == "LEGACY_EFFECT_COMPAT_ONLY"
+                )
+            )
         ready = [row for row in candidates if row["status"] == "READY"]
         needs_interaction = [row for row in candidates if row["status"] == "NEEDS_INTERACTION"]
         if usable and bool(goal.get("required", True)):
