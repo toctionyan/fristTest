@@ -6,12 +6,11 @@ from __future__ import annotations
 The baseline is version-acceptance metadata, not semantic truth. This controller
 requires an immutable governance receipt with G0-G5 PASS, verifies that the only
 baseline drift is exactly the already validated RCA-authorized source patch,
-updates only the baseline registry, commits that registry as a child of the
-published source commit, and leaves G6 pending until exact-head CI succeeds.
+updates only the baseline registry from the governed Git source tree, and leaves
+G6 pending until exact-head CI succeeds.
 """
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -26,9 +25,8 @@ if str(CONTROL) not in sys.path:
 
 from product_source_baseline_policy import (  # type: ignore  # noqa: E402
     BASELINE_PATH,
-    BaselineMode,
     ProductSourcePolicyError,
-    evaluate_binding,
+    build_canonical_product_snapshot,
     load_baseline_document,
 )
 from task_run import TaskRunStore  # type: ignore  # noqa: E402
@@ -76,30 +74,6 @@ def _git(workspace: Path, *args: str) -> str:
             (completed.stderr or completed.stdout or "git failed").strip()
         )
     return completed.stdout.strip()
-
-
-def _current_protected_files(
-    workspace: Path,
-    baseline: dict[str, Any],
-    recorded: dict[str, str],
-) -> dict[str, str]:
-    roots = baseline.get("protected_roots")
-    if not isinstance(roots, list) or not roots:
-        raise BaselineAcceptanceError("baseline protected_roots are missing")
-    try:
-        binding = evaluate_binding(
-            workspace,
-            expected=recorded,
-            protected_roots=tuple(str(item).rstrip("/") for item in roots),
-            mode=BaselineMode.BASELINE_ACCEPTANCE,
-        )
-    except ProductSourcePolicyError as exc:
-        raise BaselineAcceptanceError(str(exc)) from exc
-    for error in binding.errors:
-        if error.startswith("protected_root_missing:"):
-            root_name = error.split(":", 1)[1]
-            raise BaselineAcceptanceError(f"protected root is missing: {root_name}")
-    return binding.current
 
 
 def _validate_governance(receipt: dict[str, Any]) -> dict[str, Any]:
@@ -162,23 +136,22 @@ def accept_baseline(
 
     try:
         document = load_baseline_document(workspace)
-        binding = evaluate_binding(
+        candidate_snapshot = build_canonical_product_snapshot(
             workspace,
-            expected=document.files,
-            protected_roots=document.protected_roots,
-            mode=BaselineMode.BASELINE_ACCEPTANCE,
+            source_sha,
+            document.protected_roots,
         )
     except ProductSourcePolicyError as exc:
         raise BaselineAcceptanceError(str(exc)) from exc
-    for error in binding.errors:
-        if error.startswith("protected_root_missing:"):
-            root_name = error.split(":", 1)[1]
-            raise BaselineAcceptanceError(f"protected root is missing: {root_name}")
 
     baseline_path = workspace / BASELINE_PATH
-    baseline = dict(document.payload)
-    current = dict(binding.current)
-    observed_drift = set(binding.drift_paths)
+    baseline = dict(candidate_snapshot)
+    current = dict(candidate_snapshot["entries"])
+    observed_drift = {
+        path
+        for path in set(document.entries) | set(current)
+        if document.entries.get(path) != current.get(path)
+    }
     approved_source = {
         str(path or "").strip().replace("\\", "/")
         for path in governance.get("approved_source_paths") or []
@@ -206,12 +179,8 @@ def accept_baseline(
             )
         )
 
-    baseline["files"] = dict(sorted(current.items()))
-    baseline["file_count"] = len(current)
-    baseline["generated_from"] = f"git:{source_sha}"
-    baseline["generated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     baseline_path.write_text(
-        json.dumps(baseline, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(baseline, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
@@ -236,8 +205,6 @@ def accept_baseline(
         f"Accept protected baseline after governed repair {governance.get('source_run_id')}",
     )
     baseline_commit = _git(workspace, "rev-parse", "HEAD")
-    if _git(workspace, "rev-parse", "HEAD^") != source_sha:
-        raise BaselineAcceptanceError("baseline commit parent drifted from governed source SHA")
     if _git(workspace, "status", "--porcelain=v1", "--untracked-files=all"):
         raise BaselineAcceptanceError("baseline workspace is dirty after commit")
 
@@ -246,7 +213,8 @@ def accept_baseline(
         "status": "BASELINE_ACCEPTED_EXACT_HEAD_PENDING",
         "evidence": [
             f"governance-sha256:{governance['governance_sha256']}",
-            f"baseline-parent:{source_sha}",
+            f"baseline-source-ref:{source_sha}",
+            f"baseline-snapshot-digest:{candidate_snapshot['protected_snapshot_digest']}",
             f"baseline-commit:{baseline_commit}",
             *[f"baseline-path:{path}" for path in sorted(approved)],
         ],
@@ -261,6 +229,8 @@ def accept_baseline(
         "repair_branch": governance.get("repair_branch"),
         "repair_base_branch": governance.get("repair_base_branch"),
         "published_source_sha": source_sha,
+        "product_source_ref": candidate_snapshot["product_source_ref"],
+        "protected_snapshot_digest": candidate_snapshot["protected_snapshot_digest"],
         "baseline_commit_sha": baseline_commit,
         "validated_tree_sha": governance.get("validated_tree_sha"),
         "rca_sha256": governance.get("rca_sha256"),

@@ -212,7 +212,6 @@ jobs:
           set -euo pipefail
           "${pythonLocation}/bin/python" -B control/scripts/verify_product_source_baseline.py \
             --workspace candidate \
-            --require-parent-binding \
             --output governance-evidence/post-baseline-verification.json
           jq -e '.status == "PASS" and (.drift_paths | length == 0)' \
             governance-evidence/post-baseline-verification.json >/dev/null

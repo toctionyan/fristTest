@@ -352,10 +352,12 @@ jobs:
 
           BASELINE_SECTION=""
           if [[ -f incoming/baseline-acceptance-proposal.json ]]; then
-            ACCEPTED_FROM=$(jq -r '.accepted_generated_from' incoming/baseline-acceptance-proposal.json)
+            ACCEPTED_FROM=$(jq -r '.accepted_product_source_ref' incoming/baseline-acceptance-proposal.json)
+            ACCEPTED_DIGEST=$(jq -r '.accepted_protected_snapshot_digest' incoming/baseline-acceptance-proposal.json)
+            CANDIDATE_DIGEST=$(jq -r '.candidate_protected_snapshot_digest' incoming/baseline-acceptance-proposal.json)
             CANDIDATE_SHA=$(jq -r '.candidate_sha' incoming/baseline-acceptance-proposal.json)
-            ACCEPTED_COUNT=$(jq -r '.accepted_file_count' incoming/baseline-acceptance-proposal.json)
-            CANDIDATE_COUNT=$(jq -r '.candidate_file_count' incoming/baseline-acceptance-proposal.json)
+            ACCEPTED_COUNT=$(jq -r '.accepted_entry_count' incoming/baseline-acceptance-proposal.json)
+            CANDIDATE_COUNT=$(jq -r '.candidate_entry_count' incoming/baseline-acceptance-proposal.json)
             ADDED_COUNT=$(jq -r '.drift.added_count' incoming/baseline-acceptance-proposal.json)
             MODIFIED_COUNT=$(jq -r '.drift.modified_count' incoming/baseline-acceptance-proposal.json)
             DELETED_COUNT=$(jq -r '.drift.deleted_count' incoming/baseline-acceptance-proposal.json)
@@ -364,7 +366,9 @@ jobs:
 
           ### Read-only baseline acceptance proposal
 
-          - Accepted snapshot: \`${ACCEPTED_FROM}\`
+          - Accepted product source: \`${ACCEPTED_FROM}\`
+          - Accepted snapshot digest: \`${ACCEPTED_DIGEST}\`
+          - Candidate snapshot digest: \`${CANDIDATE_DIGEST}\`
           - Candidate SHA: \`${CANDIDATE_SHA}\`
           - Protected file counts: accepted=\`${ACCEPTED_COUNT}\`, candidate=\`${CANDIDATE_COUNT}\`
           - Exact drift counts: added=\`${ADDED_COUNT}\`, modified=\`${MODIFIED_COUNT}\`, deleted=\`${DELETED_COUNT}\`, total=\`${TOTAL_COUNT}\`
@@ -461,7 +465,9 @@ jobs:
             echo "- production_closed: false"
             if [[ -f incoming/baseline-acceptance-proposal.json ]]; then
               echo "- Baseline proposal: \`prepared-read-only\`"
-              echo "- Baseline accepted snapshot: \`$(jq -r '.accepted_generated_from' incoming/baseline-acceptance-proposal.json)\`"
+              echo "- Baseline accepted product source: \`$(jq -r '.accepted_product_source_ref' incoming/baseline-acceptance-proposal.json)\`"
+              echo "- Baseline accepted snapshot digest: \`$(jq -r '.accepted_protected_snapshot_digest' incoming/baseline-acceptance-proposal.json)\`"
+              echo "- Baseline candidate snapshot digest: \`$(jq -r '.candidate_protected_snapshot_digest' incoming/baseline-acceptance-proposal.json)\`"
               echo "- Baseline candidate SHA: \`$(jq -r '.candidate_sha' incoming/baseline-acceptance-proposal.json)\`"
               echo "- Baseline drift total: \`$(jq -r '.drift.total_count' incoming/baseline-acceptance-proposal.json)\`"
               echo "- Baseline write authority: \`false\`"

@@ -8,9 +8,8 @@ from typing import Any, Mapping
 
 from product_source_baseline_policy import (
     ProductSourcePolicyError,
-    detect_snapshot_source,
+    build_canonical_product_snapshot,
     load_baseline_document,
-    snapshot_protected_source,
 )
 
 
@@ -52,16 +51,33 @@ def build_baseline_acceptance_proposal(
     root = workspace.resolve()
     try:
         document = load_baseline_document(root)
-        source = detect_snapshot_source(root)
-        current = snapshot_protected_source(
+        accepted_sha = document.product_source_ref.removeprefix("git-commit-sha1:")
+        accepted = build_canonical_product_snapshot(
             root,
+            accepted_sha,
             document.protected_roots,
-            source=source,
+        )
+        if accepted != document.payload:
+            raise ProductSourcePolicyError("baseline_source_witness_mismatch")
+    except (OSError, subprocess.SubprocessError, ProductSourcePolicyError) as exc:
+        raise BaselineAcceptanceProposalError(str(exc)) from exc
+
+    resolved_sha = str(candidate_sha or "").strip().lower() or _current_git_sha(root)
+    if resolved_sha is None:
+        raise BaselineAcceptanceProposalError("candidate_sha could not be resolved")
+    if len(resolved_sha) != 40 or any(char not in "0123456789abcdef" for char in resolved_sha):
+        raise BaselineAcceptanceProposalError("candidate_sha must be an exact 40-hex commit")
+    try:
+        candidate = build_canonical_product_snapshot(
+            root,
+            resolved_sha,
+            document.protected_roots,
         )
     except (OSError, subprocess.SubprocessError, ProductSourcePolicyError) as exc:
         raise BaselineAcceptanceProposalError(str(exc)) from exc
 
-    expected = document.files
+    expected = document.entries
+    current = candidate["entries"]
     added = sorted(path for path in current if path not in expected)
     deleted = sorted(path for path in expected if path not in current)
     modified = sorted(
@@ -71,22 +87,21 @@ def build_baseline_acceptance_proposal(
         1 for path in set(current) & set(expected) if current[path] == expected[path]
     )
 
-    resolved_sha = str(candidate_sha or "").strip().lower() or _current_git_sha(root)
-    if resolved_sha is not None:
-        if len(resolved_sha) != 40 or any(char not in "0123456789abcdef" for char in resolved_sha):
-            raise BaselineAcceptanceProposalError("candidate_sha must be an exact 40-hex commit")
-
     decision_required = bool(added or deleted or modified)
     return {
         "schema": BASELINE_ACCEPTANCE_PROPOSAL_SCHEMA,
         "status": "DECISION_REQUIRED" if decision_required else "NO_DRIFT",
         "candidate_sha": resolved_sha,
-        "snapshot_source": source.value,
-        "accepted_generated_from": document.generated_from,
+        "snapshot_source": "git_object_tree",
+        "accepted_product_source_ref": document.product_source_ref,
+        "accepted_protected_snapshot_digest": document.protected_snapshot_digest,
+        "candidate_protected_snapshot_digest": candidate[
+            "protected_snapshot_digest"
+        ],
         "protected_roots": list(document.protected_roots),
-        "accepted_file_count": len(expected),
-        "candidate_file_count": len(current),
-        "unchanged_file_count": unchanged_count,
+        "accepted_entry_count": len(expected),
+        "candidate_entry_count": len(current),
+        "unchanged_entry_count": unchanged_count,
         "drift": {
             "added": added,
             "modified": modified,
@@ -114,12 +129,14 @@ def render_baseline_acceptance_proposal(proposal: Mapping[str, Any]) -> str:
     drift = proposal.get("drift") if isinstance(proposal.get("drift"), Mapping) else {}
     lines = [
         f"Baseline acceptance: {proposal.get('status')}",
-        f"Accepted snapshot: {proposal.get('accepted_generated_from')}",
+        f"Accepted product source: {proposal.get('accepted_product_source_ref')}",
+        f"Accepted snapshot digest: {proposal.get('accepted_protected_snapshot_digest')}",
+        f"Candidate snapshot digest: {proposal.get('candidate_protected_snapshot_digest')}",
         f"Candidate SHA: {proposal.get('candidate_sha') or 'unknown'}",
         (
-            "Protected files: "
-            f"accepted={proposal.get('accepted_file_count')} "
-            f"candidate={proposal.get('candidate_file_count')}"
+            "Protected entries: "
+            f"accepted={proposal.get('accepted_entry_count')} "
+            f"candidate={proposal.get('candidate_entry_count')}"
         ),
         (
             "Drift: "
