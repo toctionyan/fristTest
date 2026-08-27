@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "record_type": "diff-review",
+  "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
+  "permit_digest": "0aed9b23766a94f666f6660c8379c0b2d92615c443408cf6ce737336cd61d7ef",
+  "reviewer_role": "diff-integrity-reviewer",
+  "requested_decision": "PASS",
+  "decision": "PASS",
+  "baseline_source_fingerprint": "3adf83234b74d579e676cc655995bd5bb8a207a305f8916ade2fe69c8c0cdef0",
+  "candidate_source_fingerprint": "7c007d39b93693113aa0e5fe79f583ce2dee96b709eb58a5f8dbaf948041bee2",
+  "changed_paths": [
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/lifecycle/graph.py",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+    "services/agent-service/src/agent_core/runtime/deps.py",
+    "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py"
+  ],
+  "added_paths": [
+    "services/agent-service/src/agent_core/runtime/typed_goal_evidence_ingress.py"
+  ],
+  "modified_paths": [
+    "services/agent-service/app/services/agent_service.py",
+    "services/agent-service/src/agent_core/lifecycle/dialogue_runtime.py",
+    "services/agent-service/src/agent_core/lifecycle/goal_capability_coverage.py",
+    "services/agent-service/src/agent_core/lifecycle/graph.py",
+    "services/agent-service/src/agent_core/lifecycle/nodes.py",
+    "services/agent-service/src/agent_core/lifecycle/pretool_planner.py",
+    "services/agent-service/src/agent_core/runtime/deps.py"
+  ],
+  "deleted_paths": [],
+  "out_of_scope_paths": [],
+  "test_integrity_findings": [],
+  "forbidden_pattern_findings": [],
+  "deterministic_findings": [],
+  "round_bookkeeping": [],
+  "reviewer_findings": []
+}

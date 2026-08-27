@@ -61,6 +61,7 @@ from agent_core.runtime.node_support import (
     max_loop_steps as _max_loop_steps,
     tool_calls as _tool_calls,
 )
+from agent_core.runtime.typed_goal_evidence_ingress import resolve_trusted_typed_goal_evidence
 
 FINAL_PROTOCOL_MAX_RETRIES = 1
 GOAL_DECLARATION_MAX_RETRIES = 2
@@ -1195,12 +1196,15 @@ def agent_loop_node(
         pretool_shadow_plan = None
         if not planning_phase:
             try:
+                typed_goal_evidence, typed_goal_evidence_ingress = resolve_trusted_typed_goal_evidence(state)
                 # V20.14 shadow evidence is compiled before the model sees or
                 # emits a business Tool Call. It is intentionally omitted from
                 # model messages and cannot create an ExecutionPermit.
                 pretool_shadow_plan = build_pretool_shadow_plan(
                     state=state,
                     capability_registry=capability_registry,
+                    **typed_goal_evidence,
+                    typed_goal_evidence_ingress=typed_goal_evidence_ingress,
                 )
             except Exception as exc:
                 pretool_shadow_plan = {
@@ -1214,6 +1218,11 @@ def agent_loop_node(
                     "must_not_dispatch": True,
                     "creates_permit": False,
                     "mutates_semantics": False,
+                    "typed_goal_evidence_ingress": {
+                        "status": "SHADOW_BUILD_FAILED",
+                        "source": "application_runtime_deps",
+                        "raw_evidence_exposed": False,
+                    },
                 }
         pretool_execution_policy = None
         surfaced_tools = set(capability_surface.get("tool_names") or []) if capability_surface else None

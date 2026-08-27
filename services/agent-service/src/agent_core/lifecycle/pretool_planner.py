@@ -217,6 +217,11 @@ def build_pretool_shadow_plan(
     *,
     state: dict[str, Any],
     capability_registry: CapabilityRegistry,
+    available_input_evidence: tuple[dict[str, Any], ...] = (),
+    evaluation_time: float | None = None,
+    input_issuer_validator: Any | None = None,
+    target_issuer_validator: Any | None = None,
+    typed_goal_evidence_ingress: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic local plan before any model business Tool Call.
 
@@ -344,6 +349,10 @@ def build_pretool_shadow_plan(
         capability_registry=capability_registry,
         typed_goal_graph=typed_goal_graph,
         frozen_contract=contract,
+        available_input_evidence=tuple(available_input_evidence or ()),
+        evaluation_time=evaluation_time,
+        input_issuer_validator=input_issuer_validator,
+        target_issuer_validator=target_issuer_validator,
     )
     snapshot = capability_registry.planning_contract_snapshot(sorted(set(all_candidate_tools)))
     payload: dict[str, Any] = {
@@ -367,6 +376,15 @@ def build_pretool_shadow_plan(
         "creates_permit": False,
         "mutates_semantics": False,
         "execution_readiness": "not_evaluated_shadow",
+        "typed_goal_evidence_ingress": deepcopy(typed_goal_evidence_ingress or {
+            "status": "NOT_CONFIGURED",
+            "source": "application_runtime_deps",
+            "evidence_count": 0,
+            "has_evaluation_time": False,
+            "has_input_issuer_validator": False,
+            "has_target_issuer_validator": False,
+            "raw_evidence_exposed": False,
+        }),
     }
     payload["plan_digest"] = _digest(payload)
     return payload
