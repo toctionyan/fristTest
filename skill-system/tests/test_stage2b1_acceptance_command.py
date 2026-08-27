@@ -22,7 +22,10 @@ from stage2b1_acceptance import (  # noqa: E402
 from stage_acceptance_reducer import reduce_stage_acceptance  # noqa: E402
 from stage_acceptance_taskrun import project_stage_acceptance_to_taskrun  # noqa: E402
 from stage_evidence_receipt import build_stage_evidence_receipt  # noqa: E402
-from stage_acceptance_writer import contract_digest  # noqa: E402
+from stage_acceptance_writer import (  # noqa: E402
+    StageAcceptanceWriteError,
+    contract_digest,
+)
 from task_run import TaskRunStore  # noqa: E402
 from durable_human_gate import seal_human_decision  # noqa: E402
 
@@ -156,6 +159,17 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         with self.assertRaises(Stage2B1AcceptanceCommandError):
             self._record(decision_path=self.root / "missing-decision.json")
         self.assertEqual(json.loads(self.task_path.read_text(encoding="utf-8")), before)
+
+    def test_symlinked_explicit_input_fails_closed(self) -> None:
+        decision_link = self.root / "decision-link.json"
+        decision_link.symlink_to(self.reducer_decision_path)
+        with self.assertRaises(Stage2B1AcceptanceCommandError):
+            self._record(decision_path=decision_link)
+
+        gate_link = self.root / "gate-link.json"
+        gate_link.symlink_to(self.gate_path)
+        with self.assertRaisesRegex(StageAcceptanceWriteError, "missing or unsafe"):
+            self._record(human_gate_path=gate_link)
 
 
 if __name__ == "__main__":

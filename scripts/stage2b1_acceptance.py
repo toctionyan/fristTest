@@ -13,7 +13,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Any, Mapping
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL = ROOT / "skill-system" / "controller"
@@ -32,6 +32,9 @@ class Stage2B1AcceptanceCommandError(ValueError):
 
 
 def _load_object(path: Path, *, field: str) -> dict[str, Any]:
+    path = Path(path)
+    if path.is_symlink():
+        raise Stage2B1AcceptanceCommandError(f"{field} is missing or unsafe")
     resolved = path.resolve()
     if resolved.is_symlink() or not resolved.is_file():
         raise Stage2B1AcceptanceCommandError(f"{field} is missing or unsafe")
@@ -73,9 +76,8 @@ def record_stage_acceptance(
     if not workspace.is_dir():
         raise Stage2B1AcceptanceCommandError("workspace is missing")
 
-    task_path = task_run_path.resolve()
-    task_payload = _load_object(task_path, field="task_run")
-    task = TaskRunStore(task_path, task_payload)
+    task_payload = _load_object(task_run_path, field="task_run")
+    task = TaskRunStore(task_run_path.resolve(), task_payload)
     decision = _load_object(decision_path, field="decision")
     expected_binding = _load_object(expected_binding_path, field="expected_binding")
     change_contract = _load_object(change_contract_path, field="change_contract")
