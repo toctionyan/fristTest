@@ -18,6 +18,7 @@ import github_repair_baseline_acceptance as baseline_acceptance  # noqa: E402
 import github_repair_exact_head as exact_head  # noqa: E402
 import github_repair_governance as governance  # noqa: E402
 import verify_product_source_baseline as baseline_verify  # noqa: E402
+from product_source_baseline_policy import build_canonical_product_snapshot  # noqa: E402
 
 
 PRE_G6 = {
@@ -163,25 +164,20 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
         second = protected / "b.py"
         first.write_text("A = 1\n", encoding="utf-8")
         second.write_text("B = 1\n", encoding="utf-8")
-        baseline_path = root / "skill-system/registry/product-source-baseline.json"
-        baseline_path.parent.mkdir(parents=True)
-        baseline = {
-            "schema_version": 2,
-            "generated_at": "2026-08-16T00:00:00+00:00",
-            "generated_from": "git:" + "0" * 40,
-            "protected_roots": ["services/agent-service/src"],
-            "file_count": 2,
-            "files": {
-                "services/agent-service/src/a.py": _hash(first),
-                "services/agent-service/src/b.py": _hash(second),
-            },
-        }
-        _write_json(baseline_path, baseline)
         _git(root, "init", "-q")
         _git(root, "config", "user.name", "Test")
         _git(root, "config", "user.email", "test@example.com")
         _git(root, "add", ".")
         _git(root, "commit", "-qm", "baseline")
+        initial_sha = _git(root, "rev-parse", "HEAD")
+        baseline_path = root / "skill-system/registry/product-source-baseline.json"
+        baseline_path.parent.mkdir(parents=True)
+        _write_json(
+            baseline_path,
+            build_canonical_product_snapshot(root, initial_sha, ("services/agent-service/src",)),
+        )
+        _git(root, "add", str(baseline_path.relative_to(root)))
+        _git(root, "commit", "-qm", "accepted baseline")
         first.write_text("A = 2\n", encoding="utf-8")
         changed = ["services/agent-service/src/a.py"]
         if two_changed:
@@ -245,7 +241,7 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
         self.assertTrue(receipt["baseline_accepted"])
         self.assertFalse(receipt["exact_head_certified"])
         self.assertEqual(_git(root, "rev-parse", "HEAD^"), source_sha)
-        verified = baseline_verify.verify(root, require_parent_binding=True)
+        verified = baseline_verify.verify(root)
         self.assertEqual(verified["status"], "PASS")
         self.assertEqual(verified["drift_paths"], [])
 
@@ -258,6 +254,8 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
         output = evidence / "acceptance.json"
         _write_json(governance_path, self._governance_receipt(source_sha, changed[:1]))
         _write_json(task, {"status": "WAITING_EXTERNAL_RESULT", "phase": "STAGE5_BASELINE_ACCEPTANCE_REQUIRED"})
+        baseline_path = root / "skill-system/registry/product-source-baseline.json"
+        before = baseline_path.read_bytes()
         with patch.object(baseline_acceptance, "TaskRunStore", FakeTaskRunStore):
             with self.assertRaises(baseline_acceptance.BaselineAcceptanceError):
                 baseline_acceptance.accept_baseline(
@@ -266,6 +264,7 @@ class GovernedRepairGovernanceTests(unittest.TestCase):
                     task_run_path=task,
                     output_path=output,
                 )
+        self.assertEqual(baseline_path.read_bytes(), before)
 
     def _baseline_receipt_for_exact_head(self, exact_sha: str) -> dict[str, object]:
         gates = dict(PRE_G6)

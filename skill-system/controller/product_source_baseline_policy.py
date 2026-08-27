@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 BASELINE_PATH = "skill-system/registry/product-source-baseline.json"
-BASELINE_SCHEMA_VERSION = 2
+BASELINE_SCHEMA_VERSION = 3
 IGNORED_PARTS = {".venv", "node_modules", "__pycache__", ".pytest_cache"}
 MACHINE_LOCAL_PARTS = {"runtime"}
 PERMIT_BASELINE_STATUSES = {"approved", "implementing", "review", "verified"}
@@ -44,7 +44,7 @@ V3_SNAPSHOT_FIELDS = {
     "entries",
     "protected_snapshot_digest",
 }
-V3_SNAPSHOT_ENTRY_FIELDS = {"path", "mode", "digest"}
+V3_SNAPSHOT_ENTRY_FIELDS = {"mode", "digest"}
 GIT_COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 SNAPSHOT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 SUPPORTED_GIT_FILE_MODES = {"100644", "100755"}
@@ -53,9 +53,18 @@ SUPPORTED_GIT_FILE_MODES = {"100644", "100755"}
 @dataclass(frozen=True)
 class BaselineDocument:
     payload: dict[str, Any]
-    files: dict[str, str]
+    entries: dict[str, dict[str, str]]
     protected_roots: tuple[str, ...]
-    generated_from: str
+    product_source_ref: str
+    protected_snapshot_digest: str
+
+    @property
+    def files(self) -> dict[str, str]:
+        """Return digest-only data for non-authoritative legacy consumers."""
+        return {
+            path: record["digest"][len("sha256:"):]
+            for path, record in self.entries.items()
+        }
 
 
 @dataclass(frozen=True)
@@ -117,12 +126,12 @@ def normalize_protected_roots(protected_roots: Iterable[str]) -> tuple[str, ...]
 
 def _canonical_snapshot_digest(
     protected_roots: tuple[str, ...],
-    entries: list[dict[str, str]],
+    entries: Mapping[str, Mapping[str, str]],
 ) -> str:
     canonical_payload = {
         "snapshot_format": CANONICAL_SNAPSHOT_FORMAT,
         "protected_roots": list(protected_roots),
-        "entries": entries,
+        "entries": dict(entries),
     }
     canonical_bytes = json.dumps(
         canonical_payload,
@@ -275,7 +284,7 @@ def build_canonical_product_snapshot(
     roots = normalize_protected_roots(protected_roots)
     _assert_commit_object(repository, commit_sha)
 
-    entries: list[dict[str, str]] = []
+    entries: dict[str, dict[str, str]] = {}
     seen_paths: set[str] = set()
     records = _git_tree_records(repository, commit_sha, roots)
     blob_records: list[tuple[str, str, str]] = []
@@ -301,9 +310,9 @@ def build_canonical_product_snapshot(
     )
     for path, mode, object_id in blob_records:
         digest = blob_digests[object_id]
-        entries.append({"path": path, "mode": mode, "digest": digest})
+        entries[path] = {"mode": mode, "digest": digest}
 
-    entries.sort(key=lambda entry: entry["path"].encode("utf-8"))
+    entries = dict(sorted(entries.items(), key=lambda item: item[0].encode("utf-8")))
     return {
         "schema_version": V3_SNAPSHOT_SCHEMA_VERSION,
         "snapshot_format": CANONICAL_SNAPSHOT_FORMAT,
@@ -369,13 +378,14 @@ def validate_v3_product_snapshot(
             if roots != expected_roots:
                 errors.append("v3_protected_roots_mismatch")
 
-    entries: list[dict[str, str]] = []
+    entries: dict[str, dict[str, str]] = {}
     entries_value = payload.get("entries")
-    entries_valid = isinstance(entries_value, list)
+    entries_valid = isinstance(entries_value, dict)
     if not entries_valid:
         errors.append("v3_entries_invalid")
     else:
-        for index, raw_entry in enumerate(entries_value):
+        for path, raw_entry in entries_value.items():
+            index = str(path)
             if not isinstance(raw_entry, dict):
                 entries_valid = False
                 errors.append(f"v3_entry_not_object:{index}")
@@ -389,7 +399,6 @@ def validate_v3_product_snapshot(
                 entries_valid = False
                 errors.append(f"v3_entry_fields_invalid:{index}")
                 continue
-            path = raw_entry.get("path")
             mode = raw_entry.get("mode")
             digest = raw_entry.get("digest")
             try:
@@ -411,25 +420,22 @@ def validate_v3_product_snapshot(
             ) is None:
                 entries_valid = False
                 errors.append(f"v3_entry_digest_invalid:{index}")
-            if isinstance(mode, str) and isinstance(digest, str):
-                entries.append(
-                    {"path": normalized_path, "mode": mode, "digest": digest}
-                )
+            if (
+                normalized_path == path
+                and mode in SUPPORTED_GIT_FILE_MODES
+                and isinstance(digest, str)
+                and SNAPSHOT_DIGEST_PATTERN.fullmatch(digest) is not None
+            ):
+                entries[normalized_path] = {"mode": mode, "digest": digest}
 
     entry_count = payload.get("entry_count")
     if not isinstance(entry_count, int) or isinstance(entry_count, bool):
         errors.append("v3_entry_count_invalid")
-    elif isinstance(entries_value, list) and entry_count != len(entries_value):
+    elif isinstance(entries_value, dict) and entry_count != len(entries_value):
         errors.append("v3_entry_count_mismatch")
 
-    if entries_valid and entries_value == sorted(
-        entries_value,
-        key=lambda entry: entry["path"].encode("utf-8"),
-    ):
-        if len({entry["path"] for entry in entries}) != len(entries):
-            errors.append("v3_entry_path_duplicate")
-    elif isinstance(entries_value, list):
-        errors.append("v3_entries_not_canonical")
+    if entries_valid and len(entries) != len(entries_value or {}):
+        errors.append("v3_entry_path_duplicate")
 
     snapshot_digest = payload.get("protected_snapshot_digest")
     if not isinstance(snapshot_digest, str) or SNAPSHOT_DIGEST_PATTERN.fullmatch(
@@ -471,50 +477,9 @@ def recorded_paths_under_root(recorded: Mapping[str, str], root_name: str) -> li
 def validate_baseline_document(payload: object) -> list[str]:
     if not isinstance(payload, dict):
         return ["baseline_not_object"]
-
-    errors: list[str] = []
-    if payload.get("schema_version") != BASELINE_SCHEMA_VERSION:
-        errors.append("baseline_schema_invalid")
-
-    roots_value = payload.get("protected_roots")
-    protected_roots: tuple[str, ...] = ()
-    if not isinstance(roots_value, list) or not roots_value:
-        errors.append("baseline_protected_roots_missing")
-    else:
-        normalized: list[str] = []
-        for raw in roots_value:
-            try:
-                normalized.append(_normalize_root(raw))
-            except ProductSourcePolicyError:
-                errors.append("baseline_protected_root_invalid")
-        protected_roots = tuple(normalized)
-
-    files_value = payload.get("files")
-    if not isinstance(files_value, dict):
-        errors.append("baseline_files_not_object")
-        recorded: dict[str, str] = {}
-    else:
-        recorded = {str(key): str(value) for key, value in files_value.items()}
-
-    try:
-        file_count = int(payload.get("file_count"))
-    except (TypeError, ValueError):
-        file_count = -1
-        errors.append("baseline_file_count_invalid")
-    if file_count != len(recorded):
-        errors.append("baseline_file_count_mismatch")
-
-    generated_from = str(payload.get("generated_from") or "")
-    if re.fullmatch(r"git:[0-9a-f]{40}", generated_from) is None:
-        errors.append("baseline_generated_from_invalid")
-
-    for relative, digest in recorded.items():
-        if not path_is_under_roots(relative, protected_roots):
-            errors.append(f"baseline_path_outside_protected_roots:{relative}")
-        if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-            errors.append(f"baseline_hash_invalid:{relative}")
-
-    return list(dict.fromkeys(errors))
+    if payload.get("schema_version") != V3_SNAPSHOT_SCHEMA_VERSION:
+        return ["baseline_schema_invalid:v3_required"]
+    return validate_v3_product_snapshot(payload)
 
 
 def load_baseline_document(workspace: Path) -> BaselineDocument:
@@ -533,13 +498,17 @@ def load_baseline_document(workspace: Path) -> BaselineDocument:
         )
 
     assert isinstance(payload, dict)
-    files = {str(key): str(value) for key, value in payload["files"].items()}
-    roots = tuple(_normalize_root(value) for value in payload["protected_roots"])
+    entries = {
+        str(path): {str(key): str(value) for key, value in record.items()}
+        for path, record in payload["entries"].items()
+    }
+    roots = normalize_protected_roots(payload["protected_roots"])
     return BaselineDocument(
         payload=dict(payload),
-        files=files,
+        entries=entries,
         protected_roots=roots,
-        generated_from=str(payload["generated_from"]),
+        product_source_ref=str(payload["product_source_ref"]),
+        protected_snapshot_digest=str(payload["protected_snapshot_digest"]),
     )
 
 
@@ -662,6 +631,11 @@ def evaluate_binding(
         )
     )
     errors = _missing_root_errors(workspace, protected_roots, expected_map)
+    if chosen_source is SnapshotSource.OFFLINE_PACKAGE and mode in {
+        BaselineMode.ACCEPTED_REF,
+        BaselineMode.PERMIT_BOUND,
+    }:
+        errors.append("offline_snapshot_not_authoritative")
 
     require_equality = mode in {
         BaselineMode.ACCEPTED_REF,
@@ -710,6 +684,36 @@ def _manifest_product_snapshot(
             )
         rows[path] = digest
     return rows
+
+
+def _git_revision(workspace: Path, ref: str = "HEAD") -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", ref],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProductSourcePolicyError("git_revision_lookup_failed") from exc
+    value = completed.stdout.strip().lower()
+    if completed.returncode != 0 or GIT_COMMIT_SHA_PATTERN.fullmatch(value) is None:
+        raise ProductSourcePolicyError(_git_command_error(completed))
+    return value
+
+
+def _snapshot_drift(
+    expected: Mapping[str, Mapping[str, str]],
+    current: Mapping[str, Mapping[str, str]],
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            path
+            for path in set(expected) | set(current)
+            if current.get(path) != expected.get(path)
+        )
+    )
 
 
 def _event_default_branch(explicit: str | None) -> str:
@@ -838,13 +842,65 @@ def evaluate_product_source(
             workspace,
             event_name=event_name,
         )
-        binding = evaluate_binding(
+        if authority.mode is BaselineMode.PERMIT_BOUND:
+            # A change permit is a separately issued, temporary authority. Its
+            # manifest remains digest-only, but it is still evaluated against
+            # the current checkout without changing the accepted v3 registry.
+            binding = evaluate_binding(
+                workspace,
+                expected=authority.files,
+                protected_roots=authority.protected_roots,
+                mode=authority.mode,
+                source=source or SnapshotSource.GIT_TRACKED,
+            )
+            return {
+                "status": "PASS" if not binding.errors else "FAIL",
+                "errors": list(binding.errors),
+                "protected_file_count": len(binding.current),
+                "baseline_file_count": len(binding.expected),
+                "baseline_authority": authority.name,
+                "baseline_mode": authority.mode.value,
+                "snapshot_source": binding.source.value,
+                "drift_paths": list(binding.drift_paths),
+            }
+
+        source_ref = authority.document.product_source_ref
+        source_sha = source_ref.removeprefix("git-commit-sha1:")
+        accepted_snapshot = build_canonical_product_snapshot(
             workspace,
-            expected=authority.files,
-            protected_roots=authority.protected_roots,
-            mode=authority.mode,
-            source=source,
+            source_sha,
+            authority.protected_roots,
         )
+        if accepted_snapshot != authority.document.payload:
+            raise ProductSourcePolicyError("baseline_source_witness_mismatch")
+        current_sha = _git_revision(workspace)
+        current_snapshot = build_canonical_product_snapshot(
+            workspace,
+            current_sha,
+            authority.protected_roots,
+        )
+        expected_entries = authority.document.entries
+        current_entries = current_snapshot["entries"]
+        drift = _snapshot_drift(expected_entries, current_entries)
+        errors: list[str] = []
+        if authority.mode is BaselineMode.ACCEPTED_REF and drift:
+            errors.append("protected_baseline_drift")
+        return {
+            "status": "PASS" if not errors else "FAIL",
+            "errors": errors,
+            "protected_file_count": len(current_entries),
+            "baseline_file_count": len(expected_entries),
+            "baseline_authority": authority.name,
+            "baseline_mode": authority.mode.value,
+            "snapshot_source": "git_object_tree",
+            "product_source_ref": source_ref,
+            "current_commit_sha": current_sha,
+            "accepted_protected_snapshot_digest": authority.document.protected_snapshot_digest,
+            "current_protected_snapshot_digest": current_snapshot[
+                "protected_snapshot_digest"
+            ],
+            "drift_paths": list(drift),
+        }
     except ProductSourcePolicyError as exc:
         return {
             "status": "FAIL",

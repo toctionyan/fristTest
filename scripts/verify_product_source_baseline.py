@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""Strictly verify the accepted protected product-source baseline."""
+"""Strictly verify the v3 Git-object product-source baseline."""
 
 import argparse
 import json
@@ -19,7 +19,7 @@ from product_source_baseline_policy import (  # type: ignore  # noqa: E402
     BASELINE_PATH,
     BaselineMode,
     ProductSourcePolicyError,
-    evaluate_binding,
+    build_canonical_product_snapshot,
     load_baseline_document,
 )
 
@@ -30,74 +30,95 @@ class BaselineVerificationError(RuntimeError):
     pass
 
 
-def _git(workspace: Path, *args: str) -> str:
+def _git_revision(workspace: Path) -> str:
     completed = subprocess.run(
-        ["git", *args],
-        cwd=workspace,
+        ["git", "-C", str(workspace), "rev-parse", "HEAD"],
         text=True,
         capture_output=True,
         check=False,
-        timeout=120,
+        timeout=30,
     )
-    if completed.returncode:
+    value = completed.stdout.strip().lower()
+    if completed.returncode != 0 or len(value) != 40:
         raise BaselineVerificationError(
-            (completed.stderr or completed.stdout or "git failed").strip()
+            (completed.stderr or completed.stdout or "git HEAD lookup failed").strip()
         )
-    return completed.stdout.strip()
+    return value
 
 
-def verify(workspace: Path, *, require_parent_binding: bool) -> dict[str, Any]:
+def _drift_paths(
+    expected: dict[str, dict[str, str]],
+    current: dict[str, dict[str, str]],
+) -> list[str]:
+    return sorted(
+        path
+        for path in set(expected) | set(current)
+        if expected.get(path) != current.get(path)
+    )
+
+
+def verify(
+    workspace: Path,
+    *,
+    mode: BaselineMode = BaselineMode.ACCEPTED_REF,
+) -> dict[str, Any]:
+    """Verify registry syntax, source witness, and the exact current commit tree."""
+
     workspace = workspace.resolve()
     try:
         document = load_baseline_document(workspace)
-        binding = evaluate_binding(
+        source_sha = document.product_source_ref.removeprefix("git-commit-sha1:")
+        source_snapshot = build_canonical_product_snapshot(
             workspace,
-            expected=document.files,
-            protected_roots=document.protected_roots,
-            mode=BaselineMode.ACCEPTED_REF,
+            source_sha,
+            document.protected_roots,
         )
-    except ProductSourcePolicyError as exc:
+        if source_snapshot != document.payload:
+            raise BaselineVerificationError("baseline_source_witness_mismatch")
+
+        current_sha = _git_revision(workspace)
+        current_snapshot = build_canonical_product_snapshot(
+            workspace,
+            current_sha,
+            document.protected_roots,
+        )
+    except (OSError, subprocess.SubprocessError, ProductSourcePolicyError) as exc:
         raise BaselineVerificationError(str(exc)) from exc
 
-    for error in binding.errors:
-        if error.startswith("protected_root_missing:"):
-            root_name = error.split(":", 1)[1]
-            raise BaselineVerificationError(f"protected root is missing: {root_name}")
-
-    errors = [
-        error
-        for error in binding.errors
-        if not error.startswith("protected_root_missing:")
-    ]
-    generated_from = document.generated_from
-    expected_parent: str | None = None
-    if require_parent_binding:
-        expected_parent = _git(workspace, "rev-parse", "HEAD^")
-        if generated_from != f"git:{expected_parent}":
-            errors.append("baseline_parent_binding_mismatch")
+    drift = _drift_paths(document.entries, current_snapshot["entries"])
+    errors: list[str] = []
+    if mode in {BaselineMode.ACCEPTED_REF, BaselineMode.PERMIT_BOUND} and drift:
+        errors.append("protected_baseline_drift")
 
     result: dict[str, Any] = {
         "status": "PASS" if not errors else "FAIL",
         "baseline_path": BASELINE_PATH,
-        "recorded_file_count": len(document.files),
-        "current_file_count": len(binding.current),
-        "generated_from": generated_from,
-        "expected_parent_sha": expected_parent,
-        "drift_paths": list(binding.drift_paths),
+        "schema_version": document.payload["schema_version"],
+        "snapshot_format": document.payload["snapshot_format"],
+        "product_source_ref": document.product_source_ref,
+        "current_commit_sha": current_sha,
+        "recorded_entry_count": len(document.entries),
+        "current_entry_count": len(current_snapshot["entries"]),
+        "accepted_protected_snapshot_digest": document.protected_snapshot_digest,
+        "source_rebuilt_protected_snapshot_digest": source_snapshot[
+            "protected_snapshot_digest"
+        ],
+        "current_protected_snapshot_digest": current_snapshot[
+            "protected_snapshot_digest"
+        ],
+        "source_snapshot_match": source_snapshot == document.payload,
+        "drift_paths": drift,
         "errors": errors,
-        "snapshot_source": binding.source.value,
+        "snapshot_source": "git_object_tree",
         "production_closed": False,
     }
     if errors:
         result["machine_failure"] = {
             "schema": MACHINE_FAILURE_SCHEMA,
-            "gate_id": "protected-product-source-baseline",
             "status": "FAIL",
-            "category": "governance",
-            "owner": "skill-control-plane",
-            "failure_kind": "protected_baseline_drift",
-            "implicated_paths": list(binding.drift_paths),
-            "detail": ";".join(errors),
+            "failure_class": "PROTECTED_PRODUCT_SOURCE_DRIFT",
+            "errors": errors,
+            "production_closed": False,
         }
     return result
 
@@ -105,41 +126,33 @@ def verify(workspace: Path, *, require_parent_binding: bool) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=".")
-    parser.add_argument("--require-parent-binding", action="store_true")
     parser.add_argument("--output")
     args = parser.parse_args()
     try:
-        result = verify(
-            Path(args.workspace),
-            require_parent_binding=args.require_parent_binding,
-        )
+        result = verify(Path(args.workspace))
     except (OSError, subprocess.SubprocessError, BaselineVerificationError) as exc:
         result = {
             "status": "FAIL",
             "baseline_path": BASELINE_PATH,
             "errors": [str(exc)],
+            "production_closed": False,
             "machine_failure": {
                 "schema": MACHINE_FAILURE_SCHEMA,
-                "gate_id": "protected-product-source-baseline",
                 "status": "FAIL",
-                "category": "governance",
-                "owner": "skill-control-plane",
-                "failure_kind": "protected_baseline_drift",
-                "implicated_paths": [],
-                "detail": str(exc)[:2000],
+                "failure_class": "BASELINE_VERIFICATION_BLOCKED",
+                "errors": [str(exc)],
+                "production_closed": False,
             },
-            "production_closed": False,
         }
-    text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        exit_code = 2
+    else:
+        exit_code = 0 if result["status"] == "PASS" else 1
     if args.output:
-        Path(args.output).write_text(text, encoding="utf-8")
-    print(text, end="")
-    if result.get("status") == "PASS":
-        return 0
-    failure = result.get("machine_failure")
-    if isinstance(failure, dict):
-        print(json.dumps(failure, ensure_ascii=False, sort_keys=True))
-    return 1
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return exit_code
 
 
 if __name__ == "__main__":
