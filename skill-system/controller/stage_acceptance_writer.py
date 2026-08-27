@@ -11,9 +11,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from contract import validate_contract_payload
+from durable_human_gate import validate_gate_contract, validate_human_decision
 from stage_acceptance_reducer import (
     ACCEPTABLE_PREVIEW,
     validate_stage_acceptance_decision,
@@ -31,18 +33,6 @@ _BINDING_FIELDS = (
     "protected_snapshot_digest",
     "control_plane_ref",
     "execution_repo_ref",
-)
-_AUTHORIZATION_FIELDS = frozenset(
-    {
-        "authority",
-        "authorization_ref",
-        "effect",
-        "change_id",
-        "task_id",
-        "decision_id",
-        "contract_digest",
-        "accepted",
-    }
 )
 
 
@@ -139,41 +129,53 @@ def _validate_contract(
     return payload, actual_digest
 
 
-def _validate_authorization(
-    authorization: Mapping[str, Any],
+def _read_gate_artifact(workspace: Path, raw_path: str | Path, *, field: str) -> tuple[dict[str, Any], str]:
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = workspace / path
+    path = path.resolve()
+    try:
+        relative = path.relative_to(workspace.resolve()).as_posix()
+    except ValueError as exc:
+        raise StageAcceptanceWriteError(f"{field} must stay inside workspace") from exc
+    if path.is_symlink() or not path.is_file():
+        raise StageAcceptanceWriteError(f"{field} is missing or unsafe")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StageAcceptanceWriteError(f"{field} is unreadable") from exc
+    if not isinstance(payload, dict):
+        raise StageAcceptanceWriteError(f"{field} must be an object")
+    return payload, relative
+
+
+def _validate_human_acceptance(
+    workspace: Path,
     *,
-    change_id: str,
+    gate_path: str | Path,
+    decision_path: str | Path,
     task_id: str,
-    decision_id: str,
-    contract_digest_value: str,
-) -> str:
-    if not isinstance(authorization, Mapping):
-        raise StageAcceptanceWriteError("human_authorization must be an object")
-    unknown = sorted(set(authorization) - _AUTHORIZATION_FIELDS)
-    missing = sorted(_AUTHORIZATION_FIELDS - set(authorization))
-    if unknown:
-        raise StageAcceptanceWriteError(
-            "human_authorization has unknown fields: " + ",".join(unknown)
-        )
-    if missing:
-        raise StageAcceptanceWriteError(
-            "human_authorization is missing: " + ",".join(missing)
-        )
-    if authorization.get("authority") != "human-review":
-        raise StageAcceptanceWriteError("stage acceptance requires human-review authority")
-    if authorization.get("effect") != "stage_acceptance_condition_only":
-        raise StageAcceptanceWriteError("human authorization effect is too broad")
-    if authorization.get("accepted") is not True:
-        raise StageAcceptanceWriteError("human authorization must explicitly accept")
-    if authorization.get("change_id") != change_id:
-        raise StageAcceptanceWriteError("human authorization ChangeContract mismatch")
-    if authorization.get("task_id") != task_id:
-        raise StageAcceptanceWriteError("human authorization TaskRun mismatch")
-    if authorization.get("decision_id") != decision_id:
-        raise StageAcceptanceWriteError("human authorization decision mismatch")
-    if authorization.get("contract_digest") != contract_digest_value:
-        raise StageAcceptanceWriteError("human authorization contract mismatch")
-    return _text(authorization.get("authorization_ref"), field="authorization_ref")
+    expected_outcome: str,
+) -> tuple[str, str]:
+    raw_gate, gate_relative = _read_gate_artifact(workspace, gate_path, field="human_gate_path")
+    raw_decision, decision_relative = _read_gate_artifact(
+        workspace, decision_path, field="human_decision_path"
+    )
+    try:
+        gate = validate_gate_contract(raw_gate)
+        decision = validate_human_decision(raw_decision, gate=gate)
+    except (TypeError, ValueError, RuntimeError) as exc:
+        raise StageAcceptanceWriteError("human gate or decision is invalid") from exc
+    if gate["task_id"] != task_id or decision["task_id"] != task_id:
+        raise StageAcceptanceWriteError("human gate TaskRun mismatch")
+    if gate["step_id"] != "stage2b1-acceptance":
+        raise StageAcceptanceWriteError("human gate step is not stage2b1 acceptance")
+    if gate.get("authority_effect") is not False or decision.get("authority_effect") is not False:
+        raise StageAcceptanceWriteError("human gate cannot grant authority")
+    expected = _text(expected_outcome, field="expected_outcome")
+    if decision.get("selected_outcome") != expected:
+        raise StageAcceptanceWriteError("human decision did not select stage acceptance")
+    return f"file:{gate_relative}", f"file:{decision_relative}"
 
 
 def _preview_checkpoint(
@@ -225,14 +227,16 @@ def _acceptance_refs(
     *,
     decision_id: str,
     contract_digest_value: str,
-    authorization_ref: str,
+    human_gate_ref: str,
+    human_decision_ref: str,
 ) -> list[str]:
     refs = [str(value) for value in preview["evidence_refs"]]
     refs.extend(
         [
             "stage-acceptance-decision:" + decision_id,
             "change-contract:" + contract_digest_value,
-            "human-authorization:" + authorization_ref,
+            human_gate_ref,
+            human_decision_ref,
         ]
     )
     if len(refs) != len(set(refs)):
@@ -262,14 +266,17 @@ def write_stage_acceptance(
     expected_binding: Mapping[str, Any],
     change_contract: Mapping[str, Any],
     change_contract_digest: str,
-    human_authorization: Mapping[str, Any],
+    workspace: Path,
+    human_gate_path: str | Path,
+    human_decision_path: str | Path,
+    expected_human_outcome: str = "ACCEPT_STAGE2B1",
 ) -> dict[str, Any]:
     """Satisfy the existing TaskRun stage condition after strict validation.
 
-    ``change_contract`` and ``human_authorization`` are caller-supplied
-    snapshots.  This function does not discover a contract, select a receipt,
-    or mint authority.  The only durable mutation is the existing
-    ``stage-accepted`` condition in the supplied TaskRun.
+    ``change_contract`` is an explicit snapshot and the human gate/decision
+    paths are explicit inputs.  This function does not discover a contract,
+    select a receipt, or mint authority.  The only durable mutation is the
+    existing ``stage-accepted`` condition in the supplied TaskRun.
     """
 
     try:
@@ -288,12 +295,12 @@ def write_stage_acceptance(
     )
     change_id = _text(contract.get("change_id"), field="change_id")
     task_id = _text(store.payload.get("task_id"), field="task_id")
-    authorization_ref = _validate_authorization(
-        human_authorization,
-        change_id=change_id,
+    human_gate_ref, human_decision_ref = _validate_human_acceptance(
+        Path(workspace).resolve(),
+        gate_path=human_gate_path,
+        decision_path=human_decision_path,
         task_id=task_id,
-        decision_id=validated_decision["decision_id"],
-        contract_digest_value=digest,
+        expected_outcome=expected_human_outcome,
     )
     preview = _preview_checkpoint(
         store,
@@ -304,7 +311,8 @@ def write_stage_acceptance(
         preview,
         decision_id=validated_decision["decision_id"],
         contract_digest_value=digest,
-        authorization_ref=authorization_ref,
+        human_gate_ref=human_gate_ref,
+        human_decision_ref=human_decision_ref,
     )
     conditions = store.payload.get("conditions")
     if not isinstance(conditions, Mapping):
@@ -328,6 +336,8 @@ def write_stage_acceptance(
             "decision_id": validated_decision["decision_id"],
             "contract_digest": digest,
             "evidence_refs": refs,
+            "human_gate_ref": human_gate_ref,
+            "human_decision_ref": human_decision_ref,
             "completion_authority": "TaskRun",
             "task_completed": store.payload.get("status") == "COMPLETED",
             "active_change_written": False,
@@ -352,6 +362,8 @@ def write_stage_acceptance(
         "decision_id": validated_decision["decision_id"],
         "contract_digest": digest,
         "evidence_refs": refs,
+        "human_gate_ref": human_gate_ref,
+        "human_decision_ref": human_decision_ref,
         "completion_authority": "TaskRun",
         "task_completed": False,
         "active_change_written": False,

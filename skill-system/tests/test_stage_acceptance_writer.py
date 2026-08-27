@@ -24,6 +24,7 @@ from stage_acceptance_writer import (  # noqa: E402
 )
 from stage_evidence_receipt import build_stage_evidence_receipt  # noqa: E402
 from task_run import TaskRunStore  # noqa: E402
+from durable_human_gate import seal_human_decision  # noqa: E402
 
 
 class StageAcceptanceWriterTests(unittest.TestCase):
@@ -51,6 +52,41 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             (ROOT / "governance" / "active-change.json").read_text(encoding="utf-8")
         )
         self.contract_digest = contract_digest(self.contract)
+        self.gate_path = self.root / ".harness" / "runtime" / "human-gate.json"
+        self.decision_path = self.root / ".harness" / "runtime" / "human-decision.json"
+        gate = {
+            "schema": "durable-human-gate@1",
+            "gate_id": "gate-stage2b1-acceptance",
+            "task_id": self.store.payload["task_id"],
+            "workflow_id": "stage-acceptance",
+            "step_id": "stage2b1-acceptance",
+            "question": "Accept the verified Stage2B1 evidence?",
+            "waiting_outcome": "WAITING_FOR_HUMAN",
+            "options": ["ACCEPT_STAGE2B1", "REJECT_STAGE2B1"],
+            "routes": {
+                "WAITING_FOR_HUMAN": "HUMAN_GATE",
+                "ACCEPT_STAGE2B1": "STAGE_ACCEPTANCE",
+                "REJECT_STAGE2B1": "STAGE_REJECTION",
+            },
+            "authority_effect": False,
+        }
+        gate["gate_sha256"] = hashlib.sha256(
+            json.dumps(
+                gate,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        human_decision = seal_human_decision(
+            gate,
+            selected_outcome="ACCEPT_STAGE2B1",
+            actor="reviewer",
+            decided_at="2026-08-28T00:00:00+00:00",
+        )
+        self.gate_path.parent.mkdir(parents=True, exist_ok=True)
+        self.gate_path.write_text(json.dumps(gate), encoding="utf-8")
+        self.decision_path.write_text(json.dumps(human_decision), encoding="utf-8")
         receipt = build_stage_evidence_receipt(
             **self.binding,
             workflow_run_attempt={"run_id": 17, "attempt": 1},
@@ -79,20 +115,6 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             workspace_fingerprint="workspace-1",
         )
 
-    def authorization(self, **overrides: object) -> dict[str, object]:
-        result: dict[str, object] = {
-            "authority": "human-review",
-            "authorization_ref": "review:stage2b1:p4.3:1",
-            "effect": "stage_acceptance_condition_only",
-            "change_id": self.contract["change_id"],
-            "task_id": self.store.payload["task_id"],
-            "decision_id": self.decision["decision_id"],
-            "contract_digest": self.contract_digest,
-            "accepted": True,
-        }
-        result.update(overrides)
-        return result
-
     def write(self) -> dict[str, object]:
         return write_stage_acceptance(
             self.store,
@@ -100,7 +122,9 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             expected_binding=self.binding,
             change_contract=self.contract,
             change_contract_digest=self.contract_digest,
-            human_authorization=self.authorization(),
+            workspace=self.root,
+            human_gate_path=self.gate_path,
+            human_decision_path=self.decision_path,
         )
 
     def test_records_existing_condition_without_completing_task(self) -> None:
@@ -133,7 +157,9 @@ class StageAcceptanceWriterTests(unittest.TestCase):
                 expected_binding=self.binding,
                 change_contract=changed,
                 change_contract_digest=self.contract_digest,
-                human_authorization=self.authorization(),
+                workspace=self.root,
+                human_gate_path=self.gate_path,
+                human_decision_path=self.decision_path,
             )
 
     def test_decision_or_preview_mismatch_fails_closed(self) -> None:
@@ -146,28 +172,35 @@ class StageAcceptanceWriterTests(unittest.TestCase):
                 expected_binding=self.binding,
                 change_contract=self.contract,
                 change_contract_digest=self.contract_digest,
-                human_authorization=self.authorization(decision_id=wrong["decision_id"]),
+                workspace=self.root,
+                human_gate_path=self.gate_path,
+                human_decision_path=self.decision_path,
             )
         self.assertEqual(self.store.payload, before)
 
     def test_wrong_human_scope_and_unknown_field_fail_closed(self) -> None:
         before = copy.deepcopy(self.store.payload)
-        with self.assertRaisesRegex(StageAcceptanceWriteError, "TaskRun mismatch"):
-            self.write_with_auth(task_id="other-task")
+        wrong_decision = json.loads(self.decision_path.read_text(encoding="utf-8"))
+        wrong_decision["task_id"] = "other-task"
+        self.decision_path.write_text(json.dumps(wrong_decision), encoding="utf-8")
+        with self.assertRaisesRegex(StageAcceptanceWriteError, "human gate or decision"):
+            self.write()
         self.assertEqual(self.store.payload, before)
-        with self.assertRaisesRegex(StageAcceptanceWriteError, "unknown fields"):
-            self.write_with_auth(extra="unexpected")
-        self.assertEqual(self.store.payload, before)
-
-    def write_with_auth(self, **overrides: object) -> dict[str, object]:
-        return write_stage_acceptance(
-            self.store,
-            self.decision,
-            expected_binding=self.binding,
-            change_contract=self.contract,
-            change_contract_digest=self.contract_digest,
-            human_authorization=self.authorization(**overrides),
+        self.decision_path.write_text(
+            json.dumps(seal_human_decision(
+                json.loads(self.gate_path.read_text(encoding="utf-8")),
+                selected_outcome="ACCEPT_STAGE2B1",
+                actor="reviewer",
+                decided_at="2026-08-28T00:00:00+00:00",
+            )),
+            encoding="utf-8",
         )
+        gate = json.loads(self.gate_path.read_text(encoding="utf-8"))
+        gate["unexpected"] = True
+        self.gate_path.write_text(json.dumps(gate), encoding="utf-8")
+        with self.assertRaisesRegex(StageAcceptanceWriteError, "human gate or decision"):
+            self.write()
+        self.assertEqual(self.store.payload, before)
 
     def test_blocked_decision_cannot_write(self) -> None:
         receipt = build_stage_evidence_receipt(
@@ -200,7 +233,9 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             expected_binding=self.binding,
             change_contract=self.contract,
             change_contract_digest=self.contract_digest,
-            human_authorization=self.authorization(decision_id=decision.get("decision_id")),
+            workspace=self.root,
+            human_gate_path=self.gate_path,
+            human_decision_path=self.decision_path,
         )
 
     def test_final_condition_is_rejected_instead_of_implicit_completion(self) -> None:
@@ -219,6 +254,26 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             evidence_refs=["receipt:artifact-1", "decision:" + self.decision["decision_id"]],
             workspace_fingerprint="workspace-1",
         )
+        gate = json.loads(self.gate_path.read_text(encoding="utf-8"))
+        gate["task_id"] = "single-condition"
+        gate["gate_sha256"] = hashlib.sha256(
+            json.dumps(
+                {key: value for key, value in gate.items() if key != "gate_sha256"},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        self.gate_path.write_text(json.dumps(gate), encoding="utf-8")
+        self.decision_path.write_text(
+            json.dumps(seal_human_decision(
+                gate,
+                selected_outcome="ACCEPT_STAGE2B1",
+                actor="reviewer",
+                decided_at="2026-08-28T00:00:00+00:00",
+            )),
+            encoding="utf-8",
+        )
         with self.assertRaisesRegex(StageAcceptanceWriteError, "final TaskRun"):
             write_stage_acceptance(
                 store,
@@ -226,7 +281,9 @@ class StageAcceptanceWriterTests(unittest.TestCase):
                 expected_binding=self.binding,
                 change_contract=self.contract,
                 change_contract_digest=self.contract_digest,
-                human_authorization=self.authorization(task_id="single-condition"),
+                workspace=self.root,
+                human_gate_path=self.gate_path,
+                human_decision_path=self.decision_path,
             )
         self.assertFalse(store.payload["conditions"][STAGE_ACCEPTED_CONDITION]["satisfied"])
 
