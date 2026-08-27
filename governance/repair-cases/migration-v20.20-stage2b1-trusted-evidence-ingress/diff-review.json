@@ -2,7 +2,7 @@
   "schema_version": 1,
   "record_type": "diff-review",
   "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
-  "permit_digest": "9bbfcbcbd76548bd87a49e06e41cd64ae879a7de6c9b0aa286f69bd93ca71d5e",
+  "permit_digest": "0aed9b23766a94f666f6660c8379c0b2d92615c443408cf6ce737336cd61d7ef",
   "reviewer_role": "diff-integrity-reviewer",
   "requested_decision": "PASS",
   "decision": "PASS",

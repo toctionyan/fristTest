@@ -2,7 +2,7 @@
   "schema_version": 1,
   "record_type": "plan-review",
   "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
-  "repair_plan_sha256": "b86b6d87f0d71bcf716ba2a18ec785b3c238bc41d1e0f8e577a2fccc401de434",
+  "repair_plan_sha256": "7badc1c44288c4eef8b9edfabcad359abea740f722c313c5a14c1fc1c9292339",
   "reviewer_role": "repair-plan-reviewer",
   "decision": "APPROVED",
   "skill_rule_mappings": [

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "record_type": "root-cause-proof",
   "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
-  "failure_case_sha256": "5957b1b77453a693d522cf148d0d48ef257c55e192916af3be8b8006484ad56f",
+  "failure_case_sha256": "3c59aefae3d6cf16bebc73860b4b7b3da395ba796d86ad8da7a7d21d53397b68",
   "decision": "PROVEN",
   "root_cause": "The existing typed evidence validators were implemented as pure consumers, but the application composition and lifecycle node had no explicit dependency carrying their evidence, trusted evaluation time or issuer validators into the real pretool shadow call.",
   "causal_chain": [

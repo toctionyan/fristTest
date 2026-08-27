@@ -2,7 +2,7 @@
   "schema_version": 1,
   "record_type": "repair-plan",
   "change_id": "migration-v20.20-stage2b1-trusted-evidence-ingress",
-  "root_cause_proof_sha256": "1cc858b6a44966752741b328798e839bfc9e4a0b1e6d08c2ea37b67bf01d31f5",
+  "root_cause_proof_sha256": "bcdfb87e3217749743981ce4a5813eeef0624bd93d130e7a3a8a0e106817cbe0",
   "status": "APPROVED",
   "strategy": "Add a single explicit application-composed resolver for trusted Typed Goal evidence. Validate its closed-world shape and trust roots, pass the resulting values through pretool shadow planning into typed coverage, and record only safe ingress metadata. Provide a rejecting empty provider in the current application composition until a real evidence authority is certified.",
   "changes": [
