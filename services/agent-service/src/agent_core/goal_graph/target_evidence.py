@@ -45,6 +45,7 @@ _COMMON_KEYS = frozenset(
         "proof_ref",
         "proof_digest",
         "source",
+        "argument_projection",
     }
 )
 _SOURCE_KEYS = {
@@ -77,6 +78,7 @@ _POINTER_RE = re.compile(
 )
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 _NON_EMPTY_SCOPE_KEYS = frozenset({"tenant_id", "user_id", "thread_id"})
+_OPTIONAL_KEYS = frozenset({"argument_projection"})
 
 
 def _text(value: Any, *, limit: int = 500) -> str:
@@ -204,8 +206,10 @@ def validate_target_evidence(
     *,
     expected_scope: dict[str, Any],
     expected_resource_type: str | None = None,
+    expected_resource_types: Iterable[str] = (),
     expected_logical_type_name: str | None = None,
     expected_cardinality: str | None = None,
+    expected_argument_projection: dict[str, Any] | None = None,
     expected_semantic_contract_id: str | None = None,
     expected_semantic_digest: str | None = None,
     evaluation_time: float | None = None,
@@ -225,7 +229,7 @@ def validate_target_evidence(
         return {"ok": False, "status": "REJECTED", "readiness": "DIAGNOSTIC_ONLY", "errors": [_failure("TARGET_EVIDENCE_MUST_BE_OBJECT")]}
 
     unknown = sorted(set(evidence) - _COMMON_KEYS)
-    missing = sorted(_COMMON_KEYS - set(evidence))
+    missing = sorted((_COMMON_KEYS - _OPTIONAL_KEYS) - set(evidence))
     errors.extend(_failure("TARGET_EVIDENCE_UNKNOWN_FIELD", path=key) for key in unknown)
     errors.extend(_failure("TARGET_EVIDENCE_FIELD_REQUIRED", path=key) for key in missing)
 
@@ -254,8 +258,19 @@ def validate_target_evidence(
         elif normalized_scope != normalize_scope(expected_scope):
             errors.append(_failure("TARGET_EVIDENCE_SCOPE_MISMATCH", path="scope"))
 
+    allowed_resource_types = {
+        _text(value, limit=200).casefold()
+        for value in expected_resource_types
+        if _text(value, limit=200)
+    }
+    resource_value = _text(evidence.get("resource_type"), limit=200).casefold()
+    if not resource_value:
+        errors.append(_failure("TARGET_EVIDENCE_RESOURCE_TYPE_REQUIRED", path="resource_type"))
+    if expected_resource_type:
+        allowed_resource_types.add(_text(expected_resource_type, limit=200).casefold())
+    if allowed_resource_types and resource_value not in allowed_resource_types:
+        errors.append(_failure("TARGET_EVIDENCE_RESOURCE_TYPE_MISMATCH", path="resource_type"))
     for field, expected in (
-        ("resource_type", expected_resource_type),
         ("logical_type_name", expected_logical_type_name),
         ("semantic_contract_id", expected_semantic_contract_id),
         ("semantic_digest", expected_semantic_digest),
@@ -265,6 +280,8 @@ def validate_target_evidence(
             errors.append(_failure("TARGET_EVIDENCE_SEMANTIC_IDENTITY_REQUIRED", path=field))
         if expected and value != _text(expected, limit=500):
             errors.append(_failure("TARGET_EVIDENCE_SEMANTIC_IDENTITY_MISMATCH", path=field))
+    if expected_argument_projection is not None and evidence.get("argument_projection") != expected_argument_projection:
+        errors.append(_failure("TARGET_EVIDENCE_ARGUMENT_PROJECTION_MISMATCH", path="argument_projection"))
     if not _digest(evidence.get("semantic_digest")):
         errors.append(_failure("TARGET_EVIDENCE_SEMANTIC_DIGEST_INVALID", path="semantic_digest"))
 

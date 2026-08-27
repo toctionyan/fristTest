@@ -252,13 +252,43 @@ def test_verified_historical_target_closes_target_and_missing_reason_is_collecta
     goal = coverage["goals"][0]
     proof = goal["candidate_proofs"][0]
 
-    assert coverage["coverage_status"] == "COMPLETE"
+    assert coverage["coverage_status"] == "INCOMPLETE"
     assert goal["status"] == "TYPED_COVERED_NEEDS_INTERACTION"
     assert proof["target_proof"]["ok"] is True
     assert proof["input_proof"]["readiness"] == "NEEDS_INTERACTION"
     assert proof["input_proof"]["collectable_input_names"] == ["refund_reason"]
     assert proof["execution_authority_granted"] is False
     assert proof["permit_created"] is False
+
+
+def test_legacy_shadow_never_counts_needs_interaction_as_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_effects(monkeypatch)
+    graph = compile_frozen_semantic_contract(
+        _contract([_goal("g1", "refund.request", reference=_verified_reference())]),
+        scope=_scope(),
+    )
+    capability = _refund_capability(
+        extra_inputs=(
+            _Input(
+                "refund_reason",
+                "RefundReason",
+                ("user_input", "structured_interaction"),
+                "candidate_then_structured",
+            ),
+        )
+    )
+
+    coverage = build_typed_goal_capability_coverage(
+        graph=graph,
+        capability_registry=_Registry(capability),
+        legacy_shadow_compatibility=True,
+    )
+    goal = coverage["goals"][0]
+
+    assert coverage["coverage_status"] == "INCOMPLETE"
+    assert goal["status"] == "TYPED_COVERED_NEEDS_INTERACTION"
+    assert goal["closed_capability_tools"] == []
+    assert goal["collectable_capability_tools"] == ["prepare_demo_refund"]
 
 
 def test_capability_target_resource_type_mismatch_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -459,7 +489,7 @@ def test_no_target_goal_requires_capability_with_no_target(monkeypatch: pytest.M
         ),
     )
     coverage = build_typed_goal_capability_coverage(graph=graph, capability_registry=_Registry(capability))
-    assert coverage["coverage_status"] == "COMPLETE"
+    assert coverage["coverage_status"] == "INCOMPLETE"
     assert coverage["goals"][0]["status"] == "TYPED_COVERED_NEEDS_INTERACTION"
 
 
@@ -586,10 +616,9 @@ def test_verified_context_input_can_be_satisfied_by_exact_typed_evidence(monkeyp
     )
     proof = coverage["goals"][0]["candidate_proofs"][0]
 
-    assert coverage["coverage_status"] == "COMPLETE"
-    assert proof["status"] == "READY"
-    assert proof["input_proof"]["inputs"][0]["status"] == "SATISFIED_BY_TYPED_EVIDENCE"
-    assert proof["input_proof"]["inputs"][0]["proof_refs"] == ["context-snapshot:83"]
+    assert coverage["coverage_status"] == "INCOMPLETE"
+    assert proof["status"] == "BLOCKED_INPUT"
+    assert proof["input_proof"]["inputs"][0]["reason"] == "NO_TYPED_INPUT_SOURCE_PROOF"
 
 
 def test_typed_input_evidence_must_be_verified_scoped_and_exact_type(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -817,8 +846,8 @@ def test_typed_input_authority_mismatch_fails_closed(monkeypatch: pytest.MonkeyP
 
     assert proof["status"] == "BLOCKED_INPUT"
     row = proof["input_proof"]["inputs"][0]
-    assert row["reason"] == "TYPED_INPUT_AUTHORITY_MISMATCH"
-    assert row["evidence_authority"] == "candidate"
+    assert row["reason"] == "NO_TYPED_INPUT_SOURCE_PROOF"
+    assert row["evidence_authority"] is None
 
 
 def test_upstream_output_authority_must_match_required_input_authority(monkeypatch: pytest.MonkeyPatch) -> None:

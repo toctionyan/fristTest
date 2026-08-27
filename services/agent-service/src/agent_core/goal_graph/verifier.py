@@ -464,6 +464,7 @@ _GOAL_KEYS = frozenset(
         "input_ports",
         "output_ports",
         "target_binding",
+        "target_evidence",
         "input_bindings",
         "derived_dependency_goal_ids",
         "compatibility",
@@ -653,6 +654,9 @@ def _schema_errors(graph: dict[str, Any]) -> list[str]:
                 errors.append("GOAL_GRAPH_TARGET_BINDING_PROVENANCE_OBJECT_REQUIRED")
             else:
                 errors.extend(_unknown_key_errors(provenance, allowed=_PROVENANCE_KEYS, prefix="GOAL_GRAPH_TARGET_BINDING_PROVENANCE_UNKNOWN_FIELD"))
+        target_evidence = goal.get("target_evidence")
+        if target_evidence is not None and not isinstance(target_evidence, dict):
+            errors.append("GOAL_GRAPH_TARGET_EVIDENCE_OBJECT_REQUIRED")
         for field in ("input_ports", "output_ports"):
             ports = goal.get(field)
             if not isinstance(ports, list):

@@ -27,6 +27,7 @@ from agent_core.kernel.capability_registry import CapabilityRegistry
 from agent_core.runtime.semantic_capability_verifier import verify_candidate_semantics
 from agent_core.runtime.capability_effects import (
     canonical_effect_identity,
+    canonical_semantic_effect_identity,
     completion_effects_for_contract,
     goal_effect_match_proof,
     support_effects_for_contract,
@@ -478,13 +479,27 @@ def _pretool_frontier_proof(
             else:
                 for goal_id in sorted(expected_goal_ids):
                     proof_row = coverage_proofs.get(goal_id) or {}
-                    expected_effect = canonical_effect_identity(
-                        (formal_by_id.get(goal_id) or {}).get("requested_effect")
+                    requested_effect = (formal_by_id.get(goal_id) or {}).get("requested_effect")
+                    typed_request = (
+                        isinstance(requested_effect, dict)
+                        and bool(str(requested_effect.get("effect_kind") or "").strip())
+                        and bool(str(requested_effect.get("subject_type") or "").strip())
+                        and isinstance(requested_effect.get("requested_outputs"), list)
+                    )
+                    expected_effect = (
+                        canonical_semantic_effect_identity(
+                            requested_effect
+                        )
+                        if contract is not None and contract.contract_version == "2" and typed_request
+                        else canonical_effect_identity(
+                            requested_effect
+                        )
                     )
                     if (
                         str(proof_row.get("requested_effect_identity") or "") != expected_effect
                         or str(proof_row.get("output_name") or "") != primary_output.name
                         or str(proof_row.get("output_type") or "") != primary_output.type_name
+                        or str(proof_row.get("output_authority") or "") != str(primary_output.authority or "")
                     ):
                         errors.append(f"multi_goal_binding_completion_proof_mismatch:{goal_id}")
             shared_binding_check = {

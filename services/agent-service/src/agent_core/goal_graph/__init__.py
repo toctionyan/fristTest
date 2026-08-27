@@ -15,8 +15,11 @@ from .activation_preflight import (
 )
 from .compiler import compile_frozen_semantic_contract
 from .capability_closure import (
+    EXACT_EFFECT_IDENTITY_VERSION,
+    LEGACY_TYPED_GOAL_CAPABILITY_COVERAGE_VERSION,
     TYPED_GOAL_CAPABILITY_COVERAGE_VERSION,
     build_typed_goal_capability_coverage,
+    replay_typed_goal_capability_coverage,
 )
 from .cutover_gate import (
     DEPENDENCY_CUTOVER_GATE_VERSION,
@@ -69,6 +72,11 @@ from .target_evidence import (
     validate_target_evidence,
     validate_target_evidence_versions,
 )
+from .verified_input_evidence import (
+    VERIFIED_INPUT_EVIDENCE_VERSION,
+    validate_verified_input_evidence,
+    verified_input_evidence_proof_payload,
+)
 from .verification_contract import VERIFICATION_CONTRACT_V2_VERSION
 
 __all__ = [
@@ -83,6 +91,9 @@ __all__ = [
     "LEGACY_TARGET_EVIDENCE_VERSION",
     "TARGET_EVIDENCE_VARIANTS",
     "TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
+    "LEGACY_TYPED_GOAL_CAPABILITY_COVERAGE_VERSION",
+    "EXACT_EFFECT_IDENTITY_VERSION",
+    "VERIFIED_INPUT_EVIDENCE_VERSION",
     "VERIFICATION_CONTRACT_V2_VERSION",
     "DEPENDENCY_ACTIVATION_PREFLIGHT_AUTHORITY",
     "DEPENDENCY_ACTIVATION_PREFLIGHT_VERSION",
@@ -105,6 +116,7 @@ __all__ = [
     "dependency_activation_request_integrity",
     "evaluate_dependency_activation_preflight",
     "build_typed_goal_capability_coverage",
+    "replay_typed_goal_capability_coverage",
     "build_dependency_authority_attestation",
     "dependency_authority_attestation_integrity",
     "build_dependency_authority_rollback_contract",
@@ -126,4 +138,6 @@ __all__ = [
     "target_evidence_proof_payload",
     "validate_target_evidence",
     "validate_target_evidence_versions",
+    "validate_verified_input_evidence",
+    "verified_input_evidence_proof_payload",
 ]
