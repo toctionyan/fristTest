@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 BASELINE_PATH = "skill-system/registry/product-source-baseline.json"
 BASELINE_SCHEMA_VERSION = 2
@@ -31,6 +31,23 @@ class BaselineMode(str, Enum):
 class SnapshotSource(str, Enum):
     GIT_TRACKED = "git_tracked"
     OFFLINE_PACKAGE = "offline_package"
+
+
+CANONICAL_SNAPSHOT_FORMAT = "protected-git-tree@1"
+V3_SNAPSHOT_SCHEMA_VERSION = 3
+V3_SNAPSHOT_FIELDS = {
+    "schema_version",
+    "snapshot_format",
+    "product_source_ref",
+    "protected_roots",
+    "entry_count",
+    "entries",
+    "protected_snapshot_digest",
+}
+V3_SNAPSHOT_ENTRY_FIELDS = {"path", "mode", "digest"}
+GIT_COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+SNAPSHOT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+SUPPORTED_GIT_FILE_MODES = {"100644", "100755"}
 
 
 @dataclass(frozen=True)
@@ -66,6 +83,365 @@ class BindingResult:
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _normalize_snapshot_path(raw: object, *, label: str) -> str:
+    if not isinstance(raw, str) or not raw:
+        raise ProductSourcePolicyError(f"invalid {label}: {raw!r}")
+    if (
+        raw.startswith("/")
+        or "\\" in raw
+        or "\x00" in raw
+        or any(part in {"", ".", ".."} for part in raw.split("/"))
+    ):
+        raise ProductSourcePolicyError(f"invalid {label}: {raw!r}")
+    return raw
+
+
+def normalize_protected_roots(protected_roots: Iterable[str]) -> tuple[str, ...]:
+    if isinstance(protected_roots, (str, bytes)):
+        raise ProductSourcePolicyError("protected_roots_must_be_iterable_of_paths")
+    try:
+        normalized = tuple(
+            _normalize_snapshot_path(root, label="protected root")
+            for root in protected_roots
+        )
+    except TypeError as exc:
+        raise ProductSourcePolicyError("protected_roots_must_be_iterable") from exc
+    if not normalized:
+        raise ProductSourcePolicyError("protected_roots_missing")
+    if len(set(normalized)) != len(normalized):
+        raise ProductSourcePolicyError("protected_roots_duplicate")
+    return tuple(sorted(normalized, key=lambda value: value.encode("utf-8")))
+
+
+def _canonical_snapshot_digest(
+    protected_roots: tuple[str, ...],
+    entries: list[dict[str, str]],
+) -> str:
+    canonical_payload = {
+        "snapshot_format": CANONICAL_SNAPSHOT_FORMAT,
+        "protected_roots": list(protected_roots),
+        "entries": entries,
+    }
+    canonical_bytes = json.dumps(
+        canonical_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
+
+
+def _git_command_error(completed: subprocess.CompletedProcess[bytes]) -> str:
+    detail = completed.stderr or completed.stdout or b"git command failed"
+    return detail.decode("utf-8", errors="replace").strip()
+
+
+def _assert_commit_object(repository: Path, commit_sha: str) -> None:
+    if GIT_COMMIT_SHA_PATTERN.fullmatch(commit_sha) is None:
+        raise ProductSourcePolicyError("product_source_ref_must_be_full_commit_sha")
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repository), "cat-file", "-t", commit_sha],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProductSourcePolicyError("git_commit_lookup_failed") from exc
+    if completed.returncode != 0:
+        raise ProductSourcePolicyError(_git_command_error(completed))
+    if completed.stdout.strip() != b"commit":
+        raise ProductSourcePolicyError("product_source_ref_is_not_commit")
+
+
+def _git_tree_records(
+    repository: Path,
+    commit_sha: str,
+    protected_roots: tuple[str, ...],
+) -> list[tuple[str, str, str, str]]:
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository),
+                "ls-tree",
+                "-r",
+                "-z",
+                "--full-tree",
+                commit_sha,
+                "--",
+                *protected_roots,
+            ],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProductSourcePolicyError("git_tree_read_failed") from exc
+    if completed.returncode != 0:
+        raise ProductSourcePolicyError(_git_command_error(completed))
+
+    records: list[tuple[str, str, str, str]] = []
+    for raw_record in completed.stdout.split(b"\0"):
+        if not raw_record:
+            continue
+        try:
+            raw_header, raw_path = raw_record.split(b"\t", 1)
+            raw_mode, raw_type, raw_object = raw_header.split(b" ", 2)
+            path = raw_path.decode("utf-8")
+            mode = raw_mode.decode("ascii")
+            entry_type = raw_type.decode("ascii")
+            object_id = raw_object.decode("ascii")
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ProductSourcePolicyError("invalid_git_tree_record") from exc
+        _normalize_snapshot_path(path, label="git tree path")
+        if not path_is_under_roots(path, protected_roots):
+            raise ProductSourcePolicyError(
+                f"git_tree_path_outside_protected_roots:{path}"
+            )
+        records.append((path, mode, entry_type, object_id))
+    return records
+
+
+def _git_blob_digests(
+    repository: Path,
+    object_ids: Iterable[str],
+) -> dict[str, str]:
+    unique_object_ids = tuple(dict.fromkeys(object_ids))
+    if not unique_object_ids:
+        return {}
+    try:
+        process = subprocess.Popen(
+            ["git", "-C", str(repository), "cat-file", "--batch"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        request = b"".join(
+            object_id.encode("ascii") + b"\n" for object_id in unique_object_ids
+        )
+        output, error = process.communicate(request, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.communicate()
+        raise ProductSourcePolicyError("git_blob_batch_read_timeout") from exc
+    except OSError as exc:
+        raise ProductSourcePolicyError("git_blob_batch_read_failed") from exc
+    if process.returncode != 0:
+        detail = error or output or b"git cat-file --batch failed"
+        raise ProductSourcePolicyError(
+            detail.decode("utf-8", errors="replace").strip()
+        )
+
+    digests: dict[str, str] = {}
+    cursor = 0
+    for object_id in unique_object_ids:
+        header_end = output.find(b"\n", cursor)
+        if header_end < 0:
+            raise ProductSourcePolicyError("invalid_git_blob_batch_header")
+        header = output[cursor:header_end].split(b" ")
+        cursor = header_end + 1
+        if len(header) != 3 or header[0].decode("ascii", errors="ignore") != object_id:
+            raise ProductSourcePolicyError("git_blob_batch_object_mismatch")
+        try:
+            object_type = header[1].decode("ascii")
+            size = int(header[2])
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ProductSourcePolicyError("invalid_git_blob_batch_header") from exc
+        if object_type != "blob" or size < 0:
+            raise ProductSourcePolicyError(
+                f"unsupported_git_blob_object:{object_id}:{object_type}"
+            )
+        blob_end = cursor + size
+        if blob_end >= len(output) or output[blob_end:blob_end + 1] != b"\n":
+            raise ProductSourcePolicyError("invalid_git_blob_batch_payload")
+        blob = output[cursor:blob_end]
+        digests[object_id] = "sha256:" + hashlib.sha256(blob).hexdigest()
+        cursor = blob_end + 1
+    if cursor != len(output):
+        raise ProductSourcePolicyError("unexpected_git_blob_batch_output")
+    return digests
+
+def build_canonical_product_snapshot(
+    repository: Path,
+    commit_sha: str,
+    protected_roots: Iterable[str],
+) -> dict[str, Any]:
+    """Build a v3 snapshot from Git objects, never from the working tree."""
+    repository = repository.resolve()
+    roots = normalize_protected_roots(protected_roots)
+    _assert_commit_object(repository, commit_sha)
+
+    entries: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+    records = _git_tree_records(repository, commit_sha, roots)
+    blob_records: list[tuple[str, str, str]] = []
+    for path, mode, entry_type, object_id in records:
+        if path in seen_paths:
+            raise ProductSourcePolicyError(f"duplicate_git_tree_path:{path}")
+        seen_paths.add(path)
+        if mode not in SUPPORTED_GIT_FILE_MODES:
+            raise ProductSourcePolicyError(
+                f"unsupported_git_tree_mode:{path}:{mode}"
+            )
+        if entry_type != "blob":
+            raise ProductSourcePolicyError(
+                f"unsupported_git_tree_type:{path}:{entry_type}"
+            )
+        if re.fullmatch(r"[0-9a-f]{40}", object_id) is None:
+            raise ProductSourcePolicyError(f"invalid_git_object_id:{path}")
+        blob_records.append((path, mode, object_id))
+
+    blob_digests = _git_blob_digests(
+        repository,
+        (object_id for _, _, object_id in blob_records),
+    )
+    for path, mode, object_id in blob_records:
+        digest = blob_digests[object_id]
+        entries.append({"path": path, "mode": mode, "digest": digest})
+
+    entries.sort(key=lambda entry: entry["path"].encode("utf-8"))
+    return {
+        "schema_version": V3_SNAPSHOT_SCHEMA_VERSION,
+        "snapshot_format": CANONICAL_SNAPSHOT_FORMAT,
+        "product_source_ref": "git-commit-sha1:" + commit_sha,
+        "protected_roots": list(roots),
+        "entry_count": len(entries),
+        "entries": entries,
+        "protected_snapshot_digest": _canonical_snapshot_digest(roots, entries),
+    }
+
+
+def validate_v3_product_snapshot(
+    payload: object,
+    *,
+    expected_commit_sha: str | None = None,
+    expected_protected_roots: Iterable[str] | None = None,
+) -> list[str]:
+    if not isinstance(payload, dict):
+        return ["v3_snapshot_not_object"]
+
+    errors: list[str] = []
+    unknown_fields = set(payload) - V3_SNAPSHOT_FIELDS
+    errors.extend(f"v3_unknown_field:{field}" for field in sorted(unknown_fields))
+    missing_fields = V3_SNAPSHOT_FIELDS - set(payload)
+    errors.extend(f"v3_missing_field:{field}" for field in sorted(missing_fields))
+
+    if payload.get("schema_version") != V3_SNAPSHOT_SCHEMA_VERSION:
+        errors.append("v3_schema_version_invalid")
+    if payload.get("snapshot_format") != CANONICAL_SNAPSHOT_FORMAT:
+        errors.append("v3_snapshot_format_invalid")
+
+    source_ref = payload.get("product_source_ref")
+    if not isinstance(source_ref, str) or re.fullmatch(
+        r"git-commit-sha1:[0-9a-f]{40}", source_ref
+    ) is None:
+        errors.append("v3_product_source_ref_invalid")
+    elif expected_commit_sha is not None:
+        if GIT_COMMIT_SHA_PATTERN.fullmatch(expected_commit_sha) is None:
+            errors.append("v3_expected_commit_sha_invalid")
+        elif source_ref != "git-commit-sha1:" + expected_commit_sha:
+            errors.append("v3_product_source_ref_mismatch")
+
+    roots: tuple[str, ...] = ()
+    roots_value = payload.get("protected_roots")
+    roots_valid = isinstance(roots_value, list) and bool(roots_value)
+    if not roots_valid:
+        errors.append("v3_protected_roots_invalid")
+    else:
+        try:
+            roots = normalize_protected_roots(roots_value)
+        except ProductSourcePolicyError:
+            roots_valid = False
+            errors.append("v3_protected_roots_invalid")
+        else:
+            if roots_value != list(roots):
+                errors.append("v3_protected_roots_not_canonical")
+    if expected_protected_roots is not None and roots_valid:
+        try:
+            expected_roots = normalize_protected_roots(expected_protected_roots)
+        except ProductSourcePolicyError:
+            errors.append("v3_expected_protected_roots_invalid")
+        else:
+            if roots != expected_roots:
+                errors.append("v3_protected_roots_mismatch")
+
+    entries: list[dict[str, str]] = []
+    entries_value = payload.get("entries")
+    entries_valid = isinstance(entries_value, list)
+    if not entries_valid:
+        errors.append("v3_entries_invalid")
+    else:
+        for index, raw_entry in enumerate(entries_value):
+            if not isinstance(raw_entry, dict):
+                entries_valid = False
+                errors.append(f"v3_entry_not_object:{index}")
+                continue
+            unknown_entry_fields = set(raw_entry) - V3_SNAPSHOT_ENTRY_FIELDS
+            errors.extend(
+                f"v3_entry_unknown_field:{index}:{field}"
+                for field in sorted(unknown_entry_fields)
+            )
+            if set(raw_entry) != V3_SNAPSHOT_ENTRY_FIELDS:
+                entries_valid = False
+                errors.append(f"v3_entry_fields_invalid:{index}")
+                continue
+            path = raw_entry.get("path")
+            mode = raw_entry.get("mode")
+            digest = raw_entry.get("digest")
+            try:
+                normalized_path = _normalize_snapshot_path(
+                    path, label="v3 entry path"
+                )
+            except ProductSourcePolicyError:
+                entries_valid = False
+                errors.append(f"v3_entry_path_invalid:{index}")
+                continue
+            if roots_valid and not path_is_under_roots(normalized_path, roots):
+                entries_valid = False
+                errors.append(f"v3_entry_path_outside_roots:{index}")
+            if mode not in SUPPORTED_GIT_FILE_MODES:
+                entries_valid = False
+                errors.append(f"v3_entry_mode_invalid:{index}")
+            if not isinstance(digest, str) or SNAPSHOT_DIGEST_PATTERN.fullmatch(
+                digest
+            ) is None:
+                entries_valid = False
+                errors.append(f"v3_entry_digest_invalid:{index}")
+            if isinstance(mode, str) and isinstance(digest, str):
+                entries.append(
+                    {"path": normalized_path, "mode": mode, "digest": digest}
+                )
+
+    entry_count = payload.get("entry_count")
+    if not isinstance(entry_count, int) or isinstance(entry_count, bool):
+        errors.append("v3_entry_count_invalid")
+    elif isinstance(entries_value, list) and entry_count != len(entries_value):
+        errors.append("v3_entry_count_mismatch")
+
+    if entries_valid and entries_value == sorted(
+        entries_value,
+        key=lambda entry: entry["path"].encode("utf-8"),
+    ):
+        if len({entry["path"] for entry in entries}) != len(entries):
+            errors.append("v3_entry_path_duplicate")
+    elif isinstance(entries_value, list):
+        errors.append("v3_entries_not_canonical")
+
+    snapshot_digest = payload.get("protected_snapshot_digest")
+    if not isinstance(snapshot_digest, str) or SNAPSHOT_DIGEST_PATTERN.fullmatch(
+        snapshot_digest
+    ) is None:
+        errors.append("v3_protected_snapshot_digest_invalid")
+    elif roots_valid and entries_valid:
+        expected_digest = _canonical_snapshot_digest(roots, entries)
+        if snapshot_digest != expected_digest:
+            errors.append("v3_protected_snapshot_digest_mismatch")
+
+    return list(dict.fromkeys(errors))
 
 
 def _normalize_root(raw: object) -> str:

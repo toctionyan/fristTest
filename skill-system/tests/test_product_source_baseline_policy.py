@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,9 +21,11 @@ from product_source_baseline_policy import (  # type: ignore
     ProductSourcePolicyError,
     SnapshotSource,
     baseline_mode_for_authority,
+    build_canonical_product_snapshot,
     evaluate_binding,
     file_sha256,
     load_baseline_document,
+    validate_v3_product_snapshot,
     validate_baseline_document,
 )
 
@@ -217,6 +221,206 @@ class ProductSourceBaselineSingleAuthorityTests(unittest.TestCase):
             self.assertNotIn("GITHUB_EVENT_NAME", text, path.as_posix())
             self.assertNotIn('"ls-files"', text, path.as_posix())
             self.assertNotIn("PROTECTED_NAMES", text, path.as_posix())
+
+
+class CanonicalProductSnapshotTests(unittest.TestCase):
+    STAGE2B1_SHA = "6c41cb862ba065e474aa3a7f213209d1eacfef45"
+    STAGE2B1_MERGE_SHA = "4c80d7b79f395bd1d93478043ba1ed25688c8547"
+    PROTECTED_ROOTS = ("services", "web", "contracts")
+
+    @staticmethod
+    def _git(root: Path, *args: str) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(root), *args],
+            text=True,
+        ).strip()
+
+    @classmethod
+    def _init_repo(cls, root: Path) -> None:
+        subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+        cls._git(root, "config", "user.name", "Snapshot Test")
+        cls._git(root, "config", "user.email", "snapshot@example.com")
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        # The CI checkout is intentionally shallow; make the exact historical
+        # objects required by this Git-object test available without using the
+        # worktree or index as a fallback source.
+        for commit_sha in (cls.STAGE2B1_SHA, cls.STAGE2B1_MERGE_SHA):
+            present = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "cat-file",
+                    "-e",
+                    f"{commit_sha}^{{commit}}",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if present.returncode == 0:
+                continue
+            subprocess.run(
+                ["git", "-C", str(ROOT), "fetch", "--no-tags", "origin", commit_sha],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(ROOT),
+                    "cat-file",
+                    "-e",
+                    f"{commit_sha}^{{commit}}",
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+    def test_stage2b1_commits_have_same_protected_snapshot_digest(self) -> None:
+        first = build_canonical_product_snapshot(
+            ROOT, self.STAGE2B1_SHA, self.PROTECTED_ROOTS
+        )
+        second = build_canonical_product_snapshot(
+            ROOT, self.STAGE2B1_MERGE_SHA, self.PROTECTED_ROOTS
+        )
+        self.assertEqual(
+            first["protected_snapshot_digest"],
+            second["protected_snapshot_digest"],
+        )
+        self.assertEqual(first["entries"], second["entries"])
+        self.assertEqual(validate_v3_product_snapshot(first), [])
+        self.assertEqual(validate_v3_product_snapshot(second), [])
+
+    def test_tampering_entries_breaks_v3_preflight(self) -> None:
+        snapshot = build_canonical_product_snapshot(
+            ROOT, self.STAGE2B1_SHA, self.PROTECTED_ROOTS
+        )
+        snapshot["entries"] = list(snapshot["entries"])
+        snapshot["entries"][0] = dict(snapshot["entries"][0])
+        snapshot["entries"][0]["digest"] = "sha256:" + "0" * 64
+        errors = validate_v3_product_snapshot(snapshot)
+        self.assertIn("v3_protected_snapshot_digest_mismatch", errors)
+
+    def test_v3_preflight_rejects_unknown_path_and_count(self) -> None:
+        snapshot = build_canonical_product_snapshot(
+            ROOT, self.STAGE2B1_SHA, self.PROTECTED_ROOTS
+        )
+        snapshot["unexpected"] = True
+        snapshot["entry_count"] = snapshot["entry_count"] + 1
+        snapshot["entries"] = list(snapshot["entries"])
+        snapshot["entries"][0] = dict(snapshot["entries"][0])
+        snapshot["entries"][0]["path"] = "../outside"
+        errors = validate_v3_product_snapshot(snapshot)
+        self.assertIn("v3_unknown_field:unexpected", errors)
+        self.assertIn("v3_entry_path_invalid:0", errors)
+        self.assertIn("v3_entry_count_mismatch", errors)
+
+    def test_snapshot_ignores_worktree_and_index_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._init_repo(root)
+            path = root / "services/app.py"
+            path.parent.mkdir(parents=True)
+            path.write_text("committed\n", encoding="utf-8")
+            self._git(root, "add", "services/app.py")
+            self._git(root, "commit", "-qm", "initial")
+            commit_sha = self._git(root, "rev-parse", "HEAD")
+            expected = build_canonical_product_snapshot(
+                root, commit_sha, ("services",)
+            )
+            path.write_text("worktree mutation\n", encoding="utf-8")
+            self._git(root, "add", "services/app.py")
+            actual = build_canonical_product_snapshot(
+                root, commit_sha, ("services",)
+            )
+        self.assertEqual(actual, expected)
+
+    def test_file_mode_is_part_of_snapshot_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._init_repo(root)
+            path = root / "services/executable.sh"
+            path.parent.mkdir(parents=True)
+            path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+            self._git(root, "add", "services/executable.sh")
+            self._git(root, "commit", "-qm", "initial")
+            commit_sha = self._git(root, "rev-parse", "HEAD")
+            executable_snapshot = build_canonical_product_snapshot(
+                root, commit_sha, ("services",)
+            )
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            self._git(root, "add", "services/executable.sh")
+            self._git(root, "commit", "-qm", "mode-change")
+            non_executable_snapshot = build_canonical_product_snapshot(
+                root, self._git(root, "rev-parse", "HEAD"), ("services",)
+            )
+        self.assertEqual(executable_snapshot["entries"][0]["mode"], "100755")
+        self.assertEqual(non_executable_snapshot["entries"][0]["mode"], "100644")
+        self.assertEqual(
+            executable_snapshot["entries"][0]["digest"],
+            non_executable_snapshot["entries"][0]["digest"],
+        )
+        self.assertNotEqual(
+            executable_snapshot["protected_snapshot_digest"],
+            non_executable_snapshot["protected_snapshot_digest"],
+        )
+        self.assertEqual(validate_v3_product_snapshot(executable_snapshot), [])
+        self.assertEqual(validate_v3_product_snapshot(non_executable_snapshot), [])
+
+    def test_symlink_is_rejected_from_git_object_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._init_repo(root)
+            target = root / "services/target.txt"
+            target.parent.mkdir(parents=True)
+            target.write_text("target\n", encoding="utf-8")
+            (root / "services/link.txt").symlink_to("target.txt")
+            self._git(root, "add", "services")
+            self._git(root, "commit", "-qm", "symlink")
+            commit_sha = self._git(root, "rev-parse", "HEAD")
+            with self.assertRaisesRegex(
+                ProductSourcePolicyError, "unsupported_git_tree_mode"
+            ):
+                build_canonical_product_snapshot(root, commit_sha, ("services",))
+
+    def test_gitlink_is_rejected_from_git_object_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary) / "parent"
+            nested = Path(temporary) / "nested"
+            parent.mkdir()
+            nested.mkdir()
+            self._init_repo(nested)
+            nested_file = nested / "README.md"
+            nested_file.write_text("nested\n", encoding="utf-8")
+            self._git(nested, "add", "README.md")
+            self._git(nested, "commit", "-qm", "nested")
+            nested_sha = self._git(nested, "rev-parse", "HEAD")
+
+            self._init_repo(parent)
+            (parent / "services").mkdir()
+            self._git(
+                parent,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{nested_sha},services/submodule",
+            )
+            tree_sha = self._git(parent, "write-tree")
+            commit_sha = subprocess.check_output(
+                ["git", "-C", str(parent), "commit-tree", tree_sha, "-m", "gitlink"],
+                text=True,
+            ).strip()
+            with self.assertRaisesRegex(
+                ProductSourcePolicyError, "unsupported_git_tree_mode"
+            ):
+                build_canonical_product_snapshot(parent, commit_sha, ("services",))
 
 
 if __name__ == "__main__":
