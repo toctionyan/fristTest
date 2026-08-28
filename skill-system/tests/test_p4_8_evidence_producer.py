@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
 import inspect
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -111,14 +114,42 @@ class P48EvidenceProducerTests(unittest.TestCase):
         (self.root / "run.json").write_text(json.dumps(run_document()), encoding="utf-8")
         (self.root / "artifact.json").write_text(json.dumps(artifact_document()), encoding="utf-8")
         self.downloaded = self.root / "payload.zip"
-        self.downloaded.write_bytes(ARCHIVE_BYTES)
+
+    def _write_archive(
+        self,
+        *,
+        entries: list[tuple[str, bytes, int]] | None = None,
+    ) -> None:
+        if entries is None:
+            entries = [
+                (
+                    filename,
+                    (self.payload / filename).read_bytes(),
+                    stat.S_IMODE((self.payload / filename).stat().st_mode),
+                )
+                for filename in PAYLOAD_FILES
+            ]
+        with zipfile.ZipFile(self.downloaded, "w", zipfile.ZIP_STORED) as archive:
+            for filename, content, permissions in entries:
+                info = zipfile.ZipInfo(filename)
+                info.create_system = 3
+                info.external_attr = ((stat.S_IFREG | permissions) << 16)
+                info.compress_type = zipfile.ZIP_STORED
+                archive.writestr(info, content)
+
+    def _archive_digest(self) -> str:
+        if not zipfile.is_zipfile(self.downloaded):
+            self._write_archive()
+        return "sha256:" + hashlib.sha256(self.downloaded.read_bytes()).hexdigest()
 
     def produce(self, **kwargs: object) -> dict[str, object]:
         with patch(
             "p4_8_evidence_producer._server_run",
             return_value=run_document(),
         ):
-            return produce_payload(**kwargs)  # type: ignore[arg-type]
+            result = produce_payload(**kwargs)  # type: ignore[arg-type]
+        self._write_archive()
+        return result
 
     def finalize(self, **kwargs: object) -> dict[str, object]:
         with patch(
@@ -126,7 +157,7 @@ class P48EvidenceProducerTests(unittest.TestCase):
             return_value=run_document(),
         ), patch(
             "p4_8_evidence_producer._server_artifact",
-            return_value=artifact_document(),
+            return_value=artifact_document(digest=self._archive_digest()),
         ):
             return finalize_bundle(**kwargs)  # type: ignore[arg-type]
 
@@ -161,22 +192,22 @@ class P48EvidenceProducerTests(unittest.TestCase):
             output=self.bundle,
             environ=context(),
             artifact_id="7701",
-            upload_artifact_digest=artifact_document()["digest"],  # type: ignore[index]
+            upload_artifact_digest=self._archive_digest(),
             downloaded_artifact=self.downloaded,
         )
         self.assertEqual(manifest["status"], "READY_FOR_EXTERNAL_VERIFICATION")
-        self.assertEqual(manifest["artifact"]["digest"], artifact_document()["digest"])
+        self.assertEqual(manifest["artifact"]["digest"], self._archive_digest())
         self.assertTrue(manifest["attestation_verification_request"]["platform_proof_required"])
         self.assertFalse(manifest["attestation_verification_request"]["self_generated_attestation_accepted"])
         provenance = json.loads((self.bundle / "provenance.json").read_text(encoding="utf-8"))
-        self.assertEqual(provenance["artifact"]["archive_digest"], artifact_document()["digest"])
+        self.assertEqual(provenance["artifact"]["archive_digest"], self._archive_digest())
         verified = verify_artifact_provenance(
             provenance,
             expected={
                 "receipt_id": "receipt-p4-8",
                 "artifact_id": "7701",
                 "artifact_name": "p4-8-evidence-payload-901-2",
-                "artifact_digest": artifact_document()["digest"],
+                "artifact_digest": self._archive_digest(),
                 "content_digest": provenance["artifact"]["content_digest"],
                 "repository": "toctionyan/fristTest",
                 "workflow_path": ".github/workflows/p4-8-evidence-producer.yml",
@@ -203,7 +234,7 @@ class P48EvidenceProducerTests(unittest.TestCase):
                 "self_generated_attestation_accepted",
             },
         )
-        self.assertEqual(request["subject_digest"], artifact_document()["digest"])
+        self.assertEqual(request["subject_digest"], self._archive_digest())
         self.assertEqual(request["source_digest"], context()["GITHUB_SHA"])
         with self.assertRaisesRegex(EvidenceProducerBlocked, "upload_artifact_digest_mismatch"):
             self.finalize(
@@ -219,13 +250,14 @@ class P48EvidenceProducerTests(unittest.TestCase):
         self.produce(workspace=self.root, output=self.payload, environ=context())
         bad = self.root / "bad-payload.zip"
         bad.write_bytes(b"different-server-response")
+        archive_digest = self._archive_digest()
         with self.assertRaisesRegex(EvidenceProducerBlocked, "downloaded_artifact_digest_mismatch"):
             self.finalize(
                 payload=self.payload,
                 output=self.root / "bad-download-bundle",
                 environ=context(),
                 artifact_id="7701",
-                upload_artifact_digest=ARCHIVE_DIGEST,
+                upload_artifact_digest=archive_digest,
                 downloaded_artifact=bad,
             )
 
@@ -277,9 +309,184 @@ class P48EvidenceProducerTests(unittest.TestCase):
                 output=self.root / "unsafe-bundle",
                 environ=context(),
                 artifact_id="7701",
-                upload_artifact_digest=artifact_document()["digest"],  # type: ignore[index]
+                upload_artifact_digest=self._archive_digest(),
                 downloaded_artifact=self.downloaded,
             )
+
+    def test_uploaded_archive_must_match_local_payload_bytes(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        archive_digest = self._archive_digest()
+        (self.payload / "producer-run.json").write_bytes(b"mutated-after-upload")
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "uploaded_artifact_payload_mismatch"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "mutated-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=archive_digest,
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_uploaded_archive_rejects_extra_or_traversal_entries(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        self._write_archive(
+            entries=[
+                (filename, (self.payload / filename).read_bytes(), 0o644)
+                for filename in PAYLOAD_FILES
+            ],
+        )
+        with zipfile.ZipFile(self.downloaded, "a", zipfile.ZIP_STORED) as archive:
+            archive.writestr("../escape", b"bad")
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "zip_entry_path_traversal"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "unsafe-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=self._archive_digest(),
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_uploaded_archive_rejects_absolute_entries(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        entries = [
+            (filename, (self.payload / filename).read_bytes(), 0o644)
+            for filename in PAYLOAD_FILES
+        ]
+        entries[-1] = ("/absolute-escape", b"bad", 0o644)
+        self._write_archive(entries=entries)
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "zip_entry_absolute_path"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "absolute-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=self._archive_digest(),
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_uploaded_archive_content_tampering_is_rejected(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        entries = [
+            (
+                filename,
+                b"tampered" if filename == "producer-run.json" else (self.payload / filename).read_bytes(),
+                0o644,
+            )
+            for filename in PAYLOAD_FILES
+        ]
+        self._write_archive(entries=entries)
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "uploaded_artifact_payload_mismatch"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "tampered-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=self._archive_digest(),
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_uploaded_archive_duplicate_path_is_rejected(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        entries = [
+            (filename, (self.payload / filename).read_bytes(), 0o644)
+            for filename in PAYLOAD_FILES
+        ]
+        entries.append(("producer-run.json", b"duplicate", 0o644))
+        self._write_archive(entries=entries)
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "zip_entry_duplicate_path"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "duplicate-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=self._archive_digest(),
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_uploaded_archive_symlink_and_special_entries_are_rejected(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        for entry_type, mode, expected in (
+            ("symlink", stat.S_IFLNK | 0o777, "zip_entry_special_or_link"),
+            ("special", stat.S_IFIFO | 0o644, "zip_entry_special_or_link"),
+        ):
+            with self.subTest(entry_type=entry_type):
+                self._write_archive(
+                    entries=[
+                        *(
+                            (filename, (self.payload / filename).read_bytes(), 0o644)
+                            for filename in PAYLOAD_FILES
+                            if filename != "producer-run.json"
+                        ),
+                        ("producer-run.json", b"unsafe", mode),
+                    ]
+                )
+                with self.assertRaisesRegex(EvidenceProducerBlocked, expected):
+                    self.finalize(
+                        payload=self.payload,
+                        output=self.root / f"{entry_type}-bundle",
+                        environ=context(),
+                        artifact_id="7701",
+                        upload_artifact_digest=self._archive_digest(),
+                        downloaded_artifact=self.downloaded,
+                    )
+
+    def test_local_payload_hardlink_is_rejected(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        archive_digest = self._archive_digest()
+        original = self.payload / "producer-run.json"
+        hardlink_target = self.root / "hardlink-target"
+        hardlink_target.write_bytes(original.read_bytes())
+        original.unlink()
+        os.link(hardlink_target, original)
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "payload_file:producer-run.json_hardlink"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "hardlink-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=archive_digest,
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_mode_is_part_of_uploaded_payload_proof(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        self._write_archive(
+            entries=[
+                (
+                    filename,
+                    (self.payload / filename).read_bytes(),
+                    0o755 if filename == "producer-run.json" else 0o644,
+                )
+                for filename in PAYLOAD_FILES
+            ]
+        )
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "uploaded_artifact_payload_mismatch"):
+            self.finalize(
+                payload=self.payload,
+                output=self.root / "mode-bundle",
+                environ=context(),
+                artifact_id="7701",
+                upload_artifact_digest=self._archive_digest(),
+                downloaded_artifact=self.downloaded,
+            )
+
+    def test_regular_file_mode_is_compatible_and_preserved(self) -> None:
+        self.produce(workspace=self.root, output=self.payload, environ=context())
+        os.chmod(self.payload / "producer-run.json", 0o755)
+        self._write_archive()
+        self.finalize(
+            payload=self.payload,
+            output=self.root / "executable-bundle",
+            environ=context(),
+            artifact_id="7701",
+            upload_artifact_digest=self._archive_digest(),
+            downloaded_artifact=self.downloaded,
+        )
+        self.assertEqual(
+            stat.S_IMODE((self.root / "executable-bundle" / "producer-run.json").stat().st_mode),
+            0o755,
+        )
 
 
 class P48WorkflowContractTests(unittest.TestCase):
