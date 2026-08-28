@@ -143,6 +143,38 @@ class StageAcceptanceWriterTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(self.store.payload["revision"], revision)
 
+    def test_selects_matching_preview_instead_of_last_checkpoint(self) -> None:
+        preview = copy.deepcopy(
+            next(
+                checkpoint
+                for checkpoint in self.store.payload["checkpoints"]
+                if isinstance(checkpoint, dict)
+                and isinstance(checkpoint.get("metadata"), dict)
+                and checkpoint["metadata"].get("stage_acceptance_decision_id")
+                == self.decision["decision_id"]
+            )
+        )
+        unrelated = copy.deepcopy(preview)
+        unrelated["metadata"]["stage_acceptance_decision_id"] = "other-decision"
+        self.store.payload["checkpoints"].append(unrelated)
+        result = self.write()
+        self.assertEqual(result["status"], "RECORDED")
+
+    def test_duplicate_matching_previews_are_ambiguous(self) -> None:
+        preview = next(
+            checkpoint
+            for checkpoint in self.store.payload["checkpoints"]
+            if isinstance(checkpoint, dict)
+            and isinstance(checkpoint.get("metadata"), dict)
+            and checkpoint["metadata"].get("stage_acceptance_decision_id")
+            == self.decision["decision_id"]
+        )
+        self.store.payload["checkpoints"].append(
+            copy.deepcopy(preview)
+        )
+        with self.assertRaisesRegex(StageAcceptanceWriteError, "ambiguous"):
+            self.write()
+
     def test_contract_is_only_read_and_digest_is_bound(self) -> None:
         path = ROOT / "governance" / "active-change.json"
         before = hashlib.sha256(path.read_bytes()).hexdigest()

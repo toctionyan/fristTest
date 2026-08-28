@@ -189,16 +189,6 @@ def _preview_checkpoint(
     checkpoints = store.payload.get("checkpoints")
     if not isinstance(checkpoints, list) or not checkpoints:
         raise StageAcceptanceWriteError("P4.2 acceptance preview checkpoint is missing")
-    checkpoint = checkpoints[-1]
-    if not isinstance(checkpoint, Mapping):
-        raise StageAcceptanceWriteError("latest TaskRun checkpoint is invalid")
-    metadata = checkpoint.get("metadata")
-    if not isinstance(metadata, Mapping):
-        raise StageAcceptanceWriteError("acceptance preview metadata is missing")
-    if checkpoint.get("phase") != STAGE_ACCEPTANCE_PREVIEW_PHASE:
-        raise StageAcceptanceWriteError("latest TaskRun checkpoint is not acceptance preview")
-    if checkpoint.get("status") not in {"RUNNING", "VALIDATING"}:
-        raise StageAcceptanceWriteError("acceptance preview TaskRun status is invalid")
     required_metadata = {
         "stage_acceptance_decision_id": decision["decision_id"],
         "stage_acceptance_input_digest": decision["input_digest"],
@@ -208,6 +198,30 @@ def _preview_checkpoint(
         "completion_authority_changed": False,
         "stage_acceptance_write": False,
     }
+    matching: list[Mapping[str, Any]] = []
+    for checkpoint in checkpoints:
+        if not isinstance(checkpoint, Mapping):
+            continue
+        metadata = checkpoint.get("metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        if metadata.get("stage_acceptance_decision_id") != decision["decision_id"]:
+            continue
+        matching.append(checkpoint)
+    if not matching:
+        raise StageAcceptanceWriteError(
+            "acceptance preview checkpoint matching decision is missing"
+        )
+    if len(matching) != 1:
+        raise StageAcceptanceWriteError(
+            "acceptance preview checkpoint matching decision is ambiguous"
+        )
+    checkpoint = matching[0]
+    metadata = checkpoint["metadata"]
+    if checkpoint.get("phase") != STAGE_ACCEPTANCE_PREVIEW_PHASE:
+        raise StageAcceptanceWriteError("acceptance preview checkpoint phase is invalid")
+    if checkpoint.get("status") not in {"RUNNING", "VALIDATING"}:
+        raise StageAcceptanceWriteError("acceptance preview TaskRun status is invalid")
     mismatches = [
         field for field, value in required_metadata.items()
         if metadata.get(field) != value
