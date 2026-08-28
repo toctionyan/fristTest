@@ -22,6 +22,7 @@ from p4_8_evidence_producer import (  # noqa: E402
     PREDICATE_TYPE,
     SIGNER_WORKFLOW,
     EvidenceProducerBlocked,
+    _server_artifact,
     finalize_bundle,
     load_run_identity,
     produce_payload,
@@ -280,6 +281,25 @@ class P48EvidenceProducerTests(unittest.TestCase):
                 upload_artifact_digest=artifact_document()["digest"],  # type: ignore[index]
                 downloaded_artifact=self.downloaded,
             )
+
+    def test_short_nonfinal_artifact_page_is_fail_closed(self) -> None:
+        selected = artifact_document()
+        with self.assertRaisesRegex(EvidenceProducerBlocked, "artifact_list_pagination_gap"):
+            with patch(
+                "p4_8_evidence_producer._run_gh_json",
+                side_effect=[
+                    selected,
+                    {"total_count": 150, "artifacts": [selected]},
+                ],
+            ):
+                _server_artifact(
+                    identity={
+                        "run_id": 901,
+                        "run_attempt": 2,
+                        "head_sha": "a" * 40,
+                    },
+                    artifact_id="7701",
+                )
 
 
 class P48WorkflowContractTests(unittest.TestCase):
