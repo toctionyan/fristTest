@@ -14,6 +14,10 @@ from typing import Any, Iterable, Mapping, Sequence
 from stage_evidence_receipt import StageEvidenceReceiptError, validate_stage_evidence_receipt
 from stage2b1_protected_approval import VerifiedProtectedApproval
 from stage2b1_provenance import VerifiedArtifactProvenance
+from stage2b1_external_issuer import (
+    ExternalIssuerProof,
+    validate_external_issuer_proof,
+)
 
 
 STAGE_ACCEPTANCE_DECISION_SCHEMA = "stage-acceptance-decision@1"
@@ -406,9 +410,11 @@ def reduce_trusted_stage_acceptance(
     control_plane_ref: str | None = None,
     execution_repo_ref: str | None = None,
     expected_receipt_bindings: Mapping[str, Mapping[str, Any]] | None,
-    verified_provenance: Mapping[str, VerifiedArtifactProvenance] | None,
-    verified_protected_approval: VerifiedProtectedApproval | None,
-    expected_protected_approval: Mapping[str, Any] | None,
+    verified_provenance: Mapping[str, VerifiedArtifactProvenance] | None = None,
+    verified_external_issuers: Mapping[str, ExternalIssuerProof] | None = None,
+    expected_external_issuer_bindings: Mapping[str, Mapping[str, str]] | None = None,
+    verified_protected_approval: VerifiedProtectedApproval | None = None,
+    expected_protected_approval: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reduce receipts only after fixed provenance and approval verification.
 
@@ -460,6 +466,16 @@ def reduce_trusted_stage_acceptance(
             for value in sorted(unexpected, key=lambda item: item.encode("utf-8"))
         )
 
+    if not isinstance(verified_external_issuers, Mapping):
+        reasons.append("external_issuer_proof_required")
+        verified_external_issuers = {}
+    else:
+        unexpected = set(verified_external_issuers) - set(required_ids)
+        reasons.extend(
+            f"external_issuer_unexpected:{value}"
+            for value in sorted(unexpected, key=lambda item: item.encode("utf-8"))
+        )
+
     for receipt_id in sorted(set(required_ids), key=lambda item: item.encode("utf-8")):
         proof = verified_provenance.get(receipt_id)
         receipt = receipt_by_id.get(receipt_id)
@@ -489,6 +505,30 @@ def reduce_trusted_stage_acceptance(
                 if proof.run_id != expected_workflow.get("run_id") or proof.run_attempt != expected_workflow.get("attempt"):
                     reasons.append(f"trusted_provenance_expected_run_mismatch:{receipt_id}")
         proof_refs.append(proof.proof_ref)
+
+        external_proof = verified_external_issuers.get(receipt_id)
+        if not isinstance(external_proof, ExternalIssuerProof):
+            reasons.append(f"external_issuer_missing:{receipt_id}")
+        else:
+            try:
+                validate_external_issuer_proof(external_proof)
+            except ValueError:
+                reasons.append(f"external_issuer_invalid:{receipt_id}")
+            else:
+                if external_proof.subject_digest != proof.artifact_digest:
+                    reasons.append(f"external_issuer_subject_mismatch:{receipt_id}")
+                expected_issuer = (
+                    expected_external_issuer_bindings.get(receipt_id)
+                    if isinstance(expected_external_issuer_bindings, Mapping)
+                    else None
+                )
+                if not isinstance(expected_issuer, Mapping):
+                    reasons.append(f"external_issuer_binding_missing:{receipt_id}")
+                else:
+                    for field in ("repository", "signer_workflow", "predicate_type", "subject_digest"):
+                        if getattr(external_proof, field, None) != expected_issuer.get(field):
+                            reasons.append(f"external_issuer_binding_mismatch:{receipt_id}:{field}")
+                proof_refs.append(external_proof.proof_ref)
 
     if not isinstance(verified_protected_approval, VerifiedProtectedApproval):
         reasons.append("trusted_protected_approval_required")
