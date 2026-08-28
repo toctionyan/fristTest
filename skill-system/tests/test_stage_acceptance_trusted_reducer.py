@@ -253,7 +253,7 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                     },
                     "signature": {"certificate": {
                         "issuer": "github",
-                        "runnerInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
+                        "runInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
                     }},
                     "verifiedTimestamps": [{"timestamp": "2026-08-28T00:00:00Z"}],
                 }
@@ -410,7 +410,7 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                     },
                     "signature": {"certificate": {
                         "issuer": "github",
-                        "runnerInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
+                        "runInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
                     }},
                     "verifiedTimestamps": [{"timestamp": "2026-08-28T00:00:00Z"}],
                 }
