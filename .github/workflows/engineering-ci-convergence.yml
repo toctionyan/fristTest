@@ -42,6 +42,7 @@ jobs:
           WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
           WORKFLOW_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          EVENT_ACTION: ${{ github.event.action }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
@@ -49,6 +50,7 @@ jobs:
           [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${WORKFLOW_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
           [[ "${WORKFLOW_NAME}" == "quality" || "${WORKFLOW_NAME}" == "skill-self-validation" ]]
+          [[ "${EVENT_ACTION}" == "requested" || "${EVENT_ACTION}" == "in_progress" || "${EVENT_ACTION}" == "completed" ]]
           [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > pr.json
@@ -59,6 +61,27 @@ jobs:
              .head.repo.full_name == $repo and
              .base.ref == "main"' \
             pr.json >/dev/null
+          for retry in 1 2 3 4 5; do
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}" > trigger-run.json \
+              && jq -e \
+                --arg id "${WORKFLOW_RUN_ID}" \
+                --arg attempt "${WORKFLOW_RUN_ATTEMPT}" \
+                --arg name "${WORKFLOW_NAME}" \
+                --arg sha "${HEAD_SHA}" \
+                '.id == ($id | tonumber) and
+                 .run_attempt == ($attempt | tonumber) and
+                 .name == $name and
+                 .event == "pull_request" and
+                 .head_sha == $sha' \
+                trigger-run.json >/dev/null; then
+              break
+            fi
+            if [[ "${retry}" -eq 5 ]]; then
+              echo "exact trigger workflow run was not available or did not match the event" >&2
+              exit 1
+            fi
+            sleep 5
+          done
           for retry in 1 2 3 4 5; do
             gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
@@ -77,6 +100,8 @@ jobs:
           echo "workflow_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
           echo "workflow_run_attempt=${WORKFLOW_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
           echo "workflow_name=${WORKFLOW_NAME}" >> "$GITHUB_OUTPUT"
+          echo "event_action=${EVENT_ACTION}" >> "$GITHUB_OUTPUT"
+          echo "trigger_run_status=$(jq -r '.status' trigger-run.json)" >> "$GITHUB_OUTPUT"
 
       - name: Reduce exact CI runs to one convergence result
         env:
@@ -85,8 +110,18 @@ jobs:
           WORKFLOW_RUN_ID: ${{ steps.source.outputs.workflow_run_id }}
           WORKFLOW_RUN_ATTEMPT: ${{ steps.source.outputs.workflow_run_attempt }}
           WORKFLOW_NAME: ${{ steps.source.outputs.workflow_name }}
+          EVENT_ACTION: ${{ steps.source.outputs.event_action }}
+          TRIGGER_RUN_STATUS: ${{ steps.source.outputs.trigger_run_status }}
         run: |
           set -euo pipefail
+          if [[ "${EVENT_ACTION}" != "completed" && "${TRIGGER_RUN_STATUS}" == "completed" ]]; then
+            echo "Ignoring stale pre-terminal workflow_run event; the exact trigger run is already completed."
+            exit 0
+          fi
+          if [[ "${EVENT_ACTION}" == "completed" && "${TRIGGER_RUN_STATUS}" != "completed" ]]; then
+            echo "Ignoring workflow_run completed event while the exact trigger run is not terminal in the API."
+            exit 0
+          fi
           python -B control/scripts/ci_convergence.py \
             --workflow-runs workflow-runs.json \
             --head-sha "${HEAD_SHA}" \
