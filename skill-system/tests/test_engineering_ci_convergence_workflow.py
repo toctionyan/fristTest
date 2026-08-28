@@ -19,7 +19,7 @@ class EngineeringCIConvergenceWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_run:", self.source)
         self.assertIn("- quality", self.source)
         self.assertIn("- skill-self-validation", self.source)
-        self.assertIn("types: [completed]", self.source)
+        self.assertIn("types: [requested, in_progress, completed]", self.source)
         self.assertIn('context "ci-convergence"', self.source)
         self.assertIn('"repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}"', self.source)
         self.assertIn("statuses: write", self.source)
