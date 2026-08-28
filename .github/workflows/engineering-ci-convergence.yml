@@ -1,0 +1,127 @@
+name: engineering-ci-convergence
+
+on:
+  workflow_run:
+    workflows:
+      - quality
+      - skill-self-validation
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: engineering-ci-convergence-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  converge:
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout trusted convergence control plane
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          path: control
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up locked Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Resolve one exact PR head
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${WORKFLOW_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${WORKFLOW_NAME}" == "quality" || "${WORKFLOW_NAME}" == "skill-self-validation" ]]
+          [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > pr.json
+          jq -e \
+            --arg sha "${HEAD_SHA}" \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            '.head.sha == $sha and
+             .head.repo.full_name == $repo and
+             .base.ref == "main"' \
+            pr.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
+            > workflow-runs.json
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "workflow_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "workflow_run_attempt=${WORKFLOW_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "workflow_name=${WORKFLOW_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Reduce exact CI runs to one convergence result
+        env:
+          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.source.outputs.pr_number }}
+          WORKFLOW_RUN_ID: ${{ steps.source.outputs.workflow_run_id }}
+          WORKFLOW_RUN_ATTEMPT: ${{ steps.source.outputs.workflow_run_attempt }}
+          WORKFLOW_NAME: ${{ steps.source.outputs.workflow_name }}
+        run: |
+          set -euo pipefail
+          python -B control/scripts/ci_convergence.py \
+            --workflow-runs workflow-runs.json \
+            --head-sha "${HEAD_SHA}" \
+            --pull-request-number "${PR_NUMBER}" \
+            --trigger-run-id "${WORKFLOW_RUN_ID}" \
+            --trigger-run-attempt "${WORKFLOW_RUN_ATTEMPT}" \
+            --trigger-workflow "${WORKFLOW_NAME}" \
+            --output convergence.json
+          jq -e \
+            '.schema == "ci-convergence@1" and
+             .head_sha == $sha and
+             .pull_request_number == ($pr|tonumber)' \
+            --arg sha "${HEAD_SHA}" --arg pr "${PR_NUMBER}" convergence.json >/dev/null
+          {
+            echo "## CI Convergence"
+            echo
+            jq -r '"Status: `\(.status)`", "Head: `\(.head_sha)`", "Digest: `\(.convergence_digest)`", "", (.checks[] | "- \(.workflow): \(.status)" + (if .run_id then " (run \(.run_id), attempt \(.run_attempt))" else "" end))' convergence.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the stable convergence status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          CONVERGENCE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          state=$(jq -r '.status' convergence.json)
+          case "${state}" in
+            PASS) github_state=success; description="quality and skill-self-validation passed on exact PR head" ;;
+            FAIL) github_state=failure; description="a required CI workflow failed on exact PR head" ;;
+            PENDING) github_state=pending; description="waiting for every required CI workflow on exact PR head" ;;
+            BLOCKED) github_state=failure; description="CI convergence is blocked by ambiguous or mismatched run evidence" ;;
+            *) echo "unknown convergence status: ${state}" >&2; exit 1 ;;
+          esac
+          jq -n \
+            --arg state "${github_state}" \
+            --arg context "ci-convergence" \
+            --arg description "${description}" \
+            --arg target_url "${CONVERGENCE_RUN_URL}" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}' \
+            > status.json
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            --input status.json \
+            > status-response.json
+          jq -e \
+            --arg state "${github_state}" \
+            '.state == $state and .context == "ci-convergence"' \
+            status-response.json >/dev/null
