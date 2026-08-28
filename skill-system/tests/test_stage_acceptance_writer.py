@@ -226,6 +226,32 @@ class StageAcceptanceWriterTests(unittest.TestCase):
         with self.assertRaisesRegex(StageAcceptanceWriteError, "acceptable reducer"):
             self.write_with_decision(blocked)
 
+    def test_reject_human_outcome_cannot_be_reinterpreted_as_acceptance(self) -> None:
+        gate = json.loads(self.gate_path.read_text(encoding="utf-8"))
+        decision_path = self.root / ".harness" / "runtime" / "reject-decision.json"
+        decision_path.write_text(
+            json.dumps(
+                seal_human_decision(
+                    gate,
+                    selected_outcome="REJECT_STAGE2B1",
+                    actor="reviewer",
+                    decided_at="2026-08-28T00:00:00+00:00",
+                )
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(StageAcceptanceWriteError, "did not select stage acceptance"):
+            write_stage_acceptance(
+                self.store,
+                self.decision,
+                expected_binding=self.binding,
+                change_contract=self.contract,
+                change_contract_digest=self.contract_digest,
+                workspace=self.root,
+                human_gate_path=self.gate_path,
+                human_decision_path=decision_path,
+            )
+
     def write_with_decision(self, decision: dict[str, object]) -> dict[str, object]:
         return write_stage_acceptance(
             self.store,
