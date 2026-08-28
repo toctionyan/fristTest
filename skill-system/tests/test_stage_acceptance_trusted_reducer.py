@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import inspect
 import json
@@ -310,6 +311,10 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
         self.assertEqual(decision["status"], ACCEPTABLE_PREVIEW)
         self.assertEqual(validate_trusted_stage_acceptance_decision(decision), decision)
         self.assertGreaterEqual(len(decision["proof_refs"]), 2)
+
+    def test_protected_approval_cannot_be_cloned_with_dataclass_replace(self) -> None:
+        with self.assertRaises(TypeError):
+            replace(self.approval, reviewer_login="attacker")
 
     def test_missing_trust_evidence_is_blocked(self) -> None:
         decision = self._reduce(provenance=None, approval=None)

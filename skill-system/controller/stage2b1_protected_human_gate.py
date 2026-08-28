@@ -334,7 +334,7 @@ class Stage2B1ProtectedApprovalProof:
     review_history: tuple[Mapping[str, Any], ...]
     status: str
     approval_sha256: str
-    _issuer: object = field(default=None, repr=False, compare=False)
+    _issuer: object = field(default=None, init=False, repr=False, compare=False)
 
     def __init__(self, *, _issuer: object, **values: Any) -> None:
         if _issuer is not _PROOF_ISSUER:
