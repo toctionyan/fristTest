@@ -112,6 +112,8 @@ def _validate_success_output(
     signer_workflow = _text(expected["signer_workflow"], field="signer_workflow")
     subject_digest = _text(expected["subject_digest"], field="subject_digest")
     predicate_type = _text(expected["predicate_type"], field="predicate_type")
+    if not signer_workflow.startswith(repository + "/"):
+        raise ExternalIssuerVerificationError("signer_workflow_must_include_repository")
     if not subject_digest.startswith("sha256:") or len(subject_digest) != len("sha256:") + 64:
         raise ExternalIssuerVerificationError("subject_digest_invalid")
     if not isinstance(output, list) or not output:
@@ -186,6 +188,8 @@ def verify_github_artifact_attestation(
     repository = _text(expected["repository"], field="repository")
     signer_workflow = _text(expected["signer_workflow"], field="signer_workflow")
     predicate_type = _text(expected["predicate_type"], field="predicate_type")
+    if not signer_workflow.startswith(repository + "/"):
+        raise ExternalIssuerVerificationError("signer_workflow_must_include_repository")
     command = [
         "gh",
         "attestation",

@@ -125,7 +125,7 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
         )
         self.external_expected = {
             "repository": "toctionyan/fristTest",
-            "signer_workflow": ".github/workflows/quality.yml",
+            "signer_workflow": "toctionyan/fristTest/.github/workflows/quality.yml",
             "subject_digest": self.receipt["artifact"]["digest"],
             "predicate_type": "https://slsa.dev/provenance/v1",
         }
