@@ -22,6 +22,8 @@ if str(CONTROL) not in sys.path:
 
 from stage_acceptance_writer import (  # type: ignore  # noqa: E402
     StageAcceptanceWriteError,
+    TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA,
+    validate_trusted_stage_acceptance_decision,
     write_stage_acceptance,
 )
 from task_run import TaskRunError, TaskRunStore  # type: ignore  # noqa: E402
@@ -79,6 +81,12 @@ def record_stage_acceptance(
     task_payload = _load_object(task_run_path, field="task_run")
     task = TaskRunStore(task_run_path.resolve(), task_payload)
     decision = _load_object(decision_path, field="decision")
+    try:
+        validate_trusted_stage_acceptance_decision(decision)
+    except (TypeError, ValueError) as exc:
+        raise Stage2B1AcceptanceCommandError(
+            f"decision must use {TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA}"
+        ) from exc
     expected_binding = _load_object(expected_binding_path, field="expected_binding")
     change_contract = _load_object(change_contract_path, field="change_contract")
 

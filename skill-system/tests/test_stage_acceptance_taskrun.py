@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import shutil
 import sys
 import tempfile
@@ -16,10 +18,35 @@ from stage_acceptance_taskrun import (
     STAGE_ACCEPTANCE_BLOCKED_PHASE,
     STAGE_ACCEPTANCE_PREVIEW_PHASE,
     StageAcceptanceTaskRunError,
+    TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA,
     project_stage_acceptance_to_taskrun,
 )
 from stage_evidence_receipt import build_stage_evidence_receipt
 from task_run import TaskRunStore
+
+
+def trusted_decision(
+    raw: dict[str, object],
+    proof_refs: list[str] | None = None,
+) -> dict[str, object]:
+    body = {
+        "schema": TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA,
+        "input_digest": raw["input_digest"],
+        "status": raw["status"],
+        "reasons": list(raw["reasons"]),  # type: ignore[arg-type]
+        "receipt_refs": list(raw["receipt_refs"]),  # type: ignore[arg-type]
+        "proof_refs": proof_refs or [
+            "provenance:test",
+            "external-issuer:test",
+            "protected-approval:test",
+        ],
+    }
+    body["decision_id"] = "sha256:" + hashlib.sha256(
+        json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return body
 
 
 class StageAcceptanceTaskRunTests(unittest.TestCase):
@@ -54,7 +81,7 @@ class StageAcceptanceTaskRunTests(unittest.TestCase):
             policy="stage2b1-p3-evidence-receipt@1",
         )
 
-    def decision(self, *, result: str = "PASS") -> dict[str, object]:
+    def raw_decision(self, *, result: str = "PASS") -> dict[str, object]:
         receipt = self.receipt()
         if result != "PASS":
             receipt = build_stage_evidence_receipt(
@@ -77,6 +104,9 @@ class StageAcceptanceTaskRunTests(unittest.TestCase):
                 }
             },
         )
+
+    def decision(self, *, result: str = "PASS") -> dict[str, object]:
+        return trusted_decision(self.raw_decision(result=result))
 
     def project(self, decision: dict[str, object]) -> dict[str, object]:
         return project_stage_acceptance_to_taskrun(
@@ -185,6 +215,31 @@ class StageAcceptanceTaskRunTests(unittest.TestCase):
         with self.assertRaisesRegex(StageAcceptanceTaskRunError, "terminal TaskRun"):
             self.project(self.decision())
         self.assertEqual(self.store.payload, before)
+
+    def test_legacy_v1_decision_is_rejected_without_mutation(self) -> None:
+        before = copy.deepcopy(self.store.payload)
+        with self.assertRaisesRegex(StageAcceptanceTaskRunError, "decision is invalid"):
+            self.project(self.raw_decision())
+        self.assertEqual(self.store.payload, before)
+
+    def test_untrusted_or_incomplete_proof_refs_are_rejected_without_mutation(self) -> None:
+        for proof_refs in (
+            ["provenance:test", "external-issuer:test"],
+            [
+                "provenance:test",
+                "external-issuer:test",
+                "protected-approval:test",
+                "receipt:untrusted",
+            ],
+        ):
+            with self.subTest(proof_refs=proof_refs):
+                before = copy.deepcopy(self.store.payload)
+                with self.assertRaisesRegex(
+                    StageAcceptanceTaskRunError,
+                    "decision is invalid",
+                ):
+                    self.project(trusted_decision(self.raw_decision(), proof_refs))
+                self.assertEqual(self.store.payload, before)
 
 
 if __name__ == "__main__":

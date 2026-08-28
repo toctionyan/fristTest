@@ -27,6 +27,27 @@ from task_run import TaskRunStore  # noqa: E402
 from durable_human_gate import seal_human_decision  # noqa: E402
 
 
+def trusted_decision(raw: dict[str, object]) -> dict[str, object]:
+    body = {
+        "schema": "stage-acceptance-decision@2",
+        "input_digest": raw["input_digest"],
+        "status": raw["status"],
+        "reasons": list(raw["reasons"]),  # type: ignore[arg-type]
+        "receipt_refs": list(raw["receipt_refs"]),  # type: ignore[arg-type]
+        "proof_refs": [
+            "provenance:test",
+            "external-issuer:test",
+            "protected-approval:test",
+        ],
+    }
+    body["decision_id"] = "sha256:" + hashlib.sha256(
+        json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return body
+
+
 class StageAcceptanceWriterTests(unittest.TestCase):
     binding = {
         "stage_id": "stage2b1",
@@ -95,7 +116,7 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             producer="quality",
             policy="stage2b1-p3-evidence-receipt@1",
         )
-        self.decision = reduce_stage_acceptance(
+        self.raw_decision = reduce_stage_acceptance(
             [receipt],
             required_receipt_ids=["artifact-1"],
             **self.binding,
@@ -107,6 +128,7 @@ class StageAcceptanceWriterTests(unittest.TestCase):
                 }
             },
         )
+        self.decision = trusted_decision(self.raw_decision)
         project_stage_acceptance_to_taskrun(
             self.store,
             self.decision,
@@ -174,6 +196,12 @@ class StageAcceptanceWriterTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(StageAcceptanceWriteError, "ambiguous"):
             self.write()
+
+    def test_legacy_v1_decision_is_rejected_without_mutation(self) -> None:
+        before = copy.deepcopy(self.store.payload)
+        with self.assertRaisesRegex(StageAcceptanceWriteError, "decision is invalid"):
+            self.write_with_decision(self.raw_decision)
+        self.assertEqual(self.store.payload, before)
 
     def test_contract_is_only_read_and_digest_is_bound(self) -> None:
         path = ROOT / "governance" / "active-change.json"
@@ -243,7 +271,7 @@ class StageAcceptanceWriterTests(unittest.TestCase):
             producer="quality",
             policy="stage2b1-p3-evidence-receipt@1",
         )
-        blocked = reduce_stage_acceptance(
+        blocked = trusted_decision(reduce_stage_acceptance(
             [receipt],
             required_receipt_ids=["artifact-1"],
             **self.binding,
@@ -254,7 +282,7 @@ class StageAcceptanceWriterTests(unittest.TestCase):
                     "policy": receipt["policy"],
                 }
             },
-        )
+        ))
         with self.assertRaisesRegex(StageAcceptanceWriteError, "acceptable reducer"):
             self.write_with_decision(blocked)
 

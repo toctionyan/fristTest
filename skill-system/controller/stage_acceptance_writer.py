@@ -18,9 +18,12 @@ from contract import validate_contract_payload
 from durable_human_gate import validate_gate_contract, validate_human_decision
 from stage_acceptance_reducer import (
     ACCEPTABLE_PREVIEW,
-    validate_stage_acceptance_decision,
+    TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA,
+    validate_trusted_stage_acceptance_decision,
 )
-from stage_acceptance_taskrun import STAGE_ACCEPTANCE_PREVIEW_PHASE
+from stage_acceptance_taskrun import (
+    STAGE_ACCEPTANCE_PREVIEW_PHASE,
+)
 from task_run import TERMINAL_STATUSES, TaskRunStore, evaluate_completion
 
 
@@ -296,7 +299,7 @@ def write_stage_acceptance(
     """
 
     try:
-        validated_decision = validate_stage_acceptance_decision(decision)
+        validated_decision = validate_trusted_stage_acceptance_decision(decision)
     except (TypeError, ValueError) as exc:
         raise StageAcceptanceWriteError("stage acceptance decision is invalid") from exc
     if validated_decision["status"] != ACCEPTABLE_PREVIEW:
@@ -390,7 +393,9 @@ def write_stage_acceptance(
 __all__ = [
     "STAGE_ACCEPTANCE_WRITE_SCHEMA",
     "STAGE_ACCEPTED_CONDITION",
+    "TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA",
     "StageAcceptanceWriteError",
     "contract_digest",
+    "validate_trusted_stage_acceptance_decision",
     "write_stage_acceptance",
 ]

@@ -27,6 +27,27 @@ from stage2b1_acceptance_inputs import (  # noqa: E402
 from task_run import TaskRunStore  # noqa: E402
 
 
+def trusted_decision(raw: dict[str, object]) -> dict[str, object]:
+    body = {
+        "schema": "stage-acceptance-decision@2",
+        "input_digest": raw["input_digest"],
+        "status": raw["status"],
+        "reasons": list(raw["reasons"]),  # type: ignore[arg-type]
+        "receipt_refs": list(raw["receipt_refs"]),  # type: ignore[arg-type]
+        "proof_refs": [
+            "provenance:test",
+            "external-issuer:test",
+            "protected-approval:test",
+        ],
+    }
+    body["decision_id"] = "sha256:" + hashlib.sha256(
+        json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    return body
+
+
 class Stage2B1AcceptanceE2ETests(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="stage2b1-acceptance-e2e-"))
@@ -123,7 +144,7 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
             producer="quality",
             policy="stage2b1-p3-evidence-receipt@1",
         )
-        decision = reduce_stage_acceptance(
+        self.raw_decision = reduce_stage_acceptance(
             [receipt],
             required_receipt_ids=["stage2b1-e2e-artifact"],
             **self.binding,
@@ -135,6 +156,7 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
                 }
             },
         )
+        decision = trusted_decision(self.raw_decision)
         self.assertEqual(decision["status"], "ACCEPTABLE_PREVIEW")
         project_stage_acceptance_to_taskrun(
             self.store,
@@ -228,6 +250,18 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
         persisted.reload()
         self.assertEqual(persisted.payload["revision"], revision)
         self.assertFalse(persisted.completion_decision().eligible)
+
+    def test_real_cli_rejects_legacy_v1_decision_without_mutation(self) -> None:
+        decision_path = self.package_path / "decision.json"
+        decision_path.write_text(
+            json.dumps(self.raw_decision),
+            encoding="utf-8",
+        )
+        before = self.acceptance_task_path.read_bytes()
+        result = self._invoke()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("stage-acceptance-decision@2", result.stderr)
+        self.assertEqual(self.acceptance_task_path.read_bytes(), before)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,8 @@ from typing import Any, Iterable, Mapping
 from stage_acceptance_reducer import (
     ACCEPTABLE_PREVIEW,
     BLOCKED,
-    validate_stage_acceptance_decision,
+    TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA,
+    validate_trusted_stage_acceptance_decision,
 )
 from task_run import TERMINAL_STATUSES, TaskRunStore
 
@@ -137,7 +138,7 @@ def project_stage_acceptance_to_taskrun(
     """
 
     try:
-        validated = validate_stage_acceptance_decision(decision)
+        validated = validate_trusted_stage_acceptance_decision(decision)
     except (TypeError, ValueError) as exc:
         raise StageAcceptanceTaskRunError("stage acceptance decision is invalid") from exc
     if validated["status"] not in {ACCEPTABLE_PREVIEW, BLOCKED}:
@@ -216,6 +217,8 @@ def project_stage_acceptance_to_taskrun(
 __all__ = [
     "STAGE_ACCEPTANCE_BLOCKED_PHASE",
     "STAGE_ACCEPTANCE_PREVIEW_PHASE",
+    "TRUSTED_STAGE_ACCEPTANCE_DECISION_SCHEMA",
     "StageAcceptanceTaskRunError",
     "project_stage_acceptance_to_taskrun",
+    "validate_trusted_stage_acceptance_decision",
 ]
