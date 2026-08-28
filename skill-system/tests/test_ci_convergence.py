@@ -13,7 +13,11 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from ci_convergence import CIConvergenceError, reduce_ci_convergence  # noqa: E402
+from ci_convergence import (  # noqa: E402
+    CIConvergenceError,
+    build_source_convergence,
+    reduce_ci_convergence,
+)
 
 
 HEAD = "a" * 40
@@ -35,6 +39,47 @@ def run(run_id: int, name: str, *, status: str = "completed", conclusion: str = 
 
 
 class CIConvergenceTests(unittest.TestCase):
+    def test_source_gap_is_a_deterministic_fail_closed_result(self) -> None:
+        first = build_source_convergence(
+            head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
+            pull_request_number=None,
+            trigger_run_id=101,
+            trigger_run_attempt=1,
+            trigger_workflow="quality",
+            status="BLOCKED",
+            reason="no_exact_open_pr_candidate",
+        )
+        second = build_source_convergence(
+            head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
+            pull_request_number=None,
+            trigger_run_id=101,
+            trigger_run_attempt=1,
+            trigger_workflow="quality",
+            status="BLOCKED",
+            reason="no_exact_open_pr_candidate",
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(first["schema"], "ci-convergence@2")
+        self.assertEqual(first["status"], "BLOCKED")
+        self.assertIsNone(first["pull_request_number"])
+        self.assertIn("source:no_exact_open_pr_candidate", first["reasons"])
+
+    def test_source_gap_rejects_success_and_unknown_statuses(self) -> None:
+        for status in ("PASS", "FAIL", "STALE_EVENT", ""):
+            with self.assertRaises(CIConvergenceError):
+                build_source_convergence(
+                    head_sha=HEAD,
+                    control_plane_ref=CONTROL_PLANE,
+                    pull_request_number=None,
+                    trigger_run_id=101,
+                    trigger_run_attempt=1,
+                    trigger_workflow="quality",
+                    status=status,
+                    reason="source_gap",
+                )
+
     def test_exact_success_is_pass_and_deterministic(self) -> None:
         rows = [run(101, "quality"), run(102, "skill-self-validation")]
         first = reduce_ci_convergence(

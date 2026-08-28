@@ -19,6 +19,7 @@ REQUIRED_WORKFLOW_PATHS = {
     "skill-self-validation": ".github/workflows/skill-self-validation.yml",
 }
 STALE_EVENT = "STALE_EVENT"
+SOURCE_STATUSES = frozenset({"PENDING", "BLOCKED"})
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -78,6 +79,71 @@ def _matching_runs(
         and row.get("head_sha") == head_sha
         and pull_request_number in _pull_request_numbers(row)
     ]
+
+
+def build_source_convergence(
+    *,
+    head_sha: object,
+    control_plane_ref: object,
+    pull_request_number: object | None,
+    trigger_run_id: object,
+    trigger_run_attempt: object,
+    trigger_workflow: object,
+    status: object,
+    reason: object,
+) -> dict[str, Any]:
+    """Build a deterministic result when source evidence is unavailable.
+
+    The workflow must publish a fail-closed status for an evidence gap instead
+    of silently leaving an older ``ci-convergence`` success in place.
+    """
+
+    exact_sha = _sha(head_sha, field="head_sha")
+    exact_control_plane_ref = _sha(control_plane_ref, field="control_plane_ref")
+    exact_trigger_id = _positive_int(trigger_run_id, field="trigger_run_id")
+    exact_trigger_attempt = _positive_int(
+        trigger_run_attempt, field="trigger_run_attempt"
+    )
+    exact_trigger_workflow = str(trigger_workflow or "")
+    if exact_trigger_workflow not in REQUIRED_WORKFLOWS:
+        raise CIConvergenceError("trigger_workflow is not required")
+    exact_status = str(status or "")
+    if exact_status not in SOURCE_STATUSES:
+        raise CIConvergenceError("source status is not fail-closed")
+    exact_reason = str(reason or "")
+    if not exact_reason:
+        raise CIConvergenceError("source reason must not be empty")
+    if pull_request_number in (None, ""):
+        pr_number: int | None = None
+    else:
+        pr_number = _positive_int(pull_request_number, field="pull_request_number")
+    checks = {
+        workflow: {
+            "workflow": workflow,
+            "status": exact_status,
+            "reason": exact_reason,
+        }
+        for workflow in REQUIRED_WORKFLOWS
+    }
+    result: dict[str, Any] = {
+        "schema": SCHEMA,
+        "head_sha": exact_sha,
+        "control_plane_ref": exact_control_plane_ref,
+        "pull_request_number": pr_number,
+        "trigger": {
+            "workflow": exact_trigger_workflow,
+            "run_id": exact_trigger_id,
+            "run_attempt": exact_trigger_attempt,
+        },
+        "status": exact_status,
+        "checks": checks,
+        "reasons": [f"source:{exact_reason}"],
+    }
+    canonical = json.dumps(
+        result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    result["convergence_digest"] = "sha256:" + hashlib.sha256(canonical).hexdigest()
+    return result
 
 
 def _check_for_runs(
@@ -287,10 +353,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow-runs", required=True, type=Path)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--control-plane-ref", required=True)
-    parser.add_argument("--pull-request-number", required=True)
+    parser.add_argument("--pull-request-number")
     parser.add_argument("--trigger-run-id", required=True)
     parser.add_argument("--trigger-run-attempt", required=True)
     parser.add_argument("--trigger-workflow", required=True)
+    parser.add_argument("--source-status", choices=sorted(SOURCE_STATUSES))
+    parser.add_argument("--source-reason")
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -302,15 +370,31 @@ def main(argv: list[str] | None = None) -> int:
         rows = payload.get("workflow_runs") if isinstance(payload, Mapping) else payload
         if not isinstance(rows, list):
             raise CIConvergenceError("workflow-runs input must contain a list")
-        result = reduce_ci_convergence(
-            rows,
-            head_sha=args.head_sha,
-            control_plane_ref=args.control_plane_ref,
-            pull_request_number=args.pull_request_number,
-            trigger_run_id=args.trigger_run_id,
-            trigger_run_attempt=args.trigger_run_attempt,
-            trigger_workflow=args.trigger_workflow,
-        )
+        if args.source_status:
+            result = build_source_convergence(
+                head_sha=args.head_sha,
+                control_plane_ref=args.control_plane_ref,
+                pull_request_number=args.pull_request_number,
+                trigger_run_id=args.trigger_run_id,
+                trigger_run_attempt=args.trigger_run_attempt,
+                trigger_workflow=args.trigger_workflow,
+                status=args.source_status,
+                reason=args.source_reason,
+            )
+        else:
+            if args.pull_request_number is None:
+                raise CIConvergenceError(
+                    "pull_request_number is required for workflow-run reduction"
+                )
+            result = reduce_ci_convergence(
+                rows,
+                head_sha=args.head_sha,
+                control_plane_ref=args.control_plane_ref,
+                pull_request_number=args.pull_request_number,
+                trigger_run_id=args.trigger_run_id,
+                trigger_run_attempt=args.trigger_run_attempt,
+                trigger_workflow=args.trigger_workflow,
+            )
         encoded = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         if args.output:
             args.output.write_text(encoded, encoding="utf-8")

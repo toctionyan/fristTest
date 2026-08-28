@@ -58,11 +58,42 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${WORKFLOW_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${WORKFLOW_NAME}" == "quality" || "${WORKFLOW_NAME}" == "skill-self-validation" ]]
-          [[ "${EVENT_ACTION}" == "requested" || "${EVENT_ACTION}" == "in_progress" || "${EVENT_ACTION}" == "completed" ]]
-          [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          source_ready=false
+          source_status=BLOCKED
+          source_block_reason=source_not_resolved
+          PR_NUMBER=""
+          trigger_run_status=""
+          trigger_run_attempt_observed=""
+          run_snapshot_found=false
+          printf '[]\n' > workflow-runs.json
+
+          emit_source_outputs() {
+            {
+              echo "head_sha=${HEAD_SHA}"
+              echo "pr_number=${PR_NUMBER}"
+              echo "workflow_run_id=${WORKFLOW_RUN_ID}"
+              echo "workflow_run_attempt=${WORKFLOW_RUN_ATTEMPT}"
+              echo "workflow_name=${WORKFLOW_NAME}"
+              echo "event_action=${EVENT_ACTION}"
+              echo "trigger_run_status=${trigger_run_status}"
+              echo "trigger_run_attempt_observed=${trigger_run_attempt_observed}"
+              echo "trigger_state=${trigger_state:-unavailable}"
+              echo "run_snapshot_found=${run_snapshot_found}"
+              echo "source_ready=${source_ready}"
+              echo "source_status=${source_status}"
+              echo "source_block_reason=${source_block_reason}"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          if ! [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]] || \
+             ! [[ "${WORKFLOW_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]] || \
+             ! [[ "${WORKFLOW_NAME}" == "quality" || "${WORKFLOW_NAME}" == "skill-self-validation" ]] || \
+             ! [[ "${EVENT_ACTION}" == "requested" || "${EVENT_ACTION}" == "in_progress" || "${EVENT_ACTION}" == "completed" ]] || \
+             ! [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            source_block_reason=invalid_workflow_run_event
+            emit_source_outputs
+            exit 0
+          fi
           pr_candidates_ready=false
           for retry in 1 2 3 4 5; do
             if gh api --paginate \
@@ -77,6 +108,11 @@ jobs:
                               .head.repo.full_name == $repo and
                               .head.sha == $sha))' \
                 > pr-candidates.json; then
+              pr_count=$(jq 'length' pr-candidates.json)
+              if [[ "${pr_count}" == "0" && "${retry}" -lt 5 ]]; then
+                sleep 5
+                continue
+              fi
               pr_candidates_ready=true
               break
             fi
@@ -85,18 +121,22 @@ jobs:
             fi
           done
           if [[ "${pr_candidates_ready}" != "true" ]]; then
-            echo "source_ready=false" >> "$GITHUB_OUTPUT"
-            echo "source_block_reason=pr_lookup_unavailable_after_bounded_retries" >> "$GITHUB_OUTPUT"
+            source_block_reason=pr_lookup_unavailable_after_bounded_retries
+            emit_source_outputs
             exit 0
           fi
           pr_count=$(jq 'length' pr-candidates.json)
           if [[ "${pr_count}" != "1" ]]; then
-            echo "source_ready=false" >> "$GITHUB_OUTPUT"
-            echo "source_block_reason=expected_one_exact_open_pr" >> "$GITHUB_OUTPUT"
+            source_block_reason=expected_one_exact_open_pr
+            emit_source_outputs
             exit 0
           fi
           PR_NUMBER=$(jq -r 'map(.number | tostring) | join("")' pr-candidates.json)
-          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+          if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            source_block_reason=invalid_exact_pr_candidate
+            emit_source_outputs
+            exit 0
+          fi
 
           trigger_state=unavailable
           for retry in 1 2 3 4 5; do
@@ -127,8 +167,8 @@ jobs:
             fi
           done
           if [[ "${trigger_state}" == "unavailable" ]]; then
-            echo "source_ready=false" >> "$GITHUB_OUTPUT"
-            echo "source_block_reason=exact_trigger_run_unavailable_after_bounded_retries" >> "$GITHUB_OUTPUT"
+            source_block_reason=exact_trigger_run_unavailable_after_bounded_retries
+            emit_source_outputs
             exit 0
           fi
           run_snapshot_found=false
@@ -148,24 +188,42 @@ jobs:
               fi
             done
           fi
-          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
-          echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "workflow_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
-          echo "workflow_run_attempt=${WORKFLOW_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-          echo "workflow_name=${WORKFLOW_NAME}" >> "$GITHUB_OUTPUT"
-          echo "event_action=${EVENT_ACTION}" >> "$GITHUB_OUTPUT"
-          echo "trigger_run_status=$(jq -r '.status' trigger-run.json)" >> "$GITHUB_OUTPUT"
-          echo "trigger_run_attempt_observed=$(jq -r '.run_attempt' trigger-run.json)" >> "$GITHUB_OUTPUT"
-          echo "trigger_state=${trigger_state}" >> "$GITHUB_OUTPUT"
-          echo "run_snapshot_found=${run_snapshot_found}" >> "$GITHUB_OUTPUT"
-          echo "source_ready=true" >> "$GITHUB_OUTPUT"
+          if [[ "${trigger_state}" == "stale" ]]; then
+            source_ready=true
+            source_status=BLOCKED
+            source_block_reason=stale_trigger_event
+            emit_source_outputs
+            exit 0
+          fi
+          if [[ "${run_snapshot_found}" != "true" ]]; then
+            if [[ "${EVENT_ACTION}" == "completed" ]]; then
+              source_status=BLOCKED
+              source_block_reason=exact_workflow_run_snapshot_not_visible_for_completed_event
+            else
+              source_status=PENDING
+              source_block_reason=exact_workflow_run_snapshot_not_visible
+            fi
+            emit_source_outputs
+            exit 0
+          fi
+          source_ready=true
+          source_status=PENDING
+          source_block_reason=""
+          trigger_run_status=$(jq -r '.status // empty' trigger-run.json)
+          trigger_run_attempt_observed=$(jq -r '.run_attempt // empty' trigger-run.json)
+          emit_source_outputs
 
       - name: Reduce exact CI runs to one convergence result
         id: reduce
-        if: ${{ steps.source.outputs.source_ready == 'true' && steps.control.outputs.control_plane_ready == 'true' }}
+        if: ${{ always() }}
         env:
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONTROL_PLANE_REF: ${{ github.workflow_sha }}
+          CONTROL_PLANE_READY: ${{ steps.control.outputs.control_plane_ready }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          EVENT_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}
-          CONTROL_PLANE_REF: ${{ steps.control.outputs.control_plane_ref }}
           PR_NUMBER: ${{ steps.source.outputs.pr_number }}
           WORKFLOW_RUN_ID: ${{ steps.source.outputs.workflow_run_id }}
           WORKFLOW_RUN_ATTEMPT: ${{ steps.source.outputs.workflow_run_attempt }}
@@ -175,12 +233,47 @@ jobs:
           TRIGGER_RUN_STATUS: ${{ steps.source.outputs.trigger_run_status }}
           TRIGGER_RUN_ATTEMPT_OBSERVED: ${{ steps.source.outputs.trigger_run_attempt_observed }}
           RUN_SNAPSHOT_FOUND: ${{ steps.source.outputs.run_snapshot_found }}
+          SOURCE_READY: ${{ steps.source.outputs.source_ready }}
+          SOURCE_STATUS: ${{ steps.source.outputs.source_status }}
+          SOURCE_BLOCK_REASON: ${{ steps.source.outputs.source_block_reason }}
         run: |
           set -euo pipefail
           echo "publish=false" >> "$GITHUB_OUTPUT"
-          if [[ "${RUN_SNAPSHOT_FOUND}" != "true" ]]; then
-            echo "Exact workflow-run snapshot was not visible after bounded retries; no status update published."
+          HEAD_SHA="${EVENT_HEAD_SHA}"
+          WORKFLOW_RUN_ID="${WORKFLOW_RUN_ID:-${EVENT_RUN_ID}}"
+          WORKFLOW_RUN_ATTEMPT="${WORKFLOW_RUN_ATTEMPT:-${EVENT_RUN_ATTEMPT}}"
+          WORKFLOW_NAME="${WORKFLOW_NAME:-${EVENT_WORKFLOW_NAME}}"
+          if [[ "${CONTROL_PLANE_READY}" != "true" ]]; then
+            SOURCE_READY=false
+            SOURCE_STATUS=BLOCKED
+            SOURCE_BLOCK_REASON=control_plane_verification_failed
+          fi
+          if [[ "${TRIGGER_STATE:-}" == "stale" ]]; then
+            echo "Ignoring stale workflow_run event; no status update published."
             exit 0
+          fi
+          if [[ "${SOURCE_READY}" != "true" ]]; then
+            source_status="${SOURCE_STATUS:-BLOCKED}"
+            if [[ "${source_status}" != "PENDING" && "${source_status}" != "BLOCKED" ]]; then
+              source_status=BLOCKED
+            fi
+            python -B control/scripts/ci_convergence.py \
+              --workflow-runs workflow-runs.json \
+              --head-sha "${HEAD_SHA}" \
+              --control-plane-ref "${CONTROL_PLANE_REF}" \
+              --pull-request-number "${PR_NUMBER:-}" \
+              --trigger-run-id "${WORKFLOW_RUN_ID}" \
+              --trigger-run-attempt "${WORKFLOW_RUN_ATTEMPT}" \
+              --trigger-workflow "${WORKFLOW_NAME}" \
+              --source-status "${source_status}" \
+              --source-reason "${SOURCE_BLOCK_REASON:-source_evidence_unavailable}" \
+              --output convergence.json
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "${RUN_SNAPSHOT_FOUND}" != "true" ]]; then
+            echo "source output was ready without an exact workflow-run snapshot" >&2
+            exit 1
           fi
           if [[ "${TRIGGER_STATE}" != "exact" ]]; then
             echo "Ignoring stale or unavailable workflow_run event; no status update published."
@@ -226,7 +319,7 @@ jobs:
         if: ${{ steps.reduce.outputs.publish == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           CONVERGENCE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
