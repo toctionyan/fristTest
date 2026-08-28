@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 
@@ -139,6 +142,21 @@ class Stage2B1AcceptanceWorkflowTests(unittest.TestCase):
         for fragment in ("sort_by(.created_at)", "| .[0]", "latest", "gh workflow run", "acceptance-inputs"):
             self.assertNotIn(fragment, self.source)
         self.assertNotIn("governed-stage2b1-acceptance-inputs.yml", self.source)
+
+    def test_read_only_verifier_import_does_not_require_langgraph(self) -> None:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(ROOT / "scripts"), str(ROOT / "skill-system" / "controller")]
+        )
+        completed = subprocess.run(
+            [sys.executable, "-S", "-c", "import stage2b1_acceptance"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":
