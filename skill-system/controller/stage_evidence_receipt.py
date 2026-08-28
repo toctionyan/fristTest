@@ -41,6 +41,13 @@ _ARTIFACT_FIELDS = frozenset({"id", "digest"})
 _COMMIT_REF = re.compile(r"git-commit-sha1:[0-9a-f]{40}\Z")
 _SHA256_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
+TRUSTED_PRODUCER_ISSUERS = {
+    "github-actions": "github-actions",
+    "quality": "github-actions",
+    "skill-self-validation": "github-actions",
+}
+TRUSTED_POLICIES = frozenset({"stage2b1-p3-evidence-receipt@1"})
+
 
 class StageEvidenceReceiptError(ValueError):
     """Raised when a stage evidence receipt is absent, malformed, or stale."""

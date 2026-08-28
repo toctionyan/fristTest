@@ -16,7 +16,7 @@ from stage_acceptance_reducer import (  # type: ignore
     reduce_stage_acceptance,
     validate_stage_acceptance_decision,
 )
-from stage_evidence_receipt import build_stage_evidence_receipt  # type: ignore
+from stage_evidence_receipt import build_stage_evidence_receipt, receipt_digest  # type: ignore
 
 
 class StageAcceptanceReducerTests(unittest.TestCase):
@@ -89,6 +89,15 @@ class StageAcceptanceReducerTests(unittest.TestCase):
         decision = self.reduce([self.receipt("artifact-a", result="FAIL")])
         self.assertEqual(decision["status"], BLOCKED)
         self.assertTrue(any("receipt_result_not_pass" in item for item in decision["reasons"]))
+
+    def test_untrusted_producer_and_policy_are_blocked(self) -> None:
+        receipt = self.receipt("artifact-a", policy="caller-invented@1")
+        receipt["producer"] = "untrusted-caller"
+        receipt["receipt_digest"] = receipt_digest(receipt)
+        decision = self.reduce([receipt])
+        self.assertEqual(decision["status"], BLOCKED)
+        self.assertIn("receipt_producer_untrusted:artifact-a", decision["reasons"])
+        self.assertIn("receipt_policy_untrusted:artifact-a", decision["reasons"])
 
     def test_shared_binding_mismatches_are_blocked(self) -> None:
         cases = (
