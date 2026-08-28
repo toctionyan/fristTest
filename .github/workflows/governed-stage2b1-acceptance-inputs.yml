@@ -109,6 +109,19 @@ jobs:
           [[ "${SOURCE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
           mkdir -p incoming
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
+          expected_source_ref=""
+          case "${SOURCE_REF}" in
+            refs/heads/*)
+              expected_source_ref="refs/heads/$(jq -r '.head_branch // empty' incoming/source-run.json)"
+              ;;
+            refs/tags/*)
+              expected_source_ref="refs/tags/$(jq -r '.head_branch // empty' incoming/source-run.json)"
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+          [[ "${expected_source_ref}" == "${SOURCE_REF}" ]]
           jq -e \
             --arg run_id "${SOURCE_RUN_ID}" \
             --arg attempt "${SOURCE_RUN_ATTEMPT}" \
@@ -125,7 +138,6 @@ jobs:
              (.workflow_id|tostring) == $workflow_id and
              .path == $workflow_path and
              .event == $event and
-             ("refs/heads/" + .head_branch) == $source_ref and
              .head_sha == $head_sha and
              .repository.full_name == $repository and
              .head_repository.full_name == $repository' \

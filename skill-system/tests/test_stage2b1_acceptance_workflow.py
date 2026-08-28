@@ -31,6 +31,10 @@ class Stage2B1AcceptanceWorkflowTests(unittest.TestCase):
         self.assertIn('name == "stage2b1-acceptance-inputs"', self.source)
         self.assertIn('(.workflow_run.id|tostring) == $run_id', self.source)
         self.assertIn('PACKAGE_RUN_ID: ${{ inputs.package_run_id }}', self.source)
+        self.assertIn('source_ref_matches()', self.source)
+        self.assertIn('refs/tags/*)', self.source)
+        self.assertNotIn('refs/heads/" + $source[0].head_branch', self.source)
+        self.assertNotIn('refs/heads/" + $package[0].head_branch', self.source)
 
     def test_workflow_never_discovers_latest_artifacts_or_dispatches_workflows(self) -> None:
         forbidden = (

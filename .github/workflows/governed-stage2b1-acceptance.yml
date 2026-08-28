@@ -161,6 +161,21 @@ jobs:
              (.files|sort) == ["change-contract.json","decision.json","expected-binding.json","human-decision.json","human-gate.json","task-run.json"] and
              ((.artifacts|keys)|sort) == .files' \
             incoming/acceptance/manifest.json >/dev/null
+          source_ref_matches() {
+            local actual_ref="$1"
+            local head_branch="$2"
+            case "${actual_ref}" in
+              refs/heads/*) [[ "${actual_ref}" == "refs/heads/${head_branch}" ]] ;;
+              refs/tags/*) [[ "${actual_ref}" == "refs/tags/${head_branch}" ]] ;;
+              *) return 1 ;;
+            esac
+          }
+          source_ref_matches \
+            "$(jq -r '.source.ref // empty' incoming/acceptance/manifest.json)" \
+            "$(jq -r '.head_branch // empty' incoming/source-run.json)"
+          source_ref_matches \
+            "$(jq -r '.producer.ref // empty' incoming/acceptance/manifest.json)" \
+            "$(jq -r '.head_branch // empty' incoming/package-run.json)"
           jq -e \
             --slurpfile source incoming/source-run.json \
             --slurpfile package incoming/package-run.json \
@@ -168,7 +183,6 @@ jobs:
              .source.workflow_id == $source[0].workflow_id and
              .source.workflow_path == $source[0].path and
              .source.event == $source[0].event and
-             .source.ref == ("refs/heads/" + $source[0].head_branch) and
              .source.head_sha == $source[0].head_sha and
              .source.run_id == $source[0].id and
              .source.run_attempt == $source[0].run_attempt and
@@ -176,7 +190,6 @@ jobs:
              .producer.workflow_id == $package[0].workflow_id and
              .producer.workflow_path == ".github/workflows/governed-stage2b1-acceptance-inputs.yml" and
              .producer.event == "workflow_dispatch" and
-             .producer.ref == ("refs/heads/" + $package[0].head_branch) and
              .producer.head_sha == $package[0].head_sha and
              .producer.run_id == $package[0].id and
              .producer.run_attempt == $package[0].run_attempt' \

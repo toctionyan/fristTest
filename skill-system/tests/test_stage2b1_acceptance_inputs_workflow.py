@@ -36,6 +36,8 @@ class Stage2B1AcceptanceInputsWorkflowTests(unittest.TestCase):
         self.assertIn('[[ "${GITHUB_REF}" == "refs/heads/main" ]]', self.source)
         self.assertIn('(.workflow_run.id|tostring) == $run_id', self.source)
         self.assertIn('(.workflow_id|tostring) == $workflow_id', self.source)
+        self.assertIn('refs/tags/*)', self.source)
+        self.assertIn('expected_source_ref', self.source)
         self.assertIn('archive_digest', self.source)
         self.assertIn('content_digest', self.source)
 
