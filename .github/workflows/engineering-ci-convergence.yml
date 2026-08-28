@@ -65,6 +65,7 @@ jobs:
           trigger_run_status=""
           trigger_run_attempt_observed=""
           run_snapshot_found=false
+          source_status_publish_allowed=false
           printf '[]\n' > workflow-runs.json
 
           emit_source_outputs() {
@@ -79,6 +80,7 @@ jobs:
               echo "trigger_run_attempt_observed=${trigger_run_attempt_observed}"
               echo "trigger_state=${trigger_state:-unavailable}"
               echo "run_snapshot_found=${run_snapshot_found}"
+              echo "source_status_publish_allowed=${source_status_publish_allowed}"
               echo "source_ready=${source_ready}"
               echo "source_status=${source_status}"
               echo "source_block_reason=${source_block_reason}"
@@ -127,6 +129,9 @@ jobs:
           fi
           pr_count=$(jq 'length' pr-candidates.json)
           if [[ "${pr_count}" != "1" ]]; then
+            if [[ "${pr_count}" -gt 1 ]]; then
+              source_status_publish_allowed=true
+            fi
             source_block_reason=expected_one_exact_open_pr
             emit_source_outputs
             exit 0
@@ -189,6 +194,7 @@ jobs:
             done
           fi
           if [[ "${trigger_state}" == "stale" ]]; then
+            source_status_publish_allowed=false
             source_ready=true
             source_status=BLOCKED
             source_block_reason=stale_trigger_event
@@ -196,6 +202,7 @@ jobs:
             exit 0
           fi
           if [[ "${run_snapshot_found}" != "true" ]]; then
+            source_status_publish_allowed=false
             if [[ "${EVENT_ACTION}" == "completed" ]]; then
               source_status=BLOCKED
               source_block_reason=exact_workflow_run_snapshot_not_visible_for_completed_event
@@ -233,6 +240,7 @@ jobs:
           TRIGGER_RUN_STATUS: ${{ steps.source.outputs.trigger_run_status }}
           TRIGGER_RUN_ATTEMPT_OBSERVED: ${{ steps.source.outputs.trigger_run_attempt_observed }}
           RUN_SNAPSHOT_FOUND: ${{ steps.source.outputs.run_snapshot_found }}
+          SOURCE_STATUS_PUBLISH_ALLOWED: ${{ steps.source.outputs.source_status_publish_allowed }}
           SOURCE_READY: ${{ steps.source.outputs.source_ready }}
           SOURCE_STATUS: ${{ steps.source.outputs.source_status }}
           SOURCE_BLOCK_REASON: ${{ steps.source.outputs.source_block_reason }}
@@ -245,6 +253,7 @@ jobs:
           WORKFLOW_NAME="${WORKFLOW_NAME:-${EVENT_WORKFLOW_NAME}}"
           if [[ "${CONTROL_PLANE_READY}" != "true" ]]; then
             SOURCE_READY=false
+            SOURCE_STATUS_PUBLISH_ALLOWED=false
             SOURCE_STATUS=BLOCKED
             SOURCE_BLOCK_REASON=control_plane_verification_failed
           fi
@@ -253,6 +262,10 @@ jobs:
             exit 0
           fi
           if [[ "${SOURCE_READY}" != "true" ]]; then
+            if [[ "${SOURCE_STATUS_PUBLISH_ALLOWED:-false}" != "true" ]]; then
+              echo "No exact source evidence; no status update published."
+              exit 0
+            fi
             source_status="${SOURCE_STATUS:-BLOCKED}"
             if [[ "${source_status}" != "PENDING" && "${source_status}" != "BLOCKED" ]]; then
               source_status=BLOCKED
@@ -279,8 +292,8 @@ jobs:
             echo "Ignoring stale or unavailable workflow_run event; no status update published."
             exit 0
           fi
-          if [[ "${TRIGGER_RUN_ATTEMPT_OBSERVED}" -gt "${WORKFLOW_RUN_ATTEMPT}" && "${EVENT_ACTION}" != "completed" ]]; then
-            echo "Ignoring stale pre-terminal workflow_run event for an older run attempt."
+          if [[ "${TRIGGER_RUN_ATTEMPT_OBSERVED}" -gt "${WORKFLOW_RUN_ATTEMPT}" ]]; then
+            echo "Ignoring stale workflow_run event for an older run attempt."
             exit 0
           fi
           if [[ "${EVENT_ACTION}" != "completed" && "${TRIGGER_RUN_STATUS}" == "completed" ]]; then
@@ -288,18 +301,7 @@ jobs:
             exit 0
           fi
           if [[ "${EVENT_ACTION}" == "completed" && "${TRIGGER_RUN_STATUS}" != "completed" ]]; then
-            python -B control/scripts/ci_convergence.py \
-              --workflow-runs workflow-runs.json \
-              --head-sha "${HEAD_SHA}" \
-              --control-plane-ref "${CONTROL_PLANE_REF}" \
-              --pull-request-number "${PR_NUMBER}" \
-              --trigger-run-id "${WORKFLOW_RUN_ID}" \
-              --trigger-run-attempt "${WORKFLOW_RUN_ATTEMPT}" \
-              --trigger-workflow "${WORKFLOW_NAME}" \
-              --source-status PENDING \
-              --source-reason exact_trigger_run_not_terminal_in_api \
-              --output convergence.json
-            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Completed event is not terminal in the exact API snapshot; no status update published."
             exit 0
           fi
           python -B control/scripts/ci_convergence.py \
