@@ -20,6 +20,8 @@ class Stage2B1AcceptanceWorkflowTests(unittest.TestCase):
         for field in (
             "source_run_id:",
             "source_run_attempt:",
+            "package_run_id:",
+            "package_run_attempt:",
             "acceptance_artifact_id:",
             "change_contract_digest:",
         ):
@@ -28,6 +30,7 @@ class Stage2B1AcceptanceWorkflowTests(unittest.TestCase):
         self.assertIn('[[ "${GITHUB_REF}" == "refs/heads/main" ]]', self.source)
         self.assertIn('name == "stage2b1-acceptance-inputs"', self.source)
         self.assertIn('(.workflow_run.id|tostring) == $run_id', self.source)
+        self.assertIn('PACKAGE_RUN_ID: ${{ inputs.package_run_id }}', self.source)
 
     def test_workflow_never_discovers_latest_artifacts_or_dispatches_workflows(self) -> None:
         forbidden = (
