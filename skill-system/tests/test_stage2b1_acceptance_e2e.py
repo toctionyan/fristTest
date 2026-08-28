@@ -22,6 +22,7 @@ from stage_acceptance_taskrun import project_stage_acceptance_to_taskrun  # noqa
 from stage_acceptance_writer import contract_digest  # noqa: E402
 from stage_evidence_receipt import build_stage_evidence_receipt  # noqa: E402
 from stage2b1_acceptance_inputs import (  # noqa: E402
+    INPUT_FILES,
     package_stage2b1_acceptance_inputs,
 )
 from task_run import TaskRunStore  # noqa: E402
@@ -152,6 +153,54 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
             encoding="utf-8",
         )
         self.package_path = self.root / "acceptance-inputs"
+        source_provenance = {
+            "repository": "toctionyan/fristTest",
+            "workflow_id": 101,
+            "workflow_path": ".github/workflows/source.yml",
+            "event": "workflow_dispatch",
+            "ref": "refs/heads/main",
+            "head_sha": "a" * 40,
+            "run_id": 901,
+            "run_attempt": 1,
+        }
+        producer_provenance = {
+            "repository": "toctionyan/fristTest",
+            "workflow_id": 102,
+            "workflow_path": ".github/workflows/governed-stage2b1-acceptance-inputs.yml",
+            "event": "workflow_dispatch",
+            "ref": "refs/heads/main",
+            "head_sha": "b" * 40,
+            "run_id": 902,
+            "run_attempt": 1,
+        }
+        artifact_names = {
+            "task-run.json": "stage2b1-acceptance-task-run",
+            "decision.json": "stage2b1-acceptance-decision",
+            "expected-binding.json": "stage2b1-acceptance-expected-binding",
+            "change-contract.json": "stage2b1-acceptance-change-contract",
+            "human-gate.json": "stage2b1-acceptance-human-gate",
+            "human-decision.json": "stage2b1-acceptance-human-decision",
+        }
+        artifact_provenance = {}
+        for index, filename in enumerate(INPUT_FILES, start=1):
+            artifact_provenance[filename] = {
+                "id": str(1000 + index),
+                "name": artifact_names[filename],
+                "digest": "sha256:" + "c" * 64,
+                "archive_digest": "sha256:" + "c" * 64,
+                "content_digest": "sha256:" + hashlib.sha256(
+                    {
+                        "task-run.json": self.task_path,
+                        "decision.json": self.decision_path,
+                        "expected-binding.json": self.binding_path,
+                        "change-contract.json": self.contract_path,
+                        "human-gate.json": self.gate_path,
+                        "human-decision.json": self.human_decision_path,
+                    }[filename].read_bytes()
+                ).hexdigest(),
+                "source_run_id": 901,
+                "source_run_attempt": 1,
+            }
         package_stage2b1_acceptance_inputs(
             source_run_id="901",
             source_run_attempt="1",
@@ -161,6 +210,9 @@ class Stage2B1AcceptanceE2ETests(unittest.TestCase):
             change_contract=self.contract_path,
             human_gate=self.gate_path,
             human_decision=self.human_decision_path,
+            source_provenance=source_provenance,
+            artifact_provenance=artifact_provenance,
+            producer_provenance=producer_provenance,
             output_dir=self.package_path,
         )
         self.acceptance_task_path = self.package_path / "task-run.json"

@@ -4,11 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: Exact successful workflow run that produced the acceptance input artifact
+        description: Exact successful workflow run whose artifacts were packaged
         required: true
         type: string
       source_run_attempt:
-        description: Exact attempt for source_run_id
+        description: Exact attempt for the source run
+        required: false
+        default: '1'
+        type: string
+      package_run_id:
+        description: Exact successful workflow run that uploaded the acceptance input artifact
+        required: true
+        type: string
+      package_run_attempt:
+        description: Exact attempt for package_run_id
         required: false
         default: '1'
         type: string
@@ -26,7 +35,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.acceptance_artifact_id }}
+  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.package_run_id }}-${{ inputs.package_run_attempt }}-${{ inputs.acceptance_artifact_id }}
   cancel-in-progress: false
 
 jobs:
@@ -57,11 +66,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+          PACKAGE_RUN_ATTEMPT: ${{ inputs.package_run_attempt }}
           ACCEPTANCE_ARTIFACT_ID: ${{ inputs.acceptance_artifact_id }}
         run: |
           set -euo pipefail
           [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PACKAGE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PACKAGE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
           [[ "${ACCEPTANCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           mkdir -p incoming
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
@@ -71,18 +84,30 @@ jobs:
             '(.id|tostring) == $run_id and
              .run_attempt == ($attempt|tonumber) and
              .status == "completed" and
-             .conclusion == "success"' \
+            .conclusion == "success"' \
             incoming/source-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PACKAGE_RUN_ID}" > incoming/package-run.json
+          jq -e \
+            --arg run_id "${PACKAGE_RUN_ID}" \
+            --arg attempt "${PACKAGE_RUN_ATTEMPT}" \
+            '(.id|tostring) == $run_id and
+             .run_attempt == ($attempt|tonumber) and
+             .status == "completed" and
+             .conclusion == "success"' \
+            incoming/package-run.json >/dev/null
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}" > incoming/artifact.json
           jq -e \
             --arg artifact_id "${ACCEPTANCE_ARTIFACT_ID}" \
-            --arg run_id "${SOURCE_RUN_ID}" \
+            --arg run_id "${PACKAGE_RUN_ID}" \
             '(.id|tostring) == $artifact_id and
              .name == "stage2b1-acceptance-inputs" and
              .expired == false and
              (.workflow_run.id|tostring) == $run_id' \
             incoming/artifact.json >/dev/null
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}/zip" > incoming/acceptance-inputs.zip
+          package_archive_digest="sha256:$(sha256sum incoming/acceptance-inputs.zip | awk '{print $1}')"
+          package_api_digest=$(jq -r '.digest // empty' incoming/artifact.json)
+          [[ -n "${package_api_digest}" && "${package_api_digest}" == "${package_archive_digest}" ]]
 
       - name: Extract an exact, non-link input package
         env:
@@ -124,19 +149,105 @@ jobs:
                   (destination / filename).write_bytes(source.read(filename))
           PY
           jq -e \
-            --arg run_id "${SOURCE_RUN_ID}" \
-            --arg attempt "${SOURCE_RUN_ATTEMPT}" \
-            '(keys|sort) == ["files","schema","source_run_attempt","source_run_id","stage_id"]' \
+            '(keys|sort) == ["artifacts","files","producer","schema","source","stage_id"]' \
             incoming/acceptance/manifest.json >/dev/null
           jq -e \
             --arg run_id "${SOURCE_RUN_ID}" \
             --arg attempt "${SOURCE_RUN_ATTEMPT}" \
-            '.schema == "stage2b1-acceptance-inputs@1" and
+            '.schema == "stage2b1-acceptance-inputs@2" and
              .stage_id == "stage2b1" and
-             (.source_run_id|tostring) == $run_id and
-             (.source_run_attempt|tostring) == $attempt and
-             (.files|sort) == ["change-contract.json","decision.json","expected-binding.json","human-decision.json","human-gate.json","task-run.json"]' \
+             .source.run_id == ($run_id|tonumber) and
+             .source.run_attempt == ($attempt|tonumber) and
+             (.files|sort) == ["change-contract.json","decision.json","expected-binding.json","human-decision.json","human-gate.json","task-run.json"] and
+             ((.artifacts|keys)|sort) == .files' \
             incoming/acceptance/manifest.json >/dev/null
+          source_ref_matches() {
+            local actual_ref="$1"
+            local head_branch="$2"
+            case "${actual_ref}" in
+              refs/heads/*) [[ "${actual_ref}" == "refs/heads/${head_branch}" ]] ;;
+              refs/tags/*) [[ "${actual_ref}" == "refs/tags/${head_branch}" ]] ;;
+              *) return 1 ;;
+            esac
+          }
+          source_ref_matches \
+            "$(jq -r '.source.ref // empty' incoming/acceptance/manifest.json)" \
+            "$(jq -r '.head_branch // empty' incoming/source-run.json)"
+          source_ref_matches \
+            "$(jq -r '.producer.ref // empty' incoming/acceptance/manifest.json)" \
+            "$(jq -r '.head_branch // empty' incoming/package-run.json)"
+          jq -e \
+            --slurpfile source incoming/source-run.json \
+            --slurpfile package incoming/package-run.json \
+            '.source.repository == $source[0].repository.full_name and
+             .source.workflow_id == $source[0].workflow_id and
+             .source.workflow_path == $source[0].path and
+             .source.event == $source[0].event and
+             .source.head_sha == $source[0].head_sha and
+             .source.run_id == $source[0].id and
+             .source.run_attempt == $source[0].run_attempt and
+             .producer.repository == $package[0].repository.full_name and
+             .producer.workflow_id == $package[0].workflow_id and
+             .producer.workflow_path == ".github/workflows/governed-stage2b1-acceptance-inputs.yml" and
+             .producer.event == "workflow_dispatch" and
+             .producer.head_sha == $package[0].head_sha and
+             .producer.run_id == $package[0].id and
+             .producer.run_attempt == $package[0].run_attempt' \
+            incoming/acceptance/manifest.json >/dev/null
+
+      - name: Re-verify every source artifact and its content digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+        run: |
+          set -euo pipefail
+          for entry in \
+            "task-run.json:stage2b1-acceptance-task-run" \
+            "decision.json:stage2b1-acceptance-decision" \
+            "expected-binding.json:stage2b1-acceptance-expected-binding" \
+            "change-contract.json:stage2b1-acceptance-change-contract" \
+            "human-gate.json:stage2b1-acceptance-human-gate" \
+            "human-decision.json:stage2b1-acceptance-human-decision"; do
+            IFS=: read -r filename artifact_name <<< "${entry}"
+            artifact_id=$(jq -r --arg filename "${filename}" '.artifacts[$filename].id' incoming/acceptance/manifest.json)
+            expected_digest=$(jq -r --arg filename "${filename}" '.artifacts[$filename].digest' incoming/acceptance/manifest.json)
+            expected_content_digest=$(jq -r --arg filename "${filename}" '.artifacts[$filename].content_digest' incoming/acceptance/manifest.json)
+            [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" > "incoming/${filename}.metadata.json"
+            jq -e \
+              --arg artifact_id "${artifact_id}" \
+              --arg artifact_name "${artifact_name}" \
+              --arg source_run_id "${SOURCE_RUN_ID}" \
+              --arg expected_digest "${expected_digest}" \
+              '(.id|tostring) == $artifact_id and .name == $artifact_name and .expired == false and
+               (.workflow_run.id|tostring) == $source_run_id and .digest == $expected_digest' \
+              "incoming/${filename}.metadata.json" >/dev/null
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "incoming/${filename}.zip"
+            actual_archive_digest="sha256:$(sha256sum "incoming/${filename}.zip" | awk '{print $1}')"
+            [[ "${actual_archive_digest}" == "${expected_digest}" ]]
+            python - "incoming/${filename}.zip" "incoming/${filename}.verified" "${filename}" <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          archive = pathlib.Path(sys.argv[1])
+          destination = pathlib.Path(sys.argv[2])
+          expected = sys.argv[3]
+          with zipfile.ZipFile(archive) as source:
+              entries = source.infolist()
+              if len(entries) != 1 or entries[0].filename != expected:
+                  raise SystemExit("source artifact content is not exact")
+              entry = entries[0]
+              mode = (entry.external_attr >> 16) & 0o170000
+              if mode not in (0, 0o100644, 0o100755):
+                  raise SystemExit("source artifact content is not a regular file")
+              destination.mkdir(parents=True, exist_ok=True)
+              (destination / expected).write_bytes(source.read(entry))
+          PY
+            actual_content_digest="sha256:$(sha256sum "incoming/${filename}.verified/${filename}" | awk '{print $1}')"
+            [[ "${actual_content_digest}" == "${expected_content_digest}" ]]
+          done
 
       - name: Record the pre-run governance fingerprint
         run: |
@@ -166,11 +277,15 @@ jobs:
           jq -n \
             --arg source_run_id "${{ inputs.source_run_id }}" \
             --arg source_run_attempt "${{ inputs.source_run_attempt }}" \
+            --arg package_run_id "${{ inputs.package_run_id }}" \
+            --arg package_run_attempt "${{ inputs.package_run_attempt }}" \
             --arg acceptance_artifact_id "${{ inputs.acceptance_artifact_id }}" \
             --argjson cli_exit_code "${rc}" \
             '{schema:"stage2b1-acceptance-workflow@1",
               source_run_id:($source_run_id|tonumber),
               source_run_attempt:($source_run_attempt|tonumber),
+              package_run_id:($package_run_id|tonumber),
+              package_run_attempt:($package_run_attempt|tonumber),
               acceptance_artifact_id:($acceptance_artifact_id|tonumber),
               cli_exit_code:$cli_exit_code}' \
             > incoming/acceptance-output/command-status.json

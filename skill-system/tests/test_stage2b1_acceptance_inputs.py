@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -29,6 +30,46 @@ class Stage2B1AcceptanceInputsTests(unittest.TestCase):
             path = self.root / filename
             path.write_text(json.dumps({"source": filename}, sort_keys=True), encoding="utf-8")
             self.sources[filename] = path
+        self.source_provenance = {
+            "repository": "toctionyan/fristTest",
+            "workflow_id": 101,
+            "workflow_path": ".github/workflows/source.yml",
+            "event": "workflow_dispatch",
+            "ref": "refs/heads/main",
+            "head_sha": "a" * 40,
+            "run_id": 901,
+            "run_attempt": 2,
+        }
+        self.producer_provenance = {
+            "repository": "toctionyan/fristTest",
+            "workflow_id": 102,
+            "workflow_path": ".github/workflows/governed-stage2b1-acceptance-inputs.yml",
+            "event": "workflow_dispatch",
+            "ref": "refs/heads/main",
+            "head_sha": "b" * 40,
+            "run_id": 902,
+            "run_attempt": 1,
+        }
+        self.artifact_provenance = {}
+        for index, filename in enumerate(INPUT_FILES, start=1):
+            digest = "sha256:" + ("c" * 64)
+            content_digest = "sha256:" + hashlib.sha256(self.sources[filename].read_bytes()).hexdigest()
+            self.artifact_provenance[filename] = {
+                "id": str(1000 + index),
+                "name": {
+                    "task-run.json": "stage2b1-acceptance-task-run",
+                    "decision.json": "stage2b1-acceptance-decision",
+                    "expected-binding.json": "stage2b1-acceptance-expected-binding",
+                    "change-contract.json": "stage2b1-acceptance-change-contract",
+                    "human-gate.json": "stage2b1-acceptance-human-gate",
+                    "human-decision.json": "stage2b1-acceptance-human-decision",
+                }[filename],
+                "digest": digest,
+                "archive_digest": digest,
+                "content_digest": content_digest,
+                "source_run_id": 901,
+                "source_run_attempt": 2,
+            }
 
     def _package(self, output: Path | None = None) -> dict[str, object]:
         return package_stage2b1_acceptance_inputs(
@@ -40,6 +81,9 @@ class Stage2B1AcceptanceInputsTests(unittest.TestCase):
             change_contract=self.sources["change-contract.json"],
             human_gate=self.sources["human-gate.json"],
             human_decision=self.sources["human-decision.json"],
+            source_provenance=self.source_provenance,
+            artifact_provenance=self.artifact_provenance,
+            producer_provenance=self.producer_provenance,
             output_dir=output or self.root / "package",
         )
 
@@ -52,11 +96,12 @@ class Stage2B1AcceptanceInputsTests(unittest.TestCase):
             sorted(["manifest.json", *INPUT_FILES]),
         )
         manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["schema"], "stage2b1-acceptance-inputs@1")
+        self.assertEqual(manifest["schema"], "stage2b1-acceptance-inputs@2")
         self.assertEqual(manifest["stage_id"], "stage2b1")
-        self.assertEqual(manifest["source_run_id"], 901)
-        self.assertEqual(manifest["source_run_attempt"], 2)
         self.assertEqual(manifest["files"], list(INPUT_FILES))
+        self.assertEqual(manifest["source"], self.source_provenance)
+        self.assertEqual(manifest["producer"], self.producer_provenance)
+        self.assertEqual(manifest["artifacts"], self.artifact_provenance)
 
     def test_package_does_not_rewrite_input_bytes(self) -> None:
         before = {name: path.read_bytes() for name, path in self.sources.items()}
@@ -77,6 +122,9 @@ class Stage2B1AcceptanceInputsTests(unittest.TestCase):
                 change_contract=self.sources["change-contract.json"],
                 human_gate=self.sources["human-gate.json"],
                 human_decision=self.sources["human-decision.json"],
+                source_provenance=self.source_provenance,
+                artifact_provenance=self.artifact_provenance,
+                producer_provenance=self.producer_provenance,
                 output_dir=self.root / "invalid-run",
             )
         occupied = self.root / "occupied"
@@ -99,6 +147,9 @@ class Stage2B1AcceptanceInputsTests(unittest.TestCase):
                 change_contract=self.sources["change-contract.json"],
                 human_gate=self.sources["human-gate.json"],
                 human_decision=self.sources["human-decision.json"],
+                source_provenance=self.source_provenance,
+                artifact_provenance=self.artifact_provenance,
+                producer_provenance=self.producer_provenance,
                 output_dir=self.root / "symlink-package",
             )
 
