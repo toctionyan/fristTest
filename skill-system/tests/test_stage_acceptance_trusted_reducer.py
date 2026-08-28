@@ -19,6 +19,7 @@ if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
 from stage2b1_protected_human_gate import (  # noqa: E402
+    Stage2B1ProtectedHumanGateError,
     Stage2B1ProtectedApprovalProof,
 )
 from stage2b1_external_issuer import (  # noqa: E402
@@ -259,6 +260,7 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                 }
             }
         ]
+
         with tempfile.NamedTemporaryFile() as artifact_file:
             artifact_file.write(b"verified artifact")
             artifact_file.flush()
@@ -275,6 +277,59 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                 self.assertIn("--source-digest", command)
                 self.assertIn("--source-ref", command)
                 self.assertIn(self.external_expected["signer_workflow"], command)
+
+    def test_approval_timestamp_comes_from_exact_deployment_release(self) -> None:
+        github = copy.deepcopy(self.github)
+        github["repos/toctionyan/fristTest/actions/runs/901/approvals"][0][
+            "environments"
+        ][0]["updated_at"] = "2026-08-27T23:00:00Z"
+
+        approval = verify_approval(self.gate, self.approval_binding, github)
+
+        self.assertEqual(approval.approved_at, "2026-08-28T00:30:00Z")
+
+    def test_missing_exact_deployment_release_fails_closed(self) -> None:
+        github = copy.deepcopy(self.github)
+        github[
+            "repos/toctionyan/fristTest/deployments?environment=stage2b1-acceptance&per_page=100"
+        ] = []
+
+        with self.assertRaisesRegex(
+            Stage2B1ProtectedHumanGateError,
+            "exact protected deployment release is missing or ambiguous",
+        ):
+            verify_approval(self.gate, self.approval_binding, github)
+
+    def test_duplicate_exact_deployment_releases_fail_closed(self) -> None:
+        github = copy.deepcopy(self.github)
+        github[
+            "repos/toctionyan/fristTest/deployments?environment=stage2b1-acceptance&per_page=100"
+        ].append(
+            {
+                "id": 406,
+                "environment": "stage2b1-acceptance",
+                "sha": "1" * 40,
+                "ref": "main",
+                "created_at": "2026-08-28T00:31:00Z",
+                "updated_at": "2026-08-28T00:31:00Z",
+            }
+        )
+        github[
+            "repos/toctionyan/fristTest/deployments/406/statuses?per_page=100"
+        ] = [
+            {
+                "id": 407,
+                "state": "in_progress",
+                "created_at": "2026-08-28T00:31:00Z",
+                "updated_at": "2026-08-28T00:31:00Z",
+            }
+        ]
+
+        with self.assertRaisesRegex(
+            Stage2B1ProtectedHumanGateError,
+            "exact protected deployment release is missing or ambiguous",
+        ):
+            verify_approval(self.gate, self.approval_binding, github)
 
     def _reduce(self, *, provenance=None, external=None, approval=None):
         return reduce_trusted_stage_acceptance(

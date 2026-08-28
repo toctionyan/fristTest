@@ -300,6 +300,61 @@ def _approval_environment(row: Mapping[str, Any], environment_id: int) -> list[M
     ]
 
 
+def _approved_deployment_release(
+    *,
+    read: Any,
+    repository: str,
+    head_sha: str,
+    run_started_at: dt.datetime,
+) -> str:
+    """Return the unique exact deployment release marker for this run.
+
+    GitHub's workflow-approval response embeds the environment record, whose
+    ``updated_at`` is the environment configuration timestamp rather than the
+    approval timestamp.  The exact deployment's transition to ``in_progress``
+    is the platform-recorded release marker after protected approval.
+    """
+
+    deployments = _array(
+        read(f"repos/{repository}/deployments?environment={ENVIRONMENT}&per_page=100"),
+        field="protected environment deployments",
+    )
+    candidates: list[tuple[str, dt.datetime]] = []
+    for raw_deployment in deployments:
+        deployment = _object(raw_deployment, field="protected environment deployment")
+        if (
+            deployment.get("environment") != ENVIRONMENT
+            or str(deployment.get("sha", "")).lower() != head_sha
+            or deployment.get("ref") != "main"
+        ):
+            continue
+        deployment_id = _positive_int(
+            deployment.get("id"), field="protected environment deployment id"
+        )
+        statuses = _array(
+            read(
+                f"repos/{repository}/deployments/{deployment_id}/statuses?per_page=100"
+            ),
+            field="protected environment deployment statuses",
+        )
+        for raw_status in statuses:
+            status = _object(
+                raw_status, field="protected environment deployment status"
+            )
+            if status.get("state") != "in_progress":
+                continue
+            marker, marker_dt = _timestamp(
+                status.get("created_at"),
+                field="protected deployment release timestamp",
+            )
+            if marker_dt >= run_started_at:
+                candidates.append((marker, marker_dt))
+
+    if len(candidates) != 1:
+        _fail("exact protected deployment release is missing or ambiguous")
+    return candidates[0][0]
+
+
 @dataclass(frozen=True, init=False)
 class Stage2B1ProtectedApprovalProof:
     """Sealed proof issued only by ``verify_stage2b1_protected_approval``."""
@@ -462,12 +517,12 @@ def _verify_stage2b1_protected_approval(
         _fail("approval reviewer is not a configured required reviewer")
     if reviewer_login == run_actor_login or reviewer_id == run_actor_id:
         _fail("self-review is not an acceptable protected approval")
-    approval_environments = _approval_environment(approval_row, environment_id)
-    approved_at, approved_at_dt = _timestamp(
-        approval_environments[0].get("updated_at"), field="approval timestamp"
+    approved_at = _approved_deployment_release(
+        read=read,
+        repository=repository,
+        head_sha=context["head_sha"],
+        run_started_at=run_started_at,
     )
-    if approved_at_dt < run_started_at:
-        _fail("approval is stale for this exact run attempt")
 
     normalized_history: tuple[Mapping[str, Any], ...] = (
         {
