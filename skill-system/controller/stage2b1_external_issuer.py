@@ -278,7 +278,7 @@ def _validate_success_output(
         certificate = signature.get("certificate") if isinstance(signature, Mapping) else None
         if not isinstance(certificate, Mapping):
             continue
-        if certificate.get("runnerInvocationURI") != expected_runner_invocation:
+        if certificate.get("runInvocationURI") != expected_runner_invocation:
             continue
         timestamps = verification.get("verifiedTimestamps")
         if not isinstance(timestamps, list) or not timestamps:
