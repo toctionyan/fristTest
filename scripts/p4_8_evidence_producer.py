@@ -13,11 +13,15 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 from typing import Any, Mapping
+import zipfile
 
 
 CONTROLLER = Path(__file__).resolve().parents[1] / "skill-system" / "controller"
@@ -39,6 +43,7 @@ PAYLOAD_FILES = ("producer-run.json", "product-binding.json", "attestation-polic
 _SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+_PAYLOAD_MODES = {"100644": 0o644, "100755": 0o755}
 
 
 class EvidenceProducerBlocked(ValueError):
@@ -412,18 +417,134 @@ def _server_artifact(*, identity: Mapping[str, Any], artifact_id: str) -> dict[s
     return normalized
 
 
-def _content_digest(payload: Path) -> str:
-    entries: list[dict[str, str]] = []
+def _file_mode(path: Path, *, field: str) -> str:
+    try:
+        metadata = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise EvidenceProducerBlocked(f"{field}_unreadable") from exc
+    if stat.S_IFMT(metadata.st_mode) != stat.S_IFREG:
+        raise EvidenceProducerBlocked(f"{field}_special_or_link")
+    if metadata.st_nlink != 1:
+        raise EvidenceProducerBlocked(f"{field}_hardlink")
+    permissions = stat.S_IMODE(metadata.st_mode)
+    for mode, expected_permissions in _PAYLOAD_MODES.items():
+        if permissions == expected_permissions:
+            return mode
+    raise EvidenceProducerBlocked(f"{field}_mode_invalid")
+
+
+def _file_proof(path: Path, *, relative_path: str, field: str) -> dict[str, object]:
+    mode = _file_mode(path, field=field)
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        raise EvidenceProducerBlocked(f"{field}_unreadable") from exc
+    return {
+        "path": relative_path,
+        "digest": _bytes_digest(content),
+        "size": len(content),
+        "mode": mode,
+    }
+
+
+def _payload_file_manifest(payload: Path) -> list[dict[str, object]]:
+    _validate_payload_files(payload)
+    entries: list[dict[str, object]] = []
     for name in PAYLOAD_FILES:
         path = payload / name
-        if path.is_symlink() or not path.is_file():
-            raise EvidenceProducerBlocked(f"payload_file_unsafe:{name}")
-        entries.append({"path": name, "digest": _bytes_digest(path.read_bytes())})
-    return _digest(entries)
+        entries.append(_file_proof(path, relative_path=name, field=f"payload_file:{name}"))
+    return entries
+
+
+def _content_digest(payload: Path) -> str:
+    return _digest(_payload_file_manifest(payload))
+
+
+def _safe_zip_member_path(name: object) -> str:
+    if not isinstance(name, str) or not name or "\x00" in name or "\\" in name:
+        raise EvidenceProducerBlocked("zip_entry_path_invalid")
+    if name.startswith("/") or PurePosixPath(name).is_absolute() or PureWindowsPath(name).is_absolute():
+        raise EvidenceProducerBlocked("zip_entry_absolute_path")
+    windows_path = PureWindowsPath(name)
+    if windows_path.drive or windows_path.root:
+        raise EvidenceProducerBlocked("zip_entry_absolute_path")
+    parts = name.split("/")
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise EvidenceProducerBlocked("zip_entry_path_traversal")
+    normalized = "/".join(parts)
+    if normalized != name:
+        raise EvidenceProducerBlocked("zip_entry_path_not_canonical")
+    return normalized
+
+
+def _zip_member_mode(info: zipfile.ZipInfo) -> int:
+    raw_mode = (info.external_attr >> 16) & 0xFFFF
+    if stat.S_IFMT(raw_mode) != stat.S_IFREG:
+        raise EvidenceProducerBlocked("zip_entry_special_or_link")
+    permissions = stat.S_IMODE(raw_mode)
+    if permissions not in _PAYLOAD_MODES.values():
+        raise EvidenceProducerBlocked("zip_entry_mode_invalid")
+    return permissions
+
+
+def _archive_file_manifest(
+    archive: Path,
+    *,
+    expected_paths: tuple[str, ...],
+) -> list[dict[str, object]]:
+    """Safely extract one uploaded archive and prove every manifest path."""
+
+    seen: set[str] = set()
+    expected = set(expected_paths)
+    try:
+        with zipfile.ZipFile(archive, "r") as source:
+            with tempfile.TemporaryDirectory(prefix="p4-8-payload-") as raw_directory:
+                extracted = Path(raw_directory)
+                for info in source.infolist():
+                    relative_path = _safe_zip_member_path(info.filename)
+                    if relative_path in seen:
+                        raise EvidenceProducerBlocked("zip_entry_duplicate_path")
+                    seen.add(relative_path)
+                    if relative_path not in expected or info.is_dir():
+                        raise EvidenceProducerBlocked("zip_entry_path_not_in_manifest")
+                    permissions = _zip_member_mode(info)
+                    target = extracted / relative_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        with source.open(info, "r") as source_file, target.open("xb") as target_file:
+                            shutil.copyfileobj(source_file, target_file)
+                        os.chmod(target, permissions)
+                    except (OSError, RuntimeError, EOFError, KeyError, NotImplementedError) as exc:
+                        raise EvidenceProducerBlocked("zip_entry_unreadable") from exc
+
+                if seen != expected:
+                    raise EvidenceProducerBlocked("zip_manifest_paths_mismatch")
+                return [
+                    _file_proof(
+                        extracted / relative_path,
+                        relative_path=relative_path,
+                        field=f"zip_file:{relative_path}",
+                    )
+                    for relative_path in expected_paths
+                ]
+    except (
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        OSError,
+        RuntimeError,
+        EOFError,
+        KeyError,
+        NotImplementedError,
+    ) as exc:
+        raise EvidenceProducerBlocked("uploaded_artifact_zip_invalid") from exc
 
 
 def _validate_payload_files(payload: Path) -> None:
-    if sorted(path.name for path in payload.iterdir()) != sorted(PAYLOAD_FILES):
+    try:
+        children = list(payload.iterdir())
+    except OSError as exc:
+        raise EvidenceProducerBlocked("payload_directory_unreadable") from exc
+    if sorted(path.name for path in children) != sorted(PAYLOAD_FILES):
         raise EvidenceProducerBlocked("payload_must_contain_exactly_expected_files")
     for filename in PAYLOAD_FILES:
         path = payload / filename
@@ -456,19 +577,34 @@ def _finalize_bundle_from_metadata(
     )
     if downloaded_digest != artifact["digest"]:
         raise EvidenceProducerBlocked("downloaded_artifact_digest_mismatch")
-    payload, output = payload.resolve(), output.resolve()
-    if not payload.is_dir() or output == payload or output.exists() and not output.is_dir():
+    payload_input = Path(payload)
+    if payload_input.is_symlink() or not payload_input.is_dir():
         raise EvidenceProducerBlocked("bundle_directory_invalid")
-    _validate_payload_files(payload)
+    payload, output = payload_input.resolve(), Path(output).resolve()
+    if output == payload or output.exists() and not output.is_dir():
+        raise EvidenceProducerBlocked("bundle_directory_invalid")
+    payload_manifest = _payload_file_manifest(payload)
+    archive_manifest = _archive_file_manifest(
+        Path(downloaded_artifact),
+        expected_paths=PAYLOAD_FILES,
+    )
+    if archive_manifest != payload_manifest:
+        raise EvidenceProducerBlocked("uploaded_artifact_payload_mismatch")
+    content_digest = _digest(payload_manifest)
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
         raise EvidenceProducerBlocked("bundle_output_directory_must_be_empty")
-    for filename in PAYLOAD_FILES:
+    for proof in payload_manifest:
+        filename = str(proof["path"])
         source = payload / filename
         if source.is_symlink() or not source.is_file():
             raise EvidenceProducerBlocked(f"payload_file_unsafe:{filename}")
-        shutil.copyfile(source, output / filename)
-    content_digest = _content_digest(payload)
+        destination = output / filename
+        shutil.copyfile(source, destination)
+        try:
+            os.chmod(destination, _PAYLOAD_MODES[str(proof["mode"])])
+        except (KeyError, OSError) as exc:
+            raise EvidenceProducerBlocked(f"bundle_file_mode_unwritable:{filename}") from exc
     provenance = {
         "schema": PROVENANCE_SCHEMA,
         "repository": identity["repository"],
