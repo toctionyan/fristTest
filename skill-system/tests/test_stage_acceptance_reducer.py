@@ -188,7 +188,8 @@ class StageAcceptanceReducerTests(unittest.TestCase):
         source = (CONTROLLER / "stage_acceptance_reducer.py").read_text(encoding="utf-8").lower()
         self.assertNotIn("latest", source)
         self.assertNotIn("subprocess", source)
-        self.assertNotIn("dispatch", source)
+        self.assertNotIn("dispatch_workflow", source)
+        self.assertNotIn("workflow.run", source)
 
 
 if __name__ == "__main__":

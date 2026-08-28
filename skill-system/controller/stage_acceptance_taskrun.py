@@ -9,12 +9,15 @@ marks a task completed, writes governance state, or dispatches work.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from stage_acceptance_reducer import (
     ACCEPTABLE_PREVIEW,
     BLOCKED,
-    validate_stage_acceptance_decision,
+    TrustedStageAcceptanceDecision,
+    TrustedStageAcceptanceVerificationInputs,
+    require_reducer_stage_acceptance_decision,
+    reverify_trusted_stage_acceptance_decision,
 )
 from task_run import TERMINAL_STATUSES, TaskRunStore
 
@@ -50,8 +53,16 @@ class StageAcceptanceTaskRunError(ValueError):
     """Raised when a reducer preview cannot be safely projected to a TaskRun."""
 
 
-def _refs(values: Iterable[object]) -> list[str]:
-    result = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+def decision_evidence_refs(decision: Mapping[str, Any]) -> list[str]:
+    receipt_refs = decision.get("receipt_refs")
+    proof_refs = decision.get("proof_refs")
+    if not isinstance(receipt_refs, list) or not isinstance(proof_refs, list):
+        raise StageAcceptanceTaskRunError("stage acceptance decision evidence is invalid")
+    result = ["stage-acceptance-decision:" + str(decision["decision_id"])]
+    result.extend("stage-evidence-receipt:" + value for value in receipt_refs)
+    result.extend(str(value) for value in proof_refs)
+    if any(not value.strip() for value in result):
+        raise StageAcceptanceTaskRunError("stage acceptance decision evidence is invalid")
     if len(result) != len(set(result)):
         raise StageAcceptanceTaskRunError("stage acceptance evidence_refs must be unique")
     return result
@@ -123,11 +134,11 @@ def _same_projection(
 
 def project_stage_acceptance_to_taskrun(
     store: TaskRunStore,
-    decision: Mapping[str, Any],
+    decision: TrustedStageAcceptanceDecision,
     *,
     expected_binding: Mapping[str, str],
-    evidence_refs: Iterable[str],
     workspace_fingerprint: str | None,
+    verification: TrustedStageAcceptanceVerificationInputs,
 ) -> dict[str, Any]:
     """Record one validated reducer decision without completing the TaskRun.
 
@@ -137,7 +148,7 @@ def project_stage_acceptance_to_taskrun(
     """
 
     try:
-        validated = validate_stage_acceptance_decision(decision)
+        validated = require_reducer_stage_acceptance_decision(decision)
     except (TypeError, ValueError) as exc:
         raise StageAcceptanceTaskRunError("stage acceptance decision is invalid") from exc
     if validated["status"] not in {ACCEPTABLE_PREVIEW, BLOCKED}:
@@ -156,9 +167,22 @@ def project_stage_acceptance_to_taskrun(
         raise StageAcceptanceTaskRunError("stage acceptance binding values are invalid")
     _binding_matches(store, normalized_binding)  # type: ignore[arg-type]
 
-    refs = _refs(evidence_refs)
-    if not refs:
-        raise StageAcceptanceTaskRunError("stage acceptance projection requires evidence_refs")
+    try:
+        validated = reverify_trusted_stage_acceptance_decision(
+            validated,
+            verification=verification,
+            common_binding=normalized_binding,
+        )
+    except (TypeError, ValueError, OSError) as exc:
+        raise StageAcceptanceTaskRunError(
+            "trusted stage acceptance decision could not be independently reverified"
+        ) from exc
+    decision_binding = validated.get("binding")
+    task_id = store.payload.get("task_id")
+    if not isinstance(decision_binding, Mapping) or decision_binding.get("task_id") != task_id:
+        raise StageAcceptanceTaskRunError("stage acceptance decision TaskRun binding mismatch")
+
+    refs = decision_evidence_refs(validated)
     if store.payload.get("status") in TERMINAL_STATUSES:
         raise StageAcceptanceTaskRunError("terminal TaskRun cannot receive stage acceptance projection")
 
@@ -217,5 +241,6 @@ __all__ = [
     "STAGE_ACCEPTANCE_BLOCKED_PHASE",
     "STAGE_ACCEPTANCE_PREVIEW_PHASE",
     "StageAcceptanceTaskRunError",
+    "decision_evidence_refs",
     "project_stage_acceptance_to_taskrun",
 ]
