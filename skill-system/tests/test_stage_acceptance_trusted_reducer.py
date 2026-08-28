@@ -149,11 +149,15 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
             with patch(
                 "stage2b1_external_issuer.subprocess.run",
                 return_value=SimpleNamespace(returncode=0, stdout=json.dumps(attestation_output)),
-            ):
+            ) as run_mock:
                 self.external = verify_github_artifact_attestation(
                     artifact_file.name,
                     expected=self.external_expected,
                 )
+                command = run_mock.call_args.args[0]
+                self.assertIn("--source-digest", command)
+                self.assertIn("--source-ref", command)
+                self.assertIn(self.external_expected["signer_workflow"], command)
 
     def _reduce(self, *, provenance=None, external=None, approval=None):
         return reduce_trusted_stage_acceptance(
