@@ -88,7 +88,7 @@ def attestation(subject_digest: str, *, attempt: int = RUN_ATTEMPT) -> list[dict
                 "signature": {
                     "certificate": {
                         "issuer": "github",
-                        "runnerInvocationURI": (
+                        "runInvocationURI": (
                             f"https://github.com/{STAGE2B1_REPOSITORY}"
                             f"/actions/runs/{RUN_ID}/attempts/{attempt}"
                         ),
