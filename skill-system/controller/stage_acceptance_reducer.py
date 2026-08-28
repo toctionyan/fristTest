@@ -33,6 +33,11 @@ _COMMON_FIELDS = (
     "execution_repo_ref",
 )
 _EXPECTED_BINDING_FIELDS = frozenset({"artifact", "workflow_run_attempt", "policy"})
+_TRUSTED_PROOF_PREFIXES = (
+    "provenance:",
+    "external-issuer:",
+    "protected-approval:",
+)
 
 
 def _digest(value: bytes) -> str:
@@ -608,6 +613,20 @@ def validate_trusted_stage_acceptance_decision(payload: object) -> dict[str, Any
             raise ValueError(f"trusted_stage_acceptance_decision_{field}_invalid")
         if len(value) != len(set(value)):
             raise ValueError(f"trusted_stage_acceptance_decision_{field}_duplicate")
+    proof_refs = payload["proof_refs"]
+    if any(not item.startswith(_TRUSTED_PROOF_PREFIXES) for item in proof_refs):
+        raise ValueError("trusted_stage_acceptance_decision_proof_ref_invalid")
+    if payload["status"] == ACCEPTABLE_PREVIEW:
+        missing = [
+            prefix
+            for prefix in _TRUSTED_PROOF_PREFIXES
+            if not any(item.startswith(prefix) for item in proof_refs)
+        ]
+        if missing:
+            raise ValueError(
+                "trusted_stage_acceptance_decision_proof_ref_incomplete:"
+                + ",".join(missing)
+            )
     expected = dict(payload)
     decision_id = expected.pop("decision_id")
     if decision_id != _digest(
