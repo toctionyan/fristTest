@@ -4,45 +4,55 @@ on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: Exact successful workflow run that produced the acceptance input artifact
+        description: Exact successful p4-8-evidence-producer run
         required: true
         type: string
       source_run_attempt:
         description: Exact attempt for source_run_id
-        required: false
-        default: '1'
-        type: string
-      acceptance_artifact_id:
-        description: Exact artifact ID named stage2b1-acceptance-inputs
         required: true
         type: string
-      change_contract_digest:
-        description: sha256 digest of the supplied ChangeContract JSON
+      payload_artifact_id:
+        description: Exact payload artifact ID produced by source_run_id
+        required: true
+        type: string
+      bundle_artifact_id:
+        description: Exact bundle artifact ID produced by source_run_id
         required: true
         type: string
 
 permissions:
   contents: read
   actions: read
+  deployments: read
 
 concurrency:
-  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.acceptance_artifact_id }}
+  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.payload_artifact_id }}-${{ inputs.bundle_artifact_id }}
   cancel-in-progress: false
 
 jobs:
-  record-stage2b1-acceptance:
+  verify-stage2b1-source:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    # This is a protected human boundary for running the preview. It does not
+    # turn source evidence into an acceptance decision or write governance.
+    environment:
+      name: stage2b1-acceptance
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
     steps:
-      - name: Require dispatch from main
+      - name: Require dispatch from protected main
         run: |
           set -euo pipefail
           [[ "${GITHUB_REF}" == "refs/heads/main" ]]
+          [[ "${GITHUB_REF_PROTECTED}" == "true" ]]
+          [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]
 
-      - name: Checkout trusted control plane
+      - name: Checkout the verifier at the dispatched control-plane commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           path: control
           fetch-depth: 1
           persist-credentials: false
@@ -52,45 +62,111 @@ jobs:
         with:
           python-version: '3.12.13'
 
-      - name: Resolve the explicitly supplied source run and artifact
+      - name: Resolve the explicit producer run
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
-          ACCEPTANCE_ARTIFACT_ID: ${{ inputs.acceptance_artifact_id }}
         run: |
           set -euo pipefail
           [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
-          [[ "${ACCEPTANCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           mkdir -p incoming
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/attempts/${SOURCE_RUN_ATTEMPT}" > incoming/source-run.json
           jq -e \
             --arg run_id "${SOURCE_RUN_ID}" \
             --arg attempt "${SOURCE_RUN_ATTEMPT}" \
+            --arg repository "${GITHUB_REPOSITORY}" \
             '(.id|tostring) == $run_id and
              .run_attempt == ($attempt|tonumber) and
+             .name == "p4-8-evidence-producer" and
+             .path == ".github/workflows/p4-8-evidence-producer.yml" and
+             .event == "workflow_dispatch" and
+             .head_branch == "main" and
+             (.head_sha|type) == "string" and
+             (.head_sha|test("^[0-9a-f]{40}$")) and
              .status == "completed" and
-             .conclusion == "success"' \
+             .conclusion == "success" and
+             (.repository.full_name // "") == $repository' \
             incoming/source-run.json >/dev/null
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}" > incoming/artifact.json
-          jq -e \
-            --arg artifact_id "${ACCEPTANCE_ARTIFACT_ID}" \
-            --arg run_id "${SOURCE_RUN_ID}" \
-            '(.id|tostring) == $artifact_id and
-             .name == "stage2b1-acceptance-inputs" and
-             .expired == false and
-             (.workflow_run.id|tostring) == $run_id' \
-            incoming/artifact.json >/dev/null
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}/zip" > incoming/acceptance-inputs.zip
+          jq -r '.head_sha' incoming/source-run.json > incoming/source-head-sha.txt
 
-      - name: Extract an exact, non-link input package
+      - name: Download and verify the two explicit source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          PAYLOAD_ARTIFACT_ID: ${{ inputs.payload_artifact_id }}
+          BUNDLE_ARTIFACT_ID: ${{ inputs.bundle_artifact_id }}
+        run: |
+          set -euo pipefail
+          [[ "${PAYLOAD_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${BUNDLE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PAYLOAD_ARTIFACT_ID}" != "${BUNDLE_ARTIFACT_ID}" ]]
+          SOURCE_HEAD_SHA="$(cat incoming/source-head-sha.txt)"
+          PAYLOAD_NAME="p4-8-evidence-payload-${SOURCE_RUN_ID}-${SOURCE_RUN_ATTEMPT}"
+          BUNDLE_NAME="p4-8-evidence-bundle-${SOURCE_RUN_ID}-${SOURCE_RUN_ATTEMPT}"
+
+          fetch_artifact() {
+            local artifact_id="$1"
+            local expected_name="$2"
+            local label="$3"
+            local zip_path="incoming/${label}.zip"
+            [[ "${artifact_id}" =~ ^[1-9][0-9]*$ ]]
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}" > "incoming/${label}.metadata.json"
+            jq -e \
+              --arg artifact_id "${artifact_id}" \
+              --arg expected_name "${expected_name}" \
+              --arg run_id "${SOURCE_RUN_ID}" \
+              --arg attempt "${SOURCE_RUN_ATTEMPT}" \
+              --arg head_sha "${SOURCE_HEAD_SHA}" \
+              '(.id|tostring) == $artifact_id and
+               .name == $expected_name and
+               .expired == false and
+               (.workflow_run.id|tostring) == $run_id and
+               (.workflow_run.head_branch // "") == "main" and
+               (.workflow_run.head_sha // "") == $head_sha and
+               (.digest|type) == "string" and
+               (.digest|test("^sha256:[0-9a-f]{64}$"))' \
+              "incoming/${label}.metadata.json" >/dev/null
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${zip_path}"
+            ACTUAL_DIGEST="sha256:$(sha256sum "${zip_path}" | awk '{print $1}')"
+            EXPECTED_DIGEST="$(jq -r '.digest' "incoming/${label}.metadata.json")"
+            test "${ACTUAL_DIGEST}" = "${EXPECTED_DIGEST}"
+            printf '%s\n' "${ACTUAL_DIGEST}" > "incoming/${label}.digest"
+          }
+
+          fetch_artifact "${PAYLOAD_ARTIFACT_ID}" "${PAYLOAD_NAME}" payload
+          fetch_artifact "${BUNDLE_ARTIFACT_ID}" "${BUNDLE_NAME}" bundle
+
+      - name: Copy the trusted control-plane baseline into the verification workspace
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(jq -r '.product_source_ref' control/skill-system/registry/product-source-baseline.json)"
+          [[ "${SOURCE_SHA}" =~ ^git-commit-sha1:[0-9a-f]{40}$ ]] || {
+            echo "trusted product source reference is invalid" >&2
+            exit 1
+          }
+          SOURCE_SHA="${SOURCE_SHA#git-commit-sha1:}"
+          git -C control fetch --no-tags origin "${SOURCE_SHA}"
+          python3 -B control/scripts/verify_product_source_baseline.py \
+            --workspace control > incoming/product-source-verification.json
+          jq -e '.status == "PASS" and .source_snapshot_match == true' \
+            incoming/product-source-verification.json >/dev/null
+          mkdir -p incoming/skill-system/registry
+          cp control/skill-system/registry/product-source-baseline.json \
+            incoming/skill-system/registry/product-source-baseline.json
+
+      - name: Extract and validate the producer bundle
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          PAYLOAD_ARTIFACT_ID: ${{ inputs.payload_artifact_id }}
+          BUNDLE_ARTIFACT_ID: ${{ inputs.bundle_artifact_id }}
         run: |
           set -euo pipefail
-          python - incoming/acceptance-inputs.zip incoming/acceptance <<'PY'
+          mkdir -p incoming/bundle
+          python3 - incoming/bundle.zip incoming/bundle <<'PY'
           import pathlib
           import sys
           import zipfile
@@ -98,13 +174,13 @@ jobs:
           archive = pathlib.Path(sys.argv[1])
           destination = pathlib.Path(sys.argv[2])
           required = {
+              "producer-run.json",
+              "product-binding.json",
+              "attestation-policy.json",
+              "provenance.json",
+              "workflow-run.json",
+              "payload-artifact.json",
               "manifest.json",
-              "task-run.json",
-              "decision.json",
-              "expected-binding.json",
-              "change-contract.json",
-              "human-gate.json",
-              "human-decision.json",
           }
           destination.mkdir(parents=True, exist_ok=True)
           with zipfile.ZipFile(archive) as source:
@@ -113,96 +189,43 @@ jobs:
               for entry in entries:
                   name = pathlib.PurePosixPath(entry.filename)
                   if entry.filename.endswith("/") or name.is_absolute() or ".." in name.parts or len(name.parts) != 1:
-                      raise SystemExit("acceptance artifact contains an unsafe path")
+                      raise SystemExit("producer bundle contains an unsafe path")
                   file_mode = (entry.external_attr >> 16) & 0o170000
-                  if file_mode == 0o120000:
-                      raise SystemExit("acceptance artifact contains a symlink")
+                  if file_mode not in (0, 0o100000):
+                      raise SystemExit("producer bundle contains a non-regular file")
                   names.append(name.name)
               if len(names) != len(set(names)) or set(names) != required:
-                  raise SystemExit("acceptance artifact must contain exactly the required files")
+                  raise SystemExit("producer bundle must contain exactly the expected files")
               for filename in sorted(required):
                   (destination / filename).write_bytes(source.read(filename))
           PY
-          jq -e \
-            --arg run_id "${SOURCE_RUN_ID}" \
-            --arg attempt "${SOURCE_RUN_ATTEMPT}" \
-            '(keys|sort) == ["files","schema","source_run_attempt","source_run_id","stage_id"]' \
-            incoming/acceptance/manifest.json >/dev/null
-          jq -e \
-            --arg run_id "${SOURCE_RUN_ID}" \
-            --arg attempt "${SOURCE_RUN_ATTEMPT}" \
-            '.schema == "stage2b1-acceptance-inputs@1" and
-             .stage_id == "stage2b1" and
-             (.source_run_id|tostring) == $run_id and
-             (.source_run_attempt|tostring) == $attempt and
-             (.files|sort) == ["change-contract.json","decision.json","expected-binding.json","human-decision.json","human-gate.json","task-run.json"]' \
-            incoming/acceptance/manifest.json >/dev/null
-
-      - name: Record the pre-run governance fingerprint
-        run: |
-          set -euo pipefail
-          sha256sum control/governance/active-change.json > incoming/active-change.before.sha256
-
-      - name: Invoke the explicit Stage2B1 acceptance command
-        id: acceptance
-        continue-on-error: true
+      - name: Run the canonical source verification preview
         env:
-          CHANGE_CONTRACT_DIGEST: ${{ inputs.change_contract_digest }}
-        run: |
-          set -u
-          mkdir -p incoming/acceptance-output
-          python -B control/scripts/stage2b1_acceptance.py \
-            --workspace incoming/acceptance \
-            --task-run incoming/acceptance/task-run.json \
-            --decision incoming/acceptance/decision.json \
-            --expected-binding incoming/acceptance/expected-binding.json \
-            --change-contract incoming/acceptance/change-contract.json \
-            --change-contract-digest "${CHANGE_CONTRACT_DIGEST}" \
-            --human-gate incoming/acceptance/human-gate.json \
-            --human-decision incoming/acceptance/human-decision.json \
-            > incoming/acceptance-output/acceptance-result.json \
-            2> incoming/acceptance-output/acceptance-error.txt
-          rc=$?
-          jq -n \
-            --arg source_run_id "${{ inputs.source_run_id }}" \
-            --arg source_run_attempt "${{ inputs.source_run_attempt }}" \
-            --arg acceptance_artifact_id "${{ inputs.acceptance_artifact_id }}" \
-            --argjson cli_exit_code "${rc}" \
-            '{schema:"stage2b1-acceptance-workflow@1",
-              source_run_id:($source_run_id|tonumber),
-              source_run_attempt:($source_run_attempt|tonumber),
-              acceptance_artifact_id:($acceptance_artifact_id|tonumber),
-              cli_exit_code:$cli_exit_code}' \
-            > incoming/acceptance-output/command-status.json
-          cp incoming/acceptance/task-run.json incoming/acceptance-output/task-run.json
-          exit "${rc}"
-
-      - name: Prove the command did not change governance state
-        if: steps.acceptance.outcome == 'success'
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sha256sum control/governance/active-change.json > incoming/active-change.after.sha256
-          cmp incoming/active-change.before.sha256 incoming/active-change.after.sha256
-          test -z "$(git -C control status --porcelain=v1 --untracked-files=all)"
-          jq -e '
-            .status != "COMPLETED" and
-            .status != "FAILED" and
-            .status != "CANCELLED" and
-            .conditions["stage-accepted"].satisfied == true
-          ' incoming/acceptance-output/task-run.json >/dev/null
+          python3 -B control/scripts/stage2b1_acceptance.py \
+            --workspace incoming \
+            --producer-bundle incoming/bundle \
+            --artifact-archive incoming/payload.zip \
+            --source-run-id "${{ inputs.source_run_id }}" \
+            --source-run-attempt "${{ inputs.source_run_attempt }}" \
+            --artifact-id "${{ inputs.payload_artifact_id }}" \
+            > incoming/source-verification-preview.json
+          jq -e \
+            '.schema == "stage2b1-acceptance-verification@2" and
+             .status == "ACCEPTABLE_PREVIEW" and
+             .active_change_written == false and
+             .task_run_written == false and
+             .governance_state_changed == false and
+             .authority_effect == false' \
+            incoming/source-verification-preview.json >/dev/null
+          cat incoming/source-verification-preview.json >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload explicit acceptance output
-        if: always()
+      - name: Upload source verification preview
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: stage2b1-acceptance-result-${{ github.run_id }}-${{ github.run_attempt }}
-          path: incoming/acceptance-output
+          name: stage2b1-source-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: incoming/source-verification-preview.json
           retention-days: 90
           if-no-files-found: error
-
-      - name: Preserve the CLI failure as a failed workflow
-        if: steps.acceptance.outcome != 'success'
-        run: |
-          set -euo pipefail
-          cat incoming/acceptance-output/acceptance-error.txt >&2 || true
-          exit 1

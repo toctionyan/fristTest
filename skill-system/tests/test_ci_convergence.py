@@ -13,10 +13,11 @@ SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from ci_convergence import reduce_ci_convergence  # noqa: E402
+from ci_convergence import CIConvergenceError, reduce_ci_convergence  # noqa: E402
 
 
 HEAD = "a" * 40
+CONTROL_PLANE = "c" * 40
 
 
 def run(run_id: int, name: str, *, status: str = "completed", conclusion: str = "success", attempt: int = 1) -> dict[str, object]:
@@ -24,6 +25,7 @@ def run(run_id: int, name: str, *, status: str = "completed", conclusion: str = 
         "id": run_id,
         "run_attempt": attempt,
         "name": name,
+        "path": f".github/workflows/{name}.yml",
         "event": "pull_request",
         "head_sha": HEAD,
         "status": status,
@@ -38,6 +40,7 @@ class CIConvergenceTests(unittest.TestCase):
         first = reduce_ci_convergence(
             rows,
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
@@ -46,18 +49,47 @@ class CIConvergenceTests(unittest.TestCase):
         second = reduce_ci_convergence(
             list(reversed(rows)),
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
             trigger_workflow="quality",
         )
         self.assertEqual(first["status"], "PASS")
+        self.assertEqual(first["control_plane_ref"], CONTROL_PLANE)
+        self.assertEqual(
+            first["trigger"],
+            {"workflow": "quality", "run_id": 101, "run_attempt": 1},
+        )
         self.assertEqual(first, second)
+
+    def test_control_plane_ref_is_required_and_workflow_rows_are_closed(self) -> None:
+        with self.assertRaises(CIConvergenceError):
+            reduce_ci_convergence(
+                [run(101, "quality"), run(102, "skill-self-validation")],
+                head_sha=HEAD,
+                control_plane_ref="not-a-sha",
+                pull_request_number=2198,
+                trigger_run_id=101,
+                trigger_run_attempt=1,
+                trigger_workflow="quality",
+            )
+        with self.assertRaises(CIConvergenceError):
+            reduce_ci_convergence(
+                [run(101, "quality"), "malformed-row"],
+                head_sha=HEAD,
+                control_plane_ref=CONTROL_PLANE,
+                pull_request_number=2198,
+                trigger_run_id=101,
+                trigger_run_attempt=1,
+                trigger_workflow="quality",
+            )
 
     def test_missing_or_running_check_is_pending(self) -> None:
         result = reduce_ci_convergence(
             [run(101, "quality")],
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
@@ -74,6 +106,7 @@ class CIConvergenceTests(unittest.TestCase):
         result = reduce_ci_convergence(
             rows,
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
@@ -84,6 +117,7 @@ class CIConvergenceTests(unittest.TestCase):
         blocked = reduce_ci_convergence(
             rows,
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
@@ -99,6 +133,7 @@ class CIConvergenceTests(unittest.TestCase):
         result = reduce_ci_convergence(
             changed,
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
@@ -115,6 +150,7 @@ class CIConvergenceTests(unittest.TestCase):
         result = reduce_ci_convergence(
             rows,
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,
@@ -127,6 +163,7 @@ class CIConvergenceTests(unittest.TestCase):
         result = reduce_ci_convergence(
             [run(101, "quality", attempt=1), run(102, "skill-self-validation")],
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=2,
@@ -146,6 +183,7 @@ class CIConvergenceTests(unittest.TestCase):
                 run(102, "skill-self-validation"),
             ],
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=2,
@@ -153,6 +191,37 @@ class CIConvergenceTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["checks"]["quality"]["run_attempt"], 2)
+
+    def test_newer_attempt_blocks_an_old_successful_attempt(self) -> None:
+        result = reduce_ci_convergence(
+            [
+                run(101, "quality", attempt=1),
+                run(101, "quality", status="in_progress", attempt=2),
+                run(102, "skill-self-validation"),
+            ],
+            head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
+            pull_request_number=2198,
+            trigger_run_id=101,
+            trigger_run_attempt=1,
+            trigger_workflow="quality",
+        )
+        self.assertEqual(result["status"], "STALE_EVENT")
+        self.assertEqual(result["checks"]["quality"]["current_run_attempt"], 2)
+
+    def test_wrong_workflow_path_is_not_evidence(self) -> None:
+        row = run(101, "quality")
+        row["path"] = ".github/workflows/untrusted-quality.yml"
+        result = reduce_ci_convergence(
+            [row, run(102, "skill-self-validation")],
+            head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
+            pull_request_number=2198,
+            trigger_run_id=101,
+            trigger_run_attempt=1,
+            trigger_workflow="quality",
+        )
+        self.assertEqual(result["status"], "PENDING")
 
     def test_wrong_head_and_wrong_pull_request_are_not_evidence(self) -> None:
         wrong_head = run(101, "quality")
@@ -162,6 +231,7 @@ class CIConvergenceTests(unittest.TestCase):
         result = reduce_ci_convergence(
             [wrong_head, wrong_pr],
             head_sha=HEAD,
+            control_plane_ref=CONTROL_PLANE,
             pull_request_number=2198,
             trigger_run_id=101,
             trigger_run_attempt=1,

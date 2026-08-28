@@ -35,6 +35,18 @@ jobs:
         with:
           python-version: '3.12.13'
 
+      - name: Verify the checked out convergence control plane
+        id: control
+        env:
+          CONTROL_PLANE_REF: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "${CONTROL_PLANE_REF}" =~ ^[0-9a-f]{40}$ ]]
+          actual=$(git -C control rev-parse HEAD)
+          [[ "${actual}" == "${CONTROL_PLANE_REF}" ]]
+          echo "control_plane_ref=${actual}" >> "$GITHUB_OUTPUT"
+          echo "control_plane_ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Resolve one exact PR head
         id: source
         env:
@@ -44,7 +56,6 @@ jobs:
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
           EVENT_ACTION: ${{ github.event.action }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
           set -euo pipefail
           [[ "${WORKFLOW_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
@@ -52,53 +63,91 @@ jobs:
           [[ "${WORKFLOW_NAME}" == "quality" || "${WORKFLOW_NAME}" == "skill-self-validation" ]]
           [[ "${EVENT_ACTION}" == "requested" || "${EVENT_ACTION}" == "in_progress" || "${EVENT_ACTION}" == "completed" ]]
           [[ "${HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > pr.json
-          jq -e \
-            --arg sha "${HEAD_SHA}" \
-            --arg repo "${GITHUB_REPOSITORY}" \
-            '.head.sha == $sha and
-             .head.repo.full_name == $repo and
-             .base.ref == "main"' \
-            pr.json >/dev/null
-          for retry in 1 2 3 4 5; do
-            if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}" > trigger-run.json \
-              && jq -e \
-                --arg id "${WORKFLOW_RUN_ID}" \
-                --arg attempt "${WORKFLOW_RUN_ATTEMPT}" \
-                --arg name "${WORKFLOW_NAME}" \
-                --arg sha "${HEAD_SHA}" \
-                --arg pr "${PR_NUMBER}" \
-                '.id == ($id | tonumber) and
-                 (.run_attempt | tonumber) >= ($attempt | tonumber) and
-                 .name == $name and
-                 .event == "pull_request" and
-                 .head_sha == $sha and
-                 (.pull_requests // [] | any(.[]; .number == ($pr | tonumber)))' \
-                trigger-run.json >/dev/null; then
-              break
-            fi
-            if [[ "${retry}" -eq 5 ]]; then
-              echo "exact trigger workflow run was not available or did not match the event" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-          run_snapshot_found=false
+          pr_candidates_ready=false
           for retry in 1 2 3 4 5; do
             if gh api --paginate \
-                "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
-                | jq -s 'map(.workflow_runs // []) | add' > workflow-runs.json \
-              && jq -e --arg id "${WORKFLOW_RUN_ID}" --arg attempt "${WORKFLOW_RUN_ATTEMPT}" \
-                'map(select(.id == ($id | tonumber) and ((.run_attempt | tonumber) >= ($attempt | tonumber)))) | length >= 1' \
-                workflow-runs.json >/dev/null; then
-              run_snapshot_found=true
+                "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls?per_page=100" \
+                | jq -s \
+                  --arg sha "${HEAD_SHA}" \
+                  --arg repo "${GITHUB_REPOSITORY}" \
+                  'map(select(type == "array")) | add // [] |
+                   map(select(.state == "open" and
+                              .base.ref == "main" and
+                              .base.repo.full_name == $repo and
+                              .head.repo.full_name == $repo and
+                              .head.sha == $sha))' \
+                > pr-candidates.json; then
+              pr_candidates_ready=true
               break
             fi
             if [[ "${retry}" -lt 5 ]]; then
               sleep 5
             fi
           done
+          if [[ "${pr_candidates_ready}" != "true" ]]; then
+            echo "source_ready=false" >> "$GITHUB_OUTPUT"
+            echo "source_block_reason=pr_lookup_unavailable_after_bounded_retries" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr_count=$(jq 'length' pr-candidates.json)
+          if [[ "${pr_count}" != "1" ]]; then
+            echo "source_ready=false" >> "$GITHUB_OUTPUT"
+            echo "source_block_reason=expected_one_exact_open_pr" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PR_NUMBER=$(jq -r 'map(.number | tostring) | join("")' pr-candidates.json)
+          [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+
+          trigger_state=unavailable
+          for retry in 1 2 3 4 5; do
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}" > trigger-run.json \
+              && jq -e \
+                --arg id "${WORKFLOW_RUN_ID}" \
+                --arg name "${WORKFLOW_NAME}" \
+                --arg sha "${HEAD_SHA}" \
+                --arg pr "${PR_NUMBER}" \
+                '.id == ($id | tonumber) and
+                 .name == $name and
+                 .event == "pull_request" and
+                 .head_sha == $sha and
+                 (.pull_requests // [] | any(.[]; .number == ($pr | tonumber)))' \
+                trigger-run.json >/dev/null; then
+              observed_attempt=$(jq -r '.run_attempt // 0' trigger-run.json)
+              if [[ "${observed_attempt}" =~ ^[1-9][0-9]*$ && "${observed_attempt}" -gt "${WORKFLOW_RUN_ATTEMPT}" ]]; then
+                trigger_state=stale
+                break
+              fi
+              if [[ "${observed_attempt}" == "${WORKFLOW_RUN_ATTEMPT}" ]]; then
+                trigger_state=exact
+                break
+              fi
+            fi
+            if [[ "${retry}" -lt 5 ]]; then
+              sleep 5
+            fi
+          done
+          if [[ "${trigger_state}" == "unavailable" ]]; then
+            echo "source_ready=false" >> "$GITHUB_OUTPUT"
+            echo "source_block_reason=exact_trigger_run_unavailable_after_bounded_retries" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run_snapshot_found=false
+          if [[ "${trigger_state}" == "exact" ]]; then
+            for retry in 1 2 3 4 5; do
+              if gh api --paginate \
+                  "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&event=pull_request&per_page=100" \
+                  | jq -s 'map(.workflow_runs // []) | add' > workflow-runs.json \
+                && jq -e --arg id "${WORKFLOW_RUN_ID}" --arg attempt "${WORKFLOW_RUN_ATTEMPT}" \
+                  'map(select(.id == ($id | tonumber) and ((.run_attempt | tonumber) == ($attempt | tonumber)))) | length == 1' \
+                  workflow-runs.json >/dev/null; then
+                run_snapshot_found=true
+                break
+              fi
+              if [[ "${retry}" -lt 5 ]]; then
+                sleep 5
+              fi
+            done
+          fi
           echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
           echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "workflow_run_id=${WORKFLOW_RUN_ID}" >> "$GITHUB_OUTPUT"
@@ -107,23 +156,34 @@ jobs:
           echo "event_action=${EVENT_ACTION}" >> "$GITHUB_OUTPUT"
           echo "trigger_run_status=$(jq -r '.status' trigger-run.json)" >> "$GITHUB_OUTPUT"
           echo "trigger_run_attempt_observed=$(jq -r '.run_attempt' trigger-run.json)" >> "$GITHUB_OUTPUT"
+          echo "trigger_state=${trigger_state}" >> "$GITHUB_OUTPUT"
           echo "run_snapshot_found=${run_snapshot_found}" >> "$GITHUB_OUTPUT"
+          echo "source_ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Reduce exact CI runs to one convergence result
+        id: reduce
+        if: ${{ steps.source.outputs.source_ready == 'true' && steps.control.outputs.control_plane_ready == 'true' }}
         env:
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          CONTROL_PLANE_REF: ${{ steps.control.outputs.control_plane_ref }}
           PR_NUMBER: ${{ steps.source.outputs.pr_number }}
           WORKFLOW_RUN_ID: ${{ steps.source.outputs.workflow_run_id }}
           WORKFLOW_RUN_ATTEMPT: ${{ steps.source.outputs.workflow_run_attempt }}
           WORKFLOW_NAME: ${{ steps.source.outputs.workflow_name }}
           EVENT_ACTION: ${{ steps.source.outputs.event_action }}
+          TRIGGER_STATE: ${{ steps.source.outputs.trigger_state }}
           TRIGGER_RUN_STATUS: ${{ steps.source.outputs.trigger_run_status }}
           TRIGGER_RUN_ATTEMPT_OBSERVED: ${{ steps.source.outputs.trigger_run_attempt_observed }}
           RUN_SNAPSHOT_FOUND: ${{ steps.source.outputs.run_snapshot_found }}
         run: |
           set -euo pipefail
+          echo "publish=false" >> "$GITHUB_OUTPUT"
           if [[ "${RUN_SNAPSHOT_FOUND}" != "true" ]]; then
             echo "Exact workflow-run snapshot was not visible after bounded retries; no status update published."
+            exit 0
+          fi
+          if [[ "${TRIGGER_STATE}" != "exact" ]]; then
+            echo "Ignoring stale or unavailable workflow_run event; no status update published."
             exit 0
           fi
           if [[ "${TRIGGER_RUN_ATTEMPT_OBSERVED}" -gt "${WORKFLOW_RUN_ATTEMPT}" && "${EVENT_ACTION}" != "completed" ]]; then
@@ -141,23 +201,29 @@ jobs:
           python -B control/scripts/ci_convergence.py \
             --workflow-runs workflow-runs.json \
             --head-sha "${HEAD_SHA}" \
+            --control-plane-ref "${CONTROL_PLANE_REF}" \
             --pull-request-number "${PR_NUMBER}" \
             --trigger-run-id "${WORKFLOW_RUN_ID}" \
             --trigger-run-attempt "${WORKFLOW_RUN_ATTEMPT}" \
             --trigger-workflow "${WORKFLOW_NAME}" \
             --output convergence.json
           jq -e \
-            '.schema == "ci-convergence@1" and
+            '.schema == "ci-convergence@2" and
              .head_sha == $sha and
+             .control_plane_ref == $control and
              .pull_request_number == ($pr|tonumber)' \
-            --arg sha "${HEAD_SHA}" --arg pr "${PR_NUMBER}" convergence.json >/dev/null
+            --arg sha "${HEAD_SHA}" \
+            --arg control "${CONTROL_PLANE_REF}" \
+            --arg pr "${PR_NUMBER}" convergence.json >/dev/null
           {
             echo "## CI Convergence"
             echo
             jq -r '"Status: `\(.status)`", "Head: `\(.head_sha)`", "Digest: `\(.convergence_digest)`", "", (.checks[] | "- \(.workflow): \(.status)" + (if .run_id then " (run \(.run_id), attempt \(.run_attempt))" else "" end))' convergence.json
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
 
       - name: Publish the stable convergence status
+        if: ${{ steps.reduce.outputs.publish == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.source.outputs.head_sha }}

@@ -12,8 +12,12 @@ import sys
 from typing import Any, Mapping, Sequence
 
 
-SCHEMA = "ci-convergence@1"
+SCHEMA = "ci-convergence@2"
 REQUIRED_WORKFLOWS = ("quality", "skill-self-validation")
+REQUIRED_WORKFLOW_PATHS = {
+    "quality": ".github/workflows/quality.yml",
+    "skill-self-validation": ".github/workflows/skill-self-validation.yml",
+}
 STALE_EVENT = "STALE_EVENT"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -69,6 +73,7 @@ def _matching_runs(
         row
         for row in rows
         if row.get("name") == workflow
+        and row.get("path") == REQUIRED_WORKFLOW_PATHS[workflow]
         and row.get("event") == "pull_request"
         and row.get("head_sha") == head_sha
         and pull_request_number in _pull_request_numbers(row)
@@ -97,6 +102,19 @@ def _check_for_runs(
         by_id.setdefault(run_id, []).append(row)
 
     if workflow == trigger_workflow:
+        known_attempts = {
+            _positive_int(row.get("run_attempt"), field=f"{workflow} run attempt")
+            for row in by_id.get(trigger_run_id, [])
+        }
+        if known_attempts and max(known_attempts) > trigger_run_attempt:
+            return {
+                "workflow": workflow,
+                "status": STALE_EVENT,
+                "reason": "stale_trigger_event",
+                "run_id": trigger_run_id,
+                "run_attempt": trigger_run_attempt,
+                "current_run_attempt": max(known_attempts),
+            }
         exact_trigger = [
             row
             for row in by_id.get(trigger_run_id, [])
@@ -106,10 +124,6 @@ def _check_for_runs(
             == trigger_run_attempt
         ]
         if len(exact_trigger) != 1:
-            known_attempts = {
-                _positive_int(row.get("run_attempt"), field=f"{workflow} run attempt")
-                for row in by_id.get(trigger_run_id, [])
-            }
             if known_attempts and max(known_attempts) > trigger_run_attempt:
                 return {
                     "workflow": workflow,
@@ -192,6 +206,7 @@ def reduce_ci_convergence(
     workflow_runs: Sequence[Mapping[str, Any]],
     *,
     head_sha: object,
+    control_plane_ref: object,
     pull_request_number: object,
     trigger_run_id: object,
     trigger_run_attempt: object,
@@ -200,6 +215,9 @@ def reduce_ci_convergence(
     """Reduce only caller-supplied exact workflow-run records."""
 
     exact_sha = _sha(head_sha, field="head_sha")
+    exact_control_plane_ref = _sha(
+        control_plane_ref, field="control_plane_ref"
+    )
     pr_number = _positive_int(pull_request_number, field="pull_request_number")
     exact_trigger_id = _positive_int(trigger_run_id, field="trigger_run_id")
     exact_trigger_attempt = _positive_int(
@@ -208,7 +226,13 @@ def reduce_ci_convergence(
     exact_trigger_workflow = str(trigger_workflow or "")
     if exact_trigger_workflow not in REQUIRED_WORKFLOWS:
         raise CIConvergenceError("trigger_workflow is not required")
-    rows = [row for row in workflow_runs if isinstance(row, Mapping)]
+    if not isinstance(workflow_runs, Sequence) or isinstance(
+        workflow_runs, (str, bytes, bytearray)
+    ):
+        raise CIConvergenceError("workflow-runs input must be a sequence")
+    if any(not isinstance(row, Mapping) for row in workflow_runs):
+        raise CIConvergenceError("workflow-runs input contains a non-object row")
+    rows = list(workflow_runs)
     checks = {
         workflow: _check_for_runs(
             workflow,
@@ -240,7 +264,13 @@ def reduce_ci_convergence(
     result: dict[str, Any] = {
         "schema": SCHEMA,
         "head_sha": exact_sha,
+        "control_plane_ref": exact_control_plane_ref,
         "pull_request_number": pr_number,
+        "trigger": {
+            "workflow": exact_trigger_workflow,
+            "run_id": exact_trigger_id,
+            "run_attempt": exact_trigger_attempt,
+        },
         "status": status,
         "checks": checks,
         "reasons": reasons,
@@ -256,6 +286,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workflow-runs", required=True, type=Path)
     parser.add_argument("--head-sha", required=True)
+    parser.add_argument("--control-plane-ref", required=True)
     parser.add_argument("--pull-request-number", required=True)
     parser.add_argument("--trigger-run-id", required=True)
     parser.add_argument("--trigger-run-attempt", required=True)
@@ -274,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         result = reduce_ci_convergence(
             rows,
             head_sha=args.head_sha,
+            control_plane_ref=args.control_plane_ref,
             pull_request_number=args.pull_request_number,
             trigger_run_id=args.trigger_run_id,
             trigger_run_attempt=args.trigger_run_attempt,

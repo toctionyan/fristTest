@@ -12,12 +12,22 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 from typing import Any, Mapping
 
 
 EXTERNAL_ISSUER_SCHEMA = "github-artifact-attestation-proof@1"
+STAGE2B1_REPOSITORY = "toctionyan/fristTest"
+STAGE2B1_SIGNER_WORKFLOW = (
+    "toctionyan/fristTest/.github/workflows/p4-8-evidence-producer.yml"
+)
+STAGE2B1_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
+STAGE2B1_SOURCE_REF = "refs/heads/main"
+P48_PRODUCER_SCHEMA = "p4-8-evidence-producer@2"
 _VERIFIER_TOKEN = object()
+_SHA1 = re.compile(r"[0-9a-f]{40}\Z")
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _EXPECTED_KEYS = frozenset(
     {
         "repository",
@@ -32,6 +42,46 @@ _EXPECTED_KEYS = frozenset(
 
 class ExternalIssuerVerificationError(ValueError):
     """Raised when GitHub cannot provide a cryptographically verified proof."""
+
+
+@dataclass(frozen=True)
+class P48SourceArtifactProof:
+    """Immutable witness for one explicitly selected P4.8 run and artifact."""
+
+    source_run_id: int
+    source_run_attempt: int
+    source_head_sha: str
+    artifact_id: str
+    artifact_name: str
+    artifact_digest: str
+    metadata_digest: str
+    _verifier_token: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._verifier_token is not _VERIFIER_TOKEN:
+            raise ExternalIssuerVerificationError("source_artifact_proof_constructor_is_private")
+        for field_name in ("source_run_id", "source_run_attempt"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ExternalIssuerVerificationError("source_artifact_proof_run_invalid")
+        if _SHA1.fullmatch(self.source_head_sha) is None:
+            raise ExternalIssuerVerificationError("source_artifact_proof_head_sha_invalid")
+        if not self.artifact_id or not self.artifact_name or _SHA256.fullmatch(self.artifact_digest) is None:
+            raise ExternalIssuerVerificationError("source_artifact_proof_artifact_invalid")
+        body = {
+            "source_run_id": self.source_run_id,
+            "source_run_attempt": self.source_run_attempt,
+            "source_head_sha": self.source_head_sha,
+            "artifact_id": self.artifact_id,
+            "artifact_name": self.artifact_name,
+            "artifact_digest": self.artifact_digest,
+        }
+        if self.metadata_digest != _digest(body):
+            raise ExternalIssuerVerificationError("source_artifact_proof_digest_mismatch")
+
+    @property
+    def proof_ref(self) -> str:
+        return "p4-8-source-artifact:" + self.metadata_digest
 
 
 def _canonical(value: Any) -> bytes:
@@ -116,6 +166,7 @@ def _validate_success_output(
     output: object,
     *,
     expected: Mapping[str, Any],
+    expected_runner_invocation: str | None = None,
 ) -> tuple[dict[str, Any], str, int]:
     if not isinstance(expected, Mapping) or set(expected) != set(_EXPECTED_KEYS):
         raise ExternalIssuerVerificationError("attestation_expected_fields_invalid")
@@ -162,6 +213,11 @@ def _validate_success_output(
         certificate = signature.get("certificate") if isinstance(signature, Mapping) else None
         if not isinstance(certificate, Mapping):
             continue
+        if (
+            expected_runner_invocation is not None
+            and certificate.get("runnerInvocationURI") != expected_runner_invocation
+        ):
+            continue
         timestamps = verification.get("verifiedTimestamps")
         if not isinstance(timestamps, list) or not timestamps:
             continue
@@ -191,6 +247,7 @@ def verify_github_artifact_attestation(
     artifact_path: str | Path,
     *,
     expected: Mapping[str, Any],
+    expected_runner_invocation: str | None = None,
     timeout_seconds: int = 60,
 ) -> ExternalIssuerProof:
     """Run the fixed GitHub attestation verifier and seal its result."""
@@ -207,10 +264,23 @@ def verify_github_artifact_attestation(
     predicate_type = _text(expected["predicate_type"], field="predicate_type")
     source_digest = _text(expected["source_digest"], field="source_digest")
     source_ref = _text(expected["source_ref"], field="source_ref")
+    if repository != STAGE2B1_REPOSITORY:
+        raise ExternalIssuerVerificationError("repository_not_stage2b1_policy")
+    if signer_workflow != STAGE2B1_SIGNER_WORKFLOW:
+        raise ExternalIssuerVerificationError("signer_workflow_not_stage2b1_policy")
+    if predicate_type != STAGE2B1_PREDICATE_TYPE:
+        raise ExternalIssuerVerificationError("predicate_type_not_stage2b1_policy")
+    if source_ref != STAGE2B1_SOURCE_REF:
+        raise ExternalIssuerVerificationError("source_ref_not_stage2b1_policy")
     if not signer_workflow.startswith(repository + "/"):
         raise ExternalIssuerVerificationError("signer_workflow_must_include_repository")
     if len(source_digest) != 40 or any(char not in "0123456789abcdef" for char in source_digest):
         raise ExternalIssuerVerificationError("source_digest_invalid")
+    if expected_runner_invocation is not None:
+        if not isinstance(expected_runner_invocation, str) or not expected_runner_invocation.startswith(
+            "https://github.com/"
+        ):
+            raise ExternalIssuerVerificationError("runner_invocation_invalid")
     command = [
         "gh",
         "attestation",
@@ -250,6 +320,7 @@ def verify_github_artifact_attestation(
     proof_body, verification_digest, timestamp_count = _validate_success_output(
         output,
         expected=expected,
+        expected_runner_invocation=expected_runner_invocation,
     )
     return ExternalIssuerProof(
         schema=EXTERNAL_ISSUER_SCHEMA,
@@ -266,6 +337,181 @@ def verify_github_artifact_attestation(
     )
 
 
+def _run_github_json(endpoint: str, *, timeout_seconds: int) -> object:
+    if not endpoint.startswith("repos/" + STAGE2B1_REPOSITORY + "/"):
+        raise ExternalIssuerVerificationError("github_endpoint_not_stage2b1_policy")
+    try:
+        completed = subprocess.run(
+            ["gh", "api", endpoint],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ExternalIssuerVerificationError("github_source_metadata_unavailable") from exc
+    if completed.returncode != 0:
+        raise ExternalIssuerVerificationError("github_source_metadata_verification_failed")
+    try:
+        return json.loads(completed.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ExternalIssuerVerificationError("github_source_metadata_invalid") from exc
+
+
+def verify_p4_8_source_artifact(
+    *,
+    source_run_id: int,
+    source_run_attempt: int,
+    artifact_id: str,
+    expected_head_sha: str,
+    expected_artifact_digest: str,
+    timeout_seconds: int = 60,
+) -> P48SourceArtifactProof:
+    """Verify one exact completed P4.8 run and its owned artifact metadata.
+
+    The identifiers are selectors only.  Every accepted value is read back
+    from the fixed GitHub API endpoints and compared with the producer bundle.
+    This function never searches runs or artifacts and never accepts a caller
+    supplied metadata object as proof.
+    """
+
+    if (
+        isinstance(source_run_id, bool)
+        or not isinstance(source_run_id, int)
+        or source_run_id < 1
+        or isinstance(source_run_attempt, bool)
+        or not isinstance(source_run_attempt, int)
+        or source_run_attempt < 1
+    ):
+        raise ExternalIssuerVerificationError("source_run_selector_invalid")
+    artifact_id = _text(artifact_id, field="artifact_id")
+    if not artifact_id.isdigit() or artifact_id.startswith("0"):
+        raise ExternalIssuerVerificationError("artifact_id_invalid")
+    if _SHA1.fullmatch(expected_head_sha) is None:
+        raise ExternalIssuerVerificationError("source_head_sha_invalid")
+    if _SHA256.fullmatch(expected_artifact_digest) is None:
+        raise ExternalIssuerVerificationError("artifact_digest_invalid")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds < 1:
+        raise ExternalIssuerVerificationError("metadata_timeout_invalid")
+
+    run = _run_github_json(
+        f"repos/{STAGE2B1_REPOSITORY}/actions/runs/{source_run_id}/attempts/{source_run_attempt}",
+        timeout_seconds=timeout_seconds,
+    )
+    if not isinstance(run, Mapping):
+        raise ExternalIssuerVerificationError("source_run_response_invalid")
+    repository = run.get("repository")
+    if (
+        run.get("id") != source_run_id
+        or run.get("run_attempt") != source_run_attempt
+        or run.get("name") != "p4-8-evidence-producer"
+        or run.get("path") != ".github/workflows/p4-8-evidence-producer.yml"
+        or run.get("event") != "workflow_dispatch"
+        or run.get("head_branch") != "main"
+        or run.get("head_sha") != expected_head_sha
+        or run.get("status") != "completed"
+        or run.get("conclusion") != "success"
+        or not isinstance(repository, Mapping)
+        or repository.get("full_name") != STAGE2B1_REPOSITORY
+    ):
+        raise ExternalIssuerVerificationError("source_run_identity_mismatch")
+
+    artifact = _run_github_json(
+        f"repos/{STAGE2B1_REPOSITORY}/actions/artifacts/{artifact_id}",
+        timeout_seconds=timeout_seconds,
+    )
+    if not isinstance(artifact, Mapping):
+        raise ExternalIssuerVerificationError("artifact_metadata_invalid")
+    workflow_run = artifact.get("workflow_run")
+    expected_name = f"p4-8-evidence-payload-{source_run_id}-{source_run_attempt}"
+    if (
+        str(artifact.get("id")) != artifact_id
+        or artifact.get("name") != expected_name
+        or artifact.get("digest") != expected_artifact_digest
+        or artifact.get("expired") is not False
+        or not isinstance(workflow_run, Mapping)
+        or workflow_run.get("id") != source_run_id
+        or (
+            workflow_run.get("run_attempt") is not None
+            and workflow_run.get("run_attempt") != source_run_attempt
+        )
+        or workflow_run.get("head_branch") != "main"
+        or workflow_run.get("head_sha") != expected_head_sha
+    ):
+        raise ExternalIssuerVerificationError("artifact_identity_mismatch")
+
+    body = {
+        "source_run_id": source_run_id,
+        "source_run_attempt": source_run_attempt,
+        "source_head_sha": expected_head_sha,
+        "artifact_id": artifact_id,
+        "artifact_name": expected_name,
+        "artifact_digest": expected_artifact_digest,
+    }
+    return P48SourceArtifactProof(
+        **body,
+        metadata_digest=_digest(body),
+        _verifier_token=_VERIFIER_TOKEN,
+    )
+
+
+def verify_p4_8_payload_attestation(
+    artifact_archive_path: str | Path,
+    *,
+    source_run_id: int,
+    source_run_attempt: int,
+    source_digest: str,
+    subject_digest: str,
+    timeout_seconds: int = 60,
+) -> ExternalIssuerProof:
+    """Verify the platform attestation for the exact downloaded archive.
+
+    GitHub's artifact digest identifies the uploaded archive, not an extracted
+    member.  Hashing the supplied bytes before invoking ``gh attestation``
+    prevents an extracted payload or a different archive from being accepted
+    under the producer's attestation.
+    """
+
+    path = Path(artifact_archive_path)
+    if path.is_symlink() or not path.is_file():
+        raise ExternalIssuerVerificationError("artifact_archive_missing_or_unsafe")
+    if _SHA1.fullmatch(source_digest) is None:
+        raise ExternalIssuerVerificationError("source_digest_invalid")
+    if (
+        isinstance(source_run_id, bool)
+        or not isinstance(source_run_id, int)
+        or source_run_id < 1
+        or isinstance(source_run_attempt, bool)
+        or not isinstance(source_run_attempt, int)
+        or source_run_attempt < 1
+    ):
+        raise ExternalIssuerVerificationError("source_run_selector_invalid")
+    if _SHA256.fullmatch(subject_digest) is None:
+        raise ExternalIssuerVerificationError("subject_digest_invalid")
+    try:
+        actual_digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ExternalIssuerVerificationError("artifact_archive_unreadable") from exc
+    if actual_digest != subject_digest:
+        raise ExternalIssuerVerificationError("artifact_archive_digest_mismatch")
+    return verify_github_artifact_attestation(
+        path,
+        expected={
+            "repository": STAGE2B1_REPOSITORY,
+            "signer_workflow": STAGE2B1_SIGNER_WORKFLOW,
+            "subject_digest": subject_digest,
+            "predicate_type": STAGE2B1_PREDICATE_TYPE,
+            "source_digest": source_digest,
+            "source_ref": STAGE2B1_SOURCE_REF,
+        },
+        expected_runner_invocation=(
+            f"https://github.com/{STAGE2B1_REPOSITORY}"
+            f"/actions/runs/{source_run_id}/attempts/{source_run_attempt}"
+        ),
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def validate_external_issuer_proof(value: object) -> ExternalIssuerProof:
     """Validate the sealed proof without re-running the external verifier."""
 
@@ -277,10 +523,45 @@ def validate_external_issuer_proof(value: object) -> ExternalIssuerProof:
     return value
 
 
+def reverify_external_issuer_proof(
+    proof: object,
+    artifact_path: str | Path,
+    *,
+    expected: Mapping[str, Any],
+    timeout_seconds: int = 60,
+) -> ExternalIssuerProof:
+    """Run the fixed attestation verifier and compare a supplied proof.
+
+    The immutable dataclass prevents accidental mutation only.  This second
+    read is required at a write boundary so a caller cannot self-sign a proof
+    by constructing fields and recomputing its local digest.
+    """
+
+    validate_external_issuer_proof(proof)
+    fresh = verify_github_artifact_attestation(
+        artifact_path,
+        expected=expected,
+        timeout_seconds=timeout_seconds,
+    )
+    if proof.__dict__ != fresh.__dict__:
+        raise ExternalIssuerVerificationError(
+            "external_proof_does_not_match_fixed_verifier_output"
+        )
+    return fresh
+
+
 __all__ = [
     "EXTERNAL_ISSUER_SCHEMA",
+    "STAGE2B1_PREDICATE_TYPE",
+    "STAGE2B1_REPOSITORY",
+    "STAGE2B1_SIGNER_WORKFLOW",
+    "STAGE2B1_SOURCE_REF",
     "ExternalIssuerProof",
+    "P48SourceArtifactProof",
     "ExternalIssuerVerificationError",
     "validate_external_issuer_proof",
+    "reverify_external_issuer_proof",
+    "verify_p4_8_payload_attestation",
+    "verify_p4_8_source_artifact",
     "verify_github_artifact_attestation",
 ]
