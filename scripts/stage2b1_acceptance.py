@@ -21,6 +21,7 @@ if str(CONTROL) not in sys.path:
     sys.path.insert(0, str(CONTROL))
 
 from stage_acceptance_writer import (  # type: ignore  # noqa: E402
+    STAGE_ACCEPTANCE_HUMAN_OUTCOME,
     StageAcceptanceWriteError,
     write_stage_acceptance,
 )
@@ -63,7 +64,6 @@ def record_stage_acceptance(
     change_contract_digest: str,
     human_gate_path: Path,
     human_decision_path: Path,
-    expected_human_outcome: str = "ACCEPT_STAGE2B1",
 ) -> dict[str, Any]:
     """Load explicit inputs and delegate to the existing write boundary.
 
@@ -94,10 +94,6 @@ def record_stage_acceptance(
         workspace=workspace,
         human_gate_path=human_gate_path,
         human_decision_path=human_decision_path,
-        expected_human_outcome=_required_text(
-            expected_human_outcome,
-            field="expected_human_outcome",
-        ),
     )
     return result
 
@@ -114,10 +110,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--change-contract-digest", required=True)
     parser.add_argument("--human-gate", required=True, type=Path)
     parser.add_argument("--human-decision", required=True, type=Path)
-    parser.add_argument(
-        "--expected-human-outcome",
-        default="ACCEPT_STAGE2B1",
-    )
     return parser
 
 
@@ -133,7 +125,6 @@ def main(argv: list[str] | None = None) -> int:
             change_contract_digest=args.change_contract_digest,
             human_gate_path=args.human_gate,
             human_decision_path=args.human_decision,
-            expected_human_outcome=args.expected_human_outcome,
         )
     except (
         OSError,

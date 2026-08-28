@@ -26,6 +26,7 @@ from task_run import TERMINAL_STATUSES, TaskRunStore, evaluate_completion
 
 STAGE_ACCEPTANCE_WRITE_SCHEMA = "stage-acceptance-write@1"
 STAGE_ACCEPTED_CONDITION = "stage-accepted"
+STAGE_ACCEPTANCE_HUMAN_OUTCOME = "ACCEPT_STAGE2B1"
 _BINDING_FIELDS = (
     "stage_id",
     "accepted_state_id",
@@ -157,7 +158,6 @@ def _validate_human_acceptance(
     gate_path: str | Path,
     decision_path: str | Path,
     task_id: str,
-    expected_outcome: str,
 ) -> tuple[str, str]:
     raw_gate, gate_relative = _read_gate_artifact(workspace, gate_path, field="human_gate_path")
     raw_decision, decision_relative = _read_gate_artifact(
@@ -174,8 +174,7 @@ def _validate_human_acceptance(
         raise StageAcceptanceWriteError("human gate step is not stage2b1 acceptance")
     if gate.get("authority_effect") is not False or decision.get("authority_effect") is not False:
         raise StageAcceptanceWriteError("human gate cannot grant authority")
-    expected = _text(expected_outcome, field="expected_outcome")
-    if decision.get("selected_outcome") != expected:
+    if decision.get("selected_outcome") != STAGE_ACCEPTANCE_HUMAN_OUTCOME:
         raise StageAcceptanceWriteError("human decision did not select stage acceptance")
     return f"file:{gate_relative}", f"file:{decision_relative}"
 
@@ -271,7 +270,6 @@ def write_stage_acceptance(
     workspace: Path,
     human_gate_path: str | Path,
     human_decision_path: str | Path,
-    expected_human_outcome: str = "ACCEPT_STAGE2B1",
 ) -> dict[str, Any]:
     """Satisfy the existing TaskRun stage condition after strict validation.
 
@@ -302,7 +300,6 @@ def write_stage_acceptance(
         gate_path=human_gate_path,
         decision_path=human_decision_path,
         task_id=task_id,
-        expected_outcome=expected_human_outcome,
     )
     preview = _preview_checkpoint(
         store,
@@ -376,6 +373,7 @@ def write_stage_acceptance(
 __all__ = [
     "STAGE_ACCEPTANCE_WRITE_SCHEMA",
     "STAGE_ACCEPTED_CONDITION",
+    "STAGE_ACCEPTANCE_HUMAN_OUTCOME",
     "StageAcceptanceWriteError",
     "contract_digest",
     "write_stage_acceptance",

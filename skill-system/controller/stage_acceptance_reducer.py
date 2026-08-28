@@ -11,7 +11,13 @@ import hashlib
 import json
 from typing import Any, Iterable, Mapping, Sequence
 
-from stage_evidence_receipt import StageEvidenceReceiptError, validate_stage_evidence_receipt
+from stage_evidence_receipt import (
+    STAGE_EVIDENCE_RECEIPT_SCHEMA,
+    TRUSTED_PRODUCER_ISSUERS,
+    TRUSTED_POLICIES,
+    StageEvidenceReceiptError,
+    validate_stage_evidence_receipt,
+)
 
 
 STAGE_ACCEPTANCE_DECISION_SCHEMA = "stage-acceptance-decision@1"
@@ -280,6 +286,12 @@ def reduce_stage_acceptance(
                 reasons.append(f"receipt_binding_mismatch:{field}:{receipt_id}")
         if receipt.get("result") != "PASS":
             reasons.append(f"receipt_result_not_pass:{receipt_id}:{receipt.get('result')}")
+        if receipt.get("producer") not in TRUSTED_PRODUCER_ISSUERS:
+            reasons.append(f"receipt_producer_untrusted:{receipt_id}")
+        if receipt.get("policy") not in TRUSTED_POLICIES:
+            reasons.append(f"receipt_policy_untrusted:{receipt_id}")
+        if receipt.get("schema") != STAGE_EVIDENCE_RECEIPT_SCHEMA:
+            reasons.append(f"receipt_schema_untrusted:{receipt_id}")
 
         expected = expected_receipt_bindings.get(receipt_id)
         if not isinstance(expected, Mapping):
