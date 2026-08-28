@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -19,6 +20,7 @@ for path in (CONTROLLER, SCRIPTS):
         sys.path.insert(0, str(path))
 
 from p4_8_evidence_producer import finalize_bundle, produce_payload  # noqa: E402
+import stage2b1_protected_human_gate as protected_gate  # noqa: E402
 from stage2b1_acceptance import (  # noqa: E402
     Stage2B1AcceptanceCommandError,
     record_stage_acceptance,
@@ -118,6 +120,97 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
                 upload_artifact_digest=self.archive_digest,
                 downloaded_artifact=self.archive,
             )
+        self.approval = self._build_protected_approval()
+
+    def _build_protected_approval(self):
+        binding = json.loads(
+            (self.bundle / "product-binding.json").read_text(encoding="utf-8")
+        )
+        binding["evidence_bindings"] = [
+            {
+                "receipt_id": "7701",
+                "artifact_id": "7701",
+                "artifact_digest": self.archive_digest,
+                "run_id": 901,
+                "run_attempt": 2,
+            }
+        ]
+        gate = protected_gate._gate()
+        github = {
+            "repos/toctionyan/fristTest/actions/runs/902/attempts/1": {
+                "id": 902,
+                "run_attempt": 1,
+                "name": "governed-stage2b1-acceptance",
+                "repository": {"full_name": "toctionyan/fristTest"},
+                "path": ".github/workflows/governed-stage2b1-acceptance.yml",
+                "event": "workflow_dispatch",
+                "head_branch": "main",
+                "head_sha": "b" * 40,
+                "run_started_at": "2026-08-28T00:00:00Z",
+                "actor": {"login": "toctionyan", "id": 606},
+            },
+            "repos/toctionyan/fristTest/environments/stage2b1-acceptance": {
+                "id": 303,
+                "name": "stage2b1-acceptance",
+                "protection_rules": [
+                    {
+                        "type": "required_reviewers",
+                        "prevent_self_review": True,
+                        "reviewers": [
+                            {
+                                "type": "User",
+                                "reviewer": {
+                                    "login": "independent-reviewer",
+                                    "id": 505,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            "repos/toctionyan/fristTest/actions/runs/902/pending_deployments": [],
+            "repos/toctionyan/fristTest/actions/runs/902/approvals": [
+                {
+                    "state": "approved",
+                    "user": {"login": "independent-reviewer", "id": 505},
+                    "environments": [
+                        {
+                            "id": 303,
+                            "name": "stage2b1-acceptance",
+                            "updated_at": "2026-08-28T01:00:00Z",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        def run(command, **_kwargs):
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(github[command[-1]]),
+                stderr="",
+            )
+
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_ACTIONS": "true",
+                "GITHUB_REPOSITORY": "toctionyan/fristTest",
+                "GITHUB_RUN_ID": "902",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_REF_PROTECTED": "true",
+                "GITHUB_SHA": "b" * 40,
+                "GITHUB_WORKFLOW_REF": (
+                    "toctionyan/fristTest/.github/workflows/"
+                    "governed-stage2b1-acceptance.yml@refs/heads/main"
+                ),
+            },
+            clear=False,
+        ), patch(
+            "stage2b1_protected_human_gate.subprocess.run", side_effect=run
+        ):
+            return protected_gate.verify_stage2b1_protected_approval(binding=binding)
 
     def _api_responses(self, attestation: bool = True) -> list[SimpleNamespace]:
         completed_run = {
@@ -157,6 +250,7 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         self,
         *,
         api_responses: list[SimpleNamespace] | None = None,
+        approval: object | None = None,
         **overrides: object,
     ) -> dict[str, object]:
         values: dict[str, object] = {
@@ -171,6 +265,13 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         with patch(
             "stage2b1_external_issuer.subprocess.run",
             side_effect=api_responses or self._api_responses(),
+        ), patch(
+            "stage2b1_acceptance.verify_stage2b1_protected_approval",
+            return_value=self.approval if approval is None else approval,
+        ), patch.dict(
+            os.environ,
+            {"GITHUB_ACTIONS": "false"},
+            clear=False,
         ):
             return record_stage_acceptance(**values)  # type: ignore[arg-type]
 
@@ -178,7 +279,11 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         before = {path.relative_to(self.root): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
         result = self._record()
         self.assertEqual(result["status"], "ACCEPTABLE_PREVIEW")
-        self.assertEqual(result["preview_kind"], "p4-8-producer-evidence-verified")
+        self.assertEqual(result["preview_kind"], "p4-8-trusted-acceptance")
+        self.assertEqual(result["trusted_receipt"]["schema"], "stage-evidence-receipt@1")
+        self.assertEqual(result["trusted_receipt"]["result"], "PASS")
+        self.assertEqual(result["trusted_reducer"]["status"], "ACCEPTABLE_PREVIEW")
+        self.assertEqual(result["protected_approval"]["status"], "approved")
         self.assertFalse(result["active_change_written"])
         self.assertFalse(result["task_run_written"])
         self.assertFalse(result["governance_state_changed"])
@@ -201,12 +306,35 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(Stage2B1AcceptanceCommandError, "explicit_source_selector_mismatch"):
             self._record(source_run_attempt=1)
 
+    def test_binding_refs_must_match_the_server_owned_producer_head(self) -> None:
+        path = self.bundle / "product-binding.json"
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["execution_repo_ref"] = "git-commit-sha1:" + "c" * 40
+        path.write_text(
+            json.dumps(value, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            Stage2B1AcceptanceCommandError,
+            "execution_repo_ref_not_server_owned",
+        ):
+            self._record()
+
+    def test_unissued_protected_approval_is_fail_closed(self) -> None:
+        with self.assertRaisesRegex(
+            Stage2B1AcceptanceCommandError,
+            "trusted_protected_approval_invalid",
+        ):
+            self._record(approval=object())
+
     def test_source_api_must_be_exact_completed_p4_8_attempt(self) -> None:
         responses = self._api_responses()
         bad_run = json.loads(responses[0].stdout)
         bad_run["run_attempt"] = 1
         responses[0] = SimpleNamespace(returncode=0, stdout=json.dumps(bad_run))
-        with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses):
+        with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses), patch.dict(
+            os.environ, {"GITHUB_ACTIONS": "false"}, clear=False
+        ):
             with self.assertRaisesRegex(Stage2B1AcceptanceCommandError, "producer_external_proof_invalid"):
                 record_stage_acceptance(
                     workspace=self.root,
@@ -232,7 +360,9 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
             "runnerInvocationURI"
         ] = "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/1"
         responses[2] = SimpleNamespace(returncode=0, stdout=json.dumps(attestation))
-        with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses):
+        with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses), patch.dict(
+            os.environ, {"GITHUB_ACTIONS": "false"}, clear=False
+        ):
             with self.assertRaisesRegex(Stage2B1AcceptanceCommandError, "producer_external_proof_invalid"):
                 self._record(api_responses=responses)
 
@@ -246,7 +376,9 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         attestation = json.loads(responses[2].stdout)
         attestation[0]["verificationResult"]["statement"]["subject"][0]["digest"]["sha256"] = "0" * 64
         responses[2] = SimpleNamespace(returncode=0, stdout=json.dumps(attestation))
-        with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses):
+        with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses), patch.dict(
+            os.environ, {"GITHUB_ACTIONS": "false"}, clear=False
+        ):
             with self.assertRaisesRegex(Stage2B1AcceptanceCommandError, "producer_external_proof_invalid"):
                 record_stage_acceptance(
                     workspace=self.root,

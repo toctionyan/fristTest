@@ -82,6 +82,21 @@ class Stage2B1AcceptanceWorkflowTests(unittest.TestCase):
         self.assertNotIn("attested-artifact.bin", self.source)
         self.assertNotIn("actions/attest", self.source)
 
+    def test_preview_must_contain_receipt_gate_and_trusted_reducer_proof(self) -> None:
+        for fragment in (
+            '.preview_kind == "p4-8-trusted-acceptance"',
+            '.trusted_receipt.schema == "stage-evidence-receipt@1"',
+            '.trusted_receipt.result == "PASS"',
+            '.trusted_reducer.schema == "stage-acceptance-decision@2"',
+            '.trusted_reducer.status == "ACCEPTABLE_PREVIEW"',
+            'startswith("provenance:")',
+            'startswith("external-issuer:")',
+            'startswith("protected-approval:")',
+            '.protected_approval.schema == "stage2b1-protected-approval-proof@3"',
+            '.protected_approval.status == "approved"',
+        ):
+            self.assertIn(fragment, self.source)
+
     def test_verification_uses_the_trusted_control_plane_baseline(self) -> None:
         self.assertIn(
             "cp control/skill-system/registry/product-source-baseline.json",

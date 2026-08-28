@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Verify one real P4.8 producer bundle as a read-only acceptance preview.
 
-This command intentionally has no decision, receipt, human-gate, or generic
-attested-artifact input.  Those caller-assembled objects were an unsafe trust
-root.  The only accepted source is the server-owned P4.8 producer bundle plus
-the exact artifact archive selected by its run and artifact metadata.
+This command intentionally has no governance-decision, receipt, human-gate,
+or generic attested-artifact input. Those caller-assembled objects were an
+unsafe trust root. It constructs a read-only receipt and obtains the protected
+approval proof from the fixed GitHub environment verifier; the only accepted
+source evidence is the server-owned P4.8 producer bundle plus the exact
+artifact archive selected by its run and artifact metadata.
 
 The result is evidence readiness only.  ``ACCEPTABLE_PREVIEW`` never writes
 TaskRun, active-change, or any other governance state.
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -31,6 +34,11 @@ from stage2b1_external_issuer import (  # type: ignore  # noqa: E402
     verify_p4_8_payload_attestation,
     verify_p4_8_source_artifact,
 )
+from stage2b1_protected_human_gate import (  # type: ignore  # noqa: E402
+    Stage2B1ProtectedApprovalProof,
+    Stage2B1ProtectedHumanGateError,
+    verify_stage2b1_protected_approval,
+)
 from stage2b1_provenance import (  # type: ignore  # noqa: E402
     VerifiedArtifactProvenance,
     verify_artifact_provenance,
@@ -39,6 +47,16 @@ from product_source_baseline_policy import (  # type: ignore  # noqa: E402
     BaselineDocument,
     ProductSourcePolicyError,
     load_baseline_document,
+)
+from stage_acceptance_reducer import (  # type: ignore  # noqa: E402
+    ACCEPTABLE_PREVIEW,
+    reduce_trusted_stage_acceptance,
+    validate_trusted_stage_acceptance_decision,
+)
+from stage_evidence_receipt import (  # type: ignore  # noqa: E402
+    StageEvidenceReceiptError,
+    build_stage_evidence_receipt,
+    validate_stage_evidence_receipt,
 )
 
 
@@ -72,6 +90,39 @@ COMMON_BINDING_FIELDS = (
 )
 _SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
+RECEIPT_POLICY = "stage2b1-p3-evidence-receipt@1"
+
+# This is the closed projection accepted by the trusted reducer. The complete
+# sealed approval remains in the preview output; only these stable fields are
+# used as the reducer's expected approval contract.
+_EXPECTED_APPROVAL_FIELDS = (
+    "stage_id",
+    "accepted_state_id",
+    "product_source_ref",
+    "protected_snapshot_digest",
+    "control_plane_ref",
+    "execution_repo_ref",
+    "gate_id",
+    "gate_sha256",
+    "task_id",
+    "repository",
+    "workflow_id",
+    "workflow_path",
+    "workflow_ref",
+    "ref",
+    "head_sha",
+    "run_id",
+    "run_attempt",
+    "environment",
+    "environment_id",
+    "reviewer_login",
+    "reviewer_id",
+    "run_actor_login",
+    "run_actor_id",
+    "status",
+    "approval_sha256",
+    "evidence_bindings",
+)
 
 
 class Stage2B1AcceptanceCommandError(ValueError):
@@ -288,8 +339,30 @@ def _validate_producer_bundle(
         raise Stage2B1AcceptanceCommandError("product_binding_stage_invalid")
     _text(binding["product_source_ref"], field="product_binding.product_source_ref")
     _sha256(binding["protected_snapshot_digest"], field="product_binding.protected_snapshot_digest")
-    _text(binding["control_plane_ref"], field="product_binding.control_plane_ref")
-    _text(binding["execution_repo_ref"], field="product_binding.execution_repo_ref")
+    control_plane_ref = _text(
+        binding["control_plane_ref"], field="product_binding.control_plane_ref"
+    )
+    execution_repo_ref = _text(
+        binding["execution_repo_ref"], field="product_binding.execution_repo_ref"
+    )
+    expected_execution_ref = "git-commit-sha1:" + identity["head_sha"]
+    if control_plane_ref != expected_execution_ref:
+        raise Stage2B1AcceptanceCommandError(
+            "product_binding.control_plane_ref_not_server_owned"
+        )
+    if execution_repo_ref != expected_execution_ref:
+        raise Stage2B1AcceptanceCommandError(
+            "product_binding.execution_repo_ref_not_server_owned"
+        )
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        workflow_head_sha = _sha1(
+            os.environ.get("GITHUB_SHA"), field="GITHUB_SHA"
+        )
+        expected_workflow_ref = "git-commit-sha1:" + workflow_head_sha
+        if control_plane_ref != expected_workflow_ref:
+            raise Stage2B1AcceptanceCommandError(
+                "product_binding.control_plane_ref_not_acceptance_head"
+            )
     if (
         binding["product_source_ref"] != trusted_baseline.product_source_ref
         or binding["protected_snapshot_digest"]
@@ -303,7 +376,9 @@ def _validate_producer_bundle(
     provenance = _load_json(bundle_path, "provenance.json")
     content_digest = _sha256(provenance.get("artifact", {}).get("content_digest"), field="provenance.content_digest")
     expected_provenance = {
-        "receipt_id": "p4-8-evidence-payload:" + artifact["id"],
+        # The reducer indexes a receipt by the exact artifact ID. Keep the
+        # provenance proof and the P3 receipt on that same identity.
+        "receipt_id": artifact["id"],
         "artifact_id": artifact["id"],
         "artifact_name": artifact["name"],
         "artifact_digest": artifact["digest"],
@@ -385,7 +460,129 @@ def _validate_producer_bundle(
         "workflow_id": run_info["workflow_id"],
         "content_digest": content_digest,
         "manifest": manifest,
+        "provenance_observation": provenance,
+        "expected_provenance": expected_provenance,
     }, verified, artifact_document
+
+
+def _expected_protected_approval(payload: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        return {field: payload[field] for field in _EXPECTED_APPROVAL_FIELDS}
+    except KeyError as exc:
+        raise Stage2B1AcceptanceCommandError(
+            "protected_approval_expected_fields_incomplete"
+        ) from exc
+
+
+def _trusted_preview(
+    *,
+    metadata: Mapping[str, Any],
+    provenance: VerifiedArtifactProvenance,
+    source_proof: P48SourceArtifactProof,
+    external_proof: ExternalIssuerProof,
+) -> dict[str, Any]:
+    """Build the trusted, read-only acceptance preview from verifier outputs."""
+
+    binding = dict(metadata["binding"])
+    artifact = dict(metadata["artifact"])
+    identity = dict(metadata["identity"])
+    artifact_id = artifact["id"]
+    workflow_run_attempt = {
+        "run_id": identity["run_id"],
+        "attempt": identity["run_attempt"],
+    }
+    try:
+        receipt = build_stage_evidence_receipt(
+            **binding,
+            workflow_run_attempt=workflow_run_attempt,
+            artifact={"id": artifact_id, "digest": artifact["digest"]},
+            result="PASS",
+            producer="p4-8-evidence-producer",
+            policy=RECEIPT_POLICY,
+        )
+        receipt = validate_stage_evidence_receipt(receipt)
+    except (StageEvidenceReceiptError, TypeError, ValueError) as exc:
+        raise Stage2B1AcceptanceCommandError("trusted_receipt_invalid") from exc
+
+    receipt_id = artifact_id
+    expected_receipt_bindings = {
+        receipt_id: {
+            "artifact": dict(receipt["artifact"]),
+            "workflow_run_attempt": dict(receipt["workflow_run_attempt"]),
+            "policy": receipt["policy"],
+        }
+    }
+    approval_binding = {
+        **binding,
+        "evidence_bindings": [
+            {
+                "receipt_id": receipt_id,
+                "artifact_id": artifact_id,
+                "artifact_digest": artifact["digest"],
+                "run_id": identity["run_id"],
+                "run_attempt": identity["run_attempt"],
+            }
+        ],
+    }
+    try:
+        protected_approval: Stage2B1ProtectedApprovalProof = (
+            verify_stage2b1_protected_approval(binding=approval_binding)
+        )
+        approval_payload = protected_approval.as_dict()
+    except (
+        AttributeError,
+        Stage2B1ProtectedHumanGateError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise Stage2B1AcceptanceCommandError(
+            "trusted_protected_approval_invalid"
+        ) from exc
+
+    expected_external = {
+        "repository": PRODUCER_REPOSITORY,
+        "signer_workflow": "toctionyan/fristTest/" + PRODUCER_WORKFLOW,
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "subject_digest": artifact["digest"],
+        "source_digest": identity["head_sha"],
+        "source_ref": PRODUCER_REF,
+    }
+    try:
+        decision = reduce_trusted_stage_acceptance(
+            [receipt],
+            required_receipt_ids=[receipt_id],
+            **binding,
+            expected_receipt_bindings=expected_receipt_bindings,
+            verified_provenance={receipt_id: provenance},
+            verified_external_issuers={receipt_id: external_proof},
+            expected_external_issuer_bindings={receipt_id: expected_external},
+            verified_protected_approval=protected_approval,
+            expected_protected_approval=_expected_protected_approval(
+                approval_payload
+            ),
+            task_id=protected_approval.task_id,
+        )
+        decision_payload = validate_trusted_stage_acceptance_decision(decision)
+    except (TypeError, ValueError, StageEvidenceReceiptError) as exc:
+        raise Stage2B1AcceptanceCommandError("trusted_reducer_invalid") from exc
+    if decision_payload["status"] != ACCEPTABLE_PREVIEW:
+        reasons = ",".join(decision_payload.get("reasons", []))
+        raise Stage2B1AcceptanceCommandError(
+            "trusted_reducer_blocked" + (":" + reasons if reasons else "")
+        )
+
+    proof_refs = {
+        provenance.proof_ref,
+        source_proof.proof_ref,
+        external_proof.proof_ref,
+        "protected-approval:" + approval_payload["approval_sha256"],
+    }
+    return {
+        "receipt": receipt,
+        "protected_approval": approval_payload,
+        "trusted_reducer": decision_payload,
+        "proof_refs": sorted(proof_refs, key=lambda value: value.encode("utf-8")),
+    }
 
 
 def record_stage_acceptance(
@@ -453,10 +650,16 @@ def record_stage_acceptance(
         raise Stage2B1AcceptanceCommandError("producer_external_proof_invalid") from exc
     if provenance.artifact_id != metadata["artifact"]["id"] or provenance.artifact_digest != expected_digest:
         raise Stage2B1AcceptanceCommandError("producer_provenance_artifact_mismatch")
+    trusted = _trusted_preview(
+        metadata=metadata,
+        provenance=provenance,
+        source_proof=source_proof,
+        external_proof=external_proof,
+    )
     return {
         "schema": VERIFICATION_SCHEMA,
         "status": "ACCEPTABLE_PREVIEW",
-        "preview_kind": "p4-8-producer-evidence-verified",
+        "preview_kind": "p4-8-trusted-acceptance",
         "source_run": {
             "id": source_proof.source_run_id,
             "attempt": source_proof.source_run_attempt,
@@ -465,9 +668,12 @@ def record_stage_acceptance(
         "artifact": metadata["artifact"],
         "product_binding": metadata["binding"],
         "proof_refs": sorted(
-            {provenance.proof_ref, source_proof.proof_ref, external_proof.proof_ref},
+            set(trusted["proof_refs"]),
             key=lambda value: value.encode("utf-8"),
         ),
+        "trusted_receipt": trusted["receipt"],
+        "protected_approval": trusted["protected_approval"],
+        "trusted_reducer": trusted["trusted_reducer"],
         "active_change_written": False,
         "task_run_written": False,
         "governance_state_changed": False,
@@ -497,7 +703,13 @@ def main(argv: list[str] | None = None) -> int:
             source_run_attempt=args.source_run_attempt,
             artifact_id=args.artifact_id,
         )
-    except (OSError, Stage2B1AcceptanceCommandError, ValueError, TypeError) as exc:
+    except (
+        OSError,
+        Stage2B1AcceptanceCommandError,
+        Stage2B1ProtectedHumanGateError,
+        ValueError,
+        TypeError,
+    ) as exc:
         print(
             json.dumps(
                 {

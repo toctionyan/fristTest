@@ -215,6 +215,17 @@ jobs:
           jq -e \
             '.schema == "stage2b1-acceptance-verification@2" and
              .status == "ACCEPTABLE_PREVIEW" and
+             .preview_kind == "p4-8-trusted-acceptance" and
+             .trusted_receipt.schema == "stage-evidence-receipt@1" and
+             .trusted_receipt.result == "PASS" and
+             .trusted_reducer.schema == "stage-acceptance-decision@2" and
+             .trusted_reducer.status == "ACCEPTABLE_PREVIEW" and
+             (.trusted_reducer.proof_refs | any(startswith("provenance:"))) and
+             (.trusted_reducer.proof_refs | any(startswith("external-issuer:"))) and
+             (.trusted_reducer.proof_refs | any(startswith("protected-approval:"))) and
+             .protected_approval.schema == "stage2b1-protected-approval-proof@3" and
+             .protected_approval.status == "approved" and
+             (.protected_approval.evidence_bindings | length) == 1 and
              .active_change_written == false and
              .task_run_written == false and
              .governance_state_changed == false and
