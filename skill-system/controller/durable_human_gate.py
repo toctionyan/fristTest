@@ -6,10 +6,11 @@ import json
 import os
 import tempfile
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
-from langgraph_workflow_runtime import StepDispatchResult
-from workflow_graph_contract import WorkflowStepSpec
+if TYPE_CHECKING:
+    from langgraph_workflow_runtime import StepDispatchResult
+    from workflow_graph_contract import WorkflowStepSpec
 
 
 HUMAN_GATE_CONTRACT_SCHEMA = "durable-human-gate@1"
@@ -354,6 +355,9 @@ class DurableHumanGateAdapter:
     def invoke(
         self, *, step: WorkflowStepSpec, state: Mapping[str, Any]
     ) -> StepDispatchResult:
+        # Contract-only consumers must not import the full graph runtime.
+        from langgraph_workflow_runtime import StepDispatchResult
+
         gate, gate_relative = self._gate(step=step, state=state)
         raw_decision = state.get("human_decision")
         if not isinstance(raw_decision, Mapping) or raw_decision.get("gate_id") != gate["gate_id"]:
