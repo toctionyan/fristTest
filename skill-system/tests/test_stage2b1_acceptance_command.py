@@ -196,6 +196,24 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
                     ],
                 }
             ],
+            "repos/toctionyan/fristTest/deployments?environment=stage2b1-acceptance&per_page=100": [
+                {
+                    "id": 404,
+                    "environment": "stage2b1-acceptance",
+                    "sha": "b" * 40,
+                    "ref": "main",
+                    "created_at": "2026-08-28T00:30:00Z",
+                    "updated_at": "2026-08-28T00:30:00Z",
+                }
+            ],
+            "repos/toctionyan/fristTest/deployments/404/statuses?per_page=100": [
+                {
+                    "id": 405,
+                    "state": "in_progress",
+                    "created_at": "2026-08-28T00:30:00Z",
+                    "updated_at": "2026-08-28T00:30:00Z",
+                }
+            ],
         }
 
         def run(command, **_kwargs):
