@@ -79,6 +79,7 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
             "head_branch": "main",
             "status": "in_progress",
             "repository": {"full_name": "toctionyan/fristTest"},
+            "head_repository": {"full_name": "toctionyan/fristTest"},
         }
         self.artifact = {
             "id": 7701,

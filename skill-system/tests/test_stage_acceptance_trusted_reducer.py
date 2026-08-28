@@ -250,7 +250,10 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                         "predicateType": self.external_expected["predicate_type"],
                         "subject": [{"name": "p4-8-evidence-payload-901-2", "digest": {"sha256": "f" * 64}}],
                     },
-                    "signature": {"certificate": {"issuer": "github"}},
+                    "signature": {"certificate": {
+                        "issuer": "github",
+                        "runnerInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
+                    }},
                     "verifiedTimestamps": [{"timestamp": "2026-08-28T00:00:00Z"}],
                 }
             }
@@ -265,6 +268,7 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                 self.external = verify_github_artifact_attestation(
                     artifact_file.name,
                     expected=self.external_expected,
+                    expected_runner_invocation="https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
                 )
                 command = run_mock.call_args.args[0]
                 self.assertIn("--source-digest", command)
@@ -399,7 +403,10 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                         "predicateType": wrong_expected["predicate_type"],
                         "subject": [{"name": "p4-8-evidence-payload-901-2", "digest": {"sha256": "f" * 64}}],
                     },
-                    "signature": {"certificate": {"issuer": "github"}},
+                    "signature": {"certificate": {
+                        "issuer": "github",
+                        "runnerInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
+                    }},
                     "verifiedTimestamps": [{"timestamp": "2026-08-28T00:00:00Z"}],
                 }
             }
@@ -414,6 +421,7 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                 wrong_external = verify_github_artifact_attestation(
                     artifact_file.name,
                     expected=wrong_expected,
+                    expected_runner_invocation="https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
                 )
         decision = self._reduce(
             provenance={"1001": self.provenance},
@@ -609,7 +617,11 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
                 return_value=SimpleNamespace(returncode=0, stdout="[]"),
             ):
                 with self.assertRaisesRegex(ValueError, "signer_workflow_not_stage2b1_policy"):
-                    verify_github_artifact_attestation(artifact_file.name, expected=expected)
+                    verify_github_artifact_attestation(
+                        artifact_file.name,
+                        expected=expected,
+                        expected_runner_invocation="https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
+                    )
 
     def test_external_binding_map_cannot_contain_unrequired_receipt(self) -> None:
         with_extra = dict(self.external_expected)
