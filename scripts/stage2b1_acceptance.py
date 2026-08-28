@@ -460,8 +460,6 @@ def _validate_producer_bundle(
         "workflow_id": run_info["workflow_id"],
         "content_digest": content_digest,
         "manifest": manifest,
-        "provenance_observation": provenance,
-        "expected_provenance": expected_provenance,
     }, verified, artifact_document
 
 
