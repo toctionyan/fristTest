@@ -4,11 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: Exact successful workflow run that produced the acceptance input artifact
+        description: Exact successful workflow run whose artifacts were packaged
         required: true
         type: string
       source_run_attempt:
-        description: Exact attempt for source_run_id
+        description: Exact attempt for the source run
+        required: false
+        default: '1'
+        type: string
+      package_run_id:
+        description: Exact successful workflow run that uploaded the acceptance input artifact
+        required: true
+        type: string
+      package_run_attempt:
+        description: Exact attempt for package_run_id
         required: false
         default: '1'
         type: string
@@ -26,7 +35,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.acceptance_artifact_id }}
+  group: governed-stage2b1-acceptance-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ inputs.package_run_id }}-${{ inputs.package_run_attempt }}-${{ inputs.acceptance_artifact_id }}
   cancel-in-progress: false
 
 jobs:
@@ -57,11 +66,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          PACKAGE_RUN_ID: ${{ inputs.package_run_id }}
+          PACKAGE_RUN_ATTEMPT: ${{ inputs.package_run_attempt }}
           ACCEPTANCE_ARTIFACT_ID: ${{ inputs.acceptance_artifact_id }}
         run: |
           set -euo pipefail
           [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PACKAGE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${PACKAGE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
           [[ "${ACCEPTANCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           mkdir -p incoming
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
@@ -71,12 +84,21 @@ jobs:
             '(.id|tostring) == $run_id and
              .run_attempt == ($attempt|tonumber) and
              .status == "completed" and
-             .conclusion == "success"' \
+            .conclusion == "success"' \
             incoming/source-run.json >/dev/null
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PACKAGE_RUN_ID}" > incoming/package-run.json
+          jq -e \
+            --arg run_id "${PACKAGE_RUN_ID}" \
+            --arg attempt "${PACKAGE_RUN_ATTEMPT}" \
+            '(.id|tostring) == $run_id and
+             .run_attempt == ($attempt|tonumber) and
+             .status == "completed" and
+             .conclusion == "success"' \
+            incoming/package-run.json >/dev/null
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ACCEPTANCE_ARTIFACT_ID}" > incoming/artifact.json
           jq -e \
             --arg artifact_id "${ACCEPTANCE_ARTIFACT_ID}" \
-            --arg run_id "${SOURCE_RUN_ID}" \
+            --arg run_id "${PACKAGE_RUN_ID}" \
             '(.id|tostring) == $artifact_id and
              .name == "stage2b1-acceptance-inputs" and
              .expired == false and
@@ -166,11 +188,15 @@ jobs:
           jq -n \
             --arg source_run_id "${{ inputs.source_run_id }}" \
             --arg source_run_attempt "${{ inputs.source_run_attempt }}" \
+            --arg package_run_id "${{ inputs.package_run_id }}" \
+            --arg package_run_attempt "${{ inputs.package_run_attempt }}" \
             --arg acceptance_artifact_id "${{ inputs.acceptance_artifact_id }}" \
             --argjson cli_exit_code "${rc}" \
             '{schema:"stage2b1-acceptance-workflow@1",
               source_run_id:($source_run_id|tonumber),
               source_run_attempt:($source_run_attempt|tonumber),
+              package_run_id:($package_run_id|tonumber),
+              package_run_attempt:($package_run_attempt|tonumber),
               acceptance_artifact_id:($acceptance_artifact_id|tonumber),
               cli_exit_code:$cli_exit_code}' \
             > incoming/acceptance-output/command-status.json
