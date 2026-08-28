@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 
 SCHEMA = "ci-convergence@1"
 REQUIRED_WORKFLOWS = ("quality", "skill-self-validation")
+STALE_EVENT = "STALE_EVENT"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -105,6 +106,27 @@ def _check_for_runs(
             == trigger_run_attempt
         ]
         if len(exact_trigger) != 1:
+            known_attempts = {
+                _positive_int(row.get("run_attempt"), field=f"{workflow} run attempt")
+                for row in by_id.get(trigger_run_id, [])
+            }
+            if known_attempts and max(known_attempts) > trigger_run_attempt:
+                return {
+                    "workflow": workflow,
+                    "status": STALE_EVENT,
+                    "reason": "stale_trigger_event",
+                    "run_id": trigger_run_id,
+                    "run_attempt": trigger_run_attempt,
+                    "current_run_attempt": max(known_attempts),
+                }
+            if not by_id.get(trigger_run_id):
+                return {
+                    "workflow": workflow,
+                    "status": "PENDING",
+                    "reason": "trigger_run_not_visible",
+                    "run_id": trigger_run_id,
+                    "run_attempt": trigger_run_attempt,
+                }
             return {
                 "workflow": workflow,
                 "status": "BLOCKED",
@@ -196,7 +218,9 @@ def reduce_ci_convergence(
         for workflow in REQUIRED_WORKFLOWS
     }
     statuses = {check["status"] for check in checks.values()}
-    if "BLOCKED" in statuses:
+    if STALE_EVENT in statuses:
+        status = STALE_EVENT
+    elif "BLOCKED" in statuses:
         status = "BLOCKED"
     elif "FAIL" in statuses:
         status = "FAIL"

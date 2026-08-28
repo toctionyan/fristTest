@@ -104,8 +104,24 @@ class CIConvergenceTests(unittest.TestCase):
             trigger_run_attempt=1,
             trigger_workflow="quality",
         )
-        self.assertEqual(result["status"], "BLOCKED")
-        self.assertIn("quality:trigger_run_not_exactly_bound", result["reasons"])
+        self.assertEqual(result["status"], "STALE_EVENT")
+        self.assertIn("quality:stale_trigger_event", result["reasons"])
+
+    def test_stale_trigger_attempt_is_ignored_without_overwriting_status(self) -> None:
+        rows = [
+            run(101, "quality", attempt=2),
+            run(102, "skill-self-validation"),
+        ]
+        result = reduce_ci_convergence(
+            rows,
+            head_sha=HEAD,
+            pull_request_number=2198,
+            trigger_run_id=101,
+            trigger_run_attempt=1,
+            trigger_workflow="quality",
+        )
+        self.assertEqual(result["status"], "STALE_EVENT")
+        self.assertEqual(result["checks"]["quality"]["reason"], "stale_trigger_event")
 
 
 if __name__ == "__main__":
