@@ -306,6 +306,12 @@ class P48WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("active-change.json", self.source)
         self.assertNotIn("gh attestation verify", self.source)
 
+    def test_workflow_retries_eventually_visible_artifact_before_finalize(self) -> None:
+        self.assertIn("downloaded=false", self.source)
+        self.assertIn("finalized=false", self.source)
+        self.assertGreaterEqual(self.source.count("for retry in 1 2 3 4 5"), 2)
+        self.assertIn("sleep $((retry * 5))", self.source)
+
     def test_workflow_is_not_an_acceptance_writer(self) -> None:
         self.assertIn("contents: read", self.source)
         self.assertIn("actions: read", self.source)

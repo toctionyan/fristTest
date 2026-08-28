@@ -79,9 +79,20 @@ jobs:
           set -euo pipefail
           [[ "${PAYLOAD_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${PAYLOAD_ARTIFACT_DIGEST_HEX}" =~ ^[0-9a-f]{64}$ ]]
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${PAYLOAD_ARTIFACT_ID}/zip" > producer/payload.zip
-          test -s producer/payload.zip
-          test "$(sha256sum producer/payload.zip | awk '{print $1}')" = "${PAYLOAD_ARTIFACT_DIGEST_HEX}"
+          downloaded=false
+          for retry in 1 2 3 4 5; do
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${PAYLOAD_ARTIFACT_ID}/zip" > producer/payload.zip \
+              && test -s producer/payload.zip \
+              && test "$(sha256sum producer/payload.zip | awk '{print $1}')" = "${PAYLOAD_ARTIFACT_DIGEST_HEX}"; then
+              downloaded=true
+              break
+            fi
+            rm -f producer/payload.zip
+            if [[ "${retry}" -lt 5 ]]; then
+              sleep $((retry * 5))
+            fi
+          done
+          [[ "${downloaded}" == "true" ]]
 
       - name: Build the auditable producer manifest
         env:
@@ -89,13 +100,23 @@ jobs:
           GITHUB_REF_PROTECTED: ${{ github.ref_protected }}
         run: |
           set -euo pipefail
-          python3 -B scripts/p4_8_evidence_producer.py \
-            --phase finalize \
-            --workspace producer/payload \
-            --output producer/bundle \
-            --artifact-id "${{ steps.payload.outputs.artifact-id }}" \
-            --upload-artifact-digest "sha256:${{ steps.payload.outputs.artifact-digest }}" \
-            --downloaded-artifact producer/payload.zip
+          finalized=false
+          for retry in 1 2 3 4 5; do
+            if python3 -B scripts/p4_8_evidence_producer.py \
+              --phase finalize \
+              --workspace producer/payload \
+              --output producer/bundle \
+              --artifact-id "${{ steps.payload.outputs.artifact-id }}" \
+              --upload-artifact-digest "sha256:${{ steps.payload.outputs.artifact-digest }}" \
+              --downloaded-artifact producer/payload.zip; then
+              finalized=true
+              break
+            fi
+            if [[ "${retry}" -lt 5 ]]; then
+              sleep $((retry * 5))
+            fi
+          done
+          [[ "${finalized}" == "true" ]]
 
       - name: Upload the evidence manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
