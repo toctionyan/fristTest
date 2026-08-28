@@ -59,8 +59,10 @@ class Stage2B1AcceptanceWorkflowTests(unittest.TestCase):
         self.assertIn("acceptance artifact contains an unsafe path", self.source)
         self.assertIn("acceptance artifact contains a symlink", self.source)
         self.assertIn("acceptance artifact must contain exactly the required files", self.source)
-        self.assertIn('stage2b1-acceptance-inputs@1', self.source)
+        self.assertIn('stage2b1-acceptance-inputs@2', self.source)
         self.assertIn('set(names) != required', self.source)
+        self.assertIn('package_archive_digest', self.source)
+        self.assertIn('Re-verify every source artifact and its content digest', self.source)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,11 @@ class Stage2B1AcceptanceInputsWorkflowTests(unittest.TestCase):
         for field in (
             "source_run_id:",
             "source_run_attempt:",
+            "source_workflow_id:",
+            "source_workflow_path:",
+            "source_event:",
+            "source_ref:",
+            "source_head_sha:",
             "task_run_artifact_id:",
             "decision_artifact_id:",
             "expected_binding_artifact_id:",
@@ -30,6 +35,9 @@ class Stage2B1AcceptanceInputsWorkflowTests(unittest.TestCase):
             self.assertIn(field, self.source)
         self.assertIn('[[ "${GITHUB_REF}" == "refs/heads/main" ]]', self.source)
         self.assertIn('(.workflow_run.id|tostring) == $run_id', self.source)
+        self.assertIn('(.workflow_id|tostring) == $workflow_id', self.source)
+        self.assertIn('archive_digest', self.source)
+        self.assertIn('content_digest', self.source)
 
     def test_workflow_does_not_discover_latest_or_run_acceptance(self) -> None:
         for forbidden in (
@@ -60,6 +68,7 @@ class Stage2B1AcceptanceInputsWorkflowTests(unittest.TestCase):
         self.assertIn("input artifact contains a non-regular file", self.source)
         self.assertIn("input artifact JSON must be an object", self.source)
         self.assertIn(".expired == false", self.source)
+        self.assertIn(".digest", self.source)
 
 
 if __name__ == "__main__":

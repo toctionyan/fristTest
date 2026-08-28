@@ -12,6 +12,26 @@ on:
         required: false
         default: '1'
         type: string
+      source_workflow_id:
+        description: Exact workflow ID that produced the source run
+        required: true
+        type: string
+      source_workflow_path:
+        description: Exact workflow path that produced the source run
+        required: true
+        type: string
+      source_event:
+        description: Exact event that produced the source run
+        required: true
+        type: string
+      source_ref:
+        description: Exact fully qualified ref of the source run
+        required: true
+        type: string
+      source_head_sha:
+        description: Exact source run head SHA
+        required: true
+        type: string
       task_run_artifact_id:
         description: Artifact ID named stage2b1-acceptance-task-run
         required: true
@@ -73,19 +93,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          SOURCE_WORKFLOW_ID: ${{ inputs.source_workflow_id }}
+          SOURCE_WORKFLOW_PATH: ${{ inputs.source_workflow_path }}
+          SOURCE_EVENT: ${{ inputs.source_event }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
         run: |
           set -euo pipefail
           [[ "${SOURCE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${SOURCE_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${SOURCE_WORKFLOW_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${SOURCE_WORKFLOW_PATH}" == .github/workflows/*.yml || "${SOURCE_WORKFLOW_PATH}" == .github/workflows/*.yaml ]]
+          [[ "${SOURCE_EVENT}" =~ ^[a-z_]+$ ]]
+          [[ "${SOURCE_REF}" =~ ^refs/(heads|tags)/[^[:space:]]+$ ]]
+          [[ "${SOURCE_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]
           mkdir -p incoming
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > incoming/source-run.json
           jq -e \
             --arg run_id "${SOURCE_RUN_ID}" \
             --arg attempt "${SOURCE_RUN_ATTEMPT}" \
+            --arg workflow_id "${SOURCE_WORKFLOW_ID}" \
+            --arg workflow_path "${SOURCE_WORKFLOW_PATH}" \
+            --arg event "${SOURCE_EVENT}" \
+            --arg source_ref "${SOURCE_REF}" \
+            --arg head_sha "${SOURCE_HEAD_SHA}" \
+            --arg repository "${GITHUB_REPOSITORY}" \
             '(.id|tostring) == $run_id and
              .run_attempt == ($attempt|tonumber) and
              .status == "completed" and
-             .conclusion == "success"' \
+             .conclusion == "success" and
+             (.workflow_id|tostring) == $workflow_id and
+             .path == $workflow_path and
+             .event == $event and
+             ("refs/heads/" + .head_branch) == $source_ref and
+             .head_sha == $head_sha and
+             .repository.full_name == $repository and
+             .head_repository.full_name == $repository' \
             incoming/source-run.json >/dev/null
 
       - name: Download and validate the explicit input artifacts
@@ -118,6 +161,9 @@ jobs:
                (.workflow_run.id|tostring) == $run_id' \
               "incoming/${label}.metadata.json" >/dev/null
             gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "incoming/${label}.zip"
+            archive_digest="sha256:$(sha256sum "incoming/${label}.zip" | awk '{print $1}')"
+            api_digest=$(jq -r '.digest // empty' "incoming/${label}.metadata.json")
+            [[ "${api_digest}" == "${archive_digest}" ]]
             python - "incoming/${label}.zip" "incoming/${label}" "${filename}" <<'PY'
           import json
           import pathlib
@@ -168,6 +214,81 @@ jobs:
           fetch_input "${HUMAN_DECISION_ARTIFACT_ID}" \
             "stage2b1-acceptance-human-decision" "human-decision.json" "human-decision"
 
+          for entry in \
+            "task-run.json:task-run:stage2b1-acceptance-task-run" \
+            "decision.json:decision:stage2b1-acceptance-decision" \
+            "expected-binding.json:expected-binding:stage2b1-acceptance-expected-binding" \
+            "change-contract.json:change-contract:stage2b1-acceptance-change-contract" \
+            "human-gate.json:human-gate:stage2b1-acceptance-human-gate" \
+            "human-decision.json:human-decision:stage2b1-acceptance-human-decision"; do
+            IFS=: read -r filename label artifact_name <<< "${entry}"
+            archive_digest="sha256:$(sha256sum "incoming/${label}.zip" | awk '{print $1}')"
+            content_digest="sha256:$(sha256sum "incoming/${label}/${filename}" | awk '{print $1}')"
+            artifact_id=$(jq -r '.id|tostring' "incoming/${label}.metadata.json")
+            jq -n \
+              --arg id "${artifact_id}" \
+              --arg name "${artifact_name}" \
+              --arg digest "${archive_digest}" \
+              --arg archive_digest "${archive_digest}" \
+              --arg content_digest "${content_digest}" \
+              --arg source_run_id "${SOURCE_RUN_ID}" \
+              --arg source_run_attempt "${SOURCE_RUN_ATTEMPT}" \
+              '{id:$id,name:$name,digest:$digest,archive_digest:$archive_digest,content_digest:$content_digest,source_run_id:($source_run_id|tonumber),source_run_attempt:($source_run_attempt|tonumber)}' \
+              > "incoming/${label}.provenance.json"
+          done
+
+      - name: Materialize the exact source and producer provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          SOURCE_WORKFLOW_ID: ${{ inputs.source_workflow_id }}
+          SOURCE_WORKFLOW_PATH: ${{ inputs.source_workflow_path }}
+          SOURCE_EVENT: ${{ inputs.source_event }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_HEAD_SHA: ${{ inputs.source_head_sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > incoming/producer-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/governed-stage2b1-acceptance-inputs.yml" > incoming/producer-workflow.json
+          jq -n \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg workflow_path "${SOURCE_WORKFLOW_PATH}" \
+            --arg workflow_id "${SOURCE_WORKFLOW_ID}" \
+            --arg event "${SOURCE_EVENT}" \
+            --arg ref "${SOURCE_REF}" \
+            --arg head_sha "${SOURCE_HEAD_SHA}" \
+            --arg run_id "${SOURCE_RUN_ID}" \
+            --arg run_attempt "${SOURCE_RUN_ATTEMPT}" \
+            '{repository:$repository,workflow_id:($workflow_id|tonumber),workflow_path:$workflow_path,event:$event,ref:$ref,head_sha:$head_sha,run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber)}' \
+            > incoming/source-provenance.json
+          producer_workflow_id=$(jq -r '.id' incoming/producer-workflow.json)
+          jq -e \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg attempt "${GITHUB_RUN_ATTEMPT}" \
+            '(.id|tostring) == $run_id and (.run_attempt|tostring) == $attempt and .status == "in_progress"' \
+            incoming/producer-run.json >/dev/null
+          jq -n \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg workflow_path ".github/workflows/governed-stage2b1-acceptance-inputs.yml" \
+            --arg workflow_id "${producer_workflow_id}" \
+            --arg event "workflow_dispatch" \
+            --arg ref "${GITHUB_REF}" \
+            --arg head_sha "${GITHUB_SHA}" \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            '{repository:$repository,workflow_id:($workflow_id|tonumber),workflow_path:$workflow_path,event:$event,ref:$ref,head_sha:$head_sha,run_id:($run_id|tonumber),run_attempt:($run_attempt|tonumber)}' \
+            > incoming/producer-provenance.json
+          jq -n \
+            --slurpfile task_run incoming/task-run.provenance.json \
+            --slurpfile decision incoming/decision.provenance.json \
+            --slurpfile expected_binding incoming/expected-binding.provenance.json \
+            --slurpfile change_contract incoming/change-contract.provenance.json \
+            --slurpfile human_gate incoming/human-gate.provenance.json \
+            --slurpfile human_decision incoming/human-decision.provenance.json \
+            '{"task-run.json":$task_run[0],"decision.json":$decision[0],"expected-binding.json":$expected_binding[0],"change-contract.json":$change_contract[0],"human-gate.json":$human_gate[0],"human-decision.json":$human_decision[0]}' \
+            > incoming/artifact-provenance.json
+
       - name: Package the exact inputs without running acceptance
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
@@ -184,6 +305,9 @@ jobs:
             --change-contract incoming/change-contract/change-contract.json \
             --human-gate incoming/human-gate/human-gate.json \
             --human-decision incoming/human-decision/human-decision.json \
+            --source-provenance incoming/source-provenance.json \
+            --artifact-provenance incoming/artifact-provenance.json \
+            --producer-provenance incoming/producer-provenance.json \
             --output-dir incoming/package
 
       - name: Upload the exact Stage2B1 acceptance input package
