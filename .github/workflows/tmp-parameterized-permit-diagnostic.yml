@@ -1,0 +1,55 @@
+name: tmp-parameterized-permit-diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/tmp-parameterized-permit-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'diagnostic/parameterized-permit-20260815'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact provider-hint repair candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 9104b55994fde10d0b278c431633e0140ee610ff
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Assert exact repair candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "9104b55994fde10d0b278c431633e0140ee610ff"
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Install locked Python environments used by standard gate
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check uv==0.11.29
+          (cd services/agent-service && uv sync --locked --all-groups)
+          (cd services/business-service && uv sync --locked --all-groups)
+
+      - name: Replay full standard Python test gate under inherited protected provider identity
+        env:
+          REAL_MODEL_CERTIFICATION_PROVIDER: deepseek
+          OPENAI_API_KEY: sk-live-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          OPENAI_MODEL: deepseek-v4-flash
+          OPENAI_API_BASE: https://api.deepseek.com
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/parameterized-permit-diagnostic/junit /tmp/parameterized-permit-diagnostic/coverage
+          services/agent-service/.venv/bin/python -B scripts/run_python_test_suites.py . \
+            --mode standard \
+            --junit-dir /tmp/parameterized-permit-diagnostic/junit \
+            --coverage-dir /tmp/parameterized-permit-diagnostic/coverage
