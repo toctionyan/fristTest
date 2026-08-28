@@ -112,6 +112,7 @@ class VerifiedArtifactProvenance:
     content_digest: str
     repository: str
     workflow_path: str
+    workflow_id: int
     event: str
     ref: str
     head_sha: str
@@ -123,6 +124,37 @@ class VerifiedArtifactProvenance:
     def __post_init__(self) -> None:
         if self._verifier_token is not _VERIFIER_TOKEN:
             raise Stage2B1ProvenanceError("verified_provenance_constructor_is_private")
+        if self.schema != VERIFIED_PROVENANCE_SCHEMA:
+            raise Stage2B1ProvenanceError("verified_provenance_schema_invalid")
+        if not self.receipt_id or not self.artifact_id or not self.artifact_name:
+            raise Stage2B1ProvenanceError("verified_provenance_identity_invalid")
+        if _SHA1.fullmatch(self.head_sha) is None:
+            raise Stage2B1ProvenanceError("verified_provenance_head_sha_invalid")
+        for field_name in ("artifact_digest", "content_digest"):
+            if _SHA256.fullmatch(getattr(self, field_name)) is None:
+                raise Stage2B1ProvenanceError(f"verified_provenance_{field_name}_invalid")
+        for field_name in ("workflow_id", "run_id", "run_attempt"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise Stage2B1ProvenanceError(f"verified_provenance_{field_name}_invalid")
+        proof_body = {
+            "schema": self.schema,
+            "receipt_id": self.receipt_id,
+            "artifact_id": self.artifact_id,
+            "artifact_name": self.artifact_name,
+            "artifact_digest": self.artifact_digest,
+            "content_digest": self.content_digest,
+            "repository": self.repository,
+            "workflow_path": self.workflow_path,
+            "workflow_id": self.workflow_id,
+            "event": self.event,
+            "ref": self.ref,
+            "head_sha": self.head_sha,
+            "run_id": self.run_id,
+            "run_attempt": self.run_attempt,
+        }
+        if self.proof_digest != _digest(proof_body):
+            raise Stage2B1ProvenanceError("verified_provenance_digest_mismatch")
 
     @property
     def proof_ref(self) -> str:
@@ -231,6 +263,7 @@ def verify_artifact_provenance(
         content_digest=content_digest,
         repository=repository,
         workflow_path=workflow_path,
+        workflow_id=workflow_id,
         event=event,
         ref=ref,
         head_sha=head_sha,
@@ -241,10 +274,20 @@ def verify_artifact_provenance(
     )
 
 
+def validate_verified_artifact_provenance(value: object) -> VerifiedArtifactProvenance:
+    """Re-check a verifier-issued proof before a trusted reducer consumes it."""
+
+    if not isinstance(value, VerifiedArtifactProvenance):
+        raise Stage2B1ProvenanceError("verified_provenance_type_invalid")
+    value.__post_init__()
+    return value
+
+
 __all__ = [
     "PROVENANCE_OBSERVATION_SCHEMA",
     "Stage2B1ProvenanceError",
     "VERIFIED_PROVENANCE_SCHEMA",
     "VerifiedArtifactProvenance",
+    "validate_verified_artifact_provenance",
     "verify_artifact_provenance",
 ]

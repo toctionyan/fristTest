@@ -236,6 +236,28 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
         self.assertEqual(decision["status"], BLOCKED)
         self.assertIn("external_issuer_invalid:1001", decision["reasons"])
 
+    def test_tampered_typed_provenance_is_blocked(self) -> None:
+        tampered = copy.copy(self.provenance)
+        object.__setattr__(tampered, "artifact_digest", "sha256:" + "0" * 64)
+        decision = self._reduce(
+            provenance={"1001": tampered},
+            external={"1001": self.external},
+            approval=self.approval,
+        )
+        self.assertEqual(decision["status"], BLOCKED)
+        self.assertIn("trusted_provenance_invalid:1001", decision["reasons"])
+
+    def test_tampered_typed_approval_is_blocked(self) -> None:
+        tampered = copy.copy(self.approval)
+        object.__setattr__(tampered, "reviewer_login", "attacker")
+        decision = self._reduce(
+            provenance={"1001": self.provenance},
+            external={"1001": self.external},
+            approval=tampered,
+        )
+        self.assertEqual(decision["status"], BLOCKED)
+        self.assertIn("trusted_protected_approval_invalid", decision["reasons"])
+
 
 if __name__ == "__main__":
     unittest.main()

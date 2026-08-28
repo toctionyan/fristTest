@@ -12,8 +12,14 @@ import json
 from typing import Any, Iterable, Mapping, Sequence
 
 from stage_evidence_receipt import StageEvidenceReceiptError, validate_stage_evidence_receipt
-from stage2b1_protected_approval import VerifiedProtectedApproval
-from stage2b1_provenance import VerifiedArtifactProvenance
+from stage2b1_protected_approval import (
+    VerifiedProtectedApproval,
+    validate_verified_protected_approval,
+)
+from stage2b1_provenance import (
+    VerifiedArtifactProvenance,
+    validate_verified_artifact_provenance,
+)
 from stage2b1_external_issuer import (
     ExternalIssuerProof,
     validate_external_issuer_proof,
@@ -487,6 +493,11 @@ def reduce_trusted_stage_acceptance(
         if not isinstance(proof, VerifiedArtifactProvenance):
             reasons.append(f"trusted_provenance_missing:{receipt_id}")
             continue
+        try:
+            validate_verified_artifact_provenance(proof)
+        except ValueError:
+            reasons.append(f"trusted_provenance_invalid:{receipt_id}")
+            continue
         if proof.receipt_id != receipt_id:
             reasons.append(f"trusted_provenance_receipt_mismatch:{receipt_id}")
         if receipt is None:
@@ -546,6 +557,10 @@ def reduce_trusted_stage_acceptance(
         reasons.append("trusted_protected_approval_required")
     else:
         approval = verified_protected_approval
+        try:
+            validate_verified_protected_approval(approval)
+        except ValueError:
+            reasons.append("trusted_protected_approval_invalid")
         for field, expected_value in {
             "stage_id": stage_id,
             "accepted_state_id": accepted_state_id,

@@ -46,6 +46,33 @@ class Stage2B1ProtectedApprovalError(ValueError):
     """Raised when protected approval evidence is absent or inconsistent."""
 
 
+def _verified_body(value: "VerifiedProtectedApproval") -> dict[str, Any]:
+    return {
+        "schema": value.schema,
+        "stage_id": value.stage_id,
+        "accepted_state_id": value.accepted_state_id,
+        "product_source_ref": value.product_source_ref,
+        "protected_snapshot_digest": value.protected_snapshot_digest,
+        "control_plane_ref": value.control_plane_ref,
+        "execution_repo_ref": value.execution_repo_ref,
+        "repository": value.repository,
+        "workflow_path": value.workflow_path,
+        "workflow_id": value.workflow_id,
+        "run_id": value.run_id,
+        "run_attempt": value.run_attempt,
+        "environment": value.environment,
+        "environment_id": value.environment_id,
+        "ref": value.ref,
+        "head_sha": value.head_sha,
+        "review_id": value.review_id,
+        "reviewer_id": value.reviewer_id,
+        "reviewer_login": value.reviewer_login,
+        "approval_state": value.approval_state,
+        "run_actor_login": value.run_actor_login,
+        "self_review_forbidden": value.self_review_forbidden,
+    }
+
+
 def _canonical(value: Any) -> bytes:
     try:
         return json.dumps(
@@ -118,6 +145,44 @@ class VerifiedProtectedApproval:
     def __post_init__(self) -> None:
         if self._verifier_token is not _VERIFIER_TOKEN:
             raise Stage2B1ProtectedApprovalError("verified_approval_constructor_is_private")
+        if self.schema != VERIFIED_PROTECTED_APPROVAL_SCHEMA:
+            raise Stage2B1ProtectedApprovalError("verified_approval_schema_invalid")
+        for field_name in (
+            "stage_id",
+            "accepted_state_id",
+            "product_source_ref",
+            "protected_snapshot_digest",
+            "control_plane_ref",
+            "execution_repo_ref",
+            "repository",
+            "workflow_path",
+            "environment",
+            "ref",
+            "head_sha",
+            "reviewer_login",
+            "run_actor_login",
+        ):
+            if not isinstance(getattr(self, field_name), str) or not getattr(self, field_name).strip():
+                raise Stage2B1ProtectedApprovalError(f"verified_approval_{field_name}_invalid")
+        if _SHA1.fullmatch(self.head_sha) is None or _SHA256.fullmatch(self.protected_snapshot_digest) is None:
+            raise Stage2B1ProtectedApprovalError("verified_approval_digest_field_invalid")
+        for field_name in (
+            "workflow_id",
+            "run_id",
+            "run_attempt",
+            "environment_id",
+            "review_id",
+            "reviewer_id",
+        ):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise Stage2B1ProtectedApprovalError(f"verified_approval_{field_name}_invalid")
+        if self.approval_state != "approved" or self.self_review_forbidden is not True:
+            raise Stage2B1ProtectedApprovalError("verified_approval_state_invalid")
+        if self.reviewer_login == self.run_actor_login:
+            raise Stage2B1ProtectedApprovalError("verified_approval_self_review_invalid")
+        if self.proof_digest != _digest(_verified_body(self)):
+            raise Stage2B1ProtectedApprovalError("verified_approval_digest_mismatch")
 
     @property
     def proof_ref(self) -> str:
@@ -258,10 +323,20 @@ def verify_protected_approval(
     )
 
 
+def validate_verified_protected_approval(value: object) -> VerifiedProtectedApproval:
+    """Re-check a verifier-issued approval before trusted reduction."""
+
+    if not isinstance(value, VerifiedProtectedApproval):
+        raise Stage2B1ProtectedApprovalError("verified_approval_type_invalid")
+    value.__post_init__()
+    return value
+
+
 __all__ = [
     "PROTECTED_APPROVAL_OBSERVATION_SCHEMA",
     "Stage2B1ProtectedApprovalError",
     "VERIFIED_PROTECTED_APPROVAL_SCHEMA",
     "VerifiedProtectedApproval",
+    "validate_verified_protected_approval",
     "verify_protected_approval",
 ]
