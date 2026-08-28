@@ -288,7 +288,18 @@ jobs:
             exit 0
           fi
           if [[ "${EVENT_ACTION}" == "completed" && "${TRIGGER_RUN_STATUS}" != "completed" ]]; then
-            echo "Ignoring workflow_run completed event while the exact trigger run is not terminal in the API."
+            python -B control/scripts/ci_convergence.py \
+              --workflow-runs workflow-runs.json \
+              --head-sha "${HEAD_SHA}" \
+              --control-plane-ref "${CONTROL_PLANE_REF}" \
+              --pull-request-number "${PR_NUMBER}" \
+              --trigger-run-id "${WORKFLOW_RUN_ID}" \
+              --trigger-run-attempt "${WORKFLOW_RUN_ATTEMPT}" \
+              --trigger-workflow "${WORKFLOW_NAME}" \
+              --source-status PENDING \
+              --source-reason exact_trigger_run_not_terminal_in_api \
+              --output convergence.json
+            echo "publish=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           python -B control/scripts/ci_convergence.py \

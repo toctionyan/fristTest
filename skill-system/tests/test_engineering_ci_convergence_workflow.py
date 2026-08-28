@@ -56,7 +56,7 @@ class EngineeringCIConvergenceWorkflowTests(unittest.TestCase):
         self.assertIn('HEAD_SHA="${EVENT_HEAD_SHA}"', self.source)
         self.assertIn("no status update published", self.source)
         self.assertIn("Ignoring stale pre-terminal workflow_run event", self.source)
-        self.assertIn("Ignoring workflow_run completed event while the exact trigger run is not terminal", self.source)
+        self.assertIn("exact_trigger_run_not_terminal_in_api", self.source)
         self.assertIn("multiple_distinct_runs_for_exact_head", (ROOT / "scripts" / "ci_convergence.py").read_text(encoding="utf-8"))
         self.assertNotIn("pull_requests[0]", self.source)
         self.assertNotIn("sort_by(.created_at)", self.source)
