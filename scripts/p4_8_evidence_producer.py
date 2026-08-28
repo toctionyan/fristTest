@@ -381,13 +381,18 @@ def _server_artifact(*, identity: Mapping[str, Any], artifact_id: str) -> dict[s
             row for row in rows
             if isinstance(row, Mapping) and row.get("name") == expected_name
         )
-        if not rows and page * 100 < total_count:
-            raise EvidenceProducerBlocked("artifact_list_pagination_gap")
-        if len(rows) < 100 or page * 100 >= total_count:
-            break
-        page += 1
-        if page > 100:
-            raise EvidenceProducerBlocked("artifact_list_pagination_limit")
+        if len(rows) > total_count:
+            raise EvidenceProducerBlocked("artifact_list_response_invalid")
+        if page * 100 < total_count:
+            # A short page before the advertised final page cannot prove that
+            # no duplicate artifact name exists later in the run.
+            if len(rows) != 100:
+                raise EvidenceProducerBlocked("artifact_list_pagination_gap")
+            page += 1
+            if page > 100:
+                raise EvidenceProducerBlocked("artifact_list_pagination_limit")
+            continue
+        break
 
     if len(matches) != 1:
         raise EvidenceProducerBlocked("artifact_name_not_unique_for_run")

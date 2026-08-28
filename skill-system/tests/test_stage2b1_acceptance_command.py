@@ -246,7 +246,7 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
                     },
                     "signature": {"certificate": {
                         "issuer": "github",
-                        "runnerInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
+                        "runInvocationURI": "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/2",
                     }},
                     "verifiedTimestamps": [{"timestamp": "2026-08-28T00:00:00Z"}],
                 }
@@ -371,7 +371,7 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         responses = self._api_responses()
         attestation = json.loads(responses[2].stdout)
         attestation[0]["verificationResult"]["signature"]["certificate"][
-            "runnerInvocationURI"
+            "runInvocationURI"
         ] = "https://github.com/toctionyan/fristTest/actions/runs/901/attempts/1"
         responses[2] = SimpleNamespace(returncode=0, stdout=json.dumps(attestation))
         with patch("stage2b1_external_issuer.subprocess.run", side_effect=responses), patch.dict(
