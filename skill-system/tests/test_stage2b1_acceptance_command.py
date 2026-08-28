@@ -6,9 +6,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -31,6 +33,16 @@ def _archive_digest(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
+def _write_payload_archive(archive: Path, payload: Path) -> None:
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_STORED) as output:
+        for filename in ("producer-run.json", "product-binding.json", "attestation-policy.json"):
+            info = zipfile.ZipInfo(filename)
+            info.create_system = 3
+            info.external_attr = ((stat.S_IFREG | 0o644) << 16)
+            info.compress_type = zipfile.ZIP_STORED
+            output.writestr(info, (payload / filename).read_bytes())
+
+
 class Stage2B1AcceptanceCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="stage2b1-producer-preview-"))
@@ -39,8 +51,6 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         self.bundle = self.root / "producer" / "bundle"
         self.archive = self.root / "producer" / "payload.zip"
         self.archive.parent.mkdir(parents=True)
-        self.archive.write_bytes(b"the exact downloaded GitHub artifact archive")
-        self.archive_digest = _archive_digest(self.archive.read_bytes())
         registry = self.root / "skill-system/registry/product-source-baseline.json"
         registry.parent.mkdir(parents=True)
         registry.write_text(
@@ -84,7 +94,7 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
         self.artifact = {
             "id": 7701,
             "name": "p4-8-evidence-payload-901-2",
-            "digest": self.archive_digest,
+            "digest": "",
             "expired": False,
             "workflow_run": {
                 "id": 901,
@@ -113,6 +123,9 @@ class Stage2B1AcceptanceCommandTests(unittest.TestCase):
                 output=self.payload,
                 environ=context,
             )
+            _write_payload_archive(self.archive, self.payload)
+            self.archive_digest = _archive_digest(self.archive.read_bytes())
+            self.artifact["digest"] = self.archive_digest
             finalize_bundle(
                 payload=self.payload,
                 output=self.bundle,
