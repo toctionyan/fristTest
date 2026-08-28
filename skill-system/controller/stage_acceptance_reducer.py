@@ -530,7 +530,14 @@ def reduce_trusted_stage_acceptance(
                 if not isinstance(expected_issuer, Mapping):
                     reasons.append(f"external_issuer_binding_missing:{receipt_id}")
                 else:
-                    for field in ("repository", "signer_workflow", "predicate_type", "subject_digest"):
+                    for field in (
+                        "repository",
+                        "signer_workflow",
+                        "predicate_type",
+                        "subject_digest",
+                        "source_digest",
+                        "source_ref",
+                    ):
                         if getattr(external_proof, field, None) != expected_issuer.get(field):
                             reasons.append(f"external_issuer_binding_mismatch:{receipt_id}:{field}")
                 proof_refs.append(external_proof.proof_ref)

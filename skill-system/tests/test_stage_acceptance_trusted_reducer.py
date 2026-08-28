@@ -128,6 +128,8 @@ class TrustedStageAcceptanceReducerTests(unittest.TestCase):
             "signer_workflow": "toctionyan/fristTest/.github/workflows/quality.yml",
             "subject_digest": self.receipt["artifact"]["digest"],
             "predicate_type": "https://slsa.dev/provenance/v1",
+            "source_digest": "e" * 40,
+            "source_ref": "refs/pull/1/merge",
         }
         attestation_output = [
             {

@@ -19,7 +19,14 @@ from typing import Any, Mapping
 EXTERNAL_ISSUER_SCHEMA = "github-artifact-attestation-proof@1"
 _VERIFIER_TOKEN = object()
 _EXPECTED_KEYS = frozenset(
-    {"repository", "signer_workflow", "subject_digest", "predicate_type"}
+    {
+        "repository",
+        "signer_workflow",
+        "subject_digest",
+        "predicate_type",
+        "source_digest",
+        "source_ref",
+    }
 )
 
 
@@ -59,6 +66,8 @@ class ExternalIssuerProof:
     signer_workflow: str
     subject_digest: str
     predicate_type: str
+    source_digest: str
+    source_ref: str
     verification_digest: str
     verified_timestamp_count: int
     _proof_body_json: bytes = field(default=b"", repr=False, compare=False)
@@ -83,6 +92,8 @@ class ExternalIssuerProof:
             "signer_workflow": self.signer_workflow,
             "subject_digest": self.subject_digest,
             "predicate_type": self.predicate_type,
+            "source_digest": self.source_digest,
+            "source_ref": self.source_ref,
             "verification": body.get("verification"),
         }
         if dict(body) != expected_body:
@@ -112,10 +123,14 @@ def _validate_success_output(
     signer_workflow = _text(expected["signer_workflow"], field="signer_workflow")
     subject_digest = _text(expected["subject_digest"], field="subject_digest")
     predicate_type = _text(expected["predicate_type"], field="predicate_type")
+    source_digest = _text(expected["source_digest"], field="source_digest")
+    source_ref = _text(expected["source_ref"], field="source_ref")
     if not signer_workflow.startswith(repository + "/"):
         raise ExternalIssuerVerificationError("signer_workflow_must_include_repository")
     if not subject_digest.startswith("sha256:") or len(subject_digest) != len("sha256:") + 64:
         raise ExternalIssuerVerificationError("subject_digest_invalid")
+    if len(source_digest) != 40 or any(char not in "0123456789abcdef" for char in source_digest):
+        raise ExternalIssuerVerificationError("source_digest_invalid")
     if not isinstance(output, list) or not output:
         raise ExternalIssuerVerificationError("attestation_output_empty")
 
@@ -165,6 +180,8 @@ def _validate_success_output(
         "signer_workflow": signer_workflow,
         "subject_digest": subject_digest,
         "predicate_type": predicate_type,
+        "source_digest": source_digest,
+        "source_ref": source_ref,
         "verification": selected,
     }
     return proof_body, _digest(proof_body), timestamp_count
@@ -188,8 +205,12 @@ def verify_github_artifact_attestation(
     repository = _text(expected["repository"], field="repository")
     signer_workflow = _text(expected["signer_workflow"], field="signer_workflow")
     predicate_type = _text(expected["predicate_type"], field="predicate_type")
+    source_digest = _text(expected["source_digest"], field="source_digest")
+    source_ref = _text(expected["source_ref"], field="source_ref")
     if not signer_workflow.startswith(repository + "/"):
         raise ExternalIssuerVerificationError("signer_workflow_must_include_repository")
+    if len(source_digest) != 40 or any(char not in "0123456789abcdef" for char in source_digest):
+        raise ExternalIssuerVerificationError("source_digest_invalid")
     command = [
         "gh",
         "attestation",
@@ -201,6 +222,10 @@ def verify_github_artifact_attestation(
         signer_workflow,
         "--predicate-type",
         predicate_type,
+        "--source-digest",
+        source_digest,
+        "--source-ref",
+        source_ref,
         "--cert-oidc-issuer",
         "https://token.actions.githubusercontent.com",
         "--format",
@@ -232,6 +257,8 @@ def verify_github_artifact_attestation(
         signer_workflow=proof_body["signer_workflow"],
         subject_digest=proof_body["subject_digest"],
         predicate_type=proof_body["predicate_type"],
+        source_digest=proof_body["source_digest"],
+        source_ref=proof_body["source_ref"],
         verification_digest=verification_digest,
         verified_timestamp_count=timestamp_count,
         _proof_body_json=_canonical(proof_body),
