@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import sys
 import unittest
 from pathlib import Path
@@ -77,6 +78,11 @@ class Stage2B1TrustVerifierTests(unittest.TestCase):
         mismatch["artifact"]["source_run_attempt"] = 1
         with self.assertRaises(Stage2B1ProvenanceError):
             verify_artifact_provenance(mismatch, expected=self._expected())
+
+    def test_verified_provenance_cannot_be_cloned_with_dataclass_replace(self) -> None:
+        verified = verify_artifact_provenance(self.provenance, expected=self._expected())
+        with self.assertRaises(TypeError):
+            replace(verified, artifact_digest="sha256:" + "0" * 64)
 
 
 if __name__ == "__main__":

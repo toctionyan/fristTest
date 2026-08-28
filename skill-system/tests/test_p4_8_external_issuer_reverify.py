@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -177,6 +178,15 @@ class P48ExternalIssuerReverifyTests(unittest.TestCase):
         )
         self.assertIn("--signer-workflow", commands[2])
         self.assertIn(STAGE2B1_SIGNER_WORKFLOW, commands[2])
+
+    def test_verified_proofs_cannot_be_cloned_with_dataclass_replace(self) -> None:
+        source = self._source_proof()
+        with self.assertRaises(TypeError):
+            replace(source, artifact_digest="sha256:" + "0" * 64)
+
+        proof = self._external_proof()
+        with self.assertRaises(TypeError):
+            replace(proof, subject_digest="sha256:" + "0" * 64)
 
     def test_reverify_has_no_caller_policy_mapping_or_weak_invocation_path(self) -> None:
         source = self._source_proof()

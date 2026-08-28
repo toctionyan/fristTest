@@ -100,7 +100,7 @@ def _sha256(value: object, *, field: str) -> str:
     return text
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class VerifiedArtifactProvenance:
     """An artifact provenance result created only by the fixed verifier."""
 
@@ -119,7 +119,22 @@ class VerifiedArtifactProvenance:
     run_id: int
     run_attempt: int
     proof_digest: str
-    _verifier_token: object = field(default=None, repr=False, compare=False)
+    _verifier_token: object = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    def __init__(self, *, _verifier_token: object, **values: Any) -> None:
+        if _verifier_token is not _VERIFIER_TOKEN:
+            raise TypeError("verified provenance is issued by the fixed verifier")
+        expected = {
+            name for name in self.__dataclass_fields__ if name != "_verifier_token"
+        }
+        if set(values) != expected:
+            raise TypeError("verified provenance fields are closed")
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "_verifier_token", _verifier_token)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if self._verifier_token is not _VERIFIER_TOKEN:

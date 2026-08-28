@@ -72,7 +72,7 @@ def _validate_runner_invocation(value: object) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class P48SourceArtifactProof:
     """Immutable witness for one explicitly selected P4.8 run and artifact."""
 
@@ -83,7 +83,22 @@ class P48SourceArtifactProof:
     artifact_name: str
     artifact_digest: str
     metadata_digest: str
-    _verifier_token: object = field(default=None, repr=False, compare=False)
+    _verifier_token: object = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    def __init__(self, *, _verifier_token: object, **values: Any) -> None:
+        if _verifier_token is not _VERIFIER_TOKEN:
+            raise TypeError("source artifact proofs are issued by the fixed verifier")
+        expected = {
+            name for name in self.__dataclass_fields__ if name != "_verifier_token"
+        }
+        if set(values) != expected:
+            raise TypeError("source artifact proof fields are closed")
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "_verifier_token", _verifier_token)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if self._verifier_token is not _VERIFIER_TOKEN:
@@ -141,7 +156,7 @@ def _text(value: object, *, field: str) -> str:
     return value.strip()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ExternalIssuerProof:
     """Sealed result of the fixed ``gh attestation verify`` invocation."""
 
@@ -155,7 +170,22 @@ class ExternalIssuerProof:
     verification_digest: str
     verified_timestamp_count: int
     _proof_body_json: bytes = field(default=b"", repr=False, compare=False)
-    _verifier_token: object = field(default=None, repr=False, compare=False)
+    _verifier_token: object = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    def __init__(self, *, _verifier_token: object, **values: Any) -> None:
+        if _verifier_token is not _VERIFIER_TOKEN:
+            raise TypeError("external issuer proofs are issued by the fixed verifier")
+        expected = {
+            name for name in self.__dataclass_fields__ if name != "_verifier_token"
+        }
+        if set(values) != expected:
+            raise TypeError("external issuer proof fields are closed")
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "_verifier_token", _verifier_token)
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         if self._verifier_token is not _VERIFIER_TOKEN:
